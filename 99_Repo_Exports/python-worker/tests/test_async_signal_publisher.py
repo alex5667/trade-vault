@@ -84,6 +84,31 @@ async def test_async_publisher_normalizes_contract_and_writes_payload_field():
 
 
 @pytest.mark.asyncio
+async def test_async_publisher_raw_crypto_stream_fast_xadd_only(monkeypatch):
+    monkeypatch.setenv("ASYNC_PUB_RAW_FAST_XADD_ONLY", "1")
+    r = FakeAsyncRedis()
+    source = f"test_raw_fast_{get_ny_time_millis()}"
+    pub = AsyncSignalPublisher(redis_client=r, source=source, metrics_prefix="t", logger=None)
+
+    payload = {
+        "symbol": "BTCUSDT",
+        "direction": "LONG",
+        "entry": 123.45,
+        "confidence": 0.8,
+    }
+
+    res = await pub.xadd_json(
+        sink=StreamSink(name="signals:crypto:raw", field="payload", maxlen=10),
+        payload=payload,
+        symbol="BTCUSDT",
+    )
+
+    assert res.ok is True
+    obj = json.loads(r.streams["signals:crypto:raw"][0]["payload"])
+    assert obj == payload
+
+
+@pytest.mark.asyncio
 async def test_async_publisher_busyloading_short_circuit():
     r = FakeAsyncRedis()
     r.raise_on["xadd"] = redis.exceptions.BusyLoadingError()

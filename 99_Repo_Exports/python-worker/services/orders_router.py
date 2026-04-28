@@ -216,8 +216,8 @@ def route_open(r: redis.Redis, parts: list) -> None:
             f"(symbol={symbol}, min_distance={min_distance:.5f})"
         )
 
-    # Push to queue
-    r.lpush(ORDERS_QUEUE, json.dumps(payload))
+    # Push to queue (as a Stream for MT5)
+    r.xadd(ORDERS_QUEUE, payload, maxlen=1000, approximate=True)
     print(f"✅ Routed: open {side} {lot} lot (sid={sid[:20]}...)")
 
 
@@ -290,7 +290,7 @@ def route_sltp(r: redis.Redis, parts: list) -> None:
     if sl_price is not None:
         payload["sl"] = sl_price
     if rounded_tp:
-        payload["tp_levels"] = rounded_tp
+        payload["tp_levels"] = json.dumps(rounded_tp) # Stream values must be strings/ints/floats
 
     if corrected:
         print(
@@ -299,7 +299,7 @@ def route_sltp(r: redis.Redis, parts: list) -> None:
         )
 
     # Push to queue
-    r.lpush(ORDERS_QUEUE, json.dumps(payload))
+    r.xadd(ORDERS_QUEUE, payload, maxlen=1000, approximate=True)
     print(f"✅ Routed: modify SL/TP (sid={sid[:20]}...)")
 
 
@@ -338,7 +338,7 @@ def route_size(r: redis.Redis, parts: list) -> None:
     }
     
     # Push to queue
-    r.lpush(ORDERS_QUEUE, json.dumps(payload))
+    r.xadd(ORDERS_QUEUE, payload, maxlen=1000, approximate=True)
     print(f"✅ Routed: resize x{mult} (sid={sid[:20]}...)")
 
 
@@ -363,7 +363,7 @@ def route_cancel(r: redis.Redis, parts: list) -> None:
     }
     
     # Push to queue
-    r.lpush(ORDERS_QUEUE, json.dumps(payload))
+    r.xadd(ORDERS_QUEUE, payload, maxlen=1000, approximate=True)
     print(f"✅ Routed: cancel (sid={sid[:20]}...)")
 
 

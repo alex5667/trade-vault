@@ -89,6 +89,7 @@ QUERIES: dict[str, str] = {
 
     # 10. Safety & Registry ──────────────────────────────────────────────────
     "reg_success":       'feature_registry_contract_last_success',
+    "reg_age":          'feature_registry_contract_last_age_seconds',
     "liqmap_age":        'max(liqmap_snapshot_age_ms)',
     "circuit_trips":     'sum(of_inputs_v3_circuit_cfg_disabled)',
     "ts_missing":        'of_gate_timescale_policies_missing',
@@ -166,6 +167,11 @@ QUERIES: dict[str, str] = {
     "phase2_veto_low_conf_share": 'sum(rate(of_session_outcome_total{outcome="veto_low_conf"}[1h])) / clamp_min(sum(rate(of_session_outcome_total[1h])), 1)',
     "phase2_strong_gate_stressed": 'sum(rate(strong_gate_veto_total{mode="ENFORCE", reason="stressed_liq"}[5m])) or vector(0)',
     "phase2_drift_tighten": 'sum(feature_drift_profile_tighten_active) or vector(0)',
+
+    # 18. CoinGecko API Health ───────────────────────────────────────────────
+    "cg_requests":       'sum(rate(coingecko_requests_total[5m])) or vector(0)',
+    "cg_429":            'sum(rate(coingecko_429_total[5m])) or vector(0)',
+    "cg_skipped":        'sum(rate(coingecko_scheduler_skipped_total[5m])) or vector(0)',
 }
 
 
@@ -447,7 +453,11 @@ def run_cycle() -> None:
         alerts.append(f"🟠 ВНИМАНИЕ: Высокая вероятность переобучения PBO ({m['rguard_pbo']:.3f}).")
 
     # Safety & Pipeline
-    if m['reg_success'] is not None and m['reg_success'] == 0:
+    # Guard against cold-start false-positives: only alert if reg_success==0
+    # AND the metrics record is old enough to be reliable (>= 300s since last update).
+    # reg_age < 300 means the exporter just started and hasn't had time to populate.
+    _reg_age_ok = m.get('reg_age') is None or m.get('reg_age', 9999) >= 300
+    if m['reg_success'] is not None and m['reg_success'] == 0 and _reg_age_ok:
         alerts.append("🔴 КРИТИЧНО: Feature Registry Contract Mismatch!")
     if m['ts_missing'] is not None and m['ts_missing'] > 0:
         alerts.append(f"🔴 КРИТИЧНО: Отсутствуют политики TimescaleDB ({m['ts_missing']:.0f})!")
@@ -555,6 +565,12 @@ def run_cycle() -> None:
     if m.get('phase2_drift_tighten') is not None and m['phase2_drift_tighten'] > 0:
         alerts.append(f"⚪ ИНФО: Защита Feature Drift активна, порог ML конфиденса поднят до 90%.")
 
+    # 18. CoinGecko API Health
+    if m.get('cg_429') is not None and m['cg_429'] > 0:
+        alerts.append(f"🔴 КРИТИЧНО: CoinGecko API возвращает 429 (Rate Limit Exceeded: {m['cg_429']:.1f}/s)! Риск потери макро-метрик.")
+    if m.get('cg_skipped') is not None and m['cg_skipped'] > 5:
+        alerts.append(f"🟠 ВНИМАНИЕ: Планировщик CoinGecko пропускает задачи (budget/cooldown skips: {m['cg_skipped']:.1f}/s).")
+
     # Предупреждение о частично недоступных метриках
     if empty > 0:
         alerts.append(
@@ -644,6 +660,9 @@ def run_cycle() -> None:
     - Strong Gate Stressed Liq Rate: {fmt(m.get('phase2_strong_gate_stressed'), ".2f")}
     - Feature Drift Tighten Active: {fmt(m.get('phase2_drift_tighten'), ".0f")}
 
+    [COINGECKO API]
+    - Requests/s: {fmt(m.get('cg_requests'), ".2f")} | 429 Errors/s: {fmt(m.get('cg_429'), ".2f")} | Skips/s: {fmt(m.get('cg_skipped'), ".2f")}
+
     - Metrics coverage: {available}/{total} available, {empty} not exported
     """
 
@@ -716,9 +735,10 @@ def run_cycle() -> None:
     - PR Rollback > 0 = срабатывание инвариантов - требуются откаты после релиза.
     - ofconfirm_build_stages (все стадии): evidence > 15ms = неоптимальный расчет признаков; ml_confirm > 10ms = перегрузка ML/CPU; gates > 5ms = слишком длинная цепочка гейтов; io_export > 10ms = тормозит экспорт в Redis/Disk.
     - Phase 2 Validation: Adverse Veto > 0 (успех отсева токсики), MANIP Penalty > 0 (успех пенализации манипуляций), Feature Drift Tighten > 0 (безопасная деградация), Stressed Liq > 0 (включение умного Strong Gate).
+    - CoinGecko API: 429 Errors > 0 = исчерпание лимитов CoinGecko, риск ослепления макро-метрик.
 
     Формат ответа строго такой:
-    Предложение 1: состояние Ingestion, Observability и DB Errors (включая WS Disconnects, TCP Drops).
+    Предложение 1: состояние Ingestion, Observability, DB Errors и лимитов CoinGecko (включая WS Disconnects, TCP Drops, 429 Errors).
     Предложение 2: состояние Infrastructure Saturation (Redis PEL, Circuit Trips, Redis Buf Drops, Ctx Switches).
     Предложение 3: состояние Execution Risk (Orphan Orders, Rejects, Exec Cost, Edge Neg Share, Clock Drift).
     Предложение 4: итоговый вердикт по Signal Drift и ContCtx Vetoes с указанием, где именно система сейчас проливает деньги или где она ослепла.

@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
+try:
+    from utils.time_utils import get_ny_time_millis
+except Exception:
+    try:
+        from time_utils import get_ny_time_millis
+    except Exception:
+        import time
+        def get_ny_time_millis() -> int:
+            return int(time.time() * 1000)
 
 """Binance USDT-M Futures executor (reads Redis queue → places orders → writes exec facts).
 
@@ -75,17 +83,17 @@ try:
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
-from services.binance_futures_client import (
-    AlgoOrderRef,
-    BinanceAPIError,
-    BinanceFuturesClient,
-    PlainOrderRef,
-    TRADFI_PERPS_NOT_SIGNED,
-    is_tradfi_perps_error,
-)
-from services.execution_contracts import ExecutionEvent, build_materialized_state_view
-from services.execution_intent_validator import validate_exit_intent
 try:
+    from services.binance_futures_client import (
+        AlgoOrderRef,
+        BinanceAPIError,
+        BinanceFuturesClient,
+        PlainOrderRef,
+        TRADFI_PERPS_NOT_SIGNED,
+        is_tradfi_perps_error,
+    )
+    from services.execution_contracts import ExecutionEvent, build_materialized_state_view
+    from services.execution_intent_validator import validate_exit_intent
     from services.execution_policy import (
         MAKER_FIRST,
         SAFETY_FIRST,
@@ -103,7 +111,15 @@ try:
     )
     from services.rollout_flags import RolloutFlags
 except Exception:  # pragma: no cover - standalone bundle / local tests
-    from binance_futures_client import AlgoOrderRef, BinanceAPIError, BinanceFuturesClient, PlainOrderRef
+    from binance_futures_client import (
+        AlgoOrderRef,
+        BinanceAPIError,
+        BinanceFuturesClient,
+        PlainOrderRef,
+        TRADFI_PERPS_NOT_SIGNED,
+        is_tradfi_perps_error,
+    )
+    from execution_contracts import ExecutionEvent, build_materialized_state_view
     from execution_intent_validator import validate_exit_intent
     try:
         from execution_policy import (
@@ -124,6 +140,18 @@ except Exception:  # pragma: no cover - standalone bundle / local tests
         project_event_into_state,
     )
     from rollout_flags import RolloutFlags
+try:
+    from common.normalization import normalize_side, normalize_direction, get_side_int
+    from common.contracts.registry import ExecutionEventV1
+except Exception:
+    try:
+        from normalization import normalize_side, normalize_direction, get_side_int
+    except Exception:
+        normalize_side = normalize_direction = get_side_int = None
+    try:
+        from contracts.registry import ExecutionEventV1
+    except Exception:
+        ExecutionEventV1 = None
 
 # --- Trailing Orchestrator integration (fail-open) ---
 try:
@@ -142,8 +170,15 @@ except Exception:  # pragma: no cover
     TrailingConditionEvaluator = None  # type: ignore
     TrailingConditionConfig = None  # type: ignore
 
-from services.telegram.telegram_client import TelegramClient
-from services.active_symbol_guard_store import ActiveSymbolGuardStore
+try:
+    from services.telegram.telegram_client import TelegramClient
+    from services.active_symbol_guard_store import ActiveSymbolGuardStore
+except Exception:  # pragma: no cover
+    try:
+        from telegram.telegram_client import TelegramClient
+    except Exception:
+        from telegram_client import TelegramClient
+    from active_symbol_guard_store import ActiveSymbolGuardStore
 
 try:
     from prometheus_client import Counter, Gauge, REGISTRY, start_http_server
@@ -600,17 +635,20 @@ class FiltersCache:
 # Utility functions for order construction
 # ---------------------------------------------------------------------------
 
-def _normalize_side(payload: Dict[str, Any]) -> Tuple[str, str]:
-    """Return (binance_side, logical_side).
-
-    Accepts: BUY/SELL (Binance native) or LONG/SHORT (strategy convention).
+def _normalize_side(payload: Dict[str, Any]) -> Tuple[str, str, int]:
+    """Return (binance_side, logical_side, side_int).
+    
+    internal: logical_side=LONG|SHORT
+    execution: binance_side=BUY|SELL
+    numeric: side_int=1|-1
     """
-    side = str(payload.get("side") or payload.get("direction") or "").upper().strip()
-    if side in {"BUY", "SELL"}:
-        return side, "LONG" if side == "BUY" else "SHORT"
-    if side in {"LONG", "SHORT"}:
-        return ("BUY" if side == "LONG" else "SELL"), side
-    raise ValueError(f"bad side: {payload.get('side')!r}")
+    # Prefer explicit fields from payload
+    raw = payload.get("side") or payload.get("direction") or ""
+    side = normalize_side(raw)
+    direction = normalize_direction(raw)
+    side_int = get_side_int(raw)
+    
+    return str(side.value), str(direction.value), side_int
 
 
 def _normalize_qty(payload: Dict[str, Any], assume_lot_is_qty: bool = True, symbol: str = "") -> float:
@@ -1163,27 +1201,68 @@ class BinanceExecutor:
         event_type = str(raw.get('event_type') or action).strip() or 'event'
         status = str(raw.get('status') or 'ok').strip() or 'ok'
         ts_event_ms = int(raw.get('ts_event_ms') or raw.get('ts_ms') or _ms_now())
-        core_keys = {
-            'sid', 'symbol', 'action', 'event_type', 'status', 'severity',
-            'ts_event_ms', 'ts_exec_start_ms', 'ts_queue_ms', 'ts_state_commit_ms',
-            'ts_ms', 'mono_ms',
-        }
-        payload = {k: v for k, v in raw.items() if k not in core_keys and v is not None}
-        event = ExecutionEvent(
-            sid=sid,
-            symbol=symbol,
-            action=action,
-            event_type=event_type,
-            status=status,
-            ts_event_ms=ts_event_ms,
-            ts_exec_start_ms=_i(raw.get('ts_exec_start_ms')) or None,
-            ts_queue_ms=_i(raw.get('ts_queue_ms')) or None,
-            ts_state_commit_ms=_i(raw.get('ts_state_commit_ms')) or None,
-            severity=str(raw.get('severity') or '').strip() or None,
-            payload={**payload, 'mono_ms': str(_mono_ms()), 'venue': 'binance'},
-        )
-        stream_fields = event.to_stream_fields()
+        
+        # Determine side_int if not present
+        side_int = raw.get('side_int')
+        if side_int is None:
+            raw_side = raw.get('side') or raw.get('logical_side') or raw.get('direction')
+            if raw_side:
+                side_int = get_side_int(str(raw_side))
+        
+        # P1: Unified ExecutionEventV1
+        try:
+            # If this is a fill event, use ExecutionEventV1
+            if action in {"fill", "entry_filled", "exit_filled", "tp_filled", "sl_filled"}:
+                # Map fields to ExecutionEventV1
+                ev_v1 = ExecutionEventV1(
+                    exec_id=str(raw.get('exec_id') or f"exec:{sid}:{ts_event_ms}"),
+                    order_id=str(raw.get('order_id') or raw.get('binance_order_id') or ""),
+                    client_order_id=str(raw.get('client_order_id') or raw.get('entry_client_order_id') or ""),
+                    symbol=symbol,
+                    ts_ms=ts_event_ms,
+                    side=Side(normalize_side(str(raw.get('side') or raw.get('logical_side') or '')).value),
+                    price=float(raw.get('avg_price') or raw.get('price') or 0.0),
+                    qty=float(raw.get('filled_qty') or raw.get('qty') or 0.0),
+                    side_int=side_int or 0,
+                    status=status.upper(),
+                    meta={k: v for k, v in raw.items() if v is not None}
+                )
+                stream_fields = ev_v1.model_dump()
+            else:
+                # General event: keep legacy structure but add side_int
+                core_keys = {
+                    'sid', 'symbol', 'action', 'event_type', 'status', 'severity',
+                    'ts_event_ms', 'ts_exec_start_ms', 'ts_queue_ms', 'ts_state_commit_ms',
+                    'ts_ms', 'mono_ms',
+                }
+                payload = {k: v for k, v in raw.items() if k not in core_keys and v is not None}
+                if side_int is not None:
+                    payload['side_int'] = side_int
+
+                event = ExecutionEvent(
+                    sid=sid,
+                    symbol=symbol,
+                    action=action,
+                    event_type=event_type,
+                    status=status,
+                    ts_event_ms=ts_event_ms,
+                    ts_exec_start_ms=_i(raw.get('ts_exec_start_ms')) or None,
+                    ts_queue_ms=_i(raw.get('ts_queue_ms')) or None,
+                    ts_state_commit_ms=_i(raw.get('ts_state_commit_ms')) or None,
+                    severity=str(raw.get('severity') or '').strip() or None,
+                    payload={**payload, 'mono_ms': str(_mono_ms()), 'venue': 'binance'},
+                )
+                stream_fields = event.to_stream_fields()
+        except Exception as e:
+            # Fallback to plain dict if Pydantic fails
+            stream_fields = dict(raw)
+            stream_fields.update({
+                'ts_ms': str(ts_event_ms),
+                'error_mapping': str(e)
+            })
+
         stream_fields.setdefault('ts_ms', str(ts_event_ms))
+
         stream_id = ''
         try:
             stream_id = str(self.r.xadd(
@@ -4805,7 +4884,7 @@ class BinanceExecutor:
 
         self._ensure_symbol_settings(symbol, client=client)
 
-        side, logical = _normalize_side(payload)
+        side, logical, side_int = _normalize_side(payload)
         policy = self._resolve_execution_policy(payload, symbol)
         
         # --- Dirty Reversal & Orphan Cleanup ---
@@ -4891,7 +4970,7 @@ class BinanceExecutor:
         q, p = self._quantize(symbol, qty, price, filters=filters)
         self._transition_state(
             sid, symbol=symbol, action="open", next_state=FSM_VALIDATED,
-            details={"execution_policy": policy.name, "logical_side": logical}
+            details={"execution_policy": policy.name, "logical_side": logical, "side_int": side_int}
         )
         if float(q) <= 0:
             raise ValueError("qty <= 0 after quantisation")
@@ -4942,6 +5021,7 @@ class BinanceExecutor:
         params: Dict[str, Any] = {
             "symbol": symbol,
             "side": side,
+            "side_int": side_int,
             "type": order_type,
             "quantity": q,
             "newClientOrderId": _make_cid(sid, "entry"),

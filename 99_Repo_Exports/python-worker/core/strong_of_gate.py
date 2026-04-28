@@ -90,6 +90,7 @@ def eval_continuation(
     fp_edge_absorb: bool = False,
     cfg: Dict[str, Any],
     trend_dir_source: str = "none",
+    delta_z: float = 0.0,
 ) -> StrongGateDecision:
     """
     Continuation requires 2 of 3:
@@ -104,9 +105,15 @@ def eval_continuation(
     
     # If trend context is derived from regime/direction fallback (not hidden div),
     # we treat being robustly aligned with the HTF regime as a proxy for the context leg (A).
-    fallback_en = bool(int(cfg.get("strong_cont_allow_fallback_a", 0)))
+    fallback_en = bool(int(cfg.get("strong_cont_allow_fallback_a", 1))) # DEFAULT TO 1 (enabled)
     fallback_a = fallback_en and (trend_dir_source in ("regime", "direction"))
     
+    # NEW: Intensity fallback - if regime is missing, allow strong delta_z to substitute for trend confirmation
+    delta_z_abs = abs(delta_z)
+    delta_z_thr = float(cfg.get("strong_cont_delta_z_thr", 3.0))
+    if trend_dir_source == "direction" and delta_z_abs >= delta_z_thr:
+        fallback_a = True
+
     A = _truth((hidden_ctx_recent or fallback_a) and is_aligned)
     use_ice = bool(cfg.get("strong_use_iceberg", True))
     B = _truth(

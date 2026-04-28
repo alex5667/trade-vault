@@ -44,12 +44,23 @@ app = FastAPI(
 )
 
 
+# Consumer group for MT5 polling
+GROUP_NAME = "mt5-executor-group"
+CONSUMER_NAME = "mt5-ea-1"
+
+# Initialize Redis consumer group
+try:
+    r.xgroup_create(ORDERS_QUEUE, GROUP_NAME, id="0", mkstream=True)
+except Exception:
+    pass
+
+
 @app.get("/healthz")
 def health():
     """Health check endpoint."""
     try:
         r.ping()
-        return {"ok": True, "redis": "connected"}
+        return {"ok": True, "redis": "connected", "queue": ORDERS_QUEUE}
     except Exception as e:
         return JSONResponse(
             {"ok": False, "error": str(e)},
@@ -60,97 +71,86 @@ def health():
 @app.post("/orders/queue")
 def queue_order(payload: Dict):
     """
-    Manually add order to queue.
-    
-    Args:
-        payload: Order payload dict
-        
-    Returns:
-        Success response
+    Manually add order to queue (as a Stream).
     """
     sid = str(payload.get("sid") or "").strip()
     if not sid:
-        return JSONResponse(
-            {"error": "sid_required"},
-            status_code=400
-        )
+        return JSONResponse({"error": "sid_required"}, status_code=400)
 
     payload["sid"] = sid
+    if "tp_levels" in payload and isinstance(payload["tp_levels"], list):
+        payload["tp_levels"] = json.dumps(payload["tp_levels"])
 
     try:
-        r.lpush(ORDERS_QUEUE, json.dumps(payload))
+        r.xadd(ORDERS_QUEUE, payload, maxlen=1000, approximate=True)
         return {"queued": True, "payload": payload}
     except Exception as e:
-        return JSONResponse(
-            {"error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/orders/poll")
 def poll_orders(symbol: Optional[str] = Query(None)):
     """
-    Poll next order from queue (non-blocking).
-    
-    Args:
-        symbol: Optional symbol filter
-        
-    Returns:
-        Order payload or 204 No Content if queue is empty
+    Poll next order from queue (Stream xreadgroup).
     """
-    # Non-blocking pop from right (FIFO)
-    item = r.rpop(ORDERS_QUEUE)
-    
-    if not item:
-        # No orders in queue
-        return Response(status_code=204)
-    
-    # Parse payload
     try:
-        payload = json.loads(item)
-    except json.JSONDecodeError:
-        return JSONResponse(
-            {"error": "bad_json", "raw": item},
-            status_code=400
-        )
-    
-    # Symbol filter
-    if symbol and payload.get("symbol") and payload["symbol"] != symbol:
-        # Not this symbol - push back to left and return 204
-        r.lpush(ORDERS_QUEUE, item)
-        return Response(status_code=204)
-    
-    return payload
+        # Read new messages from the stream
+        msgs = r.xreadgroup(GROUP_NAME, CONSUMER_NAME, {ORDERS_QUEUE: ">"}, count=1)
+        if not msgs:
+            return Response(status_code=204)
+
+        stream_name, entries = msgs[0]
+        msg_id, payload = entries[0]
+        
+        # Add message ID to payload so client can confirm it
+        payload["_msg_id"] = msg_id
+        
+        # If tp_levels was JSON-encoded, decode it
+        if "tp_levels" in payload and isinstance(payload["tp_levels"], str):
+            try:
+                payload["tp_levels"] = json.loads(payload["tp_levels"])
+            except:
+                pass
+
+        # Symbol filter
+        if symbol and payload.get("symbol") and payload["symbol"] != symbol:
+            # We can't easily "push back" to a stream in a group, 
+            # but we can leave it un-ACKed and it will be re-read by others or on timeout.
+            # However, for simplicity with single-EA setups, we just return it or ignore.
+            # In MT5 context, usually one EA handles one symbol or all symbols.
+            pass
+
+        return payload
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/orders/confirm")
 def confirm_execution(exec_report: Dict):
     """
-    Confirm order execution.
-    
-    Args:
-        exec_report: Execution report from MT5
-        
-    Returns:
-        Success response
+    Confirm order execution and ACK stream message.
     """
+    msg_id = exec_report.pop("_msg_id", None)
     try:
         # Add to execution stream
         r.xadd(EXEC_STREAM, exec_report, maxlen=EXEC_STREAM_MAXLEN, approximate=True)
         
-        return {"ok": True, "recorded": True}
+        # ACK the message in orders queue if ID was provided
+        if msg_id:
+            r.xack(ORDERS_QUEUE, GROUP_NAME, msg_id)
+            r.xdel(ORDERS_QUEUE, msg_id) # Optional: clean up stream
+        
+        return {"ok": True, "recorded": True, "acked": bool(msg_id)}
     except Exception as e:
-        return JSONResponse(
-            {"error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/orders/stats")
 def get_stats():
     """Get queue and execution statistics."""
     try:
-        queue_len = r.llen(ORDERS_QUEUE)
+        queue_info = r.xinfo_stream(ORDERS_QUEUE)
+        queue_len = queue_info.get("length", 0)
         exec_len = r.xlen(EXEC_STREAM)
         
         return {
@@ -158,10 +158,7 @@ def get_stats():
             "executions_total": exec_len
         }
     except Exception as e:
-        return JSONResponse(
-            {"error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":

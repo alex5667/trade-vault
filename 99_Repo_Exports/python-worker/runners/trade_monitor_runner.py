@@ -562,18 +562,25 @@ def main():
             if not streams_all:
                 continue
             
-            # Use higher READ_COUNT for nodes with ticks to allow faster catch-up during backlog
-            eff_count = READ_COUNT_TICKS if t_streams else READ_COUNT
-            msgs = xreadgroup_multi(rc, GROUP, CONSUMER, streams_all, count=eff_count, block_ms=multi_block_ms)
-            if not msgs:
+            try:
+                # Use higher READ_COUNT for nodes with ticks to allow faster catch-up during backlog
+                eff_count = READ_COUNT_TICKS if t_streams else READ_COUNT
+                msgs = xreadgroup_multi(rc, GROUP, CONSUMER, streams_all, count=eff_count, block_ms=multi_block_ms)
+                if not msgs:
+                    continue
+                
+                processed_any = True
+                tick_set = set(client_states[rc]["ticks"])
+                # Record loop age frequently to avoid AIOps marking TM as hung during massive tick processing
+                trade_monitor_loop_age_seconds.set(time.time())
+                for m in msgs:
+                    _process_one(rc, monitor, m, is_tick=(m.stream in tick_set))
+            except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError) as conn_err:
+                log.warning(
+                    "Redis connection error on node %s: %s — skipping this node for current cycle",
+                    rc.connection_pool.connection_kwargs.get("host", "unknown"), conn_err,
+                )
                 continue
-            
-            processed_any = True
-            tick_set = set(client_states[rc]["ticks"])
-            # Record loop age frequently to avoid AIOps marking TM as hung during massive tick processing
-            trade_monitor_loop_age_seconds.set(time.time())
-            for m in msgs:
-                _process_one(rc, monitor, m, is_tick=(m.stream in tick_set))
                 
         if not processed_any and multi_block_ms == 0:
             time.sleep(0.01)

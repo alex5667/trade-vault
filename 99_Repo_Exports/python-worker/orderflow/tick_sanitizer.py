@@ -50,8 +50,8 @@ def sanitize_tick(tick: Any, *, logger: Optional[Any] = None) -> Optional[Any]:
         return None
 
     # watermark окна (по умолчанию довольно мягкие)
-    past_ms = int(os.getenv("TICK_WATERMARK_PAST_MS", "120000"))    # 2 минуты назад
-    future_ms = int(os.getenv("TICK_WATERMARK_FUTURE_MS", "5000"))  # 5 секунд вперёд
+    past_ms = int(os.getenv("TICK_WATERMARK_PAST_MS", "5000"))    # 5 секунд назад
+    future_ms = int(os.getenv("TICK_WATERMARK_FUTURE_MS", "500"))  # 500мс вперёд
     now = _now_ms()
     if ts_ms < (now - past_ms):
         # слишком старый тик

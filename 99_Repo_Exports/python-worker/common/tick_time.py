@@ -43,8 +43,8 @@ class TickTimePolicy:
       если (watermark - тик) > max_reorder_ms => reorder_hard hard-drop.
     """
 
-    max_future_ms: int = int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "5000"))
-    max_past_ms: int = int(os.getenv("TICK_TIME_MAX_PAST_MS", "120000"))
+    max_future_ms: int = int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "500"))
+    max_past_ms: int = int(os.getenv("TICK_TIME_MAX_PAST_MS", "5000"))
     max_reorder_ms: int = int(os.getenv("TICK_TIME_MAX_REORDER_MS", "1500"))
 
     clamp_soft_future: bool = os.getenv("TICK_TIME_CLAMP_SOFT_FUTURE", "1").lower() in {"1", "true", "yes"}
@@ -230,3 +230,73 @@ class TickTimeGuard:
             self._watermark_ms = int(t)
 
         return SanitizeResult(ts_ms=int(t), drop_reason=None, flags=flags or None)
+
+
+# ---------------------------------------------------------------------------
+# Functional API (backward-compat with core.tick_time consumers)
+# Numbers are treated as-is (no seconds/micros normalisation) to preserve
+# the original core.tick_time.apply_tick_time_policy contract.
+# ---------------------------------------------------------------------------
+
+def apply_tick_time_policy(
+    *,
+    tick_ts_ms: int,
+    ingest_now_ms: int,
+    prev_ts_ms: int,
+    policy: Optional[TickTimePolicy] = None,
+) -> "tuple[int, str, Dict[str, Any]]":
+    """Apply time policy and return (normalized_ts_ms, decision, meta).
+
+    decision values:
+      ok | clamp_future | drop_future | drop_past | reorder_soft | reorder_hard | drop_missing
+
+    Numbers are accepted as-is (no seconds/micros normalisation).
+    Use TickTimeGuard.sanitize_ts_ms when normalisation is needed.
+    """
+    pol = policy or TickTimePolicy()
+    ts = int(tick_ts_ms or 0)
+    now = int(ingest_now_ms or 0)
+    prev = int(prev_ts_ms or 0)
+
+    meta: Dict[str, Any] = {
+        "orig_ts_ms": ts,
+        "now_ms": now,
+        "prev_ts_ms": prev,
+    }
+
+    if ts <= 0:
+        return 0, "drop_missing", meta
+
+    if now <= 0:
+        now = prev if prev > 0 else ts
+        meta["now_ms"] = now
+
+    if ts > now:
+        skew = ts - now
+        meta["skew_ms"] = int(skew)
+        if skew > int(pol.max_future_ms):
+            return 0, "drop_future", meta
+        if pol.clamp_soft_future:
+            ts2 = now
+            if prev > 0 and ts2 <= prev:
+                ts2 = prev + 1
+            meta["norm_ts_ms"] = int(ts2)
+            return int(ts2), "clamp_future", meta
+
+    age = now - ts
+    if age > int(pol.max_past_ms):
+        meta["age_ms"] = int(age)
+        return 0, "drop_past", meta
+
+    if prev > 0 and ts < prev:
+        back = prev - ts
+        meta["back_ms"] = int(back)
+        if back > int(pol.max_reorder_ms):
+            return 0, "reorder_hard", meta
+        if pol.allow_soft_reorder:
+            ts2 = prev + 1
+            meta["norm_ts_ms"] = int(ts2)
+            return int(ts2), "reorder_soft", meta
+        return 0, "reorder_hard", meta
+
+    return int(ts), "ok", meta

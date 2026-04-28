@@ -537,22 +537,7 @@ def _denylist_features() -> set[str]:
     return set(denylist_flat())
 
 
-def _get_v5_of_stable_keys():
-    """v5_of_stable = v5_of minus denylisted keys.
-
-    Motivation:
-      - keep online schema superset (v5_of)
-      - allow training to start from stable subset (v5_of_stable)
-      - move noisy features to denylist via controlled proposal+AB workflow
-    """
-    num_keys, bool_keys = _get_v5_of_keys()
-    dn, db = _load_feature_denylist()
-    if not dn and not db:
-        return num_keys, bool_keys
-
-    num_f = [k for k in num_keys if str(k) not in dn]
-    bool_f = [k for k in bool_keys if str(k) not in db]
-    return num_f, bool_f
+# (Duplicate _get_v5_of_stable_keys removed)
 def get_schema_info(ver: str) -> FeatureSchemaInfo:
     """Возвращает FeatureSchemaInfo для заданной версии схемы.
 
@@ -604,14 +589,6 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
         num_keys, bool_keys = _get_v6_of_stable_keys()
         names = _build_feature_names(num_keys, bool_keys)
         v = "v6_of_stable"
-    elif v in ("v7_of", "v7"):
-        num_keys, bool_keys = _get_v7_of_keys()
-        names = _build_feature_names(num_keys, bool_keys)
-        v = "v7_of"
-    elif v in ("v7_of_stable", "v7_stable", "v7stable"):
-        num_keys, bool_keys = _get_v7_of_stable_keys()
-        names = _build_feature_names(num_keys, bool_keys)
-        v = "v7_of_stable"
     elif v in ("v9_of", "v9"):
         num_keys, bool_keys = _get_v9_of_keys()
         names = _build_feature_names(num_keys, bool_keys)
@@ -736,7 +713,10 @@ def get_edge_stack_feature_spec(
     elif ver in ("v4", "v4_of"):
         num_keys, bool_keys = _get_v4_of_keys()
         ver = "v4_of"  # канонизируем v4 → v4_of для кэша
-    else:  # v5/v6/v7 allowlist
+    elif ver in ("v5", "v5_of"):
+        num_keys, bool_keys = _get_v5_of_keys()
+        ver = "v5_of"
+    else:  # v6/v7/v9+ allowlist
         if ver in ("v7_of", "v7"):
             num_keys, bool_keys = _get_v7_of_keys()
             ver = "v7_of"

@@ -148,9 +148,6 @@ def _tb_health(
         except Exception:
             pass
 
-    if max_label_stale_ms > 0 and last_label_ts_ms and label_stale_ms > max_label_stale_ms:
-        alerts.append(f"tb_label_stale_ms>{max_label_stale_ms}")
-
     pending = 0
     group_lag_ms = 0
     if group:
@@ -189,9 +186,13 @@ def _tb_health(
         except Exception:
             group_lag_ms = 0
 
+    if max_label_stale_ms > 0 and last_label_ts_ms and label_stale_ms > max_label_stale_ms:
+        if pending > 0 or group_lag_ms > 5000 or label_stale_ms > (input_lag_ms + 300000):
+            alerts.append(f"tb_label_stale_ms>{max_label_stale_ms}")
+
     if max_input_lag_ms > 0 and last_ts_ms:
-        if input_lag_ms > max_input_lag_ms and (group_lag_ms > 5000 or input_lag_ms > 600000):
-            alerts.append(f"tb_input_lag_ms>{input_lag_ms}")
+        if input_lag_ms > max_input_lag_ms and (group_lag_ms > 5000 or pending > 0):
+            alerts.append(f"tb_input_lag_ms>{max_input_lag_ms}")
 
     out = {
         "input_stream": input_stream,
@@ -444,6 +445,19 @@ def main() -> None:
                 pass
     else:
         stale_ms = 0
+        try:
+            tail = r.xrevrange(stream, max="+", min="-", count=1)
+            if tail:
+                _, fields = tail[0]
+                last_ts = _i(fields.get("ts_ms", fields.get("ts", 0)), 0)
+                if last_ts:
+                    stale_ms = now_ms() - last_ts
+        except Exception:
+            pass
+        
+        # Do not append stream_stale_ms alert when n=0 to prevent false-positives 
+        # during quiet market hours. Pipeline stuckness is handled by TB_LABELER.
+
         pedge_p50 = 0
         lat_p99 = 0
         missing_rate = 0
@@ -468,15 +482,32 @@ def main() -> None:
     if not ml_alerts and not tb_alerts and not cfg_sugg_alerts:
         return
 
+    if n > 0:
+        allow_rate_str = f"{allow_rate:.3f}"
+        pedge_p50_str = f"{pedge_p50:.3f}"
+        lat_p99_str = f"{lat_p99:.2f}"
+        p0_rate_str = f"{p0_rate:.3f}"
+        req_miss_rate_str = f"{req_miss_rate:.4f}"
+        missing_rate_str = f"{missing_rate:.3f}"
+        err_rate_str = f"{err_rate:.3f}"
+    else:
+        allow_rate_str = "N/A"
+        pedge_p50_str = "N/A"
+        lat_p99_str = "N/A"
+        p0_rate_str = "N/A"
+        req_miss_rate_str = "N/A"
+        missing_rate_str = "N/A"
+        err_rate_str = "N/A"
+
     txt = (
         "<b>ML_CONFIRM SRE ALERT</b>\n"
         f"mode=<code>{mode}</code> n=<code>{n}</code>\n"
-        f"allow_rate=<code>{allow_rate:.3f}</code>\n"
-        f"p50=<code>{pedge_p50:.3f}</code> lat_p99_ms=<code>{lat_p99:.2f}</code>\n"
+        f"allow_rate=<code>{allow_rate_str}</code>\n"
+        f"p50=<code>{pedge_p50_str}</code> lat_p99_ms=<code>{lat_p99_str}</code>\n"
         f"stream_stale_ms=<code>{stale_ms}</code>\n"
-        f"p_edge_zero_rate=<code>{p0_rate:.3f}</code>\n"
-        f"required_missing_rate=<code>{req_miss_rate:.4f}</code>\n"
-        f"missing_rate=<code>{missing_rate:.3f}</code> err_rate=<code>{err_rate:.3f}</code>\n"
+        f"p_edge_zero_rate=<code>{p0_rate_str}</code>\n"
+        f"required_missing_rate=<code>{req_miss_rate_str}</code>\n"
+        f"missing_rate=<code>{missing_rate_str}</code> err_rate=<code>{err_rate_str}</code>\n"
         f"meta_status=<code>{meta_status}</code> meta_train_stale_ms=<code>{meta_train_stale_ms}</code>\n"
     )
     if ml_alerts:
@@ -519,12 +550,13 @@ def main() -> None:
         txt += f"\nTop Error: {html.escape(top_err)} ({count}/{n})"
 
     if args.dry_run:
+        r.close()
         print(txt)
         return
 
     if args.notify:
         _notify(r, txt)
-
+    r.close()
 
 if __name__ == "__main__":
     main()

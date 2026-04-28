@@ -7,6 +7,7 @@ from common.dq_flags import append_dq_flag, ensure_dq_flags
 from common.math_safe import safe_float
 
 # Import our components
+import math
 import os
 import time
 import json
@@ -40,6 +41,12 @@ PAYLOAD_TS_ANOMALY_TOTAL = Counter(
     "payload_ts_anomaly_total",
     "Trade payloads with anomalous timestamp normalized to 0 (seconds instead of ms / future-skew / zero)",
     ["symbol"]
+)
+
+ORCHESTRATOR_SWALLOWED_EXCEPTIONS_TOTAL = Counter(
+    "orchestrator_swallowed_exceptions_total",
+    "Exceptions swallowed in fail-open orchestrator hot path",
+    ["phase"],
 )
 
 # ── SLO Histogram: full pipeline latency (tick → emit) ────────────────────────────
@@ -147,9 +154,9 @@ def _emit_dq_flag(ctx: Any, flag: str, symbol: str = "") -> None:
                 _sym = str(symbol or getattr(ctx, "symbol", "") or "unknown")
                 _DQ_FLAG_TOTAL.labels(flag=_f, symbol=_sym).inc()
             except Exception:
-                pass
+                ORCHESTRATOR_SWALLOWED_EXCEPTIONS_TOTAL.labels(phase="dq_flag_counter").inc()
     except Exception:
-        pass
+        ORCHESTRATOR_SWALLOWED_EXCEPTIONS_TOTAL.labels(phase="emit_dq_flag").inc()
 
 
 def _normalize_ts_ms(raw_ts: Any, now_ms: int, source: str = "orchestrator") -> int:
@@ -645,6 +652,10 @@ class SignalOrchestrator:
         )
 
         _confidence_pct = float(getattr(res, "confidence", 0.0) or 0.0)
+        if not math.isfinite(_confidence_pct):
+            _confidence_pct = 0.5  # NaN/Inf must never reach outbox
+            if "confidence_nan" not in _quality_flags:
+                _quality_flags.append("confidence_nan")
         if _confidence_pct <= 0:
             try:
                 from services.observability.metrics_registry import metrics_registry

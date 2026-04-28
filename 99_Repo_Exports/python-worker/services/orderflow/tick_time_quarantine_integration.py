@@ -58,8 +58,8 @@ class TickTimeQuarantineIntegration:
 
         # Initialize TickTimeGuard
         policy = TickTimePolicy(
-            max_future_ms=int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "5000")),
-            max_past_ms=int(os.getenv("TICK_TIME_MAX_PAST_MS", "120000")),
+            max_future_ms=int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "500")),
+            max_past_ms=int(os.getenv("TICK_TIME_MAX_PAST_MS", "5000")),
             max_reorder_ms=int(os.getenv("TICK_TIME_MAX_REORDER_MS", "1500")),
             clamp_soft_future=os.getenv("TICK_TIME_CLAMP_SOFT_FUTURE", "1").lower()
             in {"1", "true", "yes"},

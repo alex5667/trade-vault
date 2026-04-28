@@ -140,6 +140,10 @@ def _enrich_closed_from_pos(closed: TradeClosed, pos: PositionState, exit_px: fl
     closed.scenario = pos.p0_scenario
     closed.entry_reason = pos.p0_entry_reason
 
+    # FIX: Ensure direction is always propagated from PositionState → TradeClosed
+    closed.direction = pos.direction
+    closed.side = str(pos.direction)
+
     # Execution Details
     closed.qty = float(pos.lot)
     closed.entry_px = entry
@@ -1960,7 +1964,10 @@ def finalize_trade(
         source=pos.source,
         symbol=pos.symbol,
         tf=pos.tf,
+        direction=pos.direction,  # FIX: was missing → all trades defaulted to "LONG"
+        side=str(pos.direction),  # FIX: mirror for TradeClosed.side field
         is_virtual=getattr(pos, "is_virtual", False),
+        entry_regime=str(getattr(pos, "entry_regime", "na") or "na"),  # FIX: propagate regime
 
         # times/prices
         entry_ts_ms=pos.entry_ts_ms,

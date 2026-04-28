@@ -22,6 +22,7 @@ import os
 import time
 import asyncio
 from utils.task_manager import safe_create_task
+from common.normalization import generate_signal_id, normalize_side_3, Direction
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -211,9 +212,10 @@ from services.orderflow.metrics_batcher import MetricsBatcher
 
 
 class OrderFlowStrategy:
-    def __init__(self, redis: aioredis.Redis, ticks: aioredis.Redis, publisher: AsyncSignalPublisher, 
+    def __init__(self, redis: aioredis.Redis, ticks: aioredis.Redis, publisher: AsyncSignalPublisher,
                  of_engine: OFConfirmEngine, calib_svc=None, score_calibrator=None,
-                 notify_client: Optional[aioredis.Redis] = None, notify_stream: str = RS.NOTIFY_TELEGRAM):
+                 notify_client: Optional[aioredis.Redis] = None, notify_stream: str = RS.NOTIFY_TELEGRAM,
+                 orders_queue_mt5: str = "", orders_queue_binance: str = ""):
         self.redis = redis
         self.ticks = ticks
         self.publisher = publisher
@@ -222,6 +224,8 @@ class OrderFlowStrategy:
         self.score_calibrator = score_calibrator
         self.notify_client = notify_client
         self.notify_stream = notify_stream
+        self.orders_queue_mt5 = orders_queue_mt5
+        self.orders_queue_binance = orders_queue_binance
         self.logger = logging.getLogger("orderflow_strategy")
         self._latency_writer = LatencyStateWriter(service=SERVICE_PYTHON_WORKER)
         
@@ -322,6 +326,19 @@ class OrderFlowStrategy:
         self._regime_hold_alpha: float = float(os.getenv("REGIME_HOLD_EMA_ALPHA", "0.10"))
         self._regime_pub_gap_ms: int = int(os.getenv("REGIME_REDIS_PUB_GAP_MS", "2000"))
         self._regime_redis_ttl_sec: int = int(os.getenv("REGIME_REDIS_TTL_SEC", "120"))
+        self._runtime_refresh_tasks: Dict[Tuple[str, str], asyncio.Task] = {}
+
+    def _schedule_runtime_refresh(self, runtime, refresh_name: str, coro_factory) -> None:
+        """Keep Redis-backed runtime refreshes out of the tick loop task churn."""
+        try:
+            symbol = str(getattr(runtime, "symbol", "") or "")
+            key = (symbol, str(refresh_name))
+            task = self._runtime_refresh_tasks.get(key)
+            if task is not None and not task.done():
+                return
+            self._runtime_refresh_tasks[key] = safe_create_task(coro_factory())
+        except Exception:
+            pass
 
     def start_batcher(self):
         """Запустить фоновые воркеры MetricsBatcher и PrometheusBatcher."""
@@ -744,20 +761,36 @@ class OrderFlowStrategy:
         ov_gap = int(getattr(runtime, "_ov_poll_gap_ms", 2500) or 2500)
         ov_ts0 = int(getattr(runtime, "_ov_ts_ms", 0) or 0)
         if (now_ms - ov_ts0) >= ov_gap:
-            safe_create_task(self._maybe_poll_symbol_overrides(runtime, now_ms))
+            self._schedule_runtime_refresh(
+                runtime,
+                "legacy_overrides",
+                lambda: self._maybe_poll_symbol_overrides(runtime, now_ms),
+            )
         
         # SRE Versioned Overrides V1 (High Priority)
         ov1_gap = int(cfg.get("overrides_cache_ttl_ms", 30000))
         ov1_ts0 = int(getattr(runtime, "overrides_loaded_ts_ms", 0) or 0)
         if (now_ms - ov1_ts0) >= ov1_gap:
-            safe_create_task(runtime.maybe_load_overrides(self.redis))
+            self._schedule_runtime_refresh(
+                runtime,
+                "overrides_v1",
+                lambda: runtime.maybe_load_overrides(self.redis),
+            )
 
         # v12_of: refresh cross-asset metrics from go-worker Redis Hash (5s TTL, fail-open)
         ca_gap = int(getattr(runtime, "config", {}).get("crossasset_cache_ttl_ms", 5_000))
         ca_ts0 = int(getattr(runtime, "_crossasset_last_load_ms", 0) or 0)
         if (now_ms - ca_ts0) >= ca_gap:
-            safe_create_task(runtime.maybe_load_crossasset(self.redis))
-            safe_create_task(runtime.maybe_load_crossasset_v13(self.redis))
+            self._schedule_runtime_refresh(
+                runtime,
+                "crossasset_v12",
+                lambda: runtime.maybe_load_crossasset(self.redis),
+            )
+            self._schedule_runtime_refresh(
+                runtime,
+                "crossasset_v13",
+                lambda: runtime.maybe_load_crossasset_v13(self.redis),
+            )
 
         # Initialize early
         confirmations: List[str] = []
@@ -1525,10 +1558,12 @@ class OrderFlowStrategy:
             indicators["atr_src"] = str(atr_meta.get("picked_src") or atr_meta.get("src") or "na")
             indicators["atr_tf"] = str(atr_meta.get("picked_tf") or atr_meta.get("tf") or "na")
             indicators["atr_age_ms"] = int(atr_meta.get("age_ms") or 0)
+            indicators["atr_ts_ms"] = int(atr_meta.get("ts_ms") or 0)
         except Exception:
             indicators.setdefault("atr_src", str(getattr(runtime, "atr_src", "na")))
             indicators.setdefault("atr_tf", str(getattr(runtime, "atr_tf", "na")))
             indicators.setdefault("atr_age_ms", int(getattr(runtime, "atr_age_ms", 0) or 0))
+            indicators.setdefault("atr_ts_ms", int(getattr(runtime, "last_atr_ts_ms", 0) or 0))
 
         # Full robust sanity + last-good fallback (fail-open for trading)
         try:
@@ -3559,33 +3594,57 @@ class OrderFlowStrategy:
         await self.signal_pipeline.publish_signal(runtime, signal)
     async def _publish_orders_queue(self, runtime: SymbolRuntime, signal: Dict[str, Any]) -> None:
         """
-        Публикует команду в orders:queue по схеме order_creation.md (минимально необходимый payload).
+        Публикует команду в очередь ордеров (MT5=Stream, Binance=List).
+        Схема: order_creation.md (минимально необходимый payload).
         """
         symbol = signal.get("symbol") or runtime.symbol
-        ts_value = signal.get("tick_ts") or signal.get("generated_at")
+        ts_value = signal.get("tick_ts") or signal.get("ts_event_ms") or signal.get("generated_at")
         if not ts_value:
             logger.warning("⚠️ (%s) Нет временной метки сигнала, пропускаем orders:queue", runtime.symbol)
             return
 
-        side = str(signal.get("direction", "")).upper()
-        direction = "buy" if side == "LONG" else "sell"
+        # Unified side normalization (P0)
+        side_norm = normalize_side_3(signal.get("direction") or signal.get("side") or "")
+        direction = side_norm.execution.lower() # buy/sell
+        venue = str(signal.get("venue") or "mt5").lower()
 
         reason = signal.get("reason") or "delta_spike"
 
+        # Signal ID generation (P0)
+        signal_id = generate_signal_id(
+            kind=str(signal.get("kind") or "spike"),
+            symbol=symbol,
+            ts_ms=int(ts_value),
+            direction=side_norm.internal
+        )
+
         order_cmd = {
             "id": f"order-{symbol}-{ts_value}",
-            "sid": f"signal-{symbol}-{ts_value}",
+            "sid": signal_id,
+            "signal_id": signal_id,
             "symbol": symbol,
             "type": "market",
             "direction": direction,
-            "source": "CryptoOrderFlow",  # ✅ FIX: Use canonical source name for proper mapping
+            "side": side_norm.execution,
+            "side_int": side_norm.numeric,
+            "source": "CryptoOrderFlow",
+            "venue": venue,
             "reason": reason,
         }
 
         try:
-            await self.redis.lpush(self.orders_queue, json.dumps(order_cmd))
+            if venue == "mt5":
+                if not self.orders_queue_mt5:
+                    logger.warning("⚠️ (%s) orders_queue_mt5 не задан, пропуск", runtime.symbol)
+                    return
+                # MT5 uses Redis Stream
+                await self.redis.xadd(self.orders_queue_mt5, order_cmd, maxlen=1000, approximate=True)
+            else:
+                # Binance uses Redis List
+                queue = self.orders_queue_binance or RS.ORDERS_QUEUE_BINANCE
+                await self.redis.lpush(queue, json.dumps(order_cmd))
         except RedisError as exc:
-            logger.warning("⚠️ (%s) Не удалось отправить в очередь ордеров: %s", runtime.symbol, exc)
+            logger.warning("⚠️ (%s) Не удалось отправить в очередь ордеров (%s): %s", runtime.symbol, venue, exc)
 
     # ── Парсинг сообщений ──────────────────────────────────────────────────────
 

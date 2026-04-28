@@ -2,13 +2,15 @@ from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional, Tuple, List
 import hashlib
 import json
 import math
 import os
 import time
 from types import SimpleNamespace
+from typing import Any, Dict, Optional, Tuple, List
+from common.normalization import generate_signal_id, normalize_direction
+from common.enums.trading import Direction
 
 from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot, build_feature_manifest_v1, to_public_dict
 
@@ -317,16 +319,13 @@ def _emit_cont_ctx_calib_capture_v1(
 
         symbol = str(getattr(ofc, "symbol", "") or indicators.get("symbol") or getattr(runtime, "symbol", "") or "")
         direction = str(getattr(ofc, "direction", "") or indicators.get("direction") or "")
-        strong_gate_missing = str(indicators.get("strong_gate_missing", "") or "")
-
-        sid_seed = "|".join([
-            symbol,
-            str(signal_ts_ms),
-            direction,
-            scenario_base,
-            str(int(round(float(indicators.get("price", indicators.get("last_price", 0.0)) or 0.0) * 100.0))),
-        ])
-        signal_id = hashlib.sha1(sid_seed.encode("utf-8")).hexdigest()
+        direction_norm = normalize_direction(direction)
+        signal_id = generate_signal_id(
+            kind="ofc_cont",
+            symbol=symbol,
+            ts_ms=signal_ts_ms,
+            direction=direction_norm
+        )
 
         payload = {
             "schema": "1",
@@ -1102,8 +1101,9 @@ class OFConfirmEngine:
 
             # FAILBACK: If no hidden divergence, use REGIME as trend definition (Trend Following)
             if trend_dir is None:
-                 rg = str(_get_attr_or_key(runtime, 'last_regime', 'na') or 'na').lower()
-                 if "bull" in rg: 
+                 from contexts import normalize_regime_label, MARKET_REGIME_NA
+                 rg = normalize_regime_label(_get_attr_or_key(runtime, 'last_regime', MARKET_REGIME_NA))
+                 if "bull" in rg or rg == "trending" or rg == "trend": 
                      trend_dir = "LONG"
                  elif "bear" in rg: 
                      trend_dir = "SHORT"
@@ -1268,7 +1268,8 @@ class OFConfirmEngine:
 
         # Determine regime / instability / pressure / churn same-tick inputs
         try:
-            regime = str(_get_attr_or_key(runtime, 'last_regime', 'na') or 'na')
+            from contexts import normalize_regime_label, MARKET_REGIME_NA
+            regime = normalize_regime_label(_get_attr_or_key(runtime, 'last_regime', MARKET_REGIME_NA))
         except Exception:
             regime = "na"
         try:
@@ -1410,6 +1411,7 @@ class OFConfirmEngine:
                 "fp_edge_absorb": bool(fp_edge_absorb),
                 "cfg": cfg2,
                 "trend_dir_source": str(indicators.get("trend_dir_source", "none")),
+                "delta_z": float(delta_z),
             }
 
             dec = eval_continuation(**_filter_kwargs_for_callable(eval_continuation, **continuation_kwargs))

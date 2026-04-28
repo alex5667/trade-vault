@@ -346,7 +346,8 @@ class CryptoOrderflowService:
         self.quarantine_stream = _s.quarantine_stream
         self.notify_stream = _s.notify_stream
         self.raw_signal_stream = _s.raw_signal_stream
-        self.orders_queue = _s.orders_queue
+        self.orders_queue_mt5 = _s.orders_queue_mt5
+        self.orders_queue_binance = _s.orders_queue_binance
         self.cryptoorderflow_signal_stream_template = _s.signal_stream_template
         self.burst_audit_stream = _s.burst_audit_stream
 
@@ -361,7 +362,7 @@ class CryptoOrderflowService:
         _ml_gate = None
         try:
             from services.ml_confirm_gate import MLConfirmGate  # noqa: PLC0415
-            _ml_gate = MLConfirmGate.from_env()
+            _ml_gate = MLConfirmGate.from_env(redis_client=self._pools.ml_gate)
         except ImportError as _imp_err:
             logger.critical(
                 "P0 CAPITAL-SAFETY: Не удалось импортировать MLConfirmGate: %s. "
@@ -433,13 +434,31 @@ class CryptoOrderflowService:
             return False
         return str(val).lower() in ("1", "true", "yes", "on")
 
+    def _adaptive_tick_read_count(self, symbol: str, configured_count: int) -> int:
+        """Reduce batch size when Redis-entry lag is high to limit HOL blocking."""
+        try:
+            count = max(1, int(configured_count))
+            if not self._env_bool("CRYPTO_OF_ADAPTIVE_READ_COUNT", "1"):
+                return count
+            high_lag_ms = int(os.getenv("CRYPTO_OF_ADAPTIVE_LAG_HIGH_MS", "100"))
+            burst_count = max(1, int(os.getenv("CRYPTO_OF_ADAPTIVE_READ_COUNT_BURST", "50")))
+            tracker = self._lag_trackers.get(f"_redis_{symbol}")
+            if tracker is None:
+                return count
+            snap = tracker.snapshot()
+            if snap and float(getattr(snap, "p99", 0.0) or 0.0) > float(high_lag_ms):
+                return min(count, burst_count)
+            return count
+        except Exception:
+            return max(1, int(configured_count or 1))
+
     async def run_forever(self) -> None:
         """
         Основной цикл сервиса. Останавливается по сигналу отмены.
         """
         # Connect publisher and start retry worker (must be inside event loop)
         self._stop_event = asyncio.Event()  # lazy init inside running event loop
-        self.publisher.r = self.main
+        self.publisher.r = self._pools.publish
         self.publisher.start()
         # NOTE: config_loader uses its own dedicated Redis client (_config_redis_client),
         # created in __init__. Do NOT reassign to self.main here.
@@ -479,7 +498,9 @@ class CryptoOrderflowService:
             calib_svc=self.calib_svc,
             score_calibrator=self.score_calibrator,
             notify_client=self.notify_client,
-            notify_stream=self.notify_stream
+            notify_stream=self.notify_stream,
+            orders_queue_mt5=self.orders_queue_mt5,
+            orders_queue_binance=self.orders_queue_binance,
         )
 
         # Start metrics server — respects PROMETHEUS_PORT env var (fallback: METRICS_PORT, then 8000)
@@ -1287,7 +1308,7 @@ class CryptoOrderflowService:
             # --- Corrected consume_ticks logic (Expert Fix) ---
             # ENV override wins over runtime.config (default reduced 250→100ms to lower H2 lag)
             block_ms = int(_cached_block_ms_env) if _cached_block_ms_env.strip().isdigit() else int(runtime.config.get("read_block_ms", 100))
-            count = int(runtime.config.get("read_count", 200))
+            count = self._adaptive_tick_read_count(symbol, int(runtime.config.get("read_count", 200)))
             messages = []
 
             try:
@@ -1926,4 +1947,3 @@ if __name__ == "__main__":
         asyncio.run(_async_main())
     except KeyboardInterrupt:
         logger.info("🛑 CryptoOrderflowService остановлен по Ctrl+C")
-

@@ -46,16 +46,11 @@ def _parse_csv_set(v: str) -> Set[str]:
     return out
 
 
+
 def _get_regime(ctx: Any) -> str:
-    # Prefer ctx.regime (SignalContext) then ctx.of.regime (OrderflowContext)
-    r = getattr(ctx, "regime", None)
-    if isinstance(r, str) and r.strip():
-        return r.strip().lower()
-    of = getattr(ctx, "of", None)
-    r2 = getattr(of, "regime", None) if of is not None else None
-    if isinstance(r2, str) and r2.strip():
-        return r2.strip().lower()
-    return "unknown"
+    from contexts import normalize_regime_label, MARKET_REGIME_NA
+    reg = str(getattr(ctx, "regime", None) or getattr(getattr(ctx, "of", None), "regime", MARKET_REGIME_NA))
+    return normalize_regime_label(reg)
 
 
 def _get_epoch_ms(ctx: Any) -> Optional[int]:
@@ -272,10 +267,15 @@ class RegimeSessionGate:
         return float(default)
 
     def _pick_bool(self, key: str, sym: str, kind: str, regime: str) -> Optional[bool]:
-        name = f"{key}__{sym}__{kind}__{regime}"
-        if _cached_getenv(name) is None:
-            return None
-        return _env_bool(name, False)
+        # FIX #4: support both sym-specific and global (no-sym) deny rules.
+        # Lookup order: SYM+KIND+REGIME first, then KIND+REGIME (global).
+        for name in (
+            f"{key}__{sym}__{kind}__{regime}",   # per-symbol (highest priority)
+            f"{key}__{kind}__{regime}",           # global kind+regime
+        ):
+            if _cached_getenv(name) is not None:
+                return _env_bool(name, False)
+        return None
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecision:
         if not self.enabled:
@@ -284,6 +284,16 @@ class RegimeSessionGate:
         sym = _norm_symbol(symbol)
         kind_l = (kind or "").strip().lower()
         regime = _get_regime(ctx)
+
+        # ------------------------------------------------------------------
+        # STRICT BLOCK: prevent "unknown" or "na" regimes 
+        # from ever entering the pipeline if RS_STRICT_REGIME=1 (default true).
+        # ------------------------------------------------------------------
+        from contexts import MARKET_REGIME_NA
+        if regime == MARKET_REGIME_NA:
+            strict_req = str(_cached_getenv("RS_STRICT_REGIME", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
+            if strict_req:
+                return GateDecision(True, True, "VETO_RS_UNKNOWN_REGIME", "RegimeSessionGate", f"regime={regime}")
 
         # Hard deny by matrix rule
         deny = self._pick_bool("RS_DENY", sym, kind_l, regime)
@@ -833,3 +843,94 @@ class AtrFloorGate:
             )
 
         return GateDecision(True, False, "OK", "AtrFloorGate", f"atr={atr_bps:.2f} >= {threshold:.2f}")
+
+@dataclass
+class BreadthGate:
+    """
+    Veto signals during low-breadth/divergent market regimes.
+    
+    ENV:
+      BREADTH_GATE_ENABLED=1
+      BREADTH_MIN_RET_24H=...
+      BREADTH_MIN_VOL_Z=...
+      BREADTH_REQUIRE_LEADER_CONFIRM=1
+    """
+    mode: str
+    canary_share: float
+    min_ret_24h: float
+    min_vol_z: float
+    require_leader_confirm: bool
+
+    @classmethod
+    def from_env(cls) -> "BreadthGate":
+        import os
+        mode_env = os.getenv("BREADTH_GATE_MODE", "").strip().lower()
+        if not mode_env:
+            enabled = _env_bool("BREADTH_GATE_ENABLED", False)
+            mode = "enforce" if enabled else "off"
+        else:
+            mode = mode_env
+
+        return cls(
+            mode=mode,
+            canary_share=max(0.0, min(1.0, _env_float("BREADTH_GATE_CANARY_SHARE", 0.0))),
+            min_ret_24h=_env_float("BREADTH_MIN_RET_24H", -100.0),
+            min_vol_z=_env_float("BREADTH_MIN_VOL_Z", -50.0),
+            require_leader_confirm=_env_bool("BREADTH_REQUIRE_LEADER_CONFIRM", False),
+        )
+
+    def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> GateDecision:
+        if self.mode == "off":
+            return GateDecision(apply=False, veto=False, reason_code="OK", gate="BreadthGate")
+            
+        def _get_val(k: str) -> float:
+            if hasattr(ctx, "indicators"):
+                # It's a SignalPayload
+                return _safe_float(ctx.indicators.get(k, 0.0), 0.0)
+            if isinstance(ctx, dict):
+                return _safe_float(ctx.get(k, 0.0), 0.0)
+            return _safe_float(getattr(ctx, k, None), 0.0)
+
+        ret_24h = _get_val("market_breadth_ret_24h")
+        vol_z = _get_val("market_breadth_volume_z")
+        leader_confirm = _get_val("leader_btc_eth_confirm")
+        veto_reason = None
+        notes = ""
+        
+        sig_side = str(side or "").upper()
+        if sig_side == "LONG":
+            if ret_24h < self.min_ret_24h:
+                veto_reason = "VETO_BREADTH_RET_LOW"
+                notes = f"ret={ret_24h:.2f} < {self.min_ret_24h:.2f}"
+            elif self.require_leader_confirm and leader_confirm < 0:
+                veto_reason = "VETO_BREADTH_LEADER_DIVERGENCE"
+                notes = "leader_confirm < 0"
+        elif sig_side == "SHORT":
+            if ret_24h > -self.min_ret_24h:
+                veto_reason = "VETO_BREADTH_RET_HIGH"
+                notes = f"ret={ret_24h:.2f} > {-self.min_ret_24h:.2f}"
+            elif self.require_leader_confirm and leader_confirm > 0:
+                veto_reason = "VETO_BREADTH_LEADER_DIVERGENCE"
+                notes = "leader_confirm > 0"
+
+        if not veto_reason and vol_z < self.min_vol_z:
+            veto_reason = "VETO_BREADTH_VOL_LOW"
+            notes = f"vol_z={vol_z:.2f} < {self.min_vol_z:.2f}"
+
+        if veto_reason:
+            if self.mode == "enforce":
+                return GateDecision(True, True, veto_reason, "BreadthGate", notes)
+            elif self.mode == "canary":
+                sid_s = str(getattr(ctx, "signal_id", ""))
+                sticky_key = f"{symbol}|{kind}|{side}|{sid_s}"
+                import hashlib
+                h = hashlib.sha1(sticky_key.encode("utf-8")).hexdigest()
+                u = (int(h[:8], 16) % 10_000) / 10_000.0
+                if u < self.canary_share:
+                    return GateDecision(True, True, veto_reason, "BreadthGate", notes + "|canary_enforced")
+                else:
+                    return GateDecision(True, False, veto_reason.replace("VETO_", "SHADOW_VETO_"), "BreadthGate", notes + "|canary_shadow")
+            else:
+                return GateDecision(True, False, veto_reason.replace("VETO_", "SHADOW_VETO_"), "BreadthGate", notes + "|shadow")
+
+        return GateDecision(True, False, "OK", "BreadthGate", "")

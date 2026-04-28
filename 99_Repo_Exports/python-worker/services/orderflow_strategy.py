@@ -15,18 +15,20 @@ from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
-from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
-from common.of_gate_metrics_contract import enrich_schema_fields
 import os
 import time
 import asyncio
-from utils.task_manager import safe_create_task
-
 import zlib
 import logging
 import hashlib
-from typing import Any, Dict, List, Optional
 import math
+from typing import Any, Dict, List, Optional
+from common.normalization import generate_signal_id, normalize_direction
+from common.enums.trading import Direction
+from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
+from common.of_gate_metrics_contract import enrich_schema_fields
+from utils.task_manager import safe_create_task
+from common.normalization import generate_signal_id, normalize_side_3, Direction
 
 
 try:
@@ -120,6 +122,8 @@ from core.time_utils import normalize_epoch_ms
 
 # Consolidated core imports
 from core.cvd_reclaim import compute_cvd_reclaim
+from core.coingecko_snapshot import CoinGeckoSnapshotReader
+from core.coingecko_macro_gate import CoinGeckoMacroGate
 
 
 
@@ -262,9 +266,9 @@ class OrderFlowStrategy:
             return int(zlib.crc32((sid or "").encode("utf-8")) % 100)
         except Exception:
             return 0
-    def __init__(self, redis: aioredis.Redis, ticks: aioredis.Redis, publisher: AsyncSignalPublisher, 
                  of_engine: OFConfirmEngine, calib_svc=None,
-                 notify_client: Optional[aioredis.Redis] = None, notify_stream: str = RS.NOTIFY_TELEGRAM):
+                 notify_client: Optional[aioredis.Redis] = None, notify_stream: str = RS.NOTIFY_TELEGRAM,
+                 orders_queue_mt5: str = "", orders_queue_binance: str = ""):
         self.redis = redis
         self.ticks = ticks
         self.publisher = publisher
@@ -272,7 +276,13 @@ class OrderFlowStrategy:
         self.calib_svc = calib_svc
         self.notify_client = notify_client
         self.notify_stream = notify_stream
+        self.orders_queue_mt5 = orders_queue_mt5
+        self.orders_queue_binance = orders_queue_binance
         self.logger = logging.getLogger("orderflow_strategy")
+        
+        self.cg_reader = CoinGeckoSnapshotReader(self.redis)
+        self.cg_reader.start()
+        self.cg_macro_gate = CoinGeckoMacroGate()
         
         self.atr_cache: ATRCache = get_atr_cache()
         self.market_state = MarketStateService(redis_client=self.redis, atr_cache=self.atr_cache)
@@ -401,6 +411,7 @@ class OrderFlowStrategy:
             rate = float(cfg.get("burst_audit_sample", 0.05) or 0.05)
             if not _should_sample(int(now_ms), rate):
                 return
+            from contexts import normalize_regime_label, MARKET_REGIME_NA
             msg = {
                 "type": "burst_audit",
                 "ts_ms": str(int(now_ms)),
@@ -413,7 +424,7 @@ class OrderFlowStrategy:
                     "delta_z": indicators.get("delta_z", 0.0),
                     "pressure_sps": float(getattr(runtime, "pressure_sps", 0.0) or 0.0),
                     "pressure_hi": int(getattr(runtime, "pressure_hi", 0) or 0),
-                    "regime": str(getattr(runtime, "last_regime", "na") or "na"),
+                    "regime": normalize_regime_label(getattr(runtime, "last_regime", MARKET_REGIME_NA)),
                     "spread_bp": float(getattr(runtime, "last_spread_bps", 0.0) or 0.0),
                     "obi_age_ms": indicators.get("obi_age_ms", -1),
                     "iceberg_age_ms": indicators.get("iceberg_age_ms", -1),
@@ -629,7 +640,13 @@ class OrderFlowStrategy:
 
         # Initialize early
         confirmations: List[str] = []
-        indicators: Dict[str, Any] = {}
+        
+        # Inject CoinGecko macro context into indicators (SHADOW mode by default)
+        try:
+            cg_ind = self.cg_reader.get_snapshot(runtime.symbol, now_ms=int(tick_ts))
+            indicators.update(cg_ind)
+        except Exception as exc:
+            log_silent_error(exc, 'coingecko_snapshot_error', runtime.symbol, 'process_tick')
         
         # --- Apply Overrides V1 into local cfg view (deterministic per tick best-effort) ---
         # We start with runtime.config (base)
@@ -1005,7 +1022,8 @@ class OrderFlowStrategy:
                 )
 
         # Determine signal direction
-        direction = "LONG" if delta_event["delta"] >= 0 else "SHORT"
+        direction_norm = normalize_direction("LONG" if delta_event["delta"] >= 0 else "SHORT")
+        direction = direction_norm.value
 
         # ------------------------------------------------------------------
         # ATR floor veto (tier-by-regime) — FIX BROKEN CHAIN
@@ -1017,7 +1035,8 @@ class OrderFlowStrategy:
         # ------------------------------------------------------------------
         try:
             from core.atr_floor_policy import compute_atr_bps_threshold
-            rg_floor = str(getattr(runtime, "last_regime", "na") or "na").lower()
+            from contexts import normalize_regime_label, MARKET_REGIME_NA
+            rg_floor = normalize_regime_label(getattr(runtime, "last_regime", MARKET_REGIME_NA))
             
             # Read bootstrap values (fallback to config if dynamic absent)
             t0 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T0_BPS, runtime.config.get("atr_floor_t0_bps", 0.0)))
@@ -1067,7 +1086,8 @@ class OrderFlowStrategy:
         # P2: Use TickTrigger DN Calibrator (tick_dn_calib) instead of Bar DN.
         # "tick_dn_calib" tracks the distribution of delta spikes (events), not bar sums.
         # ------------------------------------------------------------------
-        rg = str(getattr(runtime, "last_regime", "na"))
+        from contexts import normalize_regime_label, MARKET_REGIME_NA
+        rg = normalize_regime_label(getattr(runtime, "last_regime", MARKET_REGIME_NA))
         dn_tiers_decision = runtime.tick_dn_calib.tiers(
             regime=rg,
             ts_ms=int(tick_ts if tick_ts > 0 else get_ny_time_millis()), # Use TS for HoW scale lookup
@@ -1183,6 +1203,8 @@ class OrderFlowStrategy:
                 "ts_ms": now_ts,
                 "price": float(price),
                 "direction": direction,
+                "direction_norm": direction, # internal standardized
+                "side_int": direction_norm.to_side_int(),  # P0: Numeric side
                 "delta": float(delta_event.get("delta", 0.0)),
                 "delta_z": float(delta_event.get("z", 0.0))
             }
@@ -2700,7 +2722,12 @@ class OrderFlowStrategy:
         # Deterministic now
         now_ms = int(tick_ts)
 
-        signal_id = f"crypto-of:{runtime.symbol}:{now_ms}"
+        signal_id = generate_signal_id(
+            kind="crypto-of",
+            symbol=runtime.symbol,
+            ts_ms=now_ms,
+            direction=direction
+        )
         primary_reason = "delta_spike"
         if confirmations:
             primary_reason = confirmations[0].split("=", 1)[0]
@@ -2881,6 +2908,26 @@ class OrderFlowStrategy:
                     if cnt % 10000 == 0:
                         self.logger.info("✅ [CONF-RELAX] (%s) Relaxed min_conf: %.1f%% -> %.1f%% (meme=%s prefix=%s relax_max=%.1f%%) (x%d)", 
                                          runtime.symbol, original_min_conf, min_conf_pct, is_meme, prefix, relax_max, cnt)
+
+        # ------------------------------------------------------------
+        # Phase E_macro: CoinGecko Macro Gate Overlay (Risk-Off)
+        # ------------------------------------------------------------
+        try:
+            cg_mode = os.getenv("COINGECKO_GATE_MODE", "TIGHTEN_ONLY").strip().upper()
+            cg_res = self.cg_macro_gate.evaluate(indicators, direction)
+            
+            indicators["cg_gate_risk_off"] = int(cg_res.risk_off)
+            indicators["cg_gate_alt_weakness"] = int(cg_res.alt_weakness)
+            indicators["cg_gate_reason"] = cg_res.reason
+            
+            if cg_mode == "TIGHTEN_ONLY" and cg_res.reason:
+                penalty_pct = cg_res.confidence_penalty * 100.0
+                min_conf_pct += penalty_pct
+                if self.conf_relax_counters.get(runtime.symbol, 0) % 100 == 0:
+                    self.logger.info("🛡️ [CG-GATE] (%s) Macro Tighten: min_conf+%.1f%%, risk_mult=%.2f. Reason: %s", 
+                                     runtime.symbol, penalty_pct, cg_res.risk_mult, cg_res.reason)
+        except Exception:
+            pass
 
         # ------------------------------------------------------------
         # Phase E: OFI stability evidence (TTL + book health)
@@ -3078,6 +3125,7 @@ class OrderFlowStrategy:
             "entry": float(executable_entry),
             "direction": direction,
             "side": direction.lower(),
+            "side_int": direction_norm.to_side_int(),  # P0: Numeric side representation
             "indicators": indicators,
             "confirmations": list(confirmations),
             "confidence": float(confidence),
@@ -3723,33 +3771,57 @@ class OrderFlowStrategy:
         await self.signal_pipeline.publish_signal(runtime, signal)
     async def _publish_orders_queue(self, runtime: SymbolRuntime, signal: Dict[str, Any]) -> None:
         """
-        Публикует команду в orders:queue по схеме order_creation.md (минимально необходимый payload).
+        Публикует команду в очередь ордеров (MT5=Stream, Binance=List).
+        Схема: order_creation.md (минимально необходимый payload).
         """
         symbol = signal.get("symbol") or runtime.symbol
-        ts_value = signal.get("tick_ts") or signal.get("generated_at")
+        ts_value = signal.get("tick_ts") or signal.get("ts_event_ms") or signal.get("generated_at")
         if not ts_value:
             logger.warning("⚠️ (%s) Нет временной метки сигнала, пропускаем orders:queue", runtime.symbol)
             return
 
-        side = str(signal.get("direction", "")).upper()
-        direction = "buy" if side == "LONG" else "sell"
+        # Unified side normalization (P0)
+        side_norm = normalize_side_3(signal.get("direction") or signal.get("side") or "")
+        direction = side_norm.execution.lower() # buy/sell
+        venue = str(signal.get("venue") or "mt5").lower()
 
         reason = signal.get("reason") or "delta_spike"
 
+        # Signal ID generation (P0)
+        signal_id = generate_signal_id(
+            kind=str(signal.get("kind") or "spike"),
+            symbol=symbol,
+            ts_ms=int(ts_value),
+            direction=side_norm.internal
+        )
+
         order_cmd = {
             "id": f"order-{symbol}-{ts_value}",
-            "sid": f"signal-{symbol}-{ts_value}",
+            "sid": signal_id,
+            "signal_id": signal_id,
             "symbol": symbol,
             "type": "market",
             "direction": direction,
-            "source": "CryptoOrderFlow",  # ✅ FIX: Use canonical source name for proper mapping
+            "side": side_norm.execution,
+            "side_int": side_norm.numeric,
+            "source": "CryptoOrderFlow",
+            "venue": venue,
             "reason": reason,
         }
 
         try:
-            await self.redis.lpush(self.orders_queue, json.dumps(order_cmd))
+            if venue == "mt5":
+                if not self.orders_queue_mt5:
+                    logger.warning("⚠️ (%s) orders_queue_mt5 не задан, пропуск", runtime.symbol)
+                    return
+                # MT5 uses Redis Stream
+                await self.redis.xadd(self.orders_queue_mt5, order_cmd, maxlen=1000, approximate=True)
+            else:
+                # Binance uses Redis List
+                queue = self.orders_queue_binance or RS.ORDERS_QUEUE_BINANCE
+                await self.redis.lpush(queue, json.dumps(order_cmd))
         except RedisError as exc:
-            logger.warning("⚠️ (%s) Не удалось отправить в очередь ордеров: %s", runtime.symbol, exc)
+            logger.warning("⚠️ (%s) Не удалось отправить в очередь ордеров (%s): %s", runtime.symbol, venue, exc)
 
     # ── Парсинг сообщений ──────────────────────────────────────────────────────
 
@@ -3931,7 +4003,9 @@ class OrderFlowStrategy:
              new_regime = "na"
              
              if rg_val:
-                 new_regime = str(rg_val)
+                 if isinstance(rg_val, bytes):
+                     rg_val = rg_val.decode('utf-8', errors='ignore')
+                 new_regime = str(rg_val).strip()
              
              runtime.last_regime = new_regime
 
@@ -4581,7 +4655,8 @@ class OrderFlowStrategy:
             if bool(getattr(bar, "fp_enabled", False)):
                 eff_q = float(getattr(bar, "fp_eff_quote", 0.0) or 0.0)
                 qd = float(getattr(bar, "fp_quote_delta", 0.0) or 0.0)
-                regime = str(getattr(runtime, "last_regime", "na") or "na")
+                from contexts import normalize_regime_label, MARKET_REGIME_NA
+                regime = normalize_regime_label(getattr(runtime, "last_regime", MARKET_REGIME_NA))
                 runtime.eff_calib.update(regime=regime, eff_quote=eff_q, quote_delta=qd)
 
                 # Tier policy by regime
@@ -5193,7 +5268,7 @@ class OrderFlowStrategy:
                     zone_ts_ms=int(zone_ts_ms),
                     zone_weight=float(zone_weight),
                     # Market context
-                    regime=str(getattr(runtime, "last_regime", "na") or "na"),
+                    regime=normalize_regime_label(getattr(runtime, "last_regime", MARKET_REGIME_NA)),
                     atr=float(getattr(runtime, "last_atr", 0.0) or 0.0),
                     # Absorption-level readiness/stability
                     abs_lvl_ready=int(1 if int(runtime.dynamic_cfg.get(DK.ABS_LVL_CALIB_N, 0) or 0) >= int(runtime.config.get("abs_lvl_calib_min_samples", 300)) else 0),

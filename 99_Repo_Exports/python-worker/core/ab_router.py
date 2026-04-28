@@ -54,7 +54,8 @@ def splits_for_regime(*, regime: str, cfg: Dict) -> ABSplits:
       - ab_split_b_default, ab_split_c_default
       - ab_split_b_thin,    ab_split_c_thin
     """
-    rg = (regime or "na").lower()
+    from contexts import normalize_regime_label, MARKET_REGIME_NA
+    rg = normalize_regime_label(regime)
     grp = "thin" if rg in ("thin", "news", "illiquid") else "default"
     if grp == "thin":
         b = int(cfg.get("ab_split_b_thin", cfg.get("ab_split_b_default", 10)))

@@ -60,7 +60,7 @@ class ConfidenceCalibrator:
         try:
             p = float(p_raw)
             if not math.isfinite(p):
-                return float('nan')
+                return 0.5  # conservative fallback; NaN/Inf must never reach outbox
             p = _clamp01(p)
 
             if self.type == "identity":
@@ -84,7 +84,7 @@ class ConfidenceCalibrator:
             # fallback
             return p
         except Exception:
-            return float('nan')
+            return 0.5  # conservative fallback; never propagate NaN to outbox
 
 
 try:

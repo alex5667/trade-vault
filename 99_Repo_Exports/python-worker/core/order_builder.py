@@ -1,6 +1,8 @@
-from utils.time_utils import get_ny_time_millis
 import time
 from typing import Any, Dict
+from common.contracts.registry import OrderIntentV1
+from common.normalization import normalize_side, normalize_direction, get_side_int
+from common.enums.trading import Side
 
 
 class OrderBuilder:
@@ -57,36 +59,61 @@ class OrderBuilder:
     def build_order_from_signal(self, signal: Dict[str, Any]) -> Dict[str, Any]:
         symbol = signal["symbol"]
         direction = str(signal.get("direction", "")).upper()
-        side = "buy" if direction == "LONG" else "sell"
         price = signal.get("entry")
         sid = signal["sid"]
+        ts_ms = signal.get("ts_ms") or int(time.time() * 1000)
 
         qty = self._resolve_quantity(signal)
-        order_id = f"order-{sid}-{get_ny_time_millis()}"
 
-        payload = {
-            "id": order_id,
-            "sid": sid,
-            "symbol": symbol,
-            "type": "market" if price in (None, 0, "", "0") else "limit",
-            "side": side,
-            "qty": qty,
-            "price": price,
-            "source": "order_builder_v2",
-            "idempotency_key": order_id,
-            "metadata": {
-                "from_signal": True,
-                "signal_confidence": signal.get("confidence"),
-                "trail_after_tp1": signal.get("trail_after_tp1"),
-                "trail_profile": signal.get("trail_profile"),
-            },
-        }
-
-        # Add SL/TP to payload
-        if "sl" in signal:
-            payload["sl"] = signal["sl"]
-        if "tp_levels" in signal:
-            payload["tp_levels"] = signal["tp_levels"]
-
-        return payload
+        # --- CONTRACT VALIDATION (OrderIntentV1) ---
+        try:
+            side_norm = normalize_side(direction)
+            side_int = get_side_int(direction)
+            
+            intent_v1 = OrderIntentV1(
+                intent_id=f"int:{sid}:{int(time.time()*1000)}",
+                signal_id=str(sid),
+                symbol=str(symbol),
+                ts_ms=int(ts_ms),
+                side=side_norm,
+                side_int=side_int,
+                order_type="MARKET" if price in (None, 0, "", "0") else "LIMIT",
+                price=float(price or 0),
+                qty=float(qty),
+                meta={
+                    "from_signal": True,
+                    "signal_confidence": signal.get("confidence"),
+                    "trail_after_tp1": signal.get("trail_after_tp1"),
+                    "trail_profile": signal.get("trail_profile"),
+                    "sl_price": signal.get("sl"),
+                    "tp_levels": signal.get("tp_levels", [])
+                }
+            )
+            return intent_v1.model_dump()
+        except Exception:
+            # Fallback legacy format
+            side = "buy" if direction == "LONG" else "sell"
+            order_id = f"order-{sid}-{int(time.time()*1000)}"
+            payload = {
+                "id": order_id,
+                "sid": sid,
+                "symbol": symbol,
+                "type": "market" if price in (None, 0, "", "0") else "limit",
+                "side": side,
+                "qty": qty,
+                "price": price,
+                "source": "order_builder_v2",
+                "idempotency_key": order_id,
+                "metadata": {
+                    "from_signal": True,
+                    "signal_confidence": signal.get("confidence"),
+                    "trail_after_tp1": signal.get("trail_after_tp1"),
+                    "trail_profile": signal.get("trail_profile"),
+                },
+            }
+            if "sl" in signal:
+                payload["sl"] = signal["sl"]
+            if "tp_levels" in signal:
+                payload["tp_levels"] = signal["tp_levels"]
+            return payload
 

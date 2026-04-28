@@ -13,6 +13,7 @@ from core.redis_keys import RedisStreams as RS
 from services.outbox.atomic_outbox import atomic_xadd_sync
 from services.outbox.envelope_builder import build_trace_sidecar_meta
 from common.decision_trace import ensure_trace, trace_gate, trace_enabled
+from common.normalization import generate_signal_id, normalize_side_3
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -48,6 +49,9 @@ def _build_iceberg_signal_payload(
     """
     ts_ms = get_ny_time_millis()
 
+    # --- Side Normalization (P0) ---
+    side_norm = normalize_side_3(direction)
+
     # --- SL/TP Calculation ---
     atr_safe = atr if (atr is not None and atr > 0) else 0.0
     sl_dist = (2.0 * atr_safe) if atr_safe > 0 else (price * 0.005) # 2ATR or 0.5%
@@ -67,12 +71,13 @@ def _build_iceberg_signal_payload(
     tp2 = round(tp2, 2)
 
 
-    # Avoid rare collisions in high-frequency bursts (same ms).
-    # Keep legacy prefix for easy grep/partitioning.
-    add_suffix = (os.getenv("ICEBERG_SID_RANDOM_SUFFIX", "1").strip().lower() in {"1", "true", "yes", "on"})
-    sid = f"signal:{symbol}:iceberg:{ts_ms}"
-    if add_suffix:
-        sid = f"{sid}:{uuid.uuid4().hex[:8]}"
+    # --- Signal ID generation (P0) ---
+    sid = generate_signal_id(
+        kind="iceberg",
+        symbol=symbol,
+        ts_ms=ts_ms,
+        direction=side_norm.internal
+    )
 
     # NOTE: confidence historically used 0..1 in this detector.
     # We keep it, and also provide confidence_pct for unified consumers (0..100).
@@ -82,9 +87,11 @@ def _build_iceberg_signal_payload(
         "signal_id": sid,          # canonical mirror for unified consumers
         "trace_id": sid,           # correlation id for DecisionTrace
         "symbol": symbol,
-        "direction": direction,     # legacy
-        "side": direction,          # normalized mirror (LONG/SHORT)
+        "direction": side_norm.internal,  # legacy
+        "side": side_norm.execution,      # normalized mirror (BUY/SELL)
+        "side_int": side_norm.numeric,    # numeric mirror (1/-1)
         "kind": "iceberg",          # normalized kind for unified pipeline
+        "venue": "binance",         # explicit venue
         "entry": float(price),      # legacy
         "entry_price": float(price),# normalized mirror
         "price": float(price),      # normalized mirror (audit-friendly)

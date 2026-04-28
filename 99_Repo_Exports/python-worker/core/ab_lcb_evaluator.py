@@ -190,7 +190,8 @@ def eval_winner_lcb(
 
 
 def default_regime_policy(regime: str) -> RegimePolicy:
-    rg = (regime or "na").strip().lower()
+    from contexts import normalize_regime_label, MARKET_REGIME_NA
+    rg = normalize_regime_label(regime)
     if rg in ("trend", "trending_bull", "trending_bear"):
         return RegimePolicy(conf=0.90, min_n=60, min_edge_lcb=0.07)
     if rg in ("range", "mixed"):

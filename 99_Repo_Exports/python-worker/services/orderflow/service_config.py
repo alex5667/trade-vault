@@ -49,6 +49,7 @@ class RedisPoolCfg:
     health_max: int = field(default_factory=lambda: _env_int("REDIS_HEALTH_MAX_CONNECTIONS", 10))
     health_contract_max: int = field(default_factory=lambda: _env_int("REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS", 5))
     ml_gate_max: int = field(default_factory=lambda: _env_int("REDIS_ML_GATE_MAX_CONNECTIONS", 5))
+    publish_max: int = field(default_factory=lambda: _env_int("REDIS_PUBLISH_MAX_CONNECTIONS", 64))
 
     # 1.0s на hot-path: event loop заблокируется максимум на 1s при Redis stall.
     # Было 30.0 — любой Redis stall замораживал весь pipeline на 30s.
@@ -155,11 +156,8 @@ class StreamCfg:
         return cls(
             notify_stream=os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM),
             raw_signal_stream=os.getenv("CRYPTO_RAW_STREAM", RS.CRYPTO_RAW),
-            orders_queue=(
-                os.getenv("ORDERS_QUEUE_MT5")
-                or os.getenv("ORDERS_QUEUE")
-                or RS.ORDERS_QUEUE_MT5
-            ),
+            orders_queue_mt5=os.getenv("ORDERS_QUEUE_MT5", RS.ORDERS_QUEUE_MT5),
+            orders_queue_binance=os.getenv("ORDERS_QUEUE_BINANCE", RS.ORDERS_QUEUE_BINANCE),
             signal_stream_template=os.getenv(
                 "CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}"),
             burst_audit_stream=os.getenv("BURST_AUDIT_STREAM", "stream:of:burst_audit"),
@@ -168,7 +166,8 @@ class StreamCfg:
 
     notify_stream: str = ""
     raw_signal_stream: str = ""
-    orders_queue: str = ""
+    orders_queue_mt5: str = ""
+    orders_queue_binance: str = ""
     signal_stream_template: str = "signals:cryptoorderflow:{symbol}"
     burst_audit_stream: str = "stream:of:burst_audit"
     quarantine_stream: str = "stream:of:quarantine"

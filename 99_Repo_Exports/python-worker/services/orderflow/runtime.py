@@ -67,10 +67,31 @@ class BookSnapshot:
         asks = book.get("asks") or []
         ts_ms = _safe_int(book.get("ts_ms") or book.get("ts") or 0)
 
+        sort_fallback = str(os.getenv("BOOK_SORT_FALLBACK", "0")).strip().lower() in ("1", "true", "yes", "on")
+
+        def _levels_sorted(levels, reverse=False) -> bool:
+            prev = None
+            for it in levels[:5]:
+                try:
+                    px = float(it[0])
+                except Exception:
+                    return False
+                if prev is not None:
+                    if reverse and px > prev:
+                        return False
+                    if not reverse and px < prev:
+                        return False
+                prev = px
+            return True
+
         def _top5(levels, reverse=False):
-            # Ensure levels are sorted by price correctly even if provider sends unsorted/reversed
+            # Contract: Go producer sends sorted top-N. Python validates top levels
+            # and only falls back to O(n log n) sorting when explicitly enabled.
             try:
-                sorted_levels = sorted(levels, key=lambda x: float(x[0]), reverse=reverse)
+                if not sort_fallback or _levels_sorted(levels, reverse=reverse):
+                    sorted_levels = levels
+                else:
+                    sorted_levels = sorted(levels, key=lambda x: float(x[0]), reverse=reverse)
             except (ValueError, TypeError, IndexError):
                 sorted_levels = levels
                 

@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import redis
 from prometheus_client import Counter
 
+import logging
 import os
 import sys
 
@@ -130,6 +131,13 @@ def invalidate_discover_cache(r: Optional[redis.Redis] = None) -> None:
                 del _discover_cache[k]
 
 
+# Maximum retries for transient Redis connection errors in xreadgroup_multi
+_XREADGROUP_MAX_RETRIES = int(os.getenv("TM_XREADGROUP_MAX_RETRIES", "3"))
+_XREADGROUP_BASE_BACKOFF_SEC = float(os.getenv("TM_XREADGROUP_BASE_BACKOFF_SEC", "0.5"))
+
+_xreadgroup_log = logging.getLogger("redis_streams_runtime")
+
+
 def xreadgroup_multi(
     r: redis.Redis,
     group: str,
@@ -143,21 +151,46 @@ def xreadgroup_multi(
         return []
 
     stream_dict = {s: ">" for s in streams}
-    try:
-        resp = r.xreadgroup(groupname=group, consumername=consumer, streams=stream_dict, count=count, block=block_ms) or []
-    except redis.ResponseError as e:
-        if "NOGROUP" in str(e):
-            # Auto-create group for all streams
-            for s in streams:
-                try:
-                    CONSUMER_GROUP_RECOVERY_ATTEMPTS.labels(stream=s).inc()
-                except Exception:
-                    pass
-                ensure_group(r, s, group, start_id="$")
-            # Retry once
-            resp = r.xreadgroup(groupname=group, consumername=consumer, streams=stream_dict, count=count, block=block_ms) or []
-        else:
-            raise
+    last_err: Optional[Exception] = None
+
+    for attempt in range(_XREADGROUP_MAX_RETRIES + 1):
+        try:
+            resp = r.xreadgroup(
+                groupname=group, consumername=consumer,
+                streams=stream_dict, count=count, block=block_ms,
+            ) or []
+            break  # success
+        except redis.ResponseError as e:
+            if "NOGROUP" in str(e):
+                for s in streams:
+                    try:
+                        CONSUMER_GROUP_RECOVERY_ATTEMPTS.labels(stream=s).inc()
+                    except Exception:
+                        pass
+                    ensure_group(r, s, group, start_id="$")
+                # Retry once after group creation
+                resp = r.xreadgroup(
+                    groupname=group, consumername=consumer,
+                    streams=stream_dict, count=count, block=block_ms,
+                ) or []
+                break
+            else:
+                raise
+        except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError) as e:
+            last_err = e
+            if attempt < _XREADGROUP_MAX_RETRIES:
+                backoff = _XREADGROUP_BASE_BACKOFF_SEC * (2 ** attempt)
+                _xreadgroup_log.warning(
+                    "xreadgroup_multi: connection error (attempt %d/%d): %s — retrying in %.1fs",
+                    attempt + 1, _XREADGROUP_MAX_RETRIES, e, backoff,
+                )
+                time.sleep(backoff)
+            else:
+                _xreadgroup_log.error(
+                    "xreadgroup_multi: connection error after %d retries: %s — returning empty",
+                    _XREADGROUP_MAX_RETRIES, e,
+                )
+                return []
 
     out: List[StreamMsg] = []
     for stream_name, items in resp:

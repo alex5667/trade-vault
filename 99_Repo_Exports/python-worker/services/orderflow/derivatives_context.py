@@ -54,9 +54,10 @@ import math
 import time
 from dataclasses import asdict, dataclass
 from statistics import median
-from typing import Any, Dict, Iterable, Optional, Sequence
+from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = 1
+SCHEMA_VERSION_V2 = 2
 DEFAULT_CTX_PREFIX = "ctx:deriv:"
 
 
@@ -77,6 +78,16 @@ class DerivativesContextSnapshot:
     funding_extreme: int
     basis_extreme: int
     oi_accel: int
+    # v2 fields
+    long_short_ratio: float = 0.0
+    long_short_ratio_z: float = 0.0
+    taker_buy_sell_imbalance: float = 0.0
+    liq_buy_notional_1m: float = 0.0
+    liq_sell_notional_1m: float = 0.0
+    liq_imbalance_z: float = 0.0
+    market_breadth_ret_24h: float = 0.0
+    market_breadth_volume_z: float = 0.0
+    leader_btc_eth_confirm: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -226,6 +237,80 @@ def build_snapshot(
     )
 
 
+def build_snapshot_v2(
+    *,
+    symbol: str,
+    ts_ms: int,
+    venue: str,
+    funding_rate: float,
+    funding_history: Sequence[float],
+    premium_index: float,
+    mark_price: float,
+    index_price: float,
+    open_interest: float,
+    previous_open_interest: float,
+    funding_extreme_abs: float,
+    basis_extreme_abs_bps: float,
+    oi_accel_abs_usd: float,
+    # v2 fields — all optional, fail-open with 0.0
+    long_short_ratio: float = 0.0,
+    long_short_ratio_z: float = 0.0,
+    taker_buy_sell_imbalance: float = 0.0,
+    liq_buy_notional_1m: float = 0.0,
+    liq_sell_notional_1m: float = 0.0,
+    liq_imbalance_z: float = 0.0,
+    market_breadth_ret_24h: float = 0.0,
+    market_breadth_volume_z: float = 0.0,
+    leader_btc_eth_confirm: float = 0.0,
+) -> DerivativesContextSnapshot:
+    """Build v2 derivatives snapshot including liquidation, breadth, and crowding fields.
+
+    All v2 fields are optional. Missing upstream data defaults to 0.0 (fail-open).
+    V1 consumers are unaffected — from_dict handles v2 fields with .get() defaults.
+    """
+    fr = _f(funding_rate, 0.0)
+    px_mark = _f(mark_price, 0.0)
+    px_index = _f(index_price, 0.0)
+    basis = basis_bps(mark_price=px_mark, index_price=px_index)
+    oi = _f(open_interest, 0.0)
+    doi = delta_open_interest(current_oi=oi, previous_oi=previous_open_interest)
+    oi_usd = oi_notional_usd(open_interest=oi, mark_price=px_mark)
+    doi_usd = abs(_f(doi, 0.0) * px_mark)
+    fz = robust_zscore(x=fr, history=funding_history)
+
+    funding_extreme = 1 if abs(fr) >= max(_f(funding_extreme_abs, 0.0), 1e-12) or fz >= 3.0 else 0
+    basis_extreme = 1 if abs(basis) >= max(_f(basis_extreme_abs_bps, 0.0), 1e-12) else 0
+    oi_accel = 1 if doi_usd >= max(_f(oi_accel_abs_usd, 0.0), 1e-12) and doi != 0.0 else 0
+
+    return DerivativesContextSnapshot(
+        schema_version=SCHEMA_VERSION_V2,
+        symbol=str(symbol or "").upper(),
+        ts_ms=int(ts_ms or _now_ms()),
+        venue=str(venue or "binance").lower(),
+        funding_rate=float(fr),
+        funding_rate_abs=float(abs(fr)),
+        funding_rate_z=float(fz),
+        premium_index=float(_f(premium_index, 0.0)),
+        basis_bps=float(basis),
+        open_interest=float(oi),
+        delta_oi_5m=float(doi),
+        oi_notional_usd=float(oi_usd),
+        funding_extreme=int(funding_extreme),
+        basis_extreme=int(basis_extreme),
+        oi_accel=int(oi_accel),
+        # v2
+        long_short_ratio=_f(long_short_ratio, 0.0),
+        long_short_ratio_z=_f(long_short_ratio_z, 0.0),
+        taker_buy_sell_imbalance=_f(taker_buy_sell_imbalance, 0.0),
+        liq_buy_notional_1m=_f(liq_buy_notional_1m, 0.0),
+        liq_sell_notional_1m=_f(liq_sell_notional_1m, 0.0),
+        liq_imbalance_z=_f(liq_imbalance_z, 0.0),
+        market_breadth_ret_24h=_f(market_breadth_ret_24h, 0.0),
+        market_breadth_volume_z=_f(market_breadth_volume_z, 0.0),
+        leader_btc_eth_confirm=_f(leader_btc_eth_confirm, 0.0),
+    )
+
+
 def from_dict(payload: Dict[str, Any]) -> Optional[DerivativesContextSnapshot]:
     try:
         symbol = _s(payload.get("symbol")).upper()
@@ -247,6 +332,16 @@ def from_dict(payload: Dict[str, Any]) -> Optional[DerivativesContextSnapshot]:
             funding_extreme=_i(payload.get("funding_extreme"), 0),
             basis_extreme=_i(payload.get("basis_extreme"), 0),
             oi_accel=_i(payload.get("oi_accel"), 0),
+            # v2 backward compatibility (defaults to 0.0 if missing)
+            long_short_ratio=_f(payload.get("long_short_ratio"), 0.0),
+            long_short_ratio_z=_f(payload.get("long_short_ratio_z"), 0.0),
+            taker_buy_sell_imbalance=_f(payload.get("taker_buy_sell_imbalance"), 0.0),
+            liq_buy_notional_1m=_f(payload.get("liq_buy_notional_1m"), 0.0),
+            liq_sell_notional_1m=_f(payload.get("liq_sell_notional_1m"), 0.0),
+            liq_imbalance_z=_f(payload.get("liq_imbalance_z"), 0.0),
+            market_breadth_ret_24h=_f(payload.get("market_breadth_ret_24h"), 0.0),
+            market_breadth_volume_z=_f(payload.get("market_breadth_volume_z"), 0.0),
+            leader_btc_eth_confirm=_f(payload.get("leader_btc_eth_confirm"), 0.0),
         )
     except Exception:
         return None

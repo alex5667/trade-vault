@@ -20,6 +20,34 @@ MAX_SOURCE_LEN = int(os.getenv("TELEGRAM_LLM_MAX_SOURCE_LEN", "16000"))
 class TelegramMessageAnalyzer:
     """Utility to analyze Telegram messages using a local LLM before sending."""
 
+    # Unicode ranges to strip from LLM output:
+    # CJK Unified Ideographs, Hiragana, Katakana, Hangul, Arabic, Hebrew, Thai, etc.
+    _EXOTIC_RE = re.compile(
+        r"[\u2600-\u27BF"    # Misc symbols, Dingbats (includes ✅ ✓ ✗ etc.)
+        r"\u4E00-\u9FFF"     # CJK Unified Ideographs
+        r"\u3000-\u303F"     # CJK Symbols and Punctuation
+        r"\u3040-\u30FF"     # Hiragana, Katakana
+        r"\uAC00-\uD7AF"     # Hangul Syllables
+        r"\u0600-\u06FF"     # Arabic
+        r"\u0590-\u05FF"     # Hebrew
+        r"\u0E00-\u0E7F"     # Thai
+        r"\uF900-\uFAFF"     # CJK Compatibility Ideographs
+        r"\U0001F300-\U0001F9FF"  # Emoji (Misc Symbols, Transport, People, etc.)
+        r"\U00010000-\U0001FFFF"  # Other supplementary planes
+        r"]"
+    )
+
+    @staticmethod
+    def _clean_llm_text(text: str) -> str:
+        """Strip exotic unicode, CJK chars, and LLM-generated emoji from text."""
+        if not text:
+            return text
+        cleaned = TelegramMessageAnalyzer._EXOTIC_RE.sub("", text)
+        # Collapse multiple spaces left after removal
+        cleaned = re.sub(r" {2,}", " ", cleaned).strip()
+        return cleaned
+
+
     @staticmethod
     def is_enabled() -> bool:
         return ENABLED
@@ -217,8 +245,8 @@ class TelegramMessageAnalyzer:
             "format": "json",  # force JSON mode in Ollama
             "options": {
                 "temperature": prof_temperature,
-                "num_predict": max(prof_max_tokens, 600),
-                "num_ctx": 16384,  # deep context for long payloads (loss reports, ML SRE)
+                "num_predict": min(prof_max_tokens, 600),
+                "num_ctx": 8192,
                 "repeat_penalty": 1.05,
             }
         }
@@ -290,41 +318,26 @@ class TelegramMessageAnalyzer:
                 # Render nicely
                 reason_code = parsed.get("reason_code", "unknown")
                 severity = parsed.get("severity", "info")
-                emoji = "🚨" if severity == "critical" else "⚠️" if severity == "warning" else "info"
-                
-                parts = []
-                parts.append(f"[{emoji.upper()}] {reason_code}")
-                
-                if parsed.get("summary_1line"):
-                    parts.append(f"{parsed['summary_1line']}")
-                    
-                facts = parsed.get("facts", [])
-                if facts:
-                    parts.append("\nФакты:")
-                    for f in facts:
-                        parts.append(f"- {f}")
-                        
-                assumptions = parsed.get("assumptions", [])
-                if assumptions:
-                    parts.append("\nПредположения:")
-                    for a in assumptions:
-                        parts.append(f"- {a}")
+                emoji = "🚨" if severity == "critical" else "⚠️" if severity == "warning" else "ℹ️"
 
-                risks = parsed.get("risks", [])
-                if risks:
-                    parts.append("\nРиски:")
-                    for r in risks:
-                        parts.append(f"- {r}")
-                        
+                parts = []
+                parts.append(f"{emoji} [{severity.upper()}] {reason_code}")
+
+                if parsed.get("summary_1line"):
+                    parts.append(TelegramMessageAnalyzer._clean_llm_text(parsed["summary_1line"]))
+
+                # Single most urgent action only — no lists of facts/risks/assumptions
                 action = parsed.get("operator_action", {})
                 if action.get("needed"):
                     urgency = action.get("urgency", "low").upper()
-                    owner = action.get("owner", "unknown").upper()
-                    parts.append(f"\nДействие: Требуется ({urgency}) -> {owner}")
-                    for step in action.get("steps_now", []):
-                        parts.append(f"- СЕЙЧАС: {step}")
-                
-                final_text = "\n".join(parts)
+                    owner = action.get("owner", "SRE").upper()
+                    steps = action.get("steps_now", [])
+                    first_step = steps[0] if steps else action.get("steps_later", [""])[0]
+                    if first_step:
+                        first_step = TelegramMessageAnalyzer._clean_llm_text(first_step)
+                        parts.append(f"Действие ({urgency} → {owner}): {first_step}")
+
+                final_text = " ".join(parts)
                 
             except json.JSONDecodeError as e:
                 logger.warning(f"Telegram LLM analysis: failed to decode JSON: {e} — falling back to raw LLM output")

@@ -253,8 +253,8 @@ class TickProcessor:
 
         # Shared policy for non-quarantine guard (quarantine integration builds its own guard)
         self._tick_time_policy = TickTimePolicy(
-            max_future_ms=int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "5000") or 5000),
-            max_past_ms=int(os.getenv("TICK_TIME_MAX_PAST_MS", "120000") or 120000),
+            max_future_ms=int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "500") or 500),
+            max_past_ms=int(os.getenv("TICK_TIME_MAX_PAST_MS", "5000") or 5000),
             max_reorder_ms=int(os.getenv("TICK_TIME_MAX_REORDER_MS", "1500") or 1500),
             clamp_soft_future=os.getenv("TICK_TIME_CLAMP_SOFT_FUTURE", "1").strip().lower() in ("1", "true", "yes", "on"),
             allow_soft_reorder=os.getenv("TICK_TIME_ALLOW_SOFT_REORDER", "1").strip().lower() in ("1", "true", "yes", "on"),

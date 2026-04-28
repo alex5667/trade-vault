@@ -227,6 +227,18 @@ atr_gate_veto_total = _get_or_create_prom_counter(
     'Total signals vetoed by ATR gate', 
     ['symbol', 'reason', 'mode']
 )
+
+breadth_gate_veto_total = _get_or_create_prom_counter(
+    'breadth_gate_veto_total', 
+    'Total signals vetoed by Breadth gate', 
+    ['symbol', 'reason']
+)
+
+breadth_gate_shadow_veto_total = _get_or_create_prom_counter(
+    'breadth_gate_shadow_veto_total', 
+    'Total signals shadow-vetoed by Breadth gate', 
+    ['symbol', 'reason']
+)
 tp1_net_margin_bps_gauge = _get_or_create_prom_gauge(
     'tp1_net_margin_bps',
     'Net profit margin at TP1 after fees and buffer (bps)',

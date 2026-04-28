@@ -513,18 +513,22 @@ class RegimeGate:
     deny_absorption_regimes: Set[str]
     deny_extreme_regimes: Set[str]
     deny_obi_spike_regimes: Set[str]
+    deny_weak_progress_regimes: Set[str]  # FIX #4: regime filter for weak_progress
     require_regime_present: bool
 
     @classmethod
     def from_env(cls) -> "RegimeGate":
         return cls(
             enabled=_env_bool("REGIME_GATE_ENABLED", True),
-            apply_kinds=_parse_csv_set(_env_str("REGIME_APPLY_KINDS", "breakout,absorption,extreme,obi_spike")),
+            apply_kinds=_parse_csv_set(_env_str("REGIME_APPLY_KINDS", "breakout,absorption,extreme,obi_spike,weak_progress")),
             # Default policy: breakout forbidden in range/squeeze; absorption forbidden in trending/expansion
             deny_breakout_regimes=_parse_csv_set(_env_str("REGIME_DENY_BREAKOUT", "range,squeeze")),
             deny_absorption_regimes=_parse_csv_set(_env_str("REGIME_DENY_ABSORPTION", "trending_bull,trending_bear,expansion")),
             deny_extreme_regimes=_parse_csv_set(_env_str("REGIME_DENY_EXTREME", "")),
             deny_obi_spike_regimes=_parse_csv_set(_env_str("REGIME_DENY_OBI_SPIKE", "")),
+            # FIX #4: weak_progress blocked in squeeze (no momentum) by default.
+            # range is intentionally allowed — weak_progress CAN work in range (mean-reversion logic).
+            deny_weak_progress_regimes=_parse_csv_set(_env_str("REGIME_DENY_WEAK_PROGRESS", "squeeze")),
             require_regime_present=_env_bool("REGIME_REQUIRE_PRESENT", False),
         )
 
@@ -560,6 +564,8 @@ class RegimeGate:
             deny = self.deny_extreme_regimes
         elif kind_l == "obi_spike":
             deny = self.deny_obi_spike_regimes
+        elif kind_l == "weak_progress":  # FIX #4: regime filter for weak_progress kind
+            deny = self.deny_weak_progress_regimes
 
         if deny and r in deny:
             return QualityGateDecision(True, True, "VETO_REGIME", f"kind={kind_l} regime={r} denied={sorted(list(deny))}")

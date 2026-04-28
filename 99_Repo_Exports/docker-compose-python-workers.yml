@@ -506,7 +506,7 @@ services:
     networks:
     - scanner-core
     - scanner-infra
-    restart: on-failure:5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -664,7 +664,7 @@ services:
     networks:
     - scanner-core
     - scanner-infra
-    restart: on-failure:5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -2909,7 +2909,7 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile
     container_name: latency-contract-exporter
-    restart: on-failure:5
+    restart: unless-stopped
     command:
     - sh
     - -c
@@ -2960,7 +2960,7 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile
     container_name: latency-contract-slo-gate
-    restart: on-failure:5
+    restart: unless-stopped
     working_dir: /app
     command:
     - sh
@@ -3011,7 +3011,7 @@ services:
       context: .
       dockerfile: python-worker/Dockerfile
     container_name: latency-contract-rollout-gate
-    restart: on-failure:5
+    restart: unless-stopped
     working_dir: /app
     command:
     - sh
@@ -3068,7 +3068,7 @@ services:
     networks:
     - scanner-core
     - scanner-infra
-    restart: on-failure:5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -3129,6 +3129,13 @@ services:
     networks:
     - scanner-core
     - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
     command:
     - sh
     - -c
@@ -3157,6 +3164,13 @@ services:
     networks:
     - scanner-core
     - scanner-infra
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
     command:
     - sh
     - -c
@@ -3607,6 +3621,13 @@ services:
     - scanner-core
     - scanner-infra
     restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
   atr-disaster-recovery:
     build:
       context: .
@@ -3631,6 +3652,13 @@ services:
     - scanner-core
     - scanner-infra
     restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
   atr-post-release:
     build:
       context: .
@@ -3654,6 +3682,13 @@ services:
     - scanner-core
     - scanner-infra
     restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
   atr-archive:
     build:
       context: .
@@ -3677,6 +3712,13 @@ services:
     - scanner-core
     - scanner-infra
     restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
   atr-go-live-readiness:
     build:
       context: .
@@ -3702,6 +3744,13 @@ services:
     - scanner-core
     - scanner-infra
     restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
 networks:
   scanner-core:
     external: true

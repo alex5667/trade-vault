@@ -463,8 +463,9 @@ class OFConfirmService:
                 for sym, raw in zip(symbols, values):
                     if not raw:
                         continue
-                    regime = str(raw).strip().lower()
-                    if regime:
+                    from contexts import normalize_regime_label, MARKET_REGIME_NA
+                    regime = normalize_regime_label(raw)
+                    if regime != MARKET_REGIME_NA:
                         state = self.states.get(sym)
                         if state:
                             state.last_regime = regime

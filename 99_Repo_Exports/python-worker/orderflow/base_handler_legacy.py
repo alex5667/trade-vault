@@ -3096,8 +3096,8 @@ class BaseOrderFlowHandler(ABC):
         # --- time policy: tie "past" guard to max_tick_lag_ms if present (stronger default)
         max_past = int(getattr(self, "max_tick_lag_ms", 0) or 0)
         pol = TickTimePolicy(
-            max_past_ms=max(max_past, int(os.getenv("TICK_MAX_PAST_MS", "120000"))),
-            max_future_ms=int(os.getenv("TICK_MAX_FUTURE_MS", "5000")),
+            max_past_ms=max(max_past, int(os.getenv("TICK_MAX_PAST_MS", "5000"))),
+            max_future_ms=int(os.getenv("TICK_MAX_FUTURE_MS", "500")),
             max_reorder_ms=int(os.getenv("TICK_MAX_REORDER_MS", "1500")),
             seconds_threshold=int(float(os.getenv("TICK_SECONDS_THRESHOLD", "1e12"))),
         )
@@ -3417,8 +3417,8 @@ class BaseOrderFlowHandler(ABC):
 
         # watermark (drop too future/past)
         if should_drop_by_watermark is not None:
-            max_future = int(os.getenv("MAX_TICK_FUTURE_MS", "1500"))
-            max_past = int(os.getenv("MAX_TICK_PAST_MS", "120000"))  # 2 минуты по умолчанию
+            max_future = int(os.getenv("MAX_TICK_FUTURE_MS", "500"))
+            max_past = int(os.getenv("MAX_TICK_PAST_MS", "5000"))
             try:
                 drop, reason = should_drop_by_watermark(now_ms=now_ms, ts_ms=ts_ms, max_future_ms=max_future, max_past_ms=max_past)
             except Exception:

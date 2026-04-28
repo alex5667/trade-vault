@@ -60,7 +60,9 @@ def test_reorder_soft_clamps_to_watermark_when_enabled():
 
 def test_reorder_hard_drops_when_too_far():
     now = 1_700_000_000_000
-    pol = TickTimePolicy(max_reorder_ms=1000, allow_soft_reorder=True)
+    # max_past_ms must be larger than the reorder lag (50 000ms) so past-guard
+    # does not fire before the reorder check.
+    pol = TickTimePolicy(max_reorder_ms=1000, max_past_ms=300_000, allow_soft_reorder=True)
     g = TickTimeGuard(pol, now_provider=lambda: now)
 
     r1 = g.sanitize_ts_ms(now, now_ms=now)

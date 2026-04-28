@@ -143,6 +143,7 @@ class AsyncSignalPublisher:
     def _refresh_env_cache(self) -> None:
         """Re-read ENV flags into in-process cache. Called at init and every 30s."""
         self._env = {
+            "raw_fast_xadd_only": os.getenv("ASYNC_PUB_RAW_FAST_XADD_ONLY", "1").lower() in ("1", "true"),
             "freeze_matrix_enable": os.getenv("ATR_FREEZE_MATRIX_RUNTIME_ENABLE", "1").lower() in ("1", "true"),
             "graph_gate_enable": os.getenv("ATR_GRAPH_RUNTIME_GATE_ENABLE", "0").lower() in ("1", "true"),
             "graph_gate_compare": os.getenv("ATR_GRAPH_RUNTIME_GATE_COMPARE", "0").lower() in ("1", "true"),
@@ -333,35 +334,41 @@ class AsyncSignalPublisher:
         if (_wall_time.monotonic() - self._env_cache_ts) > self._env_cache_ttl:
             self._refresh_env_cache()
 
-        # 1) normalize contract (hot-path optimization)
-        try:
-            # Detect if this is a high-frequency telemetry stream (BBO, CVD, etc)
-            # or a mission-critical trade signal (orders:queue).
-            is_trade_signal = sink.name.startswith("orders:queue") or sink.name.startswith("events:signals")
-            fast_path = not is_trade_signal
+        raw_fast_xadd_only = (
+            self._env["raw_fast_xadd_only"]
+            and str(sink.name) == "signals:crypto:raw"
+        )
 
-            if fast_path:
-                # Fast path: Synchronous block is minimal (basic normalization)
-                preprocess_signal_for_publish(
-                    payload, 
-                    symbol=str(symbol), 
-                    source=self.source, 
-                    logger=self.logger, 
-                    fast_path=True
-                )
-            else:
-                # Signal path: Offload heavy ATR/Risk resolution to background thread
-                # to prevent blocking the event loop during signal bursts.
-                await asyncio.to_thread(
-                    preprocess_signal_for_publish,
-                    payload,
-                    symbol=str(symbol),
-                    source=self.source,
-                    logger=self.logger,
-                    fast_path=False
-                )
-        except Exception:
-            pass
+        # 1) normalize contract (hot-path optimization)
+        if not raw_fast_xadd_only:
+            try:
+                # Detect if this is a high-frequency telemetry stream (BBO, CVD, etc)
+                # or a mission-critical trade signal (orders:queue).
+                is_trade_signal = sink.name.startswith("orders:queue") or sink.name.startswith("events:signals")
+                fast_path = not is_trade_signal
+
+                if fast_path:
+                    # Fast path: Synchronous block is minimal (basic normalization)
+                    preprocess_signal_for_publish(
+                        payload, 
+                        symbol=str(symbol), 
+                        source=self.source, 
+                        logger=self.logger, 
+                        fast_path=True
+                    )
+                else:
+                    # Signal path: Offload heavy ATR/Risk resolution to background thread
+                    # to prevent blocking the event loop during signal bursts.
+                    await asyncio.to_thread(
+                        preprocess_signal_for_publish,
+                        payload,
+                        symbol=str(symbol),
+                        source=self.source,
+                        logger=self.logger,
+                        fast_path=False
+                    )
+            except Exception:
+                pass
 
         # 1.5) Invariant Firewall (Phase 7.1) — only for orders:queue streams
         if sink.name.startswith("orders:queue"):

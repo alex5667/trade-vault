@@ -486,7 +486,7 @@ def _canonical_sid(indicators: Dict[str, Any], symbol: str, ts_ms: int) -> str:
 
 
 def cache_ml_decision(
-    r: redis.Redis,
+    r: Any,
     *,
     sid: str,
     symbol: str,
@@ -505,7 +505,7 @@ def cache_ml_decision(
     This allows outcome emitter to do O(1) join on position close.
     
     Args:
-        r: Redis client (decode_responses=True)
+        r: Redis client (decode_responses=True), can be sync or aioredis
         sid: Signal ID (canonical format: crypto-of:SYMBOL:ts_ms)
         symbol: Trading symbol
         bucket: Bucket (trend/range/other)
@@ -528,8 +528,19 @@ def cache_ml_decision(
         "model_ver": str(model_ver),
         "ts_ms": int(_now_ms()),
     }
+    payload_str = json.dumps(payload, separators=(",", ":"))
     try:
-        r.set(key, json.dumps(payload, separators=(",", ":")), ex=ttl_sec)
+        import asyncio
+        import inspect
+        is_async = "aioredis" in type(r).__module__ or "asyncio" in type(r).__module__ or (hasattr(r.set, "__call__") and asyncio.iscoroutinefunction(r.set))
+        if is_async:
+            try:
+                from utils.task_manager import safe_create_task
+                safe_create_task(r.set(key, payload_str, ex=ttl_sec))
+            except ImportError:
+                asyncio.create_task(r.set(key, payload_str, ex=ttl_sec))
+        else:
+            r.set(key, payload_str, ex=ttl_sec)
     except Exception:
         # Fail-open: don't break decision flow if cache write fails
         pass
@@ -813,10 +824,13 @@ class MLConfirmGate:
             self._metrics_cfg_defaulted_total = _MockMetric()
 
     @staticmethod
-    def from_env() -> "MLConfirmGate":
-        # Support ML_REDIS_URL for separate config Redis, fallback to REDIS_URL
-        redis_url = os.getenv("ML_REDIS_URL") or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-        r = redis.Redis.from_url(redis_url, decode_responses=True)
+    def from_env(redis_client: Optional[Any] = None) -> "MLConfirmGate":
+        if redis_client is not None:
+            r = redis_client
+        else:
+            # Support ML_REDIS_URL for separate config Redis, fallback to REDIS_URL
+            redis_url = os.getenv("ML_REDIS_URL") or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+            r = redis.Redis.from_url(redis_url, decode_responses=True)
 
         mode = os.getenv("ML_CONFIRM_MODE", "SHADOW")
         fail_policy = os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN")
@@ -1595,7 +1609,18 @@ class MLConfirmGate:
                     if u is not None:
                         # store as string with correct key
                         payload[h] = f"{float(u):.6f}"
-            redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)
+            
+            import asyncio
+            import inspect
+            is_async = "aioredis" in type(redis).__module__ or "asyncio" in type(redis).__module__ or (hasattr(redis.xadd, "__call__") and asyncio.iscoroutinefunction(redis.xadd))
+            if is_async:
+                try:
+                    from utils.task_manager import safe_create_task
+                    safe_create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
+                except ImportError:
+                    asyncio.create_task(redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True))
+            else:
+                redis.xadd(self._metrics_stream, payload, maxlen=self._metrics_maxlen, approximate=True)
         except Exception as e:
             # Increment error metric and rate-limited log
             if METRICS_REGISTRY_AVAILABLE:

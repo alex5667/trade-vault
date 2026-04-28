@@ -6,8 +6,12 @@ import os
 import time
 import json
 import math
-from typing import Any, Dict, List, Optional, Tuple, Sequence
+from typing import Any, Dict, List, Optional, Tuple, Sequence, Union
 from types import SimpleNamespace
+
+from common.contracts.registry import SignalV1, OrderIntentV1
+from common.normalization import normalize_side_3, generate_signal_id, Direction
+from common.enums.trading import Direction, Side
 
 from services.orderflow.runtime import SymbolRuntime
 from services.async_signal_publisher import AsyncSignalPublisher, StreamSink
@@ -35,12 +39,15 @@ from services.orderflow.metrics import (
     , liq_geom_dws_bps, liq_geom_book_slope_min_usd_per_bps, liq_geom_recovery_time_ms
     , flow_toxic_monitor_hit_total, flow_toxic_tighten_total, flow_toxic_veto_total
     , flow_toxic_ofi_norm_z, flow_toxic_vpin_cdf
-    , manip_gate_events_total, of_inputs_publish_error_total  # Phase E / P4
+    , manip_gate_events_total, of_inputs_publish_error_total
+    , breadth_gate_veto_total
+    , breadth_gate_shadow_veto_total
 )
 from services.orderflow.utils import session_utc
 from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory, sampled_info
-from handlers.crypto_orderflow.utils.pre_publish_gates import HardDataQualityGate, RegimeSessionGate, AtrFloorGate
-
+from handlers.crypto_orderflow.utils.pre_publish_gates import HardDataQualityGate, RegimeSessionGate, AtrFloorGate, BreadthGate
+from services.orderflow.breadth_context import aread_breadth_context
+from services.orderflow.liquidation_context_worker import aread_liq_context
 # P5: book sanity + stream integrity gates (pre-publish, fail-open)
 from services.orderflow.book_sanity_gate import BookSanityGate
 from services.orderflow.stream_integrity_gate import StreamIntegrityGate
@@ -62,7 +69,7 @@ from services.orderflow.exec_health_freeze_hook import (
 )
 
 from services.orderflow.derivatives_context import aread_derivatives_context
-from services.orderflow.derivatives_context_gate import evaluate_derivatives_context
+from services.orderflow.derivatives_context_gate import evaluate_derivatives_context_v2
 from services.orderflow.metrics_derivatives_context import (
     deriv_ctx_snapshot_age_ms,
     deriv_ctx_funding_rate_z,
@@ -73,6 +80,32 @@ from services.orderflow.metrics_derivatives_context import (
     deriv_ctx_gate_veto_total,
     deriv_ctx_tighten_add_bps,
     deriv_ctx_missing_total,
+)
+
+from services.orderflow.defillama_context import aread_defillama_context
+from services.orderflow.defillama_context_gate import evaluate_defillama_context
+from services.orderflow.metrics_defillama_context import (
+    defillama_ctx_snapshot_age_ms,
+    defillama_ctx_missing_total,
+    defillama_ctx_gate_monitor_hit_total,
+    defillama_ctx_gate_tighten_total,
+    defillama_ctx_gate_veto_total,
+    defillama_ctx_dex_volume_spike_z,
+    defillama_ctx_chain_tvl_delta_1d_pct,
+)
+
+from services.orderflow.crossvenue_context import aread_crossvenue_context
+from services.orderflow.crossvenue_context_gate import evaluate_crossvenue_context
+from services.orderflow.metrics_crossvenue_context import (
+    crossvenue_ctx_missing_total,
+    crossvenue_ctx_stale_total,
+    crossvenue_ctx_gate_monitor_hit_total,
+    crossvenue_ctx_gate_tighten_total,
+    crossvenue_ctx_gate_veto_total,
+    crossvenue_ctx_mid_spread_bps as _cv_mid_spread_bps_gauge,
+    crossvenue_ctx_direction_agree as _cv_direction_agree_gauge,
+    crossvenue_ctx_dislocation_z as _cv_dislocation_z_gauge,
+    crossvenue_ctx_snapshot_age_ms as _cv_snapshot_age_ms_hist,
 )
 
 _book_sanity_gate = BookSanityGate.from_env()
@@ -120,6 +153,7 @@ class SignalPipeline:
         self._hard_dq_gate = HardDataQualityGate.from_env()
         self._rs_gate = RegimeSessionGate.from_env()
         self._atr_floor_gate = AtrFloorGate.from_env()
+        self._breadth_gate = BreadthGate.from_env()
         self._rejected_signal_stream = os.getenv("CRYPTO_REJECTED_SIGNAL_STREAM", RS.CRYPTO_REJECTED)
 
         # ------------------------------------------------------------------
@@ -207,6 +241,24 @@ class SignalPipeline:
         self._cached_manip_thr_otr_z = float(os.getenv("MANIP_OTR_Z_MAX", "0") or 0.0)
         self._cached_manip_tighten_cap = float(os.getenv("MANIP_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
         self._cached_manip_tighten_mult = float(os.getenv("MANIP_TIGHTEN_ADD_MULT", "1.0") or 1.0)
+
+        # DefiLlama slow-context gate config
+        self._cached_defillama_ctx_enabled = os.getenv("DEFILLAMA_CTX_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+        self._cached_defillama_ctx_profile = str(os.getenv("DEFILLAMA_CTX_PROFILE", "monitor") or "monitor").strip().lower()
+        self._cached_defillama_ctx_tighten_mult = float(os.getenv("DEFILLAMA_CTX_TIGHTEN_ADD_MULT", "1.0") or 1.0)
+        self._cached_defillama_ctx_tighten_cap = float(os.getenv("DEFILLAMA_CTX_TIGHTEN_ADD_CAP_BPS", "4.0") or 4.0)
+        self._cached_defillama_ctx_max_age_ms = int(os.getenv("DEFILLAMA_CTX_MAX_AGE_MS", "7200000") or 7200000)
+
+        # Cross-venue context gate config (Phase 0: disabled by default)
+        self._cached_crossvenue_ctx_enabled = os.getenv("CROSSVENUE_CTX_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+        self._cached_crossvenue_profile = str(os.getenv("CROSSVENUE_CTX_PROFILE", "monitor") or "monitor").strip().lower()
+        self._cached_crossvenue_max_age_ms = int(os.getenv("CROSSVENUE_CTX_MAX_AGE_MS", "5000") or 5000)
+        self._cached_crossvenue_min_agree = float(os.getenv("CROSSVENUE_CTX_MIN_AGREE", "0.67") or 0.67)
+        self._cached_crossvenue_max_dislocation_z = float(os.getenv("CROSSVENUE_CTX_MAX_DISLOCATION_Z", "3.0") or 3.0)
+        self._cached_crossvenue_max_mid_spread_bps = float(os.getenv("CROSSVENUE_CTX_MAX_MID_SPREAD_BPS", "8.0") or 8.0)
+        self._cached_crossvenue_max_stale_count = int(os.getenv("CROSSVENUE_CTX_MAX_STALE_COUNT", "1") or 1)
+        self._cached_crossvenue_tighten_mult = float(os.getenv("CROSSVENUE_CTX_TIGHTEN_ADD_MULT", "1.0") or 1.0)
+        self._cached_crossvenue_tighten_cap = float(os.getenv("CROSSVENUE_CTX_TIGHTEN_ADD_CAP_BPS", "6.0") or 6.0)
         
         self._cached_binance_trail_atr_mult = os.getenv("BINANCE_TRAIL_ATR_MULT", "1.0")
         self._cached_range_tp_rr = os.getenv("RANGE_TP_RR", "1.0,1.5")
@@ -538,7 +590,8 @@ class SignalPipeline:
         # 1) Extract + normalize primitive inputs (direction/symbol/cfg)
         # ------------------------------------------------------------------
         symbol = runtime.symbol
-        direction = str(signal.get("direction") or "").upper().strip()
+        side_norm = normalize_side_3(signal.get("direction") or signal.get("side") or "")
+        direction = side_norm.direction  # LONG/SHORT (str enum)
         cfg = runtime.config
 
         # State initialization (avoid reliance on locals() introspection)
@@ -594,6 +647,40 @@ class SignalPipeline:
         signal.setdefault("delta_z", delta_z)
         indicators.setdefault("tick_qty", signal.get("tick_qty"))
 
+        # --- CONTRACT VALIDATION (SignalV1) ---
+        try:
+            # Signal ID generation (P0)
+            signal_id = generate_signal_id(
+                kind=str(signal.get("kind") or "of"),
+                symbol=symbol,
+                ts_ms=int(sig_ts),
+                direction=side_norm.direction
+            )
+            
+            sig_v1 = SignalV1(
+                signal_id=signal_id,
+                symbol=symbol,
+                venue=str(signal.get("venue") or "binance_usdm"),
+                ts_event_ms=int(sig_ts),
+                ts_publish_ms=get_ny_time_millis(),
+                direction=side_norm.direction,
+                side=side_norm.side,
+                side_int=side_norm.side_int,
+                entry_price=float(entry),
+                sl_price=float(signal.get("sl") or 0.0),
+                tp_levels=signal.get("tp_levels") or [],
+                ok=int(indicators.get("of_confirm_ok", 0) or 0),
+                ok_soft=int(indicators.get("ok_soft", 0) or 0),
+                reason=str(signal.get("reason", reason or "delta_spike")),
+                scenario=str(indicators.get("scenario", "")),
+                indicators=indicators,
+                meta=signal.get("metadata") or {}
+            )
+            # Standardize signal dict from v1
+            signal.update(sig_v1.model_dump())
+        except Exception as e:
+            logger.warning("⚠️ (%s) SignalV1 validation failed: %s", symbol, e)
+
         # ------------------------------------------------------------------
         # P1 Inline Execution Health hardening
         # ------------------------------------------------------------------
@@ -636,6 +723,29 @@ class SignalPipeline:
             logger.warning("⚠️ (%s) Failed to enrich A1 decision ctx fields: %s", symbol, e)
 
 
+
+        # --- BREADTH GATE ---
+        ctx = self._build_gate_ctx(runtime, signal, sig_ts)
+        kind = str(signal.get("kind") or "of")
+        b_dec = self._breadth_gate.evaluate(ctx=ctx, symbol=symbol, kind=kind, side=direction)
+        
+        if b_dec.apply:
+            indicators.setdefault("gate_flags", []).append(f"breadth_gate:{b_dec.reason_code}")
+            if b_dec.veto:
+                try:
+                    breadth_gate_veto_total.labels(symbol=symbol, reason=b_dec.reason_code).inc()
+                except Exception:
+                    pass
+                logger.info("🛡️ [GATE] BreadthGate VETO (%s): %s | %s", symbol, b_dec.reason_code, b_dec.notes)
+                strong_gate_veto_total.labels(symbol=symbol, scenario="breadth_gate", reason=b_dec.reason_code, mode="ENFORCE").inc()
+                passed = False
+                reason = f"BREADTH_GATE_VETO: {b_dec.reason_code}"
+                return
+            elif b_dec.reason_code.startswith("SHADOW_VETO_"):
+                try:
+                    breadth_gate_shadow_veto_total.labels(symbol=symbol, reason=b_dec.reason_code).inc()
+                except Exception:
+                    pass
 
         # --- SHADOW REQUIRE_STRONG_CONFIRMATION (SignalPipeline) ---
         # Note: Enforcement is handled in strategy.py early gate.
@@ -722,13 +832,37 @@ class SignalPipeline:
                 indicators["basis_extreme"] = int(snap.basis_extreme)
                 indicators["oi_accel"] = int(snap.oi_accel)
 
-                decd = evaluate_derivatives_context(
+                # Fetch additional contexts (fail-open)
+                breadth_ctx = await aread_breadth_context(getattr(runtime, "redis_client", None))
+                liq_ctx = await aread_liq_context(getattr(runtime, "redis_client", None), symbol=symbol)
+
+                # Merge V2 fields into snapshot
+                if breadth_ctx:
+                    snap = __import__("dataclasses").replace(
+                        snap,
+                        market_breadth_ret_24h=float(breadth_ctx.get("ret_24h", 0.0)),
+                        market_breadth_volume_z=float(breadth_ctx.get("vol_z", 0.0)),
+                        leader_btc_eth_confirm=float(breadth_ctx.get("leader_confirm", 0.0))
+                    )
+                if liq_ctx:
+                    snap = __import__("dataclasses").replace(
+                        snap,
+                        liq_buy_notional_1m=float(liq_ctx.get("liq_buy_notional_1m", 0.0)),
+                        liq_sell_notional_1m=float(liq_ctx.get("liq_sell_notional_1m", 0.0)),
+                        liq_imbalance_z=float(liq_ctx.get("liq_imbalance_z", 0.0))
+                    )
+
+                decd = evaluate_derivatives_context_v2(
                     profile=deriv_profile,
+                    side=direction,
                     funding_rate_z=float(snap.funding_rate_z),
                     basis_bps=float(snap.basis_bps),
-                    funding_extreme=int(snap.funding_extreme),
-                    basis_extreme=int(snap.basis_extreme),
                     oi_accel=int(snap.oi_accel),
+                    long_short_ratio_z=float(snap.long_short_ratio_z),
+                    taker_buy_sell_imbalance=float(snap.taker_buy_sell_imbalance),
+                    liq_imbalance_z=float(snap.liq_imbalance_z),
+                    market_breadth_ret_24h=float(snap.market_breadth_ret_24h),
+                    leader_btc_eth_confirm=float(snap.leader_btc_eth_confirm),
                     thr_funding_z=self._cached_deriv_ctx_funding_z,
                     thr_basis_bps=self._cached_deriv_ctx_basis_bps,
                     require_oi_for_veto=self._cached_deriv_ctx_require_oi,
@@ -790,6 +924,209 @@ class SignalPipeline:
                     return
         except Exception:
             pass
+
+        # ------------------------------------------------------------------
+        # P0.1: DefiLlama macro/liquidity context gate (slow context, fail-open)
+        # ------------------------------------------------------------------
+        # NOT a tick trigger. Provides regime context (TVL, DEX volume, stablecoins).
+        # Profiles: monitor → tighten → veto
+        # Missing DefiLlama data = no action (fail-open).
+        if self._cached_defillama_ctx_enabled:
+            try:
+                dl_profile = self._cached_defillama_ctx_profile
+                dl_snap = await aread_defillama_context(getattr(runtime, "redis_client", None), symbol=symbol)
+                if dl_snap is None:
+                    indicators["defillama_ctx_missing"] = 1
+                    indicators["defillama_ctx_snapshot_age_ms"] = -1
+                    try:
+                        if defillama_ctx_missing_total is not None:
+                            defillama_ctx_missing_total.labels(symbol=str(symbol).upper()).inc()
+                    except Exception:
+                        pass
+                if dl_snap is not None:
+                    now_ms = int(signal.get("tick_ts") or signal.get("ts_ms") or get_ny_time_millis())
+                    snap_age_ms = int(max(0, now_ms - int(dl_snap.ts_ms)))
+                    indicators["defillama_ctx_profile"] = dl_profile
+                    indicators["defillama_ctx_chain"] = str(dl_snap.chain)
+                    indicators["defillama_ctx_stablecoin_regime"] = str(dl_snap.stablecoin_risk_regime)
+                    indicators["defillama_ctx_chain_tvl_delta_1d_pct"] = float(dl_snap.chain_tvl_delta_1d_pct)
+                    indicators["defillama_ctx_dex_volume_spike_z"] = float(dl_snap.dex_volume_spike_z)
+                    indicators["defillama_ctx_fees_momentum"] = float(dl_snap.fees_revenue_momentum)
+                    indicators["defillama_ctx_snapshot_age_ms"] = snap_age_ms
+
+                    # Skip stale snapshots
+                    if snap_age_ms > self._cached_defillama_ctx_max_age_ms:
+                        indicators["defillama_ctx_stale"] = 1
+                    else:
+                        dl_dec = evaluate_defillama_context(
+                            profile=dl_profile,
+                            side=direction,
+                            stablecoin_mcap_delta_1d=float(dl_snap.stablecoin_mcap_delta_1d),
+                            stablecoin_mcap_delta_7d=float(dl_snap.stablecoin_mcap_delta_7d),
+                            btc_dominance_momentum=0.0,  # Phase 2: wire from CoinGecko
+                            chain_tvl_delta_1d_pct=float(dl_snap.chain_tvl_delta_1d_pct),
+                            dex_volume_spike_z=float(dl_snap.dex_volume_spike_z),
+                            fees_revenue_momentum=float(dl_snap.fees_revenue_momentum),
+                            tighten_mult=self._cached_defillama_ctx_tighten_mult,
+                            tighten_cap_bps=self._cached_defillama_ctx_tighten_cap,
+                        )
+                        indicators["defillama_ctx_flags"] = ",".join(dl_dec.flags) if dl_dec.flags else ""
+                        indicators["defillama_ctx_hit"] = 1 if dl_dec.hit else 0
+                        indicators["defillama_ctx_risk_score"] = float(dl_dec.risk_score)
+
+                        # Prometheus telemetry
+                        try:
+                            sym_lbl = str(symbol).upper()
+                            if defillama_ctx_snapshot_age_ms is not None:
+                                defillama_ctx_snapshot_age_ms.labels(symbol=sym_lbl).observe(float(snap_age_ms))
+                            if dl_snap.dex_volume_spike_z > 0 and defillama_ctx_dex_volume_spike_z is not None:
+                                defillama_ctx_dex_volume_spike_z.labels(symbol=sym_lbl).observe(float(dl_snap.dex_volume_spike_z))
+                            if defillama_ctx_chain_tvl_delta_1d_pct is not None:
+                                defillama_ctx_chain_tvl_delta_1d_pct.labels(symbol=sym_lbl).observe(float(dl_snap.chain_tvl_delta_1d_pct))
+                            if dl_dec.hit and defillama_ctx_gate_monitor_hit_total is not None:
+                                defillama_ctx_gate_monitor_hit_total.labels(symbol=sym_lbl, profile=dl_profile).inc()
+                        except Exception:
+                            pass
+
+                        if dl_dec.tighten_add_bps > 0.0:
+                            exp0 = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+                            indicators["defillama_ctx_tighten_add_bps"] = float(dl_dec.tighten_add_bps)
+                            indicators["expected_slippage_bps"] = float(exp0 + float(dl_dec.tighten_add_bps))
+                            try:
+                                if defillama_ctx_gate_tighten_total is not None:
+                                    defillama_ctx_gate_tighten_total.labels(symbol=str(symbol).upper(), reason="tighten").inc()
+                            except Exception:
+                                pass
+
+                        if dl_dec.veto:
+                            dl_reason = str(dl_dec.veto_reason)
+                            try:
+                                if defillama_ctx_gate_veto_total is not None:
+                                    defillama_ctx_gate_veto_total.labels(symbol=str(symbol).upper(), reason=dl_reason).inc()
+                            except Exception:
+                                pass
+                            logger.info(
+                                "🛡️ [GATE] DefiLlama VETO (%s): %s | chain=%s regime=%s tvl_delta=%.2f dex_z=%.2f",
+                                symbol, dl_reason, dl_snap.chain, dl_snap.stablecoin_risk_regime,
+                                float(dl_snap.chain_tvl_delta_1d_pct), float(dl_snap.dex_volume_spike_z),
+                            )
+                            strong_gate_veto_total.labels(symbol=symbol, scenario="defillama_ctx", reason=dl_reason, mode="ENFORCE").inc()
+                            passed = False
+                            reason = f"DEFILLAMA_CTX_VETO: {dl_reason}"
+                            return
+            except Exception:
+                pass
+
+        # ------------------------------------------------------------------
+        # Cross-venue context gate (Coinbase/Kraken/OKX validation)
+        # ------------------------------------------------------------------
+        # Reads ctx:crossvenue:{SYMBOL} written by Go CrossVenueAggregator.
+        # Fail-open: missing/stale context -> skip gate, no indicators emitted.
+        # Phase 0: CROSSVENUE_CTX_ENABLED=0 (annotate-only via PROFILE=monitor).
+        if self._cached_crossvenue_ctx_enabled:
+            try:
+                cv = await aread_crossvenue_context(
+                    getattr(runtime, "redis_client", None), symbol=symbol
+                )
+                if cv is None:
+                    indicators["crossvenue_ctx_missing"] = 1
+                    try:
+                        crossvenue_ctx_missing_total.labels(symbol=str(symbol).upper()).inc()
+                    except Exception:
+                        pass
+                else:
+                    now_ms_cv = int(signal.get("tick_ts") or signal.get("ts_ms") or get_ny_time_millis())
+                    cv_age_ms = int(max(0, now_ms_cv - int(cv.ts_ms or 0)))
+                    indicators["crossvenue_ctx_snapshot_age_ms"] = cv_age_ms
+
+                    if cv_age_ms > self._cached_crossvenue_max_age_ms:
+                        indicators["crossvenue_ctx_stale"] = 1
+                        try:
+                            crossvenue_ctx_stale_total.labels(symbol=str(symbol).upper()).inc()
+                        except Exception:
+                            pass
+                    elif cv.quality_status == "OK":
+                        # Enrich indicators with cross-venue features
+                        indicators["cross_venue_mid_spread_bps"] = float(cv.cross_venue_mid_spread_bps)
+                        indicators["binance_vs_coinbase_mid_bps"] = float(cv.binance_vs_coinbase_mid_bps)
+                        indicators["binance_vs_kraken_mid_bps"] = float(cv.binance_vs_kraken_mid_bps)
+                        indicators["binance_vs_okx_mid_bps"] = float(cv.binance_vs_okx_mid_bps)
+                        indicators["cross_venue_direction_agree"] = float(cv.cross_venue_direction_agree)
+                        indicators["cross_venue_trade_imbalance"] = float(cv.cross_venue_trade_imbalance)
+                        indicators["venue_dislocation_z"] = float(cv.venue_dislocation_z)
+                        indicators["venue_stale_count"] = int(cv.venue_stale_count)
+
+                        cv_side = "BUY" if direction == "LONG" else "SELL"
+                        cv_dec = evaluate_crossvenue_context(
+                            profile=self._cached_crossvenue_profile,
+                            side=cv_side,
+                            direction_agree=float(cv.cross_venue_direction_agree),
+                            trade_imbalance=float(cv.cross_venue_trade_imbalance),
+                            dislocation_z=float(cv.venue_dislocation_z),
+                            mid_spread_bps=float(cv.cross_venue_mid_spread_bps),
+                            stale_count=int(cv.venue_stale_count),
+                            min_agree=self._cached_crossvenue_min_agree,
+                            max_dislocation_z=self._cached_crossvenue_max_dislocation_z,
+                            max_mid_spread_bps=self._cached_crossvenue_max_mid_spread_bps,
+                            max_stale_count=self._cached_crossvenue_max_stale_count,
+                            tighten_mult=self._cached_crossvenue_tighten_mult,
+                            tighten_cap_bps=self._cached_crossvenue_tighten_cap,
+                        )
+
+                        indicators["crossvenue_flags"] = ",".join(cv_dec.flags) if cv_dec.flags else ""
+                        indicators["crossvenue_mode"] = cv_dec.mode
+                        indicators["crossvenue_tighten_add_bps"] = float(cv_dec.tighten_add_bps)
+
+                        # Prometheus telemetry
+                        try:
+                            sym_cv = str(symbol).upper()
+                            _cv_snapshot_age_ms_hist.labels(symbol=sym_cv).observe(float(cv_age_ms))
+                            _cv_mid_spread_bps_gauge.labels(symbol=sym_cv).set(float(cv.cross_venue_mid_spread_bps))
+                            _cv_direction_agree_gauge.labels(symbol=sym_cv).set(float(cv.cross_venue_direction_agree))
+                            _cv_dislocation_z_gauge.labels(symbol=sym_cv).set(float(cv.venue_dislocation_z))
+                            if cv_dec.hit:
+                                crossvenue_ctx_gate_monitor_hit_total.labels(
+                                    symbol=sym_cv, profile=self._cached_crossvenue_profile
+                                ).inc()
+                        except Exception:
+                            pass
+
+                        if cv_dec.tighten_add_bps > 0.0:
+                            exp_slip = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+                            indicators["expected_slippage_bps"] = float(exp_slip + cv_dec.tighten_add_bps)
+                            try:
+                                tighten_reason_cv = ",".join(cv_dec.flags[:2]) if cv_dec.flags else "unknown"
+                                crossvenue_ctx_gate_tighten_total.labels(
+                                    symbol=str(symbol).upper(), reason=tighten_reason_cv
+                                ).inc()
+                            except Exception:
+                                pass
+
+                        if cv_dec.veto:
+                            cv_veto_reason = str(cv_dec.veto_reason)
+                            try:
+                                crossvenue_ctx_gate_veto_total.labels(
+                                    symbol=str(symbol).upper(), reason=cv_veto_reason
+                                ).inc()
+                            except Exception:
+                                pass
+                            logger.info(
+                                "shield [GATE] CrossVenue VETO (%s): %s | agree=%.2f disloc_z=%.2f spread_bps=%.2f stale=%d",
+                                symbol, cv_veto_reason,
+                                float(cv.cross_venue_direction_agree),
+                                float(cv.venue_dislocation_z),
+                                float(cv.cross_venue_mid_spread_bps),
+                                int(cv.venue_stale_count),
+                            )
+                            strong_gate_veto_total.labels(
+                                symbol=symbol, scenario="crossvenue_ctx",
+                                reason=cv_veto_reason, mode="ENFORCE"
+                            ).inc()
+                            passed = False
+                            reason = f"CROSSVENUE_CTX_VETO: {cv_veto_reason}"
+                            return
+            except Exception:
+                pass
 
         # ------------------------------------------------------------------
         # Phase C (P2): Liquidity geometry & resiliency gate (monitor/tighten/veto)
@@ -1685,6 +2022,12 @@ class SignalPipeline:
                 # TTL / Orphan Housekeeping
                 "max_lifetime_bars_after_entry": int(os.getenv("ORDERFLOW_MAX_LIFETIME_BARS_AFTER_ENTRY", "180")),
                 "orphan_ttl_ms": int(os.getenv("ORDERFLOW_MAX_LIFETIME_MS_AFTER_ENTRY", "0") or 0) or None,
+                # FIX #2/#5: Propagate regime + scenario into signal payload
+                # Previously computed for gate decisions but never written to payload →
+                # all trades had regime=na, scenario=na in trades:closed.
+                "regime": rg_for_overrides if rg_for_overrides != "na" else str(indicators.get("regime") or "na"),
+                "scenario": str(indicators.get("strong_gate_scn") or "na"),
+                "entry_tag": str(signal.get("entry_tag") or indicators.get("entry_tag") or "na"),
             }
         )
 
@@ -1806,18 +2149,36 @@ class SignalPipeline:
         # ------------------------------------------------------------------
         veto_dec = None
         try:
-            kind = str(indicators.get("kind") or signal.get("kind") or "")
+            # FIX #4: kind must come from entry_tag (=primary_reason: weak_progress/breakout/absorption etc.)
+            # Previously indicators["kind"] and signal["kind"] were both empty for CryptoOrderFlow,
+            # so all RS_DENY rules were silently bypassed because kind="" never matched anything.
+            kind = str(
+                indicators.get("kind")
+                or signal.get("kind")
+                or enriched_signal.get("entry_tag")   # canonical kind for CryptoOrderFlow
+                or signal.get("entry_tag")
+                or ""
+            ).strip().lower()
+            # FIX: regime for pp_ctx should use the canonical market regime, not liq_regime.
+            # liq_regime is a liquidity-specific label; the actual market regime is in enriched_signal["regime"].
+            _regime_for_ctx = str(
+                enriched_signal.get("regime")
+                or indicators.get("regime")
+                or indicators.get("liq_regime")
+                or signal.get("liq_regime")
+                or ""
+            ).strip().lower()
             pp_ctx = SimpleNamespace(
                 ts_event_ms=int(enriched_signal.get("ts_ms") or 0),
                 ts=int(enriched_signal.get("ts_ms") or 0),
                 data_quality_flags=enriched_signal.get("data_quality_flags") or {},
-                atr_ts_ms=int(enriched_signal.get("atr_ts_ms") or 0),
+                atr_ts_ms=int(enriched_signal.get("atr_ts_ms") or indicators.get("atr_ts_ms") or 0),
                 touch_is_stale=bool(enriched_signal.get("touch_is_stale") or False),
                 l2_is_stale=bool(enriched_signal.get("l2_is_stale") or False),
                 spread_bps=float(enriched_signal.get("spread_bps") or indicators.get("spread_bps") or 0.0),
                 depth_bid_20=float(indicators.get("depth_bid_20") or 0.0),
                 depth_ask_20=float(indicators.get("depth_ask_20") or 0.0),
-                regime=str(indicators.get("liq_regime") or indicators.get("regime") or signal.get("liq_regime") or ""),
+                regime=_regime_for_ctx,
                 indicators=indicators,
                 of=SimpleNamespace(
                     depth_bid_5=float(indicators.get("depth_bid_5") or 0.0),
@@ -1825,6 +2186,7 @@ class SignalPipeline:
                     burst_flip_ratio=float(indicators.get("burst_flip_ratio") or indicators.get("burst_flip_ratio_60s") or 0.0),
                 ),
             )
+
 
             for _gate in (self._hard_dq_gate, self._rs_gate, self._atr_floor_gate):
                 if _gate is None:
@@ -2604,45 +2966,90 @@ class SignalPipeline:
                 # Variant B: route through ExecutionRouter intent queue for scale-in support
                 binance_queue = self._cached_orders_intent_queue
 
-            order_payload = {
-                "action": "open",
-                "sid": str(sid),
-                "symbol": str(symbol),
-                "side": str(direction),
-                "qty": float(lot),
-                "type": "MARKET",
-                "entry": float(entry),
-                "sl": float(sl),
-                "tp_levels": [float(x) for x in (tp_levels or [])],
-                "is_virtual": 1 if mirror_all else (1 if is_virtual_flag else 0),
-                "mirror_all": bool(mirror_all),
-                "source": str(enriched_signal.get("source") or "CryptoOrderFlow"),
-                "strategy": str(enriched_signal.get("strategy") or "cryptoorderflow"),
-                "confidence": float(confidence),
-                "confidence_pct": float(confidence) * 100.0,
-                "ts_ms": int(ts_ms),
-                "trail_after_tp1": bool(enriched_signal.get("trail_after_tp1", False)),
-                "trail_profile": str(enriched_signal.get("trail_profile") or "rocket_v1"),
-                "regime": str(indicators.get("regime", "na")),
-                # Use ATR TF (atr_used_for_levels) as canonical "atr" for normalization.
-                "atr": float(indicators.get("atr_used_for_levels") or indicators.get("atr", 0.0) or 0.0),
-                "atr_used_for_levels": float(indicators.get("atr_used_for_levels", 0.0) or 0.0),
-                "atr_tf_used": str(indicators.get("atr_tf_used", "")),
-                
-                # Snapshotted ATR metrics exactly at signal generation time to prevent snapshot drift
-                "sl_atr_mult": float(indicators.get("sl_atr_mult", 0.0) or 0.0),
-                "tp1_atr_mult": float(indicators.get("tp1_atr_mult", 0.0) or 0.0),
-                "sl_atr": float(indicators.get("sl_atr", 0.0) or 0.0),
-                "tp1_atr": float(indicators.get("tp1_atr", 0.0) or 0.0),
-                
-                "validation_status": "failed" if is_rejected_signal else str(enriched_signal.get("validation_status") or ""),
-                "is_rejected_signal": 1 if is_rejected_signal else 0,
-                "rejection_reason": str(rejection_reason or ""),
-            }
-            if "tp_ratio" in enriched_signal:
-                order_payload["tp_ratio"] = enriched_signal["tp_ratio"]
-            if "trail_activate_tp_level_requested" in enriched_signal:
-                order_payload["trail_activate_tp_level_requested"] = enriched_signal["trail_activate_tp_level_requested"]
+            # --- CONTRACT VALIDATION (OrderIntentV1) ---
+            try:
+                # 1) Standardize side for Execution
+                side_norm = normalize_side(direction)
+
+                # 2) Build extra meta
+                meta = {
+                    "is_virtual": bool(mirror_all or is_virtual_flag),
+                    "mirror_all": bool(mirror_all),
+                    "source": str(enriched_signal.get("source") or "CryptoOrderFlow"),
+                    "strategy": str(enriched_signal.get("strategy") or "cryptoorderflow"),
+                    "confidence": float(confidence),
+                    "confidence_pct": float(confidence) * 100.0,
+                    "trail_after_tp1": bool(enriched_signal.get("trail_after_tp1", False)),
+                    "trail_profile": str(enriched_signal.get("trail_profile") or "rocket_v1"),
+                    "regime": str(indicators.get("regime", "na")),
+                    "atr": float(indicators.get("atr_used_for_levels") or indicators.get("atr", 0.0) or 0.0),
+                    "atr_used_for_levels": float(indicators.get("atr_used_for_levels", 0.0) or 0.0),
+                    "atr_tf_used": str(indicators.get("atr_tf_used", "")),
+                    "sl_atr_mult": float(indicators.get("sl_atr_mult", 0.0) or 0.0),
+                    "tp1_atr_mult": float(indicators.get("tp1_atr_mult", 0.0) or 0.0),
+                    "sl_atr": float(indicators.get("sl_atr", 0.0) or 0.0),
+                    "tp1_atr": float(indicators.get("tp1_atr", 0.0) or 0.0),
+                    "validation_status": "failed" if is_rejected_signal else str(enriched_signal.get("validation_status") or ""),
+                    "is_rejected_signal": 1 if is_rejected_signal else 0,
+                    "rejection_reason": str(rejection_reason or ""),
+                    "sl_price": float(sl),
+                    "tp_levels": [float(x) for x in (tp_levels or [])]
+                }
+                if "tp_ratio" in enriched_signal:
+                    meta["tp_ratio"] = enriched_signal["tp_ratio"]
+                if "trail_activate_tp_level_requested" in enriched_signal:
+                    meta["trail_activate_tp_level_requested"] = enriched_signal["trail_activate_tp_level_requested"]
+
+                intent_v1 = OrderIntentV1(
+                    intent_id=f"int:{sid}:{int(time.time()*1000)}",
+                    signal_id=str(sid),
+                    symbol=str(symbol),
+                    ts_ms=int(ts_ms),
+                    side=side_norm,
+                    order_type="MARKET",
+                    price=float(entry),
+                    qty=float(lot),
+                    meta=meta
+                )
+                order_payload = intent_v1.model_dump()
+            except Exception as e:
+                logger.warning("⚠️ (%s) OrderIntentV1 validation failed: %s", symbol, e)
+                # Fallback to legacy dict if validation fails to prevent order loss
+                order_payload = {
+                    "action": "open",
+                    "sid": str(sid),
+                    "symbol": str(symbol),
+                    "side": str(direction),
+                    "qty": float(lot),
+                    "type": "MARKET",
+                    "entry": float(entry),
+                    "sl": float(sl),
+                    "tp_levels": [float(x) for x in (tp_levels or [])],
+                    "is_virtual": 1 if mirror_all else (1 if is_virtual_flag else 0),
+                    "mirror_all": bool(mirror_all),
+                    "source": str(enriched_signal.get("source") or "CryptoOrderFlow"),
+                    "strategy": str(enriched_signal.get("strategy") or "cryptoorderflow"),
+                    "confidence": float(confidence),
+                    "confidence_pct": float(confidence) * 100.0,
+                    "ts_ms": int(ts_ms),
+                    "trail_after_tp1": bool(enriched_signal.get("trail_after_tp1", False)),
+                    "trail_profile": str(enriched_signal.get("trail_profile") or "rocket_v1"),
+                    "regime": str(indicators.get("regime", "na")),
+                    "atr": float(indicators.get("atr_used_for_levels") or indicators.get("atr", 0.0) or 0.0),
+                    "atr_used_for_levels": float(indicators.get("atr_used_for_levels", 0.0) or 0.0),
+                    "atr_tf_used": str(indicators.get("atr_tf_used", "")),
+                    "sl_atr_mult": float(indicators.get("sl_atr_mult", 0.0) or 0.0),
+                    "tp1_atr_mult": float(indicators.get("tp1_atr_mult", 0.0) or 0.0),
+                    "sl_atr": float(indicators.get("sl_atr", 0.0) or 0.0),
+                    "tp1_atr": float(indicators.get("tp1_atr", 0.0) or 0.0),
+                    "validation_status": "failed" if is_rejected_signal else str(enriched_signal.get("validation_status") or ""),
+                    "is_rejected_signal": 1 if is_rejected_signal else 0,
+                    "rejection_reason": str(rejection_reason or ""),
+                }
+                if "tp_ratio" in enriched_signal:
+                    order_payload["tp_ratio"] = enriched_signal["tp_ratio"]
+                if "trail_activate_tp_level_requested" in enriched_signal:
+                    order_payload["trail_activate_tp_level_requested"] = enriched_signal["trail_activate_tp_level_requested"]
 
             # --- Calibration / shadow metadata passthrough ---
             # Guarantees calib fields reach executor → orders:state → trades:closed

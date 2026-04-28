@@ -187,7 +187,7 @@ def check_tb_health(
             group_lag_ms=group_lag_ms,
         )
 
-    if input_lag_ms > max_input_lag_ms:
+    if input_lag_ms > max_input_lag_ms and (pending > 0 or group_lag_ms > 5000):
         return TBHealth(
             ok=False,
             reason=f"input_lag_ms>{max_input_lag_ms}",
@@ -200,7 +200,7 @@ def check_tb_health(
             pending=pending,
             group_lag_ms=group_lag_ms,
         )
-    if label_stale_ms > max_label_stale_ms:
+    if label_stale_ms > max_label_stale_ms and (pending > 0 or group_lag_ms > 5000 or label_stale_ms > (input_lag_ms + 300000)):
         return TBHealth(
             ok=False,
             reason=f"label_stale_ms>{max_label_stale_ms}",

@@ -213,16 +213,15 @@ class _TickIOBatch:
     closed_snapshot: Optional[Dict[str, Any]] = None
 
 
+
+
 def _canon_regime(v: Any) -> str:
     """
     Canonical regime label for persistence/segmentation.
-    Keep it conservative: lowercased string; empty => "na".
+    Unifies 'none', 'unknown', 'na' into 'na'.
     """
-    try:
-        s = str(v or "").strip().lower()
-    except Exception:
-        return "na"
-    return s or "na"
+    from contexts import normalize_regime_label
+    return normalize_regime_label(v)
 
 
 def _extract_regime_from_signal(sig: Any) -> str:

@@ -115,3 +115,48 @@ deriv_ctx_collector_errors_total = _get_or_create(
     "Derivatives context collector errors",
     labelnames=("where",),
 )
+
+# ─── V2 Metrics (Liquidation, Breadth, Crowding) ─────────────────────────────
+
+deriv_ctx_liq_imbalance_z = _get_or_create(
+    "deriv_ctx_liq_imbalance_z",
+    Histogram,
+    "Liquidation imbalance robust z-score",
+    labelnames=("symbol",),
+    buckets=(-10, -5, -3, -2, -1, 0, 1, 2, 3, 5, 10),
+)
+
+deriv_ctx_long_short_ratio_z = _get_or_create(
+    "deriv_ctx_long_short_ratio_z",
+    Histogram,
+    "Long/Short ratio robust z-score",
+    labelnames=("symbol",),
+    buckets=(-5, -3, -2, -1, 0, 1, 2, 3, 5),
+)
+
+deriv_ctx_market_breadth_ret = _get_or_create(
+    "deriv_ctx_market_breadth_ret",
+    Histogram,
+    "Market breadth 24h return",
+    buckets=(-0.1, -0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05, 0.1),
+)
+
+liq_ctx_worker_up = _get_or_create(
+    "liq_ctx_worker_up",
+    Gauge,
+    "Liquidation context worker liveness",
+)
+
+liq_ctx_worker_events_processed_total = _get_or_create(
+    "liq_ctx_worker_events_processed_total",
+    Counter,
+    "Liquidation events processed by worker",
+    labelnames=("symbol",),
+)
+
+liq_ctx_worker_errors_total = _get_or_create(
+    "liq_ctx_worker_errors_total",
+    Counter,
+    "Liquidation context worker errors",
+    labelnames=("where",),
+)
