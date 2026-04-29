@@ -149,6 +149,21 @@ TM_SIGNAL_DUPLICATE = Counter(
     "Signals ignored as duplicates in trade_monitor",
     ["symbol", "reason"]
 )
+TIME_BE_EXIT_DECISIONS_TOTAL = Counter(
+    "time_be_exit_decisions_total",
+    "Total number of TIME_BE_EXIT decisions",
+    ["symbol", "reason", "mode"]
+)
+TIME_BE_EXIT_CLOSES_TOTAL = Counter(
+    "time_be_exit_closes_total",
+    "Total number of TIME_BE_EXIT actual closes",
+    ["symbol", "reason"]
+)
+TIME_BE_EXIT_SHADOW_WOULD_CLOSE_TOTAL = Counter(
+    "time_be_exit_shadow_would_close_total",
+    "Total number of TIME_BE_EXIT would-closes in SHADOW mode",
+    ["symbol", "reason"]
+)
 
 TM_JITTER_BUFFER_SIZE = Gauge(
     "trade_monitor_jitter_buffer_size", "Current number of signals in jitter buffer"
@@ -2021,6 +2036,18 @@ class TradeMonitorService:
             closed.selected_sl_price = float(candidate.get("selected_sl_price") or 0.0)
             closed.selected_tp1_price = float(candidate.get("selected_tp1_price") or 0.0)
             closed.live_surface_policy_level = str(applied.get("policy_level", ""))
+
+            # Fallback: if live surface was INCOMPLETE (atr_profile missing → prices = 0),
+            # populate from the actual position levels used by trading logic.
+            # This ensures analytics queries always have meaningful TP/SL values.
+            if closed.selected_tp1_price == 0.0:
+                tp_levels = getattr(pos, "tp_levels", None)
+                if tp_levels and len(tp_levels) > 0 and float(tp_levels[0]) > 0:
+                    closed.selected_tp1_price = float(tp_levels[0])
+            if closed.selected_sl_price == 0.0:
+                pos_sl = float(getattr(pos, "sl", 0.0) or 0.0)
+                if pos_sl > 0:
+                    closed.selected_sl_price = pos_sl
         except Exception:
             pass
 
@@ -3307,6 +3334,12 @@ class TradeMonitorService:
             except Exception:
                 data["trail_after_tp1_reason"] = ""
 
+            v_raw = str(data.get("schema_version") or data.get("v") or "0").lower().replace("v", "")
+            try:
+                schema_version = int(v_raw)
+            except ValueError:
+                schema_version = 0
+
             return SignalNorm(
                 sid=sid,
                 strategy=strategy,
@@ -3324,7 +3357,7 @@ class TradeMonitorService:
                 trail_profile=trail_profile,
                 payload=data if isinstance(data, dict) else {},
                 entry_tag=entry_tag,
-                schema_version=int(data.get("schema_version") or data.get("v") or 0),
+                schema_version=schema_version,
             )
         except Exception as e:
             logger.error(f"Error normalizing signal: {e}", exc_info=True)
@@ -3994,6 +4027,18 @@ class TradeMonitorService:
                 # ---- accumulate events + repo side-effects in order ----
                 for ev in (events or []):
                     io_steps.append(("append_event", ev))
+
+                    if ev.event_type == "TIME_BE_EXIT_SHADOW":
+                        p = ev.payload or {}
+                        reason = p.get("reason_raw", "unknown")
+                        TIME_BE_EXIT_DECISIONS_TOTAL.labels(symbol=symbol, reason=reason, mode="SHADOW").inc()
+                        TIME_BE_EXIT_SHADOW_WOULD_CLOSE_TOTAL.labels(symbol=symbol, reason=reason).inc()
+
+                    if ev.event_type == "TIME_BE_EXIT":
+                        p = ev.payload or {}
+                        reason = p.get("reason_raw", "unknown")
+                        TIME_BE_EXIT_DECISIONS_TOTAL.labels(symbol=symbol, reason=reason, mode="ENFORCE").inc()
+                        TIME_BE_EXIT_CLOSES_TOTAL.labels(symbol=symbol, reason=reason).inc()
 
                     if ev.event_type == "TP_HIT":
                         p = ev.payload or {}

@@ -109,7 +109,7 @@ async def _main_loop() -> None:
         decode_responses=True,
         socket_connect_timeout=10,
         socket_timeout=30,
-        max_connections=50,
+        max_connections=10,
     )
     
     # Initialize ReportingService (it uses its own sync redis usually, or we pass valid url)

@@ -1768,7 +1768,7 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
+    # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=1
     - cb_enable=0
     - RISK_TIER_C_MIN_CONFIDENCE=0.35
@@ -1825,7 +1825,7 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
+    # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=1
     - cb_enable=0
     - RISK_TIER_C_MIN_CONFIDENCE=0.35
@@ -1882,7 +1882,7 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
+    # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=1
     - cb_enable=0
     - RISK_TIER_C_MIN_CONFIDENCE=0.35
@@ -1942,7 +1942,7 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
+    # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
     - CRYPTO_SYMBOLS_SET_KEY=${ALT_REDIS_KEY_1}
     - ALT_SYMBOLS_1=${ALT_SYMBOLS_1}
@@ -2005,7 +2005,7 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
+    # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
     - CRYPTO_SYMBOLS_SET_KEY=${ALT_REDIS_KEY_2}
     - ALT_SYMBOLS_2=${ALT_SYMBOLS_2}
@@ -2370,7 +2370,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 15
-      start_period: 60s
+      start_period: 150s
     ports:
     - 8787:8787
     networks: *id003

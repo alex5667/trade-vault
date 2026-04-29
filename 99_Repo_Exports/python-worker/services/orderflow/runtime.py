@@ -19,11 +19,38 @@ import os
 import time
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional, Tuple, Set, Deque
+from typing import Dict, Any, List, Optional, Tuple, Set, Deque, Literal
 from collections import deque
 from dataclasses import dataclass, field
 
-@dataclass
+@dataclass(slots=True)
+class FlowTick:
+    symbol: str
+    event_ts_ms: int
+    price: float
+    qty: float
+    side: Literal["BUY", "SELL", "UNKNOWN"]
+    direction: Literal["LONG", "SHORT", "NONE"]
+    aggressor_sign: Literal[-1, 0, 1]
+    counted_in_delta: bool
+    tick_uid: str
+    raw: Dict[str, Any] = field(default_factory=dict)
+    ts_source: str = ""
+    is_buyer_maker: Optional[bool] = None
+    trade_id: Optional[int] = None
+    side_conf: str = "unknown"
+    side_raw: Optional[str] = None
+    ingest_ts_ms: int = 0
+    process_ts_ms: int = 0
+    mid: float = 0.0
+    bid: float = 0.0
+    ask: float = 0.0
+    last: float = 0.0
+    payload_ts_ms: int = 0
+    qty_signed: float = 0.0
+
+
+@dataclass(slots=True)
 class BookSnapshot:
     best_bid_px: float
     best_bid_qty: float
@@ -132,7 +159,7 @@ class BookSnapshot:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BookState:
     """Atomic snapshot of the latest order book state.
 

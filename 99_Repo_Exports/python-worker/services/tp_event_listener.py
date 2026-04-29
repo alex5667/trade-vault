@@ -30,7 +30,7 @@ if str(_worker_path) not in sys.path:
     sys.path.insert(0, str(_worker_path))
 
 from services.trailing_profiles import TrailingProfilesRegistry
-from services.tp1_trailing_orchestrator import TP1TrailingOrchestrator
+from services.tp_hit_trailing_orchestrator import TpHitTrailingOrchestrator
 from common.log import setup_logger
 
 log = setup_logger("tp_event_listener")
@@ -59,7 +59,7 @@ class TPEventListener:
         
         # Инициализация компонентов
         self.profiles = TrailingProfilesRegistry()
-        self.orchestrator = TP1TrailingOrchestrator(
+        self.orchestrator = TpHitTrailingOrchestrator(
             redis_client=self.r,
             profiles=self.profiles
         )

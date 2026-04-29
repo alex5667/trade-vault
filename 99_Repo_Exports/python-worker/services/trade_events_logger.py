@@ -344,7 +344,7 @@ class TradeEventsLogger:
         event = TradeEvent(event_type="SL_HIT", sid=sid, symbol=symbol, ts=get_ny_time_millis(), price=price, position_id=position_id, lot=lot, source=source, metadata=metadata)
         return self.log_event(event)
 
-    def log_trailing_move(self, sid: str, symbol: str, new_sl: float, current_price: Optional[float] = None, profile: str = "unknown", position_id: Optional[str] = None, source: str = "tp1_trailing_orchestrator", distance_from_entry: Optional[float] = None, atr: Optional[float] = None) -> str:
+    def log_trailing_move(self, sid: str, symbol: str, new_sl: float, current_price: Optional[float] = None, profile: str = "unknown", position_id: Optional[str] = None, source: str = "tp_hit_trailing_orchestrator", distance_from_entry: Optional[float] = None, atr: Optional[float] = None) -> str:
         metadata = {}
         if distance_from_entry is not None: metadata["distance_from_entry"] = distance_from_entry
         if atr is not None: metadata["atr"] = atr
@@ -352,7 +352,7 @@ class TradeEventsLogger:
         event = TradeEvent(event_type="TRAILING_MOVE", sid=sid, symbol=symbol, ts=get_ny_time_millis(), new_sl=new_sl, profile=profile, position_id=position_id, source=source, metadata=metadata if metadata else None)
         return self.log_event(event)
 
-    def log_trailing_started(self, sid: str, symbol: str, profile: str, initial_sl: Optional[float] = None, tp1_price: Optional[float] = None, position_id: Optional[str] = None, source: str = "tp1_trailing_orchestrator") -> str:
+    def log_trailing_started(self, sid: str, symbol: str, profile: str, initial_sl: Optional[float] = None, tp1_price: Optional[float] = None, position_id: Optional[str] = None, source: str = "tp_hit_trailing_orchestrator") -> str:
         metadata = {}
         if initial_sl is not None: metadata["initial_sl"] = initial_sl
         if tp1_price is not None: metadata["tp1_price"] = tp1_price

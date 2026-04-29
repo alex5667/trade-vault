@@ -46,7 +46,7 @@ from services.orderflow.utils import _fields_to_dict, _parse_tick_payload, _comp
 from services.orderflow.configuration import _safe_int
 from services.signal_preprocess import preprocess_signal_for_publish
 from utils.task_manager import safe_create_task
-from utils.time_utils import get_ny_time_millis
+from utils.time_utils import get_epoch_ms as get_ny_time_millis
 
 logger = logging.getLogger("tick_processor")
 
@@ -194,18 +194,9 @@ class TickProcessor:
             tick["ingest_ts_ms"] = ingest_ts_ms
             tick["ts_redis_read_ms"] = ingest_ts_ms
 
-            # ── DQ validate ──────────────────────────────────────────────────
-            is_valid, dq_reason = self._dq_policy.validate(tick, ingest_ts_ms)
-            if not is_valid:
-                try:
-                    ticks_dropped_total.labels(symbol=symbol, reason=dq_reason).inc()
-                except Exception:
-                    pass
-                if self._exec_quarantine_enable:
-                    self._xadd_dq_quarantine(tick, dq_reason)
-                return True
-
-            # ── Timestamp resolution ─────────────────────────────────────────
+            # ── Timestamp resolution (BEFORE DQ!) ────────────────────────────
+            # P0-fix: DQ must validate the *resolved* event_ts_ms, not the raw payload ts.
+            # Rescue path: stream_id provides a valid fallback for stale/missing payload ts.
             now_ms = ingest_ts_ms
             payload_ts_ms = _safe_int(tick.get("ts_ms") or tick.get("event_ts_ms") or 0)
             event_ts_ms, ts_source = coerce_event_ts_ms(
@@ -217,11 +208,32 @@ class TickProcessor:
             tick["event_ts_ms"] = int(event_ts_ms)
             tick["ts_ms"] = int(event_ts_ms)
             tick["ts_source"] = str(ts_source)
+            tick["payload_ts_ms"] = int(payload_ts_ms)  # preserve original for DQ quarantine
 
             try:
                 ticks_ts_source_total.labels(symbol=str(symbol), ts_source=str(ts_source)).inc()
             except Exception:
                 pass
+
+            # ── DQ validate (on resolved event_ts_ms) ────────────────────────
+            # DQ still rejects bad_ts_unit / missing_symbol but stale/future/OOO
+            # are evaluated against the resolved event_ts_ms (which may come from stream_id).
+            # If ts_source == "stream_id" or "now", the payload_ts_ms issue is already
+            # captured in ts_source metric — DQ may still pass.
+            is_valid, dq_reason = self._dq_policy.validate(tick, ingest_ts_ms)
+            if not is_valid:
+                # Only quarantine hard-bad payloads where ts_source==payload (i.e. rescue didn't help)
+                # If ts_source is stream_id/now, the tick already passed resolution and DQ drop
+                # is for other reasons (missing_symbol, bad_ts_unit in raw payload).
+                payload_ts_was_bad = (ts_source != "payload")
+                try:
+                    reason_label = f"{dq_reason}" if not payload_ts_was_bad else f"{dq_reason}.raw"
+                    ticks_dropped_total.labels(symbol=symbol, reason=reason_label).inc()
+                except Exception:
+                    pass
+                if self._exec_quarantine_enable:
+                    self._xadd_dq_quarantine(tick, dq_reason)
+                return True
 
             # ── Unknown-side detection ───────────────────────────────────────
             try:
@@ -247,8 +259,8 @@ class TickProcessor:
                     pass
                 return True
 
-            # ── Dedup ────────────────────────────────────────────────────────
-            if self._is_duplicate(tick, runtime, symbol, raw):
+            # ── Dedup (P1-fix: pass msg_id as stream_id for fallback UID) ────
+            if self._is_duplicate(tick, runtime, symbol, raw, msg_id=msg_id):
                 return True
 
             # ── Unknown-side policy ──────────────────────────────────────────
@@ -450,10 +462,14 @@ class TickProcessor:
         return lag_ms
 
 
-    def _is_duplicate(self, tick: Dict, runtime: Any, symbol: str, raw: Dict) -> bool:
+    def _is_duplicate(self, tick: Dict, runtime: Any, symbol: str, raw: Dict, *, msg_id: str = "") -> bool:
+        """P1-fix: pass stream_id (msg_id) as fallback UID component when trade_id absent."""
         try:
             uid = str(tick.get("tick_uid") or "")
-            if not uid:
+            # Re-compute UID with stream_id if current uid is a hash (no trade_id was found)
+            # This makes dedupe stable for PEL reclaims (same msg_id → same uid)
+            if uid.startswith(tick.get("symbol", symbol).upper() + ":h") or not uid:
+                # Recompute with stream_id for better dedup stability
                 uid = _compute_tick_uid(
                     symbol=str(tick.get("symbol") or symbol),
                     trade_id=tick.get("trade_id"),
@@ -462,6 +478,7 @@ class TickProcessor:
                     qty_src=raw.get("qty") or raw.get("volume"),
                     side=str(tick.get("side") or ""),
                     is_buyer_maker=tick.get("is_buyer_maker"),
+                    stream_id=str(msg_id) if msg_id else None,
                 )
                 tick["tick_uid"] = uid
             if uid and runtime.is_duplicate_tick_uid(uid):
@@ -496,8 +513,14 @@ class TickProcessor:
             return True
 
         if pol == "ignore_delta":
+            # P1-fix: set canonical downstream contract fields so consumers never need
+            # to re-interpret side=UNKNOWN; they rely solely on aggressor_sign + counted_in_delta.
             try:
                 tick["qty_signed"] = 0.0
+                tick["aggressor_sign"] = 0
+                tick["counted_in_delta"] = False
+                tick["side"] = "UNKNOWN"
+                tick["side_reason"] = "unknown"
             except Exception:
                 pass
         return False

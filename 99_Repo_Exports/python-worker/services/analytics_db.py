@@ -42,6 +42,33 @@ TRADES_DB_DSN = os.getenv("TRADES_DB_DSN") or os.getenv("ANALYTICS_DB_DSN", DEFA
 ANALYTICS_P0_ENABLED = os.getenv("ANALYTICS_P0_ENABLED", "1") == "1"
 ANALYTICS_P0_HARD_FAIL = os.getenv("ANALYTICS_P0_HARD_FAIL", "0") == "1"
 
+
+def _enrich_config_snapshot(closed) -> dict:
+    """Build config_json dict enriched with actual TP/SL/ATR trade levels.
+
+    Merges computed levels (tp_levels, sl, atr, tp1_price) into the
+    signal_payload.config_snapshot dict so that retrospective analytics
+    always have access to the levels used for the trade.
+    """
+    sp = getattr(closed, "signal_payload", None) or {}
+    cs = dict(sp.get("config_snapshot", {}) or {}) if isinstance(sp, dict) else {}
+    try:
+        _tp_lvls = getattr(closed, "tp_levels", None) or []
+        if _tp_lvls:
+            cs["tp_levels"] = [float(x) for x in _tp_lvls]
+        _sl = float(getattr(closed, "sl", 0.0) or getattr(closed, "selected_sl_price", 0.0) or 0.0)
+        if _sl > 0:
+            cs["sl"] = _sl
+        _atr = float(getattr(closed, "atr", 0.0) or 0.0)
+        if _atr > 0:
+            cs["atr"] = _atr
+        _tp1 = float(getattr(closed, "tp1_price", 0.0) or getattr(closed, "selected_tp1_price", 0.0) or 0.0)
+        if _tp1 > 0:
+            cs["tp1_price"] = _tp1
+    except Exception:
+        pass
+    return cs
+
 # ---------------------------------------------------------------------------
 # Async batch trade writer (TRADES_BATCH_ENABLED=1)
 # ---------------------------------------------------------------------------
@@ -52,6 +79,7 @@ _TRADES_BATCH_ENABLED = os.getenv("TRADES_BATCH_ENABLED", "0") == "1"
 _TRADES_BATCH_SIZE = int(os.getenv("TRADES_BATCH_SIZE", "50"))
 _TRADES_FLUSH_INTERVAL_S = float(os.getenv("TRADES_FLUSH_INTERVAL_S", "5.0"))
 _trade_batch_writer = None
+_trade_p0_batch_writer = None
 
 
 from contextlib import contextmanager
@@ -103,12 +131,12 @@ def get_conn():
 
 
 def init_trade_batch_writer(dsn: str = "") -> None:
-    """Initialise the AsyncBatchWriter for trades_closed.
+    """Initialise the AsyncBatchWriter for trades_closed and trades_closed_p0.
 
     Call once at container startup when TRADES_BATCH_ENABLED=1.
     Idempotent — subsequent calls are no-ops.
     """
-    global _trade_batch_writer
+    global _trade_batch_writer, _trade_p0_batch_writer
     if _trade_batch_writer is not None:
         return
     _dsn = dsn or TRADES_DB_DSN
@@ -150,6 +178,27 @@ def init_trade_batch_writer(dsn: str = "") -> None:
             batch_size=_TRADES_BATCH_SIZE,
             flush_interval_s=_TRADES_FLUSH_INTERVAL_S,
             on_conflict_sql="ON CONFLICT (order_id) DO NOTHING",
+        )
+        _trade_p0_batch_writer = get_or_create_writer(
+            table="trades_closed_p0",
+            columns=[
+                "order_id", "exit_ts", "exit_ts_ms", "scenario", "regime", "session", "entry_reason",
+                "mae_bps", "mfe_bps", "time_to_mfe_ms", "hold_ms", "spread_bps_at_entry", "slippage_bps_est",
+                "book_age_ms", "features_json", "is_virtual", "meta_enforce_cov_bucket", "meta_enforce_applied", "updated_at"
+            ],
+            dsn=_dsn,
+            batch_size=_TRADES_BATCH_SIZE,
+            flush_interval_s=_TRADES_FLUSH_INTERVAL_S,
+            on_conflict_sql=(
+                "ON CONFLICT (order_id, exit_ts) DO UPDATE SET "
+                "scenario = EXCLUDED.scenario, regime = EXCLUDED.regime, session = EXCLUDED.session, "
+                "entry_reason = EXCLUDED.entry_reason, mae_bps = EXCLUDED.mae_bps, mfe_bps = EXCLUDED.mfe_bps, "
+                "time_to_mfe_ms = EXCLUDED.time_to_mfe_ms, hold_ms = EXCLUDED.hold_ms, "
+                "spread_bps_at_entry = EXCLUDED.spread_bps_at_entry, slippage_bps_est = EXCLUDED.slippage_bps_est, "
+                "book_age_ms = EXCLUDED.book_age_ms, features_json = EXCLUDED.features_json, "
+                "is_virtual = EXCLUDED.is_virtual, meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket, "
+                "meta_enforce_applied = EXCLUDED.meta_enforce_applied, updated_at = now()"
+            ),
         )
         import logging
         logging.getLogger("analytics_db").info(
@@ -442,6 +491,25 @@ def save_trade_closed(closed: TradeClosed) -> None:
     if horizon_contract:
         config_snapshot["_horizon_contract"] = horizon_contract
 
+    # FIX: Enrich config_snapshot with actual computed trade levels.
+    # Previously config_json only stored parameter settings (RR levels, mode, etc.)
+    # but NOT the computed TP/SL/ATR values, making retrospective analysis impossible.
+    try:
+        _tp_lvls = getattr(closed, "tp_levels", None) or []
+        if _tp_lvls:
+            config_snapshot["tp_levels"] = [float(x) for x in _tp_lvls]
+        _sl_val = getattr(closed, "sl", 0.0) or getattr(closed, "selected_sl_price", 0.0) or 0.0
+        if float(_sl_val) > 0:
+            config_snapshot["sl"] = float(_sl_val)
+        _atr_val = getattr(closed, "atr", 0.0) or 0.0
+        if float(_atr_val) > 0:
+            config_snapshot["atr"] = float(_atr_val)
+        _tp1_val = getattr(closed, "tp1_price", 0.0) or getattr(closed, "selected_tp1_price", 0.0) or 0.0
+        if float(_tp1_val) > 0:
+            config_snapshot["tp1_price"] = float(_tp1_val)
+    except Exception:
+        pass
+
     params = (
         closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
         closed.entry_ts_ms, closed.exit_ts_ms, closed.entry_price, closed.exit_price, closed.lot, closed.notional_usd,
@@ -611,11 +679,8 @@ def save_trade_closed_async(closed: "TradeClosed") -> bool:  # type: ignore[name
     True  — row successfully enqueued (will be written asynchronously).
     False — batch writer not initialised; caller should fall back to
             save_trade_closed() for synchronous write.
-
-    Note: P0 enrichment (trades_closed_p0 table) is NOT done here.
-    For full P0 writes use save_trade_closed() on the synchronous path.
     """
-    global _trade_batch_writer
+    global _trade_batch_writer, _trade_p0_batch_writer
     if _trade_batch_writer is None:
         if _TRADES_BATCH_ENABLED:
             init_trade_batch_writer()
@@ -698,7 +763,7 @@ def save_trade_closed_async(closed: "TradeClosed") -> bool:  # type: ignore[name
             "health_signal_emit_rate": getattr(closed, "health_signal_emit_rate", 0.0),
             "health_dlq_rate": getattr(closed, "health_dlq_rate", 0.0),
             "config_json": json.dumps(
-                getattr(closed, "signal_payload", {}).get("config_snapshot", {})
+                _enrich_config_snapshot(closed)
             ),
             "is_virtual": getattr(closed, "is_virtual", False),
             "meta_enforce_cov_bucket": getattr(closed, "meta_enforce_cov_bucket", ""),
@@ -716,6 +781,79 @@ def save_trade_closed_async(closed: "TradeClosed") -> bool:  # type: ignore[name
             "atr_restore_cert_status": getattr(closed, "atr_restore_cert_status", ""),
             "atr_policy_snapshot_json": json.dumps(getattr(closed, "atr_policy_snapshot_json", {})),
         })
+
+        if _trade_p0_batch_writer is not None and ANALYTICS_P0_ENABLED:
+            # Replicate P0 extraction logic
+            sp = getattr(closed, "signal_payload", {}) or {}
+            scenario = getattr(closed, "scenario", None) or sp.get("scenario")
+            regime = getattr(closed, "regime", None) or sp.get("regime")
+            session = getattr(closed, "session", None) or sp.get("session")
+            entry_reason = getattr(closed, "entry_reason", None) or sp.get("entry_reason")
+        
+            mae_bps = getattr(closed, "mae_bps", None)
+            mfe_bps = getattr(closed, "mfe_bps", None)
+            time_to_mfe_ms = getattr(closed, "time_to_mfe_ms", None)
+            hold_ms = getattr(closed, "hold_ms", None) or getattr(closed, "duration_ms", None)
+        
+            spread_bps_at_entry = getattr(closed, "spread_bps_at_entry", None) or sp.get("spread_bps_at_entry") or sp.get("spread_bps")
+            slippage_bps_est = getattr(closed, "slippage_bps_est", None) or sp.get("slippage_bps_est")
+            book_age_ms = getattr(closed, "book_age_ms", None) or sp.get("book_age_ms")
+        
+            features: Dict[str, Any] = {}
+            f1 = getattr(closed, "features", None)
+            if isinstance(f1, dict):
+                features = dict(f1)
+            else:
+                features = dict(sp.get("features") or sp.get("indicators") or {})
+        
+            ALLOW = {
+                "delta_z","dn_usd","obi","cvd_slope",
+                "absorption_score","weak_progress","vwap_pos",
+                "atr_bps","liq_scale","confidence",
+                "adverse_bps_t",
+                "spread_bps_at_entry","book_age_ms","slippage_bps_est",
+                "data_health", "expected_slippage_bps",
+                "expected_slippage_decomp_bps", "impact_proxy",
+                "slip_decomp_coeff_bps", "slip_decomp_spread_bps", "slip_decomp_impact_bps",
+                "exec_regime_bucket", "liq_regime_label", "vol_regime_label",
+                "spread_bps_submit", "mid_px_submit",
+                "taker_flow_imb", "taker_flow_imb_z",
+                "taker_flow_gate_veto", "taker_flow_gate_shadow_veto",
+                "taker_flow_gate_soft", "taker_flow_gate_reason",
+            }
+            features = {k: features[k] for k in ALLOW if k in features}
+            features_json_str = json.dumps(features, ensure_ascii=False)
+            if len(features_json_str) > 8000:
+                PRIORITY = ["adverse_bps_t","delta_z","dn_usd","obi","weak_progress","absorption_score","confidence"]
+                features = {k: features.get(k) for k in PRIORITY if k in features}
+
+            # Batch writers usually expect dicts, psycopg2 Json wrapper will be applied by db_batch_writer extra_adapter if needed,
+            # or we can pass a json string.
+            import datetime
+            dt = datetime.datetime.fromtimestamp(closed.exit_ts_ms / 1000.0, tz=datetime.timezone.utc).isoformat()
+            
+            _trade_p0_batch_writer.enqueue({
+                "order_id": closed.order_id,
+                "exit_ts": dt,
+                "exit_ts_ms": closed.exit_ts_ms,
+                "scenario": scenario,
+                "regime": regime,
+                "session": session,
+                "entry_reason": entry_reason,
+                "mae_bps": mae_bps,
+                "mfe_bps": mfe_bps,
+                "time_to_mfe_ms": time_to_mfe_ms,
+                "hold_ms": hold_ms,
+                "spread_bps_at_entry": spread_bps_at_entry,
+                "slippage_bps_est": slippage_bps_est,
+                "book_age_ms": book_age_ms,
+                "features_json": json.dumps(features, ensure_ascii=False),
+                "is_virtual": getattr(closed, "is_virtual", False),
+                "meta_enforce_cov_bucket": getattr(closed, "meta_enforce_cov_bucket", ""),
+                "meta_enforce_applied": getattr(closed, "meta_enforce_applied", -1),
+                "updated_at": dt,
+            })
+
         return True
 
     except Exception as exc:

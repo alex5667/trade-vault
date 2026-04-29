@@ -30,6 +30,18 @@ EXECUTION_ENTRY_SUBMITTED_TOTAL = _metric(
     "Entry orders submitted by the Binance executor.",
     ["symbol", "venue", "order_type"],
 )
+EXECUTION_INTENT_AGE_MS = _metric(
+    Gauge,
+    "execution_intent_age_ms",
+    "Age of execution intent in milliseconds (now - ts_decision).",
+    ["symbol"],
+)
+EXECUTION_INTENT_REJECTED_TOTAL = _metric(
+    Counter,
+    "execution_intent_rejected_total",
+    "Number of execution intents rejected due to TTD/TTL expiration.",
+    ["symbol", "reason"],
+)
 EXECUTION_ENTRY_FILLED_TOTAL = _metric(
     Counter,
     "execution_entry_filled_total",

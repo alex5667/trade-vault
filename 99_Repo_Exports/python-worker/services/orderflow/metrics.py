@@ -134,6 +134,60 @@ ml_confirm_gate_evaluations_total = _get_or_create_prom_counter(
     ["symbol", "mode", "decision"] # mode: SHADOW/ENFORCE, decision: passed/rejected/missing
 )
 
+ml_feature_mismatch_total = _get_or_create_prom_counter(
+    "ml_feature_mismatch_total",
+    "Total signals with mismatched ML feature schema (actual != expected)",
+    ["symbol", "model_ver", "schema_ver"]
+)
+
+ml_scorer_status_total = _get_or_create_prom_counter(
+    "ml_scorer_status_total",
+    "Total signals scored by ML Scorer Gate (pass/fail-open/fail-closed)",
+    ["symbol", "status", "mode"]
+)
+
+ml_scorer_latency_ms = _get_or_create_prom_histogram(
+    "ml_scorer_latency_ms",
+    "Time spent in ML Scorer gate evaluation (ms)",
+    ["symbol", "status"],
+    buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500)
+)
+
+# New Lifecycle Metrics
+crypto_of_service_startup_duration_ms = _get_or_create_prom_histogram(
+    "crypto_of_service_startup_duration_ms",
+    "Startup duration of the orderflow service",
+    buckets=(100, 500, 1000, 2000, 5000, 10000, 30000)
+)
+crypto_of_ml_gate_bootstrap_status = _get_or_create_prom_gauge(
+    "crypto_of_ml_gate_bootstrap_status",
+    "ML gate bootstrap status (1=OK, 0=Fail)",
+    ["status"]
+)
+crypto_of_shutdown_duration_ms = _get_or_create_prom_histogram(
+    "crypto_of_shutdown_duration_ms",
+    "Shutdown duration of the orderflow service",
+    buckets=(100, 500, 1000, 5000, 10000, 30000)
+)
+crypto_of_symbol_tasks_active = _get_or_create_prom_gauge(
+    "crypto_of_symbol_tasks_active",
+    "Active symbol tasks count"
+)
+crypto_of_symbol_task_restarts_total = _get_or_create_prom_counter(
+    "crypto_of_symbol_task_restarts_total",
+    "Total symbol task restarts",
+    ["symbol", "kind"]
+)
+crypto_of_pel_cleanup_duration_ms = _get_or_create_prom_histogram(
+    "crypto_of_pel_cleanup_duration_ms",
+    "PEL cleanup duration",
+    buckets=(50, 100, 500, 1000, 5000)
+)
+crypto_of_time_source_mismatch_total = _get_or_create_prom_counter(
+    "crypto_of_time_source_mismatch_total",
+    "Time source mismatch total"
+)
+
 
 # Decision record metrics (P45/P48)
 decision_record_written_total = _get_or_create_prom_counter(

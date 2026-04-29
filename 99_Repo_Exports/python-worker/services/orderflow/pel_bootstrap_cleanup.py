@@ -129,6 +129,7 @@ async def cleanup_zombie_consumers(
                     if int(consumer_pending) > 0:
                         acked = await _ack_consumer_pending(
                             redis_client, stream, group, str(consumer_name),
+                            current_consumer=current_consumer_id,
                             batch_size=200,
                         )
                         pending_cleaned += acked
@@ -188,9 +189,10 @@ async def _ack_consumer_pending(
     group: str,
     consumer: str,
     *,
+    current_consumer: str = "",
     batch_size: int = 200,
 ) -> int:
-    """ACK all pending entries for a specific consumer. Returns count ACKed."""
+    """XCLAIM and ACK all pending entries for a specific consumer. Returns count ACKed."""
     total_acked = 0
     start_id = "-"
 
@@ -215,6 +217,10 @@ async def _ack_consumer_pending(
             break
 
         try:
+            # Active PEL Management: XCLAIM the messages to current consumer before ACKing
+            if current_consumer:
+                await redis_client.xclaim(stream, group, current_consumer, min_idle_time=0, message_ids=ids)
+            
             await redis_client.xack(stream, group, *ids)
             total_acked += len(ids)
         except Exception:

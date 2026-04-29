@@ -54,6 +54,8 @@ CONSUMER = os.getenv("HOSTNAME", APP_NAME)
 PORT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_PORT", "9922"))
 MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_MAXLEN", "20000"))
 PENDING_TTL_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_PENDING_TTL_SEC", "86400"))
+# scan_iter по всему keyspace (317K ключей) дорого — ограничиваем до 1 раза в 60 сек
+METRICS_REFRESH_INTERVAL_SEC = float(os.getenv("ML_ROUTE_INCIDENT_RCA_SHADOW_COMPARATOR_METRICS_INTERVAL_SEC", "60"))
 
 # Database URL: project convention uses ANALYTICS_DB_DSN via PgBouncer
 DB_URL = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
@@ -98,6 +100,9 @@ PENDING = _gauge(
     "Estimated pending shadow rows in comparator state",
     ("side",),
 )
+
+
+_last_metrics_refresh: float = 0.0
 
 
 def now_ms() -> int:
@@ -273,6 +278,11 @@ async def delete_pending_pair(r: Any, corr: str) -> None:
 
 
 async def refresh_pending_metrics(r: Any) -> None:
+    global _last_metrics_refresh
+    now = time.monotonic()
+    if now - _last_metrics_refresh < METRICS_REFRESH_INTERVAL_SEC:
+        return
+    _last_metrics_refresh = now
     try:
         handoff_n = 0
         async for _ in r.scan_iter(f"{PENDING_PREFIX}handoff:*", count=5000):

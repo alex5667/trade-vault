@@ -57,6 +57,7 @@ class RedisPoolSet:
     health_contract: aioredis.Redis
     ml_gate: aioredis.Redis
     publish: aioredis.Redis
+    state: aioredis.Redis
 
     @classmethod
     def build(cls, cfg: RedisPoolCfg, redis_dsn: str, ticks_dsn: str) -> "RedisPoolSet":
@@ -99,6 +100,9 @@ class RedisPoolSet:
         publish_url = os.getenv("PUBLISH_REDIS_URL", redis_dsn)
         publish = pool(publish_url, cfg.publish_max, hc=cfg.hc_interval)
 
+        state_url = os.getenv("REDIS_STATE_URL", redis_dsn)
+        state = pool(state_url, cfg.state_max, hc=cfg.hc_interval)
+
         inst = cls(
             main=main,
             ticks=ticks,
@@ -107,8 +111,9 @@ class RedisPoolSet:
             health_contract=health_contract,
             ml_gate=ml_gate,
             publish=publish,
+            state=state,
         )
-        inst._log_pool_info(cfg, redis_dsn, ticks_dsn, config_url, ml_gate_url)
+        inst._log_pool_info(cfg, redis_dsn, ticks_dsn, config_url, ml_gate_url, state_url)
         inst._warn_if_pool_too_small(cfg)
         return inst
 
@@ -140,15 +145,16 @@ class RedisPoolSet:
         ticks_dsn: str,
         config_url: str,
         ml_gate_url: str,
+        state_url: str,
     ) -> None:
         logger.info(
             "🔗 Redis pools: main_max=%d ticks_max=%d config_max=%d ml_gate_max=%d "
-            "health_contract_max=%d publish_max=%d sock_to=%.1fs conn_to=%.1fs hc=%ds",
+            "health_contract_max=%d publish_max=%d state_max=%d sock_to=%.1fs conn_to=%.1fs hc=%ds",
             cfg.main_max, cfg.ticks_max, cfg.config_max, cfg.ml_gate_max,
-            cfg.health_contract_max, cfg.publish_max, cfg.sock_to, cfg.conn_to, cfg.hc_interval,
+            cfg.health_contract_max, cfg.publish_max, cfg.state_max, cfg.sock_to, cfg.conn_to, cfg.hc_interval,
         )
-        logger.info("   main=%s  ticks=%s  config=%s  ml_gate=%s",
-                    redis_dsn, ticks_dsn, config_url, ml_gate_url)
+        logger.info("   main=%s  ticks=%s  config=%s  ml_gate=%s  state=%s",
+                    redis_dsn, ticks_dsn, config_url, ml_gate_url, state_url)
 
     @staticmethod
     def _warn_if_pool_too_small(cfg: RedisPoolCfg) -> None:
@@ -167,6 +173,7 @@ class RedisPoolSet:
         for client in (
             self.main, self.ticks, self.config,
             self.health_contract, self.ml_gate,
+            self.publish, self.state,
         ):
             oid = id(client)
             if oid in seen:

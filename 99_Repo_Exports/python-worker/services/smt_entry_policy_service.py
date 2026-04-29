@@ -114,7 +114,7 @@ class PolicyCfg:
             max_age_ms=int(os.getenv("ENTRY_POLICY_MAX_CANDIDATE_AGE_MS", "120000")),
             allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0"))),
             active_arm_cache_ttl_ms=int(os.getenv("ENTRY_POLICY_ACTIVE_ARM_CACHE_TTL_MS", "2000")),
-            audit_stream_maxlen=int(os.getenv("TRADE_ENTRY_AUDIT_MAXLEN", "200000")),
+            audit_stream_maxlen=int(os.getenv("TRADE_ENTRY_AUDIT_MAXLEN", "5000")),
             out_stream_maxlen=int(os.getenv("TRADE_ENTRY_MAXLEN", "20000")),
         )
 

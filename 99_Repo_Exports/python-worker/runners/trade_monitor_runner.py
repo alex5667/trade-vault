@@ -373,23 +373,9 @@ def main():
     redis_clients.append(r1)
 
     try:
-        if REDIS_URL:
-            # Парсим URL, чтобы получить пользователя и пароль, и просто меняем хост на redis-worker-2
-            parsed = urllib.parse.urlparse(REDIS_URL)
-            if parsed.hostname == 'redis-worker-1':
-                r2_url = parsed._replace(netloc=parsed.netloc.replace('redis-worker-1', 'redis-worker-2')).geturl()
-            else:
-                r2_url = REDIS_URL.replace("redis-worker-1", "redis-worker-2")
-                
-            r2 = redis.from_url(r2_url, decode_responses=True, socket_timeout=5.0, socket_connect_timeout=5.0)
-        else:
-            redis_host_2 = os.getenv("REDIS_SIGNALS_HOST_2", "redis-worker-2")
-            redis_port_2 = int(os.getenv("REDIS_SIGNALS_PORT_2", "6379"))
-            r2 = redis.Redis(host=redis_host_2, port=redis_port_2, db=0, decode_responses=True, socket_timeout=5.0, socket_connect_timeout=5.0)
+        # Ensure we don't connect to redis-worker-2 anymore since we're consolidating on master
+        r2 = None
 
-        if r2.ping():
-            redis_clients.append(r2)
-            log.info(f"Connected to secondary redis {r2.connection_pool.connection_kwargs.get('host')}")
     except Exception as e:
         log.warning(f"Secondary redis not available: {e}")
 

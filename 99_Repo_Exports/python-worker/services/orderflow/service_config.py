@@ -42,14 +42,15 @@ class RedisPoolCfg:
     Формула: N_symbols × 2 + overhead(50) = нужный ticks_max.
     При 8 инстансах: 8 × (128 main + 128 ticks) = 2048 итого.
     """
-    main_max: int = field(default_factory=lambda: _env_int("REDIS_MAIN_MAX_CONNECTIONS", 128))
-    ticks_max: int = field(default_factory=lambda: _env_int("REDIS_TICKS_MAX_CONNECTIONS", 128))
-    notify_max: int = field(default_factory=lambda: _env_int("REDIS_NOTIFY_MAX_CONNECTIONS", 32))
-    config_max: int = field(default_factory=lambda: _env_int("REDIS_CONFIG_MAX_CONNECTIONS", 10))
-    health_max: int = field(default_factory=lambda: _env_int("REDIS_HEALTH_MAX_CONNECTIONS", 10))
-    health_contract_max: int = field(default_factory=lambda: _env_int("REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS", 5))
-    ml_gate_max: int = field(default_factory=lambda: _env_int("REDIS_ML_GATE_MAX_CONNECTIONS", 5))
-    publish_max: int = field(default_factory=lambda: _env_int("REDIS_PUBLISH_MAX_CONNECTIONS", 64))
+    main_max: int = field(default_factory=lambda: _env_int("REDIS_MAIN_MAX_CONNECTIONS", 16))
+    ticks_max: int = field(default_factory=lambda: _env_int("REDIS_TICKS_MAX_CONNECTIONS", 32))
+    notify_max: int = field(default_factory=lambda: _env_int("REDIS_NOTIFY_MAX_CONNECTIONS", 8))
+    config_max: int = field(default_factory=lambda: _env_int("REDIS_CONFIG_MAX_CONNECTIONS", 5))
+    health_max: int = field(default_factory=lambda: _env_int("REDIS_HEALTH_MAX_CONNECTIONS", 5))
+    health_contract_max: int = field(default_factory=lambda: _env_int("REDIS_HEALTH_CONTRACT_MAX_CONNECTIONS", 3))
+    ml_gate_max: int = field(default_factory=lambda: _env_int("REDIS_ML_GATE_MAX_CONNECTIONS", 3))
+    publish_max: int = field(default_factory=lambda: _env_int("REDIS_PUBLISH_MAX_CONNECTIONS", 8))
+    state_max: int = field(default_factory=lambda: _env_int("REDIS_STATE_MAX_CONNECTIONS", 8))
 
     # 1.0s на hot-path: event loop заблокируется максимум на 1s при Redis stall.
     # Было 30.0 — любой Redis stall замораживал весь pipeline на 30s.
@@ -75,6 +76,25 @@ class CalibCfg:
     window: int = field(default_factory=lambda: _env_int("CONF_CALIB_WINDOW", 2000))
     min_history: int = field(default_factory=lambda: _env_int("CONF_CALIB_MIN_HISTORY", 30))
     fallback_k: float = field(default_factory=lambda: _env_float("CONF_CALIB_FALLBACK_K", 8.0))
+    score_calib_redis_key: str = field(default_factory=lambda: os.getenv("SCORE_CALIB_REDIS_KEY", "cfg:rolling_calib:v1"))
+    score_calib_persist_interval_sec: float = field(default_factory=lambda: _env_float("SCORE_CALIB_PERSIST_INTERVAL_SEC", 300.0))
+    score_calib_ttl_sec: int = field(default_factory=lambda: _env_int("SCORE_CALIB_TTL_SEC", 7 * 24 * 3600))
+
+
+# ── Lifecycle / PEL ───────────────────────────────────────────────────────────
+
+@dataclass
+class PelCfg:
+    cleanup_on_startup: bool = field(default_factory=lambda: _env_bool("PEL_CLEANUP_ON_STARTUP", "true"))
+    cleanup_idle_threshold_ms: int = field(default_factory=lambda: _env_int("PEL_CLEANUP_IDLE_THRESHOLD_MS", 60000))
+    cleanup_periodic_enable: bool = field(default_factory=lambda: _env_bool("PEL_CLEANUP_PERIODIC_ENABLE", "true"))
+    cleanup_periodic_sec: float = field(default_factory=lambda: _env_float("PEL_CLEANUP_PERIODIC_SEC", 300.0))
+    sweeper_enable: bool = field(default_factory=lambda: _env_bool("CRYPTO_OF_PEL_SWEEP", "false"))
+
+@dataclass
+class LifecycleCfg:
+    drain_timeout_sec: float = field(default_factory=lambda: _env_float("CRYPTO_OF_DRAIN_TIMEOUT_SEC", 10.0))
+    supervisor_enable: bool = field(default_factory=lambda: _env_bool("CRYPTO_OF_SUPERVISOR", "true"))
 
 
 # ── Risk / DQ / Quarantine gates ──────────────────────────────────────────────
@@ -137,6 +157,8 @@ class TickCfg:
         default_factory=lambda: _env_int("TICK_SIDE_QUARANTINE_MAXLEN", 20_000))
 
     ack_batch: int = field(default_factory=lambda: _env_int("CRYPTO_OF_ACK_BATCH", 200))
+    xack_retries: int = field(default_factory=lambda: max(0, _env_int("CRYPTO_OF_XACK_RETRIES", 3)))
+    xack_backoff_ms: float = field(default_factory=lambda: max(0.0, _env_float("CRYPTO_OF_XACK_BACKOFF_MS", 50.0)))
     max_lag_ms: int = field(default_factory=lambda: _env_int("CRYPTO_OF_MAX_LAG_MS", 500))
     drop_on_lag: bool = field(default_factory=lambda: _env_bool("CRYPTO_OF_DROP_ON_LAG", "0"))
     max_ts_skew_ms: int = field(
@@ -199,6 +221,8 @@ class ServiceConfig:
     risk: RiskGateCfg = field(default_factory=RiskGateCfg)
     tick: TickCfg = field(default_factory=TickCfg)
     engine: EngineCfg = field(default_factory=EngineCfg)
+    pel: PelCfg = field(default_factory=PelCfg)
+    lifecycle: LifecycleCfg = field(default_factory=LifecycleCfg)
 
     # StreamCfg строится через from_env() из-за отложенного импорта RedisStreams
     streams: Optional[StreamCfg] = None

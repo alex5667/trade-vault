@@ -2731,7 +2731,8 @@ class PeriodicReporter:
                 
                 # Добавляем индикаторы частей
                 part1 += "\n\n📄 Часть 1/2"
-                part2 = "📄 Часть 2/2\n\n" + part2
+                # Добавляем контекст во вторую часть, чтобы при вклинивании других сообщений было понятно к чему она
+                part2 = f"📄 Часть 2/2 | <b>{html.escape(str(source))} ({report_type_label}) / {html.escape(display_symbol)}</b>\n\n" + part2
                 
                 logger.info(f"📤 Публикация отчета в Redis stream для {source}/{symbol} (часть 1/2, {len(part1)} символов)...")
                 success1 = self.reporting.send_telegram_message(part1)

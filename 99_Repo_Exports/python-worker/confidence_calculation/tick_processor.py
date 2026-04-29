@@ -54,8 +54,8 @@ from services.async_signal_publisher import AsyncSignalPublisher, StreamSink
 # SRE metrics for gate decisions
 OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
 OF_GATE_METRICS_ENABLE = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
-OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)
-OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "200000") or 200000)
+OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.02") or 0.02)
+OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "10000") or 10000)
 OF_GATE_METRICS_SAMPLE_SALT = os.getenv("OF_GATE_METRICS_SAMPLE_SALT", "").strip()
 OF_GATE_METRICS_SAMPLE_KEY_MODE = "symbol_ts_v1"
 
@@ -125,8 +125,8 @@ class TickProcessor:
         
         self.of_gate_metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate") or "metrics:of_gate"
         self.of_gate_metrics_enable = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
-        self.of_gate_metrics_sample = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)
-        self.of_gate_metrics_maxlen = int(os.getenv("OF_GATE_METRICS_MAXLEN", "200000") or 200000)
+        self.of_gate_metrics_sample = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.02") or 0.02)
+        self.of_gate_metrics_maxlen = int(os.getenv("OF_GATE_METRICS_MAXLEN", "10000") or 10000)
 
         # Tick time guard / quarantine (moved from Strategy; must run BEFORE delta detector)
         self.tick_time_observe_enable = os.getenv("TICK_TIME_OBSERVE_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")

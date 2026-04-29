@@ -2,7 +2,7 @@ from pathlib import Path
 import importlib.util
 import sys
 
-mod_path = Path(__file__).with_name("execution_intent_validator.py")
+mod_path = Path(__file__).parent.parent / "execution_intent_validator.py"
 spec = importlib.util.spec_from_file_location("execution_intent_validator", mod_path)
 mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod

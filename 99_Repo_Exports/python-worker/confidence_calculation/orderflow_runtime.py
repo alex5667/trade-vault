@@ -23,7 +23,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set, Deque
 from collections import deque
 from dataclasses import dataclass, field
 
-@dataclass
+@dataclass(slots=True)
 class BookSnapshot:
     best_bid_px: float
     best_bid_qty: float
@@ -111,7 +111,7 @@ class BookSnapshot:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BookState:
     """Atomic snapshot of the latest order book state.
 

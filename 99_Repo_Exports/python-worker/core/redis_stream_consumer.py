@@ -43,6 +43,15 @@ except Exception:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
+def _safe_disconnect_pool(pool: Any) -> None:
+    """Safely disconnects a redis pool in the background without raising unretrieved asyncio task exceptions."""
+    try:
+        task = asyncio.create_task(pool.disconnect())
+        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+    except Exception:
+        pass
+
+
 def _decode_any(x: Any) -> str:
     """Safe decode for bytes/str/None."""
     if x is None:
@@ -1198,7 +1207,7 @@ class AsyncRedisStreamHelper:
             try:
                 pool = getattr(self.client, "connection_pool", None)
                 if pool is not None:
-                    asyncio.create_task(pool.disconnect())
+                    _safe_disconnect_pool(pool)
             except Exception:
                 pass
             raise
@@ -1215,7 +1224,7 @@ class AsyncRedisStreamHelper:
             try:
                 pool = getattr(self.client, "connection_pool", None)
                 if pool is not None:
-                    asyncio.create_task(pool.disconnect())
+                    _safe_disconnect_pool(pool)
             except Exception:
                 pass
 
@@ -1246,7 +1255,7 @@ class AsyncRedisStreamHelper:
                 try:
                     pool = getattr(self.client, "connection_pool", None)
                     if pool is not None:
-                        asyncio.create_task(pool.disconnect())
+                        _safe_disconnect_pool(pool)
                 except Exception:
                     pass
                 raise
@@ -1258,7 +1267,7 @@ class AsyncRedisStreamHelper:
                 try:
                     pool = getattr(self.client, "connection_pool", None)
                     if pool is not None:
-                        asyncio.create_task(pool.disconnect())
+                        _safe_disconnect_pool(pool)
                 except Exception:
                     pass
 
@@ -1284,7 +1293,7 @@ class AsyncRedisStreamHelper:
             try:
                 pool = getattr(self.client, "connection_pool", None)
                 if pool is not None:
-                    asyncio.create_task(pool.disconnect())
+                    _safe_disconnect_pool(pool)
             except Exception:
                 pass
                 

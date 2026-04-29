@@ -291,7 +291,7 @@ class EntryPolicyRollbackGuardV1:
 
 async def _main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=100)
+    r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=10)
     svc = EntryPolicyRollbackGuardV1(r)
     await svc.run_forever()
 

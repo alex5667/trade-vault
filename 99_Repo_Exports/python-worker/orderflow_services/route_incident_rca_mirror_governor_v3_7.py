@@ -195,9 +195,14 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, 
 
 
 async def pending_total_from_keys(r: Any, prefix: str) -> int:
+    # KEYS блокирует event loop на 40-100ms при 150K+ ключах — заменяем на scan_iter
     try:
-        handoff_n = len(await r.keys(f"{prefix}handoff:*"))
-        legacy_n = len(await r.keys(f"{prefix}legacy:*"))
+        handoff_n = 0
+        async for _ in r.scan_iter(f"{prefix}handoff:*", count=5000):
+            handoff_n += 1
+        legacy_n = 0
+        async for _ in r.scan_iter(f"{prefix}legacy:*", count=5000):
+            legacy_n += 1
         return handoff_n + legacy_n
     except Exception:
         return 0

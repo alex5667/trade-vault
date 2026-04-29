@@ -297,6 +297,12 @@ class TradeClosed:
     # -------------------------------------------------------------------------
     # Phase 3.1: runtime adoption
     # -------------------------------------------------------------------------
+    live_surface_applied: bool = False
+    live_surface_reason_code: str = ""
+    baseline_sl_price: float = 0.0
+    baseline_tp1_price: float = 0.0
+    selected_sl_price: float = 0.0
+    selected_tp1_price: float = 0.0
     live_surface_policy_level: str = ""
     trailing_policy_level: str = ""
 

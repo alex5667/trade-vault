@@ -111,7 +111,7 @@ async def run_once(*, r_sync, r_async: aioredis.Redis, since_hours: float, windo
 
 async def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    r_async = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=50)
+    r_async = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=10)
     # Using the library directly for sync client as it's not imported globally
     import redis as redis_lib
     r_sync = redis_lib.from_url(redis_url, decode_responses=True)

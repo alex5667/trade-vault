@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Callable
 import time
 import orjson
+import msgpack
 import hashlib
 import zlib
 from datetime import datetime, timezone
@@ -295,9 +296,18 @@ def _parse_tick_payload(
 
     merged: Dict[str, Any] = {}
     try:
+        use_msgpack = os.getenv("USE_MSGPACK", "false").lower() == "true"
         if isinstance(payload, (bytes, bytearray)):
-            payload = payload.decode("utf-8", errors="ignore")
-        if isinstance(payload, str):
+            if use_msgpack:
+                try:
+                    merged = msgpack.unpackb(payload, raw=False)
+                except Exception:
+                    payload = payload.decode("utf-8", errors="ignore")
+                    merged = orjson.loads(payload)
+            else:
+                payload = payload.decode("utf-8", errors="ignore")
+                merged = orjson.loads(payload)
+        elif isinstance(payload, str):
             merged = orjson.loads(payload)
         elif isinstance(payload, dict):
             merged = payload
@@ -424,6 +434,22 @@ def _parse_tick_payload(
 
     tick["qty"] = qty
 
+    if side == "BUY":
+        tick["direction"] = "LONG"
+        tick["aggressor_sign"] = 1
+        tick["counted_in_delta"] = True
+        tick["qty_signed"] = qty
+    elif side == "SELL":
+        tick["direction"] = "SHORT"
+        tick["aggressor_sign"] = -1
+        tick["counted_in_delta"] = True
+        tick["qty_signed"] = -qty
+    else:
+        tick["direction"] = "NONE"
+        tick["aggressor_sign"] = 0
+        tick["counted_in_delta"] = False
+        tick["qty_signed"] = 0.0
+
     # Deterministic UID for dedup (prefer trade_id; consumer may overwrite with stream_id-aware uid)
     tick["tick_uid"] = _compute_tick_uid(
         symbol=str(tick.get("symbol") or ""),
@@ -447,10 +473,20 @@ def _parse_tick_payload(
 
 def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
     if "data" in payload:
-        try:
-            nested = orjson.loads(payload["data"])
-        except orjson.JSONDecodeError:
-            nested = {}
+        use_msgpack = os.getenv("USE_MSGPACK", "false").lower() == "true"
+        if use_msgpack and isinstance(payload["data"], (bytes, bytearray)):
+            try:
+                nested = msgpack.unpackb(payload["data"], raw=False)
+            except Exception:
+                try:
+                    nested = orjson.loads(payload["data"])
+                except Exception:
+                    nested = {}
+        else:
+            try:
+                nested = orjson.loads(payload["data"])
+            except Exception:
+                nested = {}
     else:
         nested = {}
 

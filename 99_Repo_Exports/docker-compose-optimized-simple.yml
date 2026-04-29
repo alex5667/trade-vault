@@ -89,12 +89,12 @@ services:
     - 0.0.0.0:26381:26379
     volumes:
     - scanner-redis-worker-2-data:/data
-    - ./redis-external-access.conf:/usr/local/etc/redis/redis.conf
-    command: redis-server /usr/local/etc/redis/redis.conf
+    - ./redis-replica.conf:/usr/local/etc/redis/redis-replica.conf
+    command: redis-server /usr/local/etc/redis/redis-replica.conf
     networks:
     - scanner-network
     depends_on:
-      redis:
+      redis-worker-1:
         condition: service_healthy
     healthcheck:
       test:

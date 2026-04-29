@@ -9,7 +9,7 @@ import os
 import time
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple, List
-from common.normalization import generate_signal_id, normalize_direction
+from common.normalization import generate_signal_id, normalize_direction, normalize_direction_safe
 from common.enums.trading import Direction
 
 from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot, build_feature_manifest_v1, to_public_dict
@@ -319,7 +319,9 @@ def _emit_cont_ctx_calib_capture_v1(
 
         symbol = str(getattr(ofc, "symbol", "") or indicators.get("symbol") or getattr(runtime, "symbol", "") or "")
         direction = str(getattr(ofc, "direction", "") or indicators.get("direction") or "")
-        direction_norm = normalize_direction(direction)
+        direction_norm = normalize_direction_safe(direction)
+        if direction_norm is None:
+            return
         signal_id = generate_signal_id(
             kind="ofc_cont",
             symbol=symbol,

@@ -1,0 +1,40 @@
+[main 1a8230fe] Auto-sync vault notes 2026-04-28 05:45:02
+ 86 files changed, 5491 insertions(+), 634 deletions(-)
+ delete mode 100644 95_Context_Packs/.state/post-trade-risk-pack.pending
+ create mode 100644 99_Automation/logs/update_2026-04-28_03-37-42.log
+ create mode 100644 99_Repo_Exports/_legacy_services/archivers/sql/20260224_of_gate_dlq_events_indexes_p84.sql
+ create mode 100644 99_Repo_Exports/_legacy_services/archivers/sql/20260225_of_inputs_dlq_events_rollups_p99.sql
+ create mode 100644 99_Repo_Exports/_legacy_services/posttrade/sql/decision_snapshot_timescale.sql
+ create mode 100644 99_Repo_Exports/python-worker/common/contracts/registry.py
+ create mode 100644 99_Repo_Exports/python-worker/common/enums/trading.py
+ create mode 100644 99_Repo_Exports/python-worker/common/normalization.py
+ create mode 100644 99_Repo_Exports/python-worker/core/coingecko_macro_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/core/coingecko_snapshot.py
+ create mode 100644 99_Repo_Exports/python-worker/scratch/test_canary.py
+ create mode 100644 99_Repo_Exports/python-worker/scratch/test_p0_compliance.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/breadth_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/crossvenue_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/crossvenue_context_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/defillama_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/defillama_context_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/liquidation_context_worker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/metrics_crossvenue_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/metrics_defillama_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_crossvenue_context_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_crossvenue_context_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_defillama_context_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_defillama_context_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_derivatives_context_gate_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_derivatives_context_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_liquidation_context_worker_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_coingecko_macro_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_coingecko_snapshot.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_latency_hot_path_tuning.py
+ create mode 100644 auto_sync.log
+ create mode 100755 auto_sync.sh
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-04-28 05:45:03 - Синхронизация завершена успешно.

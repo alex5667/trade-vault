@@ -22,7 +22,7 @@ import os
 import time
 import asyncio
 from utils.task_manager import safe_create_task
-from common.normalization import generate_signal_id, normalize_side_3, Direction
+from common.normalization import generate_signal_id, normalize_side_3, normalize_side_3_safe, Direction
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -2147,19 +2147,43 @@ class OrderFlowStrategy:
 
             # Measure engine build latency for SRE monitoring
             t_build_ns0 = time.perf_counter_ns()
-            ofc, dec = self.of_engine.build(
-                symbol=runtime.symbol,
-                tf=str(runtime.config.get("micro_tf", "1s")),
-                direction=direction,
-                tick_ts_ms=tick_ts,
-                price=float(price),
-                delta_z=float(delta_z_used),
-                runtime=runtime,
-                cfg=cfg2,
-                indicators=indicators,
-                absorption=absorption if isinstance(absorption, dict) else None,
-                worker_lag_ms=worker_lag_ms
-            )
+            from services.ml_confirm_gate import is_of_sync_build, run_bounded_of_build
+            
+            if is_of_sync_build():
+                ofc, dec = self.of_engine.build(
+                    symbol=runtime.symbol,
+                    tf=str(runtime.config.get("micro_tf", "1s")),
+                    direction=direction,
+                    tick_ts_ms=tick_ts,
+                    price=float(price),
+                    delta_z=float(delta_z_used),
+                    runtime=runtime,
+                    cfg=cfg2,
+                    indicators=indicators,
+                    absorption=absorption if isinstance(absorption, dict) else None,
+                    worker_lag_ms=worker_lag_ms
+                )
+            else:
+                def _do_build():
+                    return self.of_engine.build(
+                        symbol=runtime.symbol,
+                        tf=str(runtime.config.get("micro_tf", "1s")),
+                        direction=direction,
+                        tick_ts_ms=tick_ts,
+                        price=float(price),
+                        delta_z=float(delta_z_used),
+                        runtime=runtime,
+                        cfg=cfg2,
+                        indicators=indicators,
+                        absorption=absorption if isinstance(absorption, dict) else None,
+                        worker_lag_ms=worker_lag_ms
+                    )
+                result, _ = await run_bounded_of_build(_do_build, timeout_s=0.5)
+                if result:
+                    ofc, dec = result
+                else:
+                    ofc, dec = None, None
+
             t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
 
             # P4.1 Latency Contract: Feature Ready (Sampled 1% for BBO flow)
@@ -3604,7 +3628,11 @@ class OrderFlowStrategy:
             return
 
         # Unified side normalization (P0)
-        side_norm = normalize_side_3(signal.get("direction") or signal.get("side") or "")
+        side_norm = normalize_side_3_safe(signal.get("direction") or signal.get("side") or "")
+        if side_norm is None:
+            logger.warning("⚠️ (%s) _publish_orders_queue: unknown direction=%r side=%r (skip)",
+                           symbol, signal.get("direction"), signal.get("side"))
+            return
         direction = side_norm.execution.lower() # buy/sell
         venue = str(signal.get("venue") or "mt5").lower()
 

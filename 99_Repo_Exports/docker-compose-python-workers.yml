@@ -71,7 +71,7 @@ services:
     - NEWS_DEBUG_FULL_MAX_JSON_BYTES=409
     - REDIS_SIGNALS_HOST=redis-worker-1
     - REDIS_SIGNALS_PORT=6379
-    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_HOST_2=redis-worker-1
     - REDIS_SIGNALS_PORT_2=6379
     - L2_NEGATIVE_SKEW_STALE_MS=5000
     - MANUAL_AUDIT_LEVEL=compact
@@ -567,7 +567,7 @@ services:
     - REDIS_HEALTH_CHECK_INTERVAL=30
     - REDIS_SIGNALS_HOST=redis-worker-1
     - REDIS_SIGNALS_PORT=6379
-    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_HOST_2=redis-worker-1
     - REDIS_SIGNALS_PORT_2=6379
     - PG_DSN=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
     - DATABASE_URL=postgresql://trading:${TRADING_PASSWORD}@postgres:5432/trade
@@ -1553,7 +1553,7 @@ services:
     - TRAIL_STATS_TTL_SEC=5184000
     - TRAIL_CLEAR_FUTURE_TPS_ON_START=1
     - REDIS_SIGNALS_PORT=6379
-    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_HOST_2=redis-worker-1
     - REDIS_SIGNALS_PORT_2=6379
     - SYMBOLS=${CRYPTO_SYMBOLS}
     - STRATEGIES=orderflow,ta,aggregated,cryptoorderflow
@@ -1984,7 +1984,7 @@ services:
     - GO_WORKER_REDIS_USER=${GO_WORKER_REDIS_USER:-go_worker}
     - GO_WORKER_REDIS_PASS=${GO_WORKER_REDIS_PASS}
     - REDIS_SIGNALS_HOST=redis-worker-1
-    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_HOST_2=redis-worker-1
     - OUTBOX_CONTRACT_MODE=warn
     - OUTBOX_CONTRACT_SAMPLE_RATE=0.1
     - USE_SIGNAL_OUTBOX=true
@@ -2644,7 +2644,7 @@ services:
     - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
     - TRADES_DB_DSN=${ANALYTICS_DB_DSN}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
-    - TM_GROUP=trade-monitor-2
+    - TM_GROUP=trade-monitor
     - TM_CONSUMER=tm2-1
     - TM_NAMESPACE=trade-monitor-2
     - TM_RESCAN_EVERY_SEC=15
@@ -3751,6 +3751,63 @@ services:
           cpus: '0.2'
         reservations:
           memory: 64M
+  decision-snapshot-writer-new:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner-python-worker:latest
+    container_name: scanner-decision-snapshot-writer-new
+    runtime: nvidia
+    profiles: ["default"]
+    ports:
+      - "9841:9841"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - DECISION_SNAPSHOT_METRICS_PORT=9841
+    volumes:
+      - ./python-worker/runners:/app/runners
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/common:/app/common
+    command:
+      - sh
+      - -c
+      - sleep 5 && python -m runners.decision_snapshot_writer
+    networks:
+      - scanner-core
+      - scanner-infra
+
+  ml-predictions-writer:
+    build:
+      context: .
+      dockerfile: python-worker/Dockerfile.gpu
+    image: scanner-python-worker:latest
+    container_name: scanner-ml-predictions-writer
+    runtime: nvidia
+    ports:
+      - "9843:9843"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis-worker-1:6379/0
+      - ML_PREDICTIONS_METRICS_PORT=9843
+    volumes:
+      - ./python-worker/runners:/app/runners
+      - ./python-worker/services:/app/services
+      - ./python-worker/core:/app/core
+      - ./python-worker/common:/app/common
+    command:
+      - sh
+      - -c
+      - sleep 5 && python -m runners.ml_predictions_writer
+    networks:
+      - scanner-core
+      - scanner-infra
+
 networks:
   scanner-core:
     external: true

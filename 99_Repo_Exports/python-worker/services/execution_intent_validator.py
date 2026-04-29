@@ -10,7 +10,8 @@ The goal is to reject malformed exit contracts *before* they hit Binance:
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Literal, Dict, Any
+import time
 
 
 @dataclass(frozen=True)
@@ -71,3 +72,72 @@ def validate_exit_intent(
     # reducing order, but without reduceOnly/closePosition we cannot prove this
     # contract is safe enough for the executor.
     return ExitIntentResult(False, True, False, "exit_contract_not_provably_reducing")
+
+
+@dataclass(slots=True)
+class ExecutionIntent:
+    sid: str
+    symbol: str
+    action: Literal["open", "modify", "cancel", "resize", "close"]
+    direction: Literal["LONG", "SHORT"]
+    qty: float
+    entry_type: Literal["MARKET", "LIMIT"]
+    ts_signal_ms: int
+    ts_decision_ms: int
+    ts_enqueue_ms: int
+    max_ttd_ms: int
+    expires_at_ms: int
+
+    @classmethod
+    def from_payload(cls, payload: Dict[str, Any]) -> ExecutionIntent:
+        action = str(payload.get("action") or "").strip().lower()
+        if action not in {"open", "modify", "cancel", "resize", "close"}:
+            action = "open"
+
+        raw_side = str(payload.get("side") or payload.get("direction") or "").upper()
+        direction = "LONG" if raw_side in {"BUY", "LONG"} else "SHORT"
+
+        qty_val = 0.0
+        if payload.get("qty") is not None:
+            qty_val = float(payload.get("qty") or 0.0)
+        elif payload.get("quantity") is not None:
+            qty_val = float(payload.get("quantity") or 0.0)
+        elif payload.get("lot") is not None:
+            qty_val = float(payload.get("lot") or 0.0)
+
+        entry = payload.get("entry")
+        price = None
+        if entry not in (None, 0, "", "0"):
+            price = float(entry)
+            
+        order_type = str(payload.get("type") or ("limit" if price else "market")).upper()
+        entry_type = "MARKET" if order_type in {"MARKET", "MKT"} else "LIMIT"
+
+        now_ms = int(time.time() * 1000)
+        
+        ts_exec_start_ms = payload.get("ts_exec_start_ms") or now_ms
+        ts_decision_ms = payload.get("ts_decision_ms") or payload.get("ts_queue_ms") or payload.get("ts_signal_ms") or ts_exec_start_ms
+        
+        max_ttd_ms = payload.get("max_ttd_ms")
+        if max_ttd_ms is None:
+            max_ttd_ms = 50
+
+        return cls(
+            sid=str(payload.get("sid") or ""),
+            symbol=str(payload.get("symbol") or "").upper(),
+            action=action, # type: ignore
+            direction=direction, # type: ignore
+            qty=qty_val,
+            entry_type=entry_type, # type: ignore
+            ts_signal_ms=int(payload.get("ts_signal_ms") or ts_decision_ms),
+            ts_decision_ms=int(ts_decision_ms),
+            ts_enqueue_ms=int(payload.get("ts_enqueue_ms") or ts_decision_ms),
+            max_ttd_ms=int(max_ttd_ms),
+            expires_at_ms=int(payload.get("expires_at_ms") or (ts_decision_ms + max_ttd_ms))
+        )
+
+
+def validate_execution_intent(intent: ExecutionIntent, now_ms: int) -> None:
+    age_ms = now_ms - intent.ts_decision_ms
+    if age_ms > intent.max_ttd_ms:
+        raise ValueError("INTENT_EXPIRED")

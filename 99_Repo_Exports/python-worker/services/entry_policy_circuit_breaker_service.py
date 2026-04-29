@@ -196,7 +196,7 @@ class EntryPolicyCircuitBreakerService:
     """
     def __init__(self) -> None:
         redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-        self.r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=50)
+        self.r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=10)
         
         self.stream = os.getenv("CB_AUDIT_STREAM", "stream:trade:entry_audit")
         self.group = os.getenv("CB_GROUP", "entry-cb")

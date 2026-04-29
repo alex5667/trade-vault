@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Sequence, Union
 from types import SimpleNamespace
 
 from common.contracts.registry import SignalV1, OrderIntentV1
-from common.normalization import normalize_side_3, generate_signal_id, Direction
+from common.normalization import normalize_side_3, normalize_side_3_safe, generate_signal_id, Direction
 from common.enums.trading import Direction, Side
 
 from services.orderflow.runtime import SymbolRuntime
@@ -107,6 +107,17 @@ from services.orderflow.metrics_crossvenue_context import (
     crossvenue_ctx_dislocation_z as _cv_dislocation_z_gauge,
     crossvenue_ctx_snapshot_age_ms as _cv_snapshot_age_ms_hist,
 )
+
+from services.orderflow.sentiment_context import aread_sentiment_context
+from services.orderflow.sentiment_context_gate import evaluate_sentiment_context
+from services.orderflow.metrics_sentiment_context import (
+    sentiment_ctx_missing_total,
+    sentiment_ctx_stale_total,
+    sentiment_ctx_gate_monitor_hit_total,
+    sentiment_ctx_gate_tighten_total,
+    sentiment_risk_multiplier,
+)
+
 
 _book_sanity_gate = BookSanityGate.from_env()
 _stream_integrity_gate = StreamIntegrityGate.from_env()
@@ -249,9 +260,17 @@ class SignalPipeline:
         self._cached_defillama_ctx_tighten_cap = float(os.getenv("DEFILLAMA_CTX_TIGHTEN_ADD_CAP_BPS", "4.0") or 4.0)
         self._cached_defillama_ctx_max_age_ms = int(os.getenv("DEFILLAMA_CTX_MAX_AGE_MS", "7200000") or 7200000)
 
+        # Sentiment context config (Fear & Greed)
+        self._cached_sentiment_ctx_enabled = os.getenv("SENTIMENT_CTX_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+        self._cached_sentiment_profile = str(os.getenv("SENTIMENT_CTX_PROFILE", "monitor") or "monitor").strip().lower()
+        self._cached_sentiment_max_age_ms = int(os.getenv("SENTIMENT_CTX_MAX_AGE_MS", "172800000") or 172800000)
+        self._cached_sentiment_tighten_cap_bps = float(os.getenv("SENTIMENT_CTX_TIGHTEN_CAP_BPS", "2.0") or 2.0)
+
         # Cross-venue context gate config (Phase 0: disabled by default)
         self._cached_crossvenue_ctx_enabled = os.getenv("CROSSVENUE_CTX_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
         self._cached_crossvenue_profile = str(os.getenv("CROSSVENUE_CTX_PROFILE", "monitor") or "monitor").strip().lower()
+        self._cv_profile_cache_val = self._cached_crossvenue_profile
+        self._cv_profile_cache_ts_ms = 0
         self._cached_crossvenue_max_age_ms = int(os.getenv("CROSSVENUE_CTX_MAX_AGE_MS", "5000") or 5000)
         self._cached_crossvenue_min_agree = float(os.getenv("CROSSVENUE_CTX_MIN_AGREE", "0.67") or 0.67)
         self._cached_crossvenue_max_dislocation_z = float(os.getenv("CROSSVENUE_CTX_MAX_DISLOCATION_Z", "3.0") or 3.0)
@@ -412,9 +431,26 @@ class SignalPipeline:
 
         # Drop legacy alias keys from canonical map
         out.pop("ice_strict", None)
-        out.pop("sweep", None)
-
         return out
+
+    def _get_cv_profile(self, r: redis.Redis | None) -> str:
+        now_ms = get_ny_time_millis()
+        if now_ms - self._cv_profile_cache_ts_ms < 10000:
+            return self._cv_profile_cache_val
+
+        try:
+            if r:
+                raw = r.get("cfg:crypto_of:crossvenue_ctx_profile")
+                if raw:
+                    self._cv_profile_cache_val = str(raw).strip().lower()
+                    self._cv_profile_cache_ts_ms = now_ms
+                    return self._cv_profile_cache_val
+        except Exception:
+            pass
+
+        self._cv_profile_cache_val = self._cached_crossvenue_profile
+        self._cv_profile_cache_ts_ms = now_ms
+        return self._cv_profile_cache_val
 
     def _extract_conf_scores(self, *, signal: dict, indicators: dict) -> tuple[float, float | None]:
         """Return (raw, final)."""
@@ -590,7 +626,11 @@ class SignalPipeline:
         # 1) Extract + normalize primitive inputs (direction/symbol/cfg)
         # ------------------------------------------------------------------
         symbol = runtime.symbol
-        side_norm = normalize_side_3(signal.get("direction") or signal.get("side") or "")
+        side_norm = normalize_side_3_safe(signal.get("direction") or signal.get("side") or "")
+        if side_norm is None:
+            logger.warning("⚠️ (%s) publish_signal: unknown direction=%r side=%r (skip)",
+                           symbol, signal.get("direction"), signal.get("side"))
+            return
         direction = side_norm.direction  # LONG/SHORT (str enum)
         cfg = runtime.config
 
@@ -657,6 +697,13 @@ class SignalPipeline:
                 direction=side_norm.direction
             )
             
+            # ✅ FIX (2026-04-28): Preserve original confidence from strategy.
+            # SignalV1.confidence defaults to 0.0.  Without passing the real value,
+            # model_dump() exports confidence=0.0, and signal.update() overwrites
+            # the real confidence computed by _compute_confidence() in strategy.py.
+            # This caused 100% trade suppression via Confidence VETO (0.00 < 0.70).
+            _original_confidence = float(signal.get("confidence", 0.0) or 0.0)
+
             sig_v1 = SignalV1(
                 signal_id=signal_id,
                 symbol=symbol,
@@ -669,6 +716,7 @@ class SignalPipeline:
                 entry_price=float(entry),
                 sl_price=float(signal.get("sl") or 0.0),
                 tp_levels=signal.get("tp_levels") or [],
+                confidence=_original_confidence,
                 ok=int(indicators.get("of_confirm_ok", 0) or 0),
                 ok_soft=int(indicators.get("ok_soft", 0) or 0),
                 reason=str(signal.get("reason", reason or "delta_spike")),
@@ -677,7 +725,15 @@ class SignalPipeline:
                 meta=signal.get("metadata") or {}
             )
             # Standardize signal dict from v1
-            signal.update(sig_v1.model_dump())
+            # ✅ FIX: Use selective update to prevent SignalV1 defaults from
+            # overwriting critical fields that were already set by strategy.
+            _v1_dump = sig_v1.model_dump()
+            # Fields that must NEVER be overwritten with SignalV1 defaults
+            _protected_keys = {"confidence"}
+            for _k, _v in _v1_dump.items():
+                if _k in _protected_keys and _k in signal:
+                    continue  # keep original value from strategy
+                signal[_k] = _v
         except Exception as e:
             logger.warning("⚠️ (%s) SignalV1 validation failed: %s", symbol, e)
 
@@ -1018,6 +1074,75 @@ class SignalPipeline:
                 pass
 
         # ------------------------------------------------------------------
+        # P0.2: Sentiment context (Fear & Greed index)
+        # ------------------------------------------------------------------
+        if self._cached_sentiment_ctx_enabled:
+            try:
+                sent = await aread_sentiment_context(getattr(runtime, "redis_client", None))
+                if sent is None:
+                    indicators["sentiment_ctx_missing"] = 1
+                    try:
+                        sentiment_ctx_missing_total.inc()
+                    except Exception:
+                        pass
+                else:
+                    now_ms = int(signal.get("tick_ts") or signal.get("ts_ms") or get_ny_time_millis())
+                    age_ms = max(0, now_ms - int(sent.ts_ms or 0))
+
+                    if age_ms <= self._cached_sentiment_max_age_ms and sent.quality_status == "OK":
+                        indicators["fear_greed_value"] = sent.fear_greed_value
+                        indicators["fear_greed_delta_1d"] = sent.fear_greed_delta_1d
+                        indicators["fear_greed_delta_7d"] = sent.fear_greed_delta_7d
+                        indicators["sentiment_regime"] = sent.sentiment_regime
+                        indicators["sentiment_risk_multiplier"] = sent.sentiment_risk_multiplier
+
+                        side = "BUY" if direction == "LONG" else "SELL"
+
+                        dec = evaluate_sentiment_context(
+                            profile=self._cached_sentiment_profile,
+                            side=side,
+                            sentiment_regime=sent.sentiment_regime,
+                            fear_greed_value=sent.fear_greed_value,
+                            fear_greed_delta_1d=sent.fear_greed_delta_1d,
+                            fear_greed_delta_7d=sent.fear_greed_delta_7d,
+                            base_risk_multiplier=sent.sentiment_risk_multiplier,
+                            tighten_cap_bps=self._cached_sentiment_tighten_cap_bps,
+                        )
+
+                        if dec.flags:
+                            indicators["sentiment_flags"] = ",".join(dec.flags)
+                        
+                        if dec.tighten_add_bps > 0.0:
+                            indicators["sentiment_tighten_add_bps"] = dec.tighten_add_bps
+                            exp0 = float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+                            indicators["expected_slippage_bps"] = float(exp0 + float(dec.tighten_add_bps))
+                            try:
+                                sentiment_ctx_gate_tighten_total.labels(reason="tighten").inc()
+                            except Exception:
+                                pass
+
+                        # Reduce risk (never increase)
+                        signal["risk_multiplier"] = min(
+                            float(signal.get("risk_multiplier", 1.0) or 1.0),
+                            float(dec.risk_multiplier),
+                        )
+                        
+                        try:
+                            sentiment_risk_multiplier.set(float(dec.risk_multiplier))
+                            if dec.hit:
+                                sentiment_ctx_gate_monitor_hit_total.labels(profile=self._cached_sentiment_profile).inc()
+                        except Exception:
+                            pass
+                    else:
+                        indicators["sentiment_ctx_stale"] = 1
+                        try:
+                            sentiment_ctx_stale_total.inc()
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning("⚠️ (%s) Failed to evaluate sentiment context: %s", symbol, e)
+
+        # ------------------------------------------------------------------
         # Cross-venue context gate (Coinbase/Kraken/OKX validation)
         # ------------------------------------------------------------------
         # Reads ctx:crossvenue:{SYMBOL} written by Go CrossVenueAggregator.
@@ -1057,8 +1182,9 @@ class SignalPipeline:
                         indicators["venue_stale_count"] = int(cv.venue_stale_count)
 
                         cv_side = "BUY" if direction == "LONG" else "SELL"
+                        active_cv_profile = self._get_cv_profile(getattr(runtime, "redis_client", None))
                         cv_dec = evaluate_crossvenue_context(
-                            profile=self._cached_crossvenue_profile,
+                            profile=active_cv_profile,
                             side=cv_side,
                             direction_agree=float(cv.cross_venue_direction_agree),
                             trade_imbalance=float(cv.cross_venue_trade_imbalance),
@@ -1605,7 +1731,7 @@ class SignalPipeline:
                 _range_rr = [float(x.strip()) for x in _range_rr_str.split(",") if x.strip()][:2]
                 _stop_dist = abs(float(entry) - float(sl))
                 if _stop_dist > 0 and len(_range_rr) >= 1:
-                    if str(direction or "").upper() == "LONG":
+                    if getattr(direction, 'value', str(direction or '')).upper() == "LONG":
                         tp_levels = [entry + _stop_dist * r for r in _range_rr]
                     else:
                         tp_levels = [entry - _stop_dist * r for r in _range_rr]
@@ -1621,7 +1747,7 @@ class SignalPipeline:
                     for i, tp in enumerate(tp_levels):
                         _tp_dist = abs(float(tp) - float(entry))
                         if _tp_dist < _min_tp_dist * (i + 1):
-                            if str(direction or "").upper() == "LONG":
+                            if getattr(direction, 'value', str(direction or '')).upper() == "LONG":
                                 tp_levels[i] = float(entry) + _min_tp_dist * (i + 1)
                             else:
                                 tp_levels[i] = float(entry) - _min_tp_dist * (i + 1)
@@ -1910,7 +2036,7 @@ class SignalPipeline:
             # Safe mult resolution: meta > symbol-override > global-default
             rocket_mult = float(gate_meta.get("mult") or self._get_rocket_multiplier(symbol))
             
-            expected_tp1 = entry + (atr * rocket_mult) if str(direction or "").upper() == "LONG" else entry - (atr * rocket_mult)
+            expected_tp1 = entry + (atr * rocket_mult) if getattr(direction, 'value', str(direction or '')).upper() == "LONG" else entry - (atr * rocket_mult)
             actual_tp1 = float(tp_levels[0])
             diff = abs(expected_tp1 - actual_tp1)
             
@@ -1931,7 +2057,7 @@ class SignalPipeline:
                      expected_tp1, actual_tp1, diff, hard_tol, symbol
                  )
                  # Force correct TP1 if deviation is significant
-                 if str(direction or "").upper() == "LONG":
+                 if getattr(direction, 'value', str(direction or '')).upper() == "LONG":
                      tp_levels[0] = float(entry + atr * rocket_mult)
                  else:
                      tp_levels[0] = float(entry - atr * rocket_mult)
@@ -2446,7 +2572,7 @@ class SignalPipeline:
             symbol=symbol,
             entry_price=entry,
             sl_price=sl,
-            side=str(direction or "").upper(),
+            side=getattr(direction, 'value', str(direction or '')).upper(),
             risk_percent=effective_risk_pct,
             tp_price=tp_levels[0] if tp_levels else None, # ✅ Pass TP1 for profitability floor check
         )
@@ -2461,7 +2587,7 @@ class SignalPipeline:
                 symbol=symbol,
                 entry_price=entry,
                 sl_price=sl,
-                side=str(direction or "").upper(),
+                side=getattr(direction, 'value', str(direction or '')).upper(),
                 risk_percent=effective_risk_pct,
                 tp_price=None, # Bypass TP1 floor check to get the mathematical risk lot
             )
@@ -2536,7 +2662,7 @@ class SignalPipeline:
         crypto_signal = CryptoSignal(
             sid=signal["signal_id"],
             symbol=symbol,
-            side=str(direction or "").upper(),
+            side=getattr(direction, 'value', str(direction or '')).upper(),
             entry=entry,
             sl=sl,
             tp_levels=tp_levels,

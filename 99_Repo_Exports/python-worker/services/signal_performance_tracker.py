@@ -49,7 +49,7 @@ from services.trade_monitor import TradeMonitorService
 from domain.models import PositionState
 from services.reporting_service import ReportingService
 from common.log import setup_logger
-from services.tp1_trailing_orchestrator import TP1TrailingOrchestrator
+from services.tp_hit_trailing_orchestrator import TpHitTrailingOrchestrator
 from services.embedded_periodic_reporter import EmbeddedPeriodicReporter
 from services.tp_config import parse_tp_ratio as _parse_tp_ratio  # Для обратной совместимости
 from services.stream_worker import StreamWorker, WorkerPolicy
@@ -231,7 +231,7 @@ class SignalPerformanceTracker:
             raise
         
         # Оркестратор трейлинга TP1 (используем общий Redis клиент)
-        self.trailing_orchestrator = TP1TrailingOrchestrator(redis_client=self.redis)
+        self.trailing_orchestrator = TpHitTrailingOrchestrator(redis_client=self.redis)
         
         # ATR Cache for dynamic trailing (Phase 4)
         self.atr_cache = get_atr_cache()

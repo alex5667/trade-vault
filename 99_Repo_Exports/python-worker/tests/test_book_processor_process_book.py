@@ -18,9 +18,9 @@ def test_process_book_happy_path(mock_init, runtime):
     
     # Valid book payload
     payload = {
-        "m": {"ts_ms": 1600000000000},
-        "bids": [[ "60000.0", "1.0" ], [ "59999.0", "2.0" ]],
-        "asks": [[ "60001.0", "1.5" ], [ "60002.0", "1.5" ]],
+        "ts_ms": 1600000000000,
+        "bids": "[[ \"60000.0\", \"1.0\" ], [ \"59999.0\", \"2.0\" ]]",
+        "asks": "[[ \"60001.0\", \"1.5\" ], [ \"60002.0\", \"1.5\" ]]",
         "u": 12345
     }
     
@@ -40,11 +40,7 @@ def test_process_book_error_handling(mock_init, runtime):
     processor.logger = MagicMock()
     
     # Invalid book payload - will raise exception during process_book
-    payload = {
-        "m": {"ts_ms": 1600000000000},
-        "bids": "this shouldn't be a string",
-        "asks": "this shouldn't be a string",
-    }
+    payload = ["this is a list, not a dict"]
     
     ingest_ts_ms = 1600000000050
     result = processor.process_book(runtime, payload, ingest_ts_ms)

@@ -131,6 +131,8 @@ from services.async_signal_publisher import AsyncSignalPublisher
 import redis.asyncio as aioredis
 from redis.exceptions import RedisError
 
+from services.orderflow.redis_write_buffer import WriteBehindBuffer
+
 from common.time_norm import normalize_epoch_ms
 from core.instrument_config import get_default_delta_tiers
 
@@ -159,8 +161,9 @@ DEBUG_DELTAS = os.getenv("CRYPTO_OF_DEBUG_DELTAS", "false").strip().lower() in (
 # SRE metrics for gate decisions (world-class: drift + latency + exec risk)
 OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
 OF_GATE_METRICS_ENABLE = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip() in ("1","true","yes","on")
-OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)  # 10% кандидатов
-OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "200000") or 200000)
+OF_GATE_METRICS_SAMPLE = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.02") or 0.02)  # 2% кандидатов (was 10%, reduced for Redis load)
+OF_GATE_METRICS_MAXLEN = int(os.getenv("OF_GATE_METRICS_MAXLEN", "10000") or 10000)
+BURST_AUDIT_MAXLEN = int(os.getenv("BURST_AUDIT_MAXLEN", "5000") or 5000)
 
 # Fail-open defaults to avoid exec-risk penalty becoming 0 silently
 SPREAD_BPS_MISSING_DEFAULT = float(os.getenv("SPREAD_BPS_MISSING_DEFAULT", "15.0") or 15.0)
@@ -269,6 +272,13 @@ class OrderFlowStrategy:
         self._atr_bad_ttl = int(os.getenv("ATR_BAD_TTL_SEC", "600"))
         self._slip_ofi_k_default = os.getenv("SLIP_OFI_K", "0.0")
         self._of_score_min_default = os.getenv("OF_SCORE_MIN", "0.60")
+
+        # Redis Write-Behind Buffer: coalesces SET/INCR/SADD/EXPIRE into
+        # periodic pipeline flushes (every 2s), reducing ~900 ops/sec → ~9.
+        self._wb = WriteBehindBuffer(
+            redis_client=self.redis,
+            flush_interval_sec=float(os.getenv("WRITE_BEHIND_FLUSH_SEC", "2.0")),
+        )
 
     def cleanup_symbol(self, symbol: str) -> None:
         """Removes all internal tracking state for a symbol to prevent memory leaks."""
@@ -389,7 +399,7 @@ class OrderFlowStrategy:
                 }, ensure_ascii=False, separators=(",", ":")),
                 "extra": json.dumps(extra or {}, ensure_ascii=False, separators=(",", ":")),
             }
-            await self.redis.xadd(self.burst_audit_stream, msg, maxlen=200000, approximate=True)
+            await self.redis.xadd(self.burst_audit_stream, msg, maxlen=BURST_AUDIT_MAXLEN, approximate=True)
         except Exception as exc:
             log_silent_error(exc, 'audit_failure', self.symbol or "unknown", '_burst_audit')
             return
@@ -922,11 +932,11 @@ class OrderFlowStrategy:
             if price > 0:
                 sym = str(getattr(runtime, "symbol", "") or "")
                 if sym:
-                    ttl = int(os.getenv("LAST_PX_TTL_SEC", "600"))
+                    ttl = self._last_px_ttl
                     now_ms = get_ny_time_millis()
-                    # Use async Redis operations
-                    safe_create_task(self.redis.set(f"cfg:last_px:{sym}", str(price), ex=ttl))
-                    safe_create_task(self.redis.set(f"cfg:last_px_ts_ms:{sym}", str(now_ms), ex=ttl))
+                    # Write-behind: coalesced into periodic pipeline flush
+                    self._wb.set(f"cfg:last_px:{sym}", str(price), ex=ttl)
+                    self._wb.set(f"cfg:last_px_ts_ms:{sym}", str(now_ms), ex=ttl)
         except Exception:
             pass
 
@@ -1061,14 +1071,11 @@ class OrderFlowStrategy:
                 ttl = int(os.getenv("ATR_BAD_TTL_SEC", "600"))
                 reason = str(res.reason or "na")
                 _atr_bad_payload = json.dumps({"reason": reason, "ts_ms": int(now_ms)}, ensure_ascii=False)
-                safe_create_task(self.redis.set(f"cfg:atr_bad:{runtime.symbol}", _atr_bad_payload, ex=ttl))
-                safe_create_task(self.redis.sadd("cfg:atr_bad:symbols", str(runtime.symbol)))
-                safe_create_task(self.redis.expire("cfg:atr_bad:symbols", int(os.getenv("ATR_BAD_SYMBOLS_SET_TTL_SEC", "86400"))))
-                try:
-                    safe_create_task(self.redis.hincrby(f"metrics:atr_bad_total:{runtime.symbol}", reason, 1))
-                    safe_create_task(self.redis.expire(f"metrics:atr_bad_total:{runtime.symbol}", int(os.getenv("METRICS_COUNTER_TTL_SEC", "604800"))))
-                except Exception:
-                    pass
+                # Write-behind: all 5 Redis ops coalesced into 1 pipeline
+                self._wb.set(f"cfg:atr_bad:{runtime.symbol}", _atr_bad_payload, ex=ttl)
+                self._wb.sadd("cfg:atr_bad:symbols", str(runtime.symbol), ex=int(os.getenv("ATR_BAD_SYMBOLS_SET_TTL_SEC", "86400")))
+                self._wb.hincrby(f"metrics:atr_bad_total:{runtime.symbol}", reason, 1)
+                self._wb.expire(f"metrics:atr_bad_total:{runtime.symbol}", int(os.getenv("METRICS_COUNTER_TTL_SEC", "604800")))
                 
                 # Fail-closed for evidence: if bad ATR, we proceed but disable microstructure
                 indicators["book_health_ok"] = 0
@@ -1079,15 +1086,12 @@ class OrderFlowStrategy:
 
             if int(getattr(res, "jump_event", 0) or 0) == 1:
                 win = int(os.getenv("ATR_JUMP_WINDOW_SEC", "3600"))
-                safe_create_task(self.redis.incr(f"cfg:atr_jump_count:{runtime.symbol}"))
-                safe_create_task(self.redis.expire(f"cfg:atr_jump_count:{runtime.symbol}", win))
-                safe_create_task(self.redis.sadd("cfg:atr_jump:symbols", str(runtime.symbol)))
-                safe_create_task(self.redis.expire("cfg:atr_jump:symbols", int(os.getenv("ATR_JUMP_SYMBOLS_SET_TTL_SEC", "86400"))))
-                try:
-                    safe_create_task(self.redis.incr(f"metrics:atr_jump_total:{runtime.symbol}"))
-                    safe_create_task(self.redis.expire(f"metrics:atr_jump_total:{runtime.symbol}", int(os.getenv("METRICS_COUNTER_TTL_SEC", "604800"))))
-                except Exception:
-                    pass
+                # Write-behind: all 6 Redis ops coalesced into 1 pipeline
+                self._wb.incr(f"cfg:atr_jump_count:{runtime.symbol}", 1)
+                self._wb.expire(f"cfg:atr_jump_count:{runtime.symbol}", win)
+                self._wb.sadd("cfg:atr_jump:symbols", str(runtime.symbol), ex=int(os.getenv("ATR_JUMP_SYMBOLS_SET_TTL_SEC", "86400")))
+                self._wb.incr(f"metrics:atr_jump_total:{runtime.symbol}", 1)
+                self._wb.expire(f"metrics:atr_jump_total:{runtime.symbol}", int(os.getenv("METRICS_COUNTER_TTL_SEC", "604800")))
 
             atr_bps = 10000.0 * (atr_used / px0) if px0 > 0 else 0.0
             indicators["atr_bps"] = float(atr_bps)
@@ -1527,16 +1531,12 @@ class OrderFlowStrategy:
                 if until_ms > now_ms:
                     ttl_sec = max(60, int((until_ms - now_ms) / 1000))
                 meta = {"until_ms": until_ms, "reason": reason, "mode": mode, "ts_ms": now_ms}
-                # NOTE: replace self.redis -> your redis client if it differs
-                safe_create_task(self.redis.set(f"cfg:cvd_quarantine_meta:{runtime.symbol}", json.dumps(meta, ensure_ascii=False), ex=ttl_sec))
-                safe_create_task(self.redis.sadd("cfg:cvd_quarantine:symbols", str(runtime.symbol)))
-                safe_create_task(self.redis.expire("cfg:cvd_quarantine:symbols", int(os.getenv("CVD_QUAR_SYMBOLS_SET_TTL_SEC", "86400"))))
+                # Write-behind: coalesce 5 Redis ops into next pipeline flush
+                self._wb.set(f"cfg:cvd_quarantine_meta:{runtime.symbol}", json.dumps(meta, ensure_ascii=False), ex=ttl_sec)
+                self._wb.sadd("cfg:cvd_quarantine:symbols", str(runtime.symbol), ex=int(os.getenv("CVD_QUAR_SYMBOLS_SET_TTL_SEC", "86400")))
                 # SRE counter: cvd_quarantine_activations_total{symbol}
-                try:
-                    safe_create_task(self.redis.incr(f"metrics:cvd_quarantine_activations_total:{runtime.symbol}"))
-                    safe_create_task(self.redis.expire(f"metrics:cvd_quarantine_activations_total:{runtime.symbol}", int(os.getenv("METRICS_COUNTER_TTL_SEC", "604800"))))
-                except Exception:
-                    pass
+                self._wb.incr(f"metrics:cvd_quarantine_activations_total:{runtime.symbol}", 1)
+                self._wb.expire(f"metrics:cvd_quarantine_activations_total:{runtime.symbol}", int(os.getenv("METRICS_COUNTER_TTL_SEC", "604800")))
         except Exception:
             pass
 
@@ -2590,7 +2590,7 @@ class OrderFlowStrategy:
                             self.ticks.xadd(
                                 in_stream,
                                 fields={"payload": blob},
-                                maxlen=int(runtime.config.get("of_inputs_stream_maxlen", 200000)),
+                                maxlen=int(runtime.config.get("of_inputs_stream_maxlen", 10000)),
                                 approximate=True,
                             )
                         )

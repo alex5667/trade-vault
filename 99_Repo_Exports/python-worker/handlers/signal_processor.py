@@ -92,9 +92,10 @@ class SignalProcessor:
             print("ℹ️ XAUUSD OrderFlow Handler отключен (установите XAU_HANDLER_ENABLED=true)")
         
         # Запускаем фоновую публикацию агрегированных метрик раз в час
-        self._metrics_stop.clear()
-        self._metrics_thread = threading.Thread(target=self._metrics_loop, name="metrics-scheduler", daemon=True)
-        self._metrics_thread.start()
+        # 3. Запуск фонового скринера метрик отключен по запросу (external streams disabled to reduce redis load)
+        # self._metrics_stop.clear()
+        # self._metrics_thread = threading.Thread(target=self._metrics_loop, name="metrics-scheduler", daemon=True)
+        # self._metrics_thread.start()
         
         print("✅ Все обработчики сигналов запущены")
         sys.stdout.flush()

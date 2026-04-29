@@ -1175,6 +1175,24 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["monitor", "regress"], required=True)
     args = ap.parse_args()
+    
+    # Run crossvenue gate calibrator every 4 hours
+    try:
+        import time
+        from pathlib import Path
+        last_run_file = Path("/tmp/cv_calibrator_last_run")
+        run_calibrator = True
+        if last_run_file.exists():
+            # Check if 4 hours (14400 seconds) have passed
+            if time.time() - last_run_file.stat().st_mtime < 14400:
+                run_calibrator = False
+        if run_calibrator:
+            print("Triggering crossvenue_gate_calibrator.py (4h interval)", file=sys.stderr)
+            subprocess.Popen([sys.executable, "tools/crossvenue_gate_calibrator.py"])
+            last_run_file.touch()
+    except Exception as e:
+        print(f"Warning: failed to trigger crossvenue_gate_calibrator: {e}", file=sys.stderr)
+
     return run_report(args.mode)
 
 

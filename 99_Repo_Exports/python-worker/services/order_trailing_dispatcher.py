@@ -148,7 +148,7 @@ class OrderTrailingDispatcher:
             "sid": sid,
             "symbol": symbol,
             "mode": profile.mode,   # "ATR" / "POINTS"
-            "source": "tp1_trailing_orchestrator",
+            "source": "tp_hit_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
         
@@ -221,7 +221,7 @@ class OrderTrailingDispatcher:
             "symbol": symbol,
             "mode": "POINTS",  # 🎯 Готовое значение в пунктах
             "trail_points": trail_points,
-            "source": "tp1_trailing_orchestrator",
+            "source": "tp_hit_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
         
@@ -310,7 +310,7 @@ class OrderTrailingDispatcher:
             "sid": sid,
             "symbol": symbol,
             "sl": new_sl,
-            "source": "tp1_trailing_orchestrator",
+            "source": "tp_hit_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
 
@@ -355,7 +355,7 @@ class OrderTrailingDispatcher:
             "sid": sid,
             "symbol": symbol,
             "new_sl": new_sl,
-            "source": "tp1_trailing_orchestrator",
+            "source": "tp_hit_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
         

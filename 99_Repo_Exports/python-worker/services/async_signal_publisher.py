@@ -370,6 +370,12 @@ class AsyncSignalPublisher:
             except Exception:
                 pass
 
+        # Phase 2: Inject explicit Python-calculated volume into the payload for MT5 to consume
+        if "qty" in payload and "volume" not in payload:
+            import copy
+            payload = copy.deepcopy(payload)
+            payload["volume"] = float(payload.get("qty", 0.0) or 0.0)
+
         # 1.5) Invariant Firewall (Phase 7.1) — only for orders:queue streams
         if sink.name.startswith("orders:queue"):
             try:

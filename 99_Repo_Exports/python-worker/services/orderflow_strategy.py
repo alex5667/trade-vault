@@ -266,6 +266,7 @@ class OrderFlowStrategy:
             return int(zlib.crc32((sid or "").encode("utf-8")) % 100)
         except Exception:
             return 0
+    def __init__(self, redis: aioredis.Redis, ticks: Any, publisher: AsyncSignalPublisher,
                  of_engine: OFConfirmEngine, calib_svc=None,
                  notify_client: Optional[aioredis.Redis] = None, notify_stream: str = RS.NOTIFY_TELEGRAM,
                  orders_queue_mt5: str = "", orders_queue_binance: str = ""):

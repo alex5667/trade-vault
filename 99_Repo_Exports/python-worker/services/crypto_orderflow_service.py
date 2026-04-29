@@ -49,7 +49,11 @@ from services.orderflow.metrics import (
     ticks_ts_source_total,
     tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge, tick_ts_source_stream_id_ema_gauge,
     tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge,
-    tick_ingest_process_ms, tick_ingest_e2e_delay_ms
+    tick_ingest_process_ms, tick_ingest_e2e_delay_ms,
+    crypto_of_service_startup_duration_ms, crypto_of_ml_gate_bootstrap_status,
+    crypto_of_shutdown_duration_ms, crypto_of_symbol_tasks_active,
+    crypto_of_symbol_task_restarts_total, crypto_of_pel_cleanup_duration_ms,
+    crypto_of_time_source_mismatch_total
 )
 from services.orderflow.tick_quality_ema import TickQualityEMA
 from services.orderflow.utils import (
@@ -216,7 +220,7 @@ _symbols_added_counter = 0
 
 def _utc_epoch_ms() -> int:
     """Canonical wall-clock timestamp for emitted payloads (epoch ms, UTC)."""
-    return get_ny_time_millis()
+    return int(time.time() * 1000)
 
 
 def _mono_ms() -> int:
@@ -362,8 +366,12 @@ class CryptoOrderflowService:
         _ml_gate = None
         try:
             from services.ml_confirm_gate import MLConfirmGate  # noqa: PLC0415
-            _ml_gate = MLConfirmGate.from_env(redis_client=self._pools.ml_gate)
+            _ml_gate = MLConfirmGate.from_env()
         except ImportError as _imp_err:
+            if os.getenv("ML_CONFIRM_MODE", "OFF").upper() == "ENFORCE" and os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN").upper() == "CLOSED":
+                crypto_of_ml_gate_bootstrap_status.labels(status="fail").set(1)
+                raise RuntimeError("ml_gate_required_but_missing") from _imp_err
+            crypto_of_ml_gate_bootstrap_status.labels(status="fail_open").set(1)
             logger.critical(
                 "P0 CAPITAL-SAFETY: Не удалось импортировать MLConfirmGate: %s. "
                 "ML-gate НЕ активен. Убедитесь что ML_CONFIRM_FAIL_POLICY=CLOSED "
@@ -392,15 +400,15 @@ class CryptoOrderflowService:
         self._shutdown = False
 
         # Rolling calibrator persistence settings
-        self._score_calib_redis_key = os.getenv("SCORE_CALIB_REDIS_KEY", "cfg:rolling_calib:v1")
-        self._score_calib_persist_interval = float(os.getenv("SCORE_CALIB_PERSIST_INTERVAL_SEC", "300"))
-        self._score_calib_ttl = int(os.getenv("SCORE_CALIB_TTL_SEC", str(7 * 24 * 3600)))
+        self._score_calib_redis_key = self._svc_cfg.calib.score_calib_redis_key
+        self._score_calib_persist_interval = self._svc_cfg.calib.score_calib_persist_interval_sec
+        self._score_calib_ttl = self._svc_cfg.calib.score_calib_ttl_sec
 
         self._bootstrap_sem = asyncio.Semaphore(self._svc_cfg.bootstrap_max_conc)
 
         self._ack_batch = _t.ack_batch
-        self._xack_retries = max(0, int(os.getenv("CRYPTO_OF_XACK_RETRIES", "3")))
-        self._xack_backoff_ms = max(0.0, float(os.getenv("CRYPTO_OF_XACK_BACKOFF_MS", "50.0")))
+        self._xack_retries = self._svc_cfg.tick.xack_retries
+        self._xack_backoff_ms = self._svc_cfg.tick.xack_backoff_ms
         self._max_lag_ms = _t.max_lag_ms
         self._drop_on_lag = _t.drop_on_lag
         self._max_ts_skew_ms = _t.max_ts_skew_ms
@@ -464,10 +472,12 @@ class CryptoOrderflowService:
         # created in __init__. Do NOT reassign to self.main here.
 
         # Phase 4.5: full PostgreSQL-backed policy workflow rebuild
+        loop = asyncio.get_running_loop()
+        t0_start = time.time()
         try:
             if os.getenv("ATR_POLICY_FULL_RECOVERY_ENABLE", "0") == "1":
                 from services.atr_policy_full_recovery_service import run_once as run_atr_policy_full_recovery_once
-                run_atr_policy_full_recovery_once()
+                await loop.run_in_executor(None, run_atr_policy_full_recovery_once)
         except Exception as exc:
             logger.warning("ATR policy full recovery failed: %s", exc)
 
@@ -478,14 +488,14 @@ class CryptoOrderflowService:
         try:
             if os.getenv("ATR_POLICY_BOOTSTRAP_ENABLE", "1") == "1":
                 from services.atr_policy_bootstrap_service import run_once as run_atr_policy_bootstrap_once
-                run_atr_policy_bootstrap_once()
+                await loop.run_in_executor(None, run_atr_policy_bootstrap_once)
         except Exception as exc:
             logger.warning("ATR policy bootstrap failed: %s", exc)
 
         try:
             if os.getenv("ATR_POLICY_DRIFT_CHECK_ON_START", "1") == "1":
                 from services.atr_policy_state_consistency_checker import run_once as run_atr_policy_drift_check_once
-                run_atr_policy_drift_check_once()
+                await loop.run_in_executor(None, run_atr_policy_drift_check_once)
         except Exception as exc:
             logger.warning("ATR policy drift check on start failed: %s", exc)
         
@@ -533,9 +543,9 @@ class CryptoOrderflowService:
         # ── PEL bootstrap cleanup: remove zombie consumers BEFORE processing ticks ──
         # This prevents WorkerLagP99High caused by XAUTOCLAIM reclaiming ancient PEL entries
         # after container restarts (each restart creates a new PID-based consumer).
-        if self._env_bool("PEL_CLEANUP_ON_STARTUP", "true"):
+        if self._svc_cfg.pel.cleanup_on_startup:
             try:
-                idle_ms = int(os.getenv("PEL_CLEANUP_IDLE_THRESHOLD_MS", "60000"))
+                idle_ms = self._svc_cfg.pel.cleanup_idle_threshold_ms
                 # Resolve symbols early for cleanup (same logic as load_dynamic_symbols)
                 symbols_override_env = os.getenv("CRYPTO_SYMBOLS_OVERRIDE", "")
                 if symbols_override_env:
@@ -563,6 +573,7 @@ class CryptoOrderflowService:
                         timeout=30.0,
                     )
                     dt_cleanup = (time.time() - t0_cleanup) * 1000
+                    crypto_of_pel_cleanup_duration_ms.observe(dt_cleanup)
                     logger.info(
                         "✅ PEL startup cleanup: %d zombies removed, %d pending ACKed in %.0fms",
                         result.get("zombies_removed", 0),
@@ -585,17 +596,17 @@ class CryptoOrderflowService:
         )
         self._flusher.start()
         self._burst_task = self._flusher._task
-        if self._env_bool("CRYPTO_OF_SUPERVISOR", "true"):
+        if self._svc_cfg.lifecycle.supervisor_enable:
             self._supervisor_task = safe_create_task(self._supervisor_loop(), name="crypto-of-supervisor")
 
-        if self._env_bool("CRYPTO_OF_PEL_SWEEP", "false"):
+        if self._svc_cfg.pel.sweeper_enable:
             self._pel_sweeper_task = safe_create_task(self._pel_sweeper_loop(), name="crypto-of-pel-sweep")
 
         # Periodic PEL cleanup: removes zombie consumers every N seconds (default 300s)
         # This is a lightweight alternative to the PEL sweeper that focuses on zombie removal.
-        if self._env_bool("PEL_CLEANUP_PERIODIC_ENABLE", "true"):
-            pel_interval = float(os.getenv("PEL_CLEANUP_PERIODIC_SEC", "300"))
-            pel_idle_ms = int(os.getenv("PEL_CLEANUP_IDLE_THRESHOLD_MS", "60000"))
+        if self._svc_cfg.pel.cleanup_periodic_enable:
+            pel_interval = self._svc_cfg.pel.cleanup_periodic_sec
+            pel_idle_ms = self._svc_cfg.pel.cleanup_idle_threshold_ms
             self._pel_cleanup_task = safe_create_task(
                 periodic_pel_cleanup_loop(
                     redis_client_fn=lambda: self.ticks,
@@ -610,6 +621,9 @@ class CryptoOrderflowService:
 
         # Periodically flush exec_health_contract to prevent stale SLO alerts (P4.1)
         self._health_contract_task = safe_create_task(self._health_contract_flush_loop(), name="crypto-of-health-flush")
+
+        crypto_of_ml_gate_bootstrap_status.labels(status="ok").set(1)
+        crypto_of_service_startup_duration_ms.observe((time.time() - t0_start) * 1000)
 
         try:
             while True:
@@ -629,6 +643,7 @@ class CryptoOrderflowService:
         if self._shutdown:
             return
         self._shutdown = True
+        t0_shutdown = time.time()
 
         logger.info("🔻 Останавливаем CryptoOrderflowService...")
 
@@ -664,16 +679,11 @@ class CryptoOrderflowService:
             self._score_calib_persist_task.cancel()
             await asyncio.gather(self._score_calib_persist_task, return_exceptions=True)
 
-        # ✅ P0: Stop PEL sweeper
-        if self._pel_sweeper_task:
-            self._pel_sweeper_task.cancel()
-            await asyncio.gather(self._pel_sweeper_task, return_exceptions=True)
-
         if hasattr(self, 'health_metrics') and self.health_metrics:
             self.health_metrics.stop()
 
         # Drain mode: let workers finish current iteration to reduce PEL growth
-        drain_timeout = float(os.getenv("CRYPTO_OF_DRAIN_TIMEOUT_SEC", "10"))
+        drain_timeout = self._svc_cfg.lifecycle.drain_timeout_sec
         logger.info("🔻 Draining symbol workers (timeout=%.1fs)...", drain_timeout)
 
         # Track tasks with their metadata for reporting
@@ -706,6 +716,7 @@ class CryptoOrderflowService:
         self.main = None
         self.ticks = None
 
+        crypto_of_shutdown_duration_ms.observe((time.time() - t0_shutdown) * 1000)
         logger.info("✅ Завершено")
 
 

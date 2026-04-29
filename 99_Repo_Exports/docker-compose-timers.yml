@@ -1712,7 +1712,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.15'
           memory: 768M
         reservations:
           memory: 24M
@@ -1792,7 +1792,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command: "sh -c \"sleep 5 && while true; do\\\n  NF=/tmp/.sre_notify_ts;\\\n \
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name trade_ml_sre_monitor -- sh -c \"sleep 5 && while true; do\\\n  NF=/tmp/.sre_notify_ts;\\\n \
       \ if [ ! -f $$NF ] || find $$NF -mmin +60 | grep -q .; then\\\n    echo 'Running\
       \ SRE Monitors WITH notify (1h gate)...';\\\n    python3 -m tools.sre_monitor_all_v3\
       \ --emit-metrics --notify --emit-suggestions;\\\n    touch $$NF;\\\n  else\\\
@@ -2871,7 +2871,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.50'
+          cpus: '0.20'
           memory: 768M
         reservations:
           memory: 128M
@@ -2893,7 +2893,7 @@ services:
     volumes:
     - ./python-worker:/app
     - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
-    command: "sh -c \"sleep 5 && while true; do\n  echo '[p7-healthcheck] Running\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name exec_healthcheck_timer -- sh -c \"sleep 5 && while true; do\n  echo '[p7-healthcheck] Running\
       \ execution healthcheck...';\n  if [ -n \\\"$$EXEC_HEALTHCHECK_TEXTFILE_PATH\\\
       \" ]; then\n    python3 -u scripts/execution_healthcheck.py --report-dir /var/lib/trade-runbook/reports\
       \ --textfile-output \\\"$$EXEC_HEALTHCHECK_TEXTFILE_PATH\\\" || true;\n  else\n\
@@ -2994,7 +2994,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.30'
+          cpus: '0.15'
           memory: 256M
         reservations:
           memory: 24M
@@ -3024,10 +3024,7 @@ services:
     working_dir: /app
     volumes:
     - ./python-worker:/app
-    command:
-    - python
-    - -m
-    - services.posttrade.bbo_ts_writer
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name bbo_ts_writer -- python -m services.posttrade.bbo_ts_writer
     depends_on:
       redis-worker-1:
         condition: service_healthy

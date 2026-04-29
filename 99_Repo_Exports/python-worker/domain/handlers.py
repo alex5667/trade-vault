@@ -1392,6 +1392,40 @@ def process_tick(
     # Берем trail_profile из pos.trail_profile (если есть) или signal_payload (fallback после recovery)
     trail_profile = str(getattr(pos, "trail_profile", "") or (pos.signal_payload or {}).get("trail_profile", "")).lower()
     is_rocket_trail = (trail_profile == "rocket_v1")
+
+    # -------------------------------------------------------------------------
+    # FIX: Direction-aware TP level sanitization.
+    #
+    # Inverted TP levels (below entry for LONG, above entry for SHORT) cause
+    # immediate false "TP" closes at a loss. Root cause: upstream level
+    # calculation bugs (e.g. negative stop_dist, config corruption).
+    #
+    # Impact before fix: 14,035 false TP closes → -$230K systematic loss.
+    # This guard is fail-safe: removes bad levels, logs warning, continues.
+    # -------------------------------------------------------------------------
+    if pos.tp_levels and pos.entry_price > 0:
+        _valid_tps = []
+        _inverted_count = 0
+        for _lp in pos.tp_levels:
+            _lp_f = float(_lp)
+            if _lp_f <= 0:
+                continue
+            if pos.is_long() and _lp_f <= pos.entry_price:
+                _inverted_count += 1
+                continue
+            if (not pos.is_long()) and _lp_f >= pos.entry_price:
+                _inverted_count += 1
+                continue
+            _valid_tps.append(_lp_f)
+        if _inverted_count > 0:
+            logger.warning(
+                "⚠️ INVERTED_TP: %s %s removed %d inverted TP levels "
+                "(entry=%.6f, original_tps=%s, valid_tps=%s)",
+                pos.symbol, pos.direction, _inverted_count,
+                pos.entry_price, pos.tp_levels, _valid_tps,
+            )
+            pos.tp_levels = _valid_tps
+
     while (not pos.closed) and pos.remaining_qty > EPS_QTY and pos.tp_hits < len(pos.tp_levels):
         idx = pos.tp_hits  # 0..2
         level_price = float(pos.tp_levels[idx])
@@ -1640,6 +1674,101 @@ def process_tick(
                 ts_ms=tick.ts_ms,
                 payload={"previous_sl": prev, "new_sl": pos.sl, "price": mid, "moves": pos.trailing_moves_count},
             ))
+
+    # -------------------------------------------------------------------------
+    # NEW: TIME_BE_EXIT Policy Check
+    # -------------------------------------------------------------------------
+    if (not pos.closed) and pos.remaining_qty > EPS_QTY:
+        _time_be_cfg = globals().get("_TIME_BE_EXIT_CFG")
+        if _time_be_cfg is None:
+            from services.time_be_exit_policy import load_time_be_exit_config
+            _time_be_cfg = load_time_be_exit_config()
+            globals()["_TIME_BE_EXIT_CFG"] = _time_be_cfg
+
+        if _time_be_cfg.enabled and pos.entry_price > 0 and mid > 0:
+            is_long = pos.is_long()
+            if is_long:
+                pnl_gross_bps = (mid - pos.entry_price) / pos.entry_price * 10000.0
+            else:
+                pnl_gross_bps = (pos.entry_price - mid) / pos.entry_price * 10000.0
+
+            comm_rate = getattr(spec, "commission_rate", 0.0005)
+            fees_bps = comm_rate * 2.0 * 10000.0
+            slip_bps = 0.5  # conservative estimation
+            pnl_net_bps = pnl_gross_bps - fees_bps - slip_bps
+
+            from services.time_be_exit_policy import should_time_be_exit
+            should_close, reason_code, mode = should_time_be_exit(
+                pos, int(tick.ts_ms), pnl_net_bps, int(getattr(pos, "last_update_ts_ms", tick.ts_ms) or tick.ts_ms), _time_be_cfg
+            )
+
+            if should_close:
+                exit_price = float(mid)
+                pnl_rest = float(spec.pnl_money(pos.entry_price, exit_price, pos.remaining_qty, pos.direction, symbol=pos.symbol))
+                pos.realized_pnl_gross += pnl_rest
+
+                try:
+                    pos.exit_mid_price = float(mid or 0.0)
+                    pos.exit_spread_bps = float(_compute_spread_bps_from_tick(tick, float(mid or 0.0)))
+                except Exception:
+                    pass
+
+                pos.closed = True
+                pos.exit_ts_ms = tick.ts_ms
+                pos.exit_price = exit_price
+
+                closed = finalize_trade(
+                    pos, spec, exit_price=exit_price, exit_ts_ms=tick.ts_ms,
+                    close_reason_raw=reason_code,
+                    tp_ratios=tp_ratios,
+                )
+
+                events.append(TradeEvent(
+                    event_type="TIME_BE_EXIT",
+                    order_id=pos.id,
+                    sid=pos.sid,
+                    strategy=pos.strategy,
+                    source=pos.source,
+                    symbol=pos.symbol,
+                    tf=pos.tf,
+                    direction=pos.direction,
+                    ts_ms=tick.ts_ms,
+                    payload={
+                        "exit_price": exit_price,
+                        "remaining_qty_closed": pos.remaining_qty,
+                        "reason_raw": reason_code,
+                        "pnl_net_bps": pnl_net_bps,
+                    },
+                ))
+                events.append(TradeEvent(
+                    event_type="CLOSE",
+                    order_id=pos.id,
+                    sid=pos.sid,
+                    strategy=pos.strategy,
+                    source=pos.source,
+                    symbol=pos.symbol,
+                    tf=pos.tf,
+                    direction=pos.direction,
+                    ts_ms=tick.ts_ms,
+                    payload={"reason": closed.close_reason, "reason_raw": closed.close_reason_raw},
+                ))
+                return events, closed
+            elif reason_code.endswith("_SHADOW"):
+                events.append(TradeEvent(
+                    event_type="TIME_BE_EXIT_SHADOW",
+                    order_id=pos.id,
+                    sid=pos.sid,
+                    strategy=pos.strategy,
+                    source=pos.source,
+                    symbol=pos.symbol,
+                    tf=pos.tf,
+                    direction=pos.direction,
+                    ts_ms=tick.ts_ms,
+                    payload={
+                        "reason_raw": reason_code,
+                        "pnl_net_bps": pnl_net_bps,
+                    },
+                ))
 
     # 3) SL check (по trigger цене)
     if (not pos.closed) and pos.remaining_qty > EPS_QTY:
@@ -2072,6 +2201,23 @@ def finalize_trade(
     try:
         _attach_nosl_after_tp1_flags(pos, closed, exit_ts_ms=int(exit_ts_ms))
     except Exception: pass
+
+    # -------------------------------------------------------------------------
+    # FIX: Populate selected_tp1_price / selected_sl_price from actual position
+    # levels. Previously these were ONLY set in _stamp_closed_trade_meta()
+    # which was called ONLY for orphan closures, leaving 100% of normal
+    # TP/SL closes with selected_tp1_price = 0, selected_sl_price = 0.
+    # -------------------------------------------------------------------------
+    try:
+        if not getattr(closed, "selected_tp1_price", 0.0):
+            if pos.tp_levels and len(pos.tp_levels) > 0 and float(pos.tp_levels[0]) > 0:
+                closed.selected_tp1_price = float(pos.tp_levels[0])
+        if not getattr(closed, "selected_sl_price", 0.0):
+            _pos_sl = float(getattr(pos, "sl", 0.0) or 0.0)
+            if _pos_sl > 0:
+                closed.selected_sl_price = _pos_sl
+    except Exception:
+        pass
 
     # ---- FINAL STEP: Expert P0 Attribution Enrichment ----
     return _enrich_closed_from_pos(closed, pos, exit_px=exit_price, now_ms=exit_ts_ms)

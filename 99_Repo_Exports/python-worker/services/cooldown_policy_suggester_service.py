@@ -62,7 +62,7 @@ def propose_from_group(cur: dict, *, blocked: int, replaced: int, emit_pending: 
 
 async def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=50)
+    r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=10)
 
     raw = await r.get(REPORT_KEY)
     if not raw:

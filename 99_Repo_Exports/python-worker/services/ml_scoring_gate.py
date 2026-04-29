@@ -96,6 +96,13 @@ _NUMERIC_FEATURE_ATTRS = [
     # ("hidden_ctx_recent", ["hidden_ctx_recent"]),
 ]
 
+_EXPECTED_FEATURE_NAMES = [name for name, _ in _NUMERIC_FEATURE_ATTRS] + [
+    "direction_long", "cancel_to_trade_max", "obi_spread", "queue_imbalance", "outlier_count", "has_outlier"
+]
+import hashlib
+_EXPECTED_FEATURE_HASH = hashlib.sha256(",".join(_EXPECTED_FEATURE_NAMES).encode()).hexdigest()[:8]
+_EXPECTED_SCHEMA_VERSION = 3
+
 
 class MLScoringGate:
     """ML-based confidence scorer — controlled by USE_UNIFIED_SCORING flag.
@@ -214,6 +221,10 @@ class MLScoringGate:
             self._scaler_params = dict(pack.get("robust_scaler_params", {}))
             self._calibrator = pack.get("calibrator")
             self._load_failures = 0
+            
+            # Extract schema properties
+            self._feature_schema_version = pack.get("feature_schema_version", 0)
+            self._feature_hash = pack.get("feature_hash", "")
 
             metrics = pack.get("metrics", {})
             logger.info(
@@ -277,8 +288,9 @@ class MLScoringGate:
             out.append(outlier_count)
             out.append(1.0 if outlier_count > 0 else 0.0)
 
-            if len(out) != 23:
-                logger.warning("Feature vector length mismatch: expected 23, got %d. Numeric features: %d", len(out), len(_NUMERIC_FEATURE_ATTRS))
+            # Schema guard evaluation is done in score() using the metrics
+            if len(out) != len(self._feature_names):
+                logger.warning("Feature vector length mismatch: expected %d, got %d.", len(self._feature_names), len(out))
 
             return out
 
@@ -368,6 +380,27 @@ class MLScoringGate:
             parts["ml_status"] = "feature_extraction_failed"
             return None, parts
 
+        from services.orderflow.metrics import ml_feature_mismatch_total, ml_scorer_status_total, ml_scorer_latency_ms
+        import time
+        t0 = time.monotonic_ns()
+        
+        # Schema matching
+        schema_mismatch = False
+        if len(raw_features) != len(self._feature_names) or self._feature_names != _EXPECTED_FEATURE_NAMES:
+            schema_mismatch = True
+            model_ver = str(self._pack.get("kind", "unknown")) if self._pack else "unknown"
+            schema_ver = str(getattr(self, "_feature_schema_version", 0))
+            ml_feature_mismatch_total.labels(
+                symbol=getattr(ctx, "symbol", "unknown"),
+                model_ver=model_ver,
+                schema_ver=schema_ver
+            ).inc()
+            logger.error("MLScoringGate schema mismatch: extracted features do not match model expectations (fail-open)")
+            parts["ml_status"] = "schema_mismatch"
+            ml_scorer_status_total.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open", mode="enforce").inc()
+            ml_scorer_latency_ms.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open").observe((time.monotonic_ns() - t0) / 1_000_000.0)
+            return None, parts
+
         # Scale
         scaled_features = self._scale_features(raw_features)
 
@@ -375,6 +408,8 @@ class MLScoringGate:
         predicted_r = self._predict_r(scaled_features)
         if predicted_r is None:
             parts["ml_status"] = "predict_failed"
+            ml_scorer_status_total.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open", mode="enforce").inc()
+            ml_scorer_latency_ms.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open").observe((time.monotonic_ns() - t0) / 1_000_000.0)
             return None, parts
 
         # Calibrate to conf01
@@ -403,6 +438,8 @@ class MLScoringGate:
             parts["ml_threshold"] = None
             parts["ml_accept"] = None
 
+        ml_scorer_status_total.labels(symbol=getattr(ctx, "symbol", "unknown"), status="ok", mode="enforce").inc()
+        ml_scorer_latency_ms.labels(symbol=getattr(ctx, "symbol", "unknown"), status="ok").observe((time.monotonic_ns() - t0) / 1_000_000.0)
         return conf01, parts
 
     @property

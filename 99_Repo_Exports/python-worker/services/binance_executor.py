@@ -93,7 +93,7 @@ try:
         is_tradfi_perps_error,
     )
     from services.execution_contracts import ExecutionEvent, build_materialized_state_view
-    from services.execution_intent_validator import validate_exit_intent
+    from services.execution_intent_validator import validate_exit_intent, ExecutionIntent, validate_execution_intent
     from services.execution_policy import (
         MAKER_FIRST,
         SAFETY_FIRST,
@@ -120,7 +120,7 @@ except Exception:  # pragma: no cover - standalone bundle / local tests
         is_tradfi_perps_error,
     )
     from execution_contracts import ExecutionEvent, build_materialized_state_view
-    from execution_intent_validator import validate_exit_intent
+    from execution_intent_validator import validate_exit_intent, ExecutionIntent, validate_execution_intent
     try:
         from execution_policy import (
             MAKER_FIRST,
@@ -195,6 +195,8 @@ try:
         EXECUTION_DUST_RESIDUAL_QTY,
         EXECUTION_ENTRY_FILLED_TOTAL,
         EXECUTION_ENTRY_SUBMITTED_TOTAL,
+        EXECUTION_INTENT_AGE_MS,
+        EXECUTION_INTENT_REJECTED_TOTAL,
         EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
         EXECUTION_MARGIN_GUARD_SKIPPED_TOTAL,
         # P5: exchange-truth guard release metrics
@@ -231,6 +233,8 @@ except Exception:  # pragma: no cover
             EXECUTION_DUST_RESIDUAL_QTY,
             EXECUTION_ENTRY_FILLED_TOTAL,
             EXECUTION_ENTRY_SUBMITTED_TOTAL,
+            EXECUTION_INTENT_AGE_MS,
+            EXECUTION_INTENT_REJECTED_TOTAL,
             EXECUTION_FORCE_FLAT_VERIFY_TOTAL,
             EXECUTION_MARGIN_GUARD_SKIPPED_TOTAL,
             # P5: exchange-truth guard release metrics
@@ -262,6 +266,7 @@ except Exception:  # pragma: no cover
         BINANCE_ALGO_RECONCILE_TOTAL = EXECUTION_DUPLICATE_PREVENTED_TOTAL = None  # type: ignore
         EXECUTION_DUST_CLEANUP_TOTAL = EXECUTION_DUST_RESIDUAL_QTY = None  # type: ignore
         EXECUTION_ENTRY_FILLED_TOTAL = EXECUTION_ENTRY_SUBMITTED_TOTAL = EXECUTION_OPERATION_BLOCKED_TOTAL = None  # type: ignore
+        EXECUTION_INTENT_AGE_MS = EXECUTION_INTENT_REJECTED_TOTAL = None  # type: ignore
         EXECUTION_FORCE_FLAT_VERIFY_TOTAL = EXECUTION_MARGIN_GUARD_SKIPPED_TOTAL = None  # type: ignore
         EXECUTION_POSITION_UNPROTECTED_SECONDS = EXECUTION_PROTECTION_ARM_TIMEOUT_TOTAL = None  # type: ignore
         KILL_SWITCH_ARMED_TIMESTAMP = None  # type: ignore
@@ -408,13 +413,19 @@ def _sha1_8(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
 
-def _make_cid(sid: str, tag: str) -> str:
+def _make_cid(sid: str, tag: str, r: Any = None) -> str:
     """Build a deterministic clientOrderId ≤36 chars: <base>-<sha1[:8]>-<tag>."""
     token = _sha1_8(sid)
     base = sid.replace(" ", "").replace(":", "-")
     base = base[: max(6, 36 - (len(tag) + len(token) + 2))]
     cid = f"{base}-{token}-{tag}"
-    return cid[:36]
+    cid = cid[:36]
+    if r is not None:
+        try:
+            r.set(f"orders:cid_to_sid:{cid}", sid, ex=86400 * 3)
+        except Exception:
+            pass
+    return cid
 
 
 def _round_down(x: float, step: float) -> float:
@@ -740,6 +751,12 @@ class BinanceExecutor:
 
     Each successful or failed action results in an event written to
     orders:exec stream for downstream consumers.
+
+    PositionSizer Contract:
+      - BinanceExecutor is an execution gateway, NOT a risk/sizing engine.
+      - The `qty` field (or `quantity`/`lot`) MUST be pre-calculated by the upstream pre-publish/risk layer.
+      - The executor only normalizes and quantizes the received `qty` to exchange LOT_SIZE filters.
+      - Margin Guard is a fail-closed safety check, not a sizing calculator.
     """
 
     def __init__(
@@ -1268,7 +1285,7 @@ class BinanceExecutor:
             stream_id = str(self.r.xadd(
                 self.exec_stream,
                 {k: str(v) for k, v in stream_fields.items() if v is not None},
-                maxlen=self.exec_stream_maxlen,
+                maxlen=getattr(self, 'exec_stream_maxlen', 100000),
                 approximate=True,
             ) or '')
         except Exception:
@@ -1280,7 +1297,7 @@ class BinanceExecutor:
         except Exception:
             pass
         try:
-            if sid:
+            if sid and getattr(self, 'exec_inline_state_projection', False):
                 self._project_materialized_state_from_event(sid, stream_fields, stream_id=stream_id)
         except Exception:
             pass
@@ -1811,6 +1828,9 @@ class BinanceExecutor:
     def _save_order_state(self, sid: str, state: Dict[str, Any]) -> None:
         """Update the derived orders:state cache from the primary execution journal."""
         try:
+            if not getattr(self, 'exec_inline_state_projection', False):
+                self._append_state_patch_event(sid, state)
+                return
             base: Dict[str, Any] = {}
             if getattr(self, 'exec_journal_primary', True):
                 base = self._recover_state_from_exec_stream(sid) or {}
@@ -2546,7 +2566,7 @@ class BinanceExecutor:
         entry_cid = str(
             state.get("entry_client_order_id")
             or payload.get("entry_client_order_id")
-            or _make_cid(sid, "entry")
+            or _make_cid(sid, "entry", getattr(self, "r", None))
         )
         entry = self._reconcile_entry_by_client_id(
             sid=sid, symbol=symbol, client_order_id=entry_cid, client=client
@@ -2889,7 +2909,7 @@ class BinanceExecutor:
             "side": exit_side,
             "type": "MARKET",
             "quantity": q_close,
-            "newClientOrderId": _make_cid(sid, reason_tag),
+            "newClientOrderId": _make_cid(sid, reason_tag, getattr(self, "r", None)),
             "newOrderRespType": "RESULT",
         }
         if self.position_mode == "oneway":
@@ -3009,7 +3029,7 @@ class BinanceExecutor:
                 "type": "STOP_MARKET",
                 "triggerPrice": sl_q,
                 "workingType": _wt(self.sl_working_type),
-                "clientAlgoId": _make_cid(sid, "sl"),
+                "clientAlgoId": _make_cid(sid, "sl", getattr(self, "r", None)),
             }
             if reduce_only_allowed:
                 p["reduceOnly"] = True
@@ -3078,7 +3098,7 @@ class BinanceExecutor:
                     "symbol": symbol,
                     "side": exit_side,
                     "workingType": _wt(policy.tp_working_type),
-                    "clientAlgoId": _make_cid(sid, f"tp{idx}"),
+                    "clientAlgoId": _make_cid(sid, f"tp{idx}", getattr(self, "r", None)),
                 }
                 if policy is not None and policy.name == MAKER_FIRST:
                     limit_px = compute_limit_tp_price(
@@ -3991,7 +4011,7 @@ class BinanceExecutor:
             "quantity": q,
             "callbackRate": float(callback_rate_pct),
             "workingType": actual_wt,
-            "clientAlgoId": _make_cid(sid, "trail"),
+            "clientAlgoId": _make_cid(sid, "trail", getattr(self, "r", None)),
         }
         if self.position_mode == "oneway":
             p["reduceOnly"] = True
@@ -4094,7 +4114,7 @@ class BinanceExecutor:
 
         # Quantize SL price
         _, sl_q = self._quantize(symbol, 0.001, new_sl, filters=filters)
-        new_cid = _make_cid(sid, "tsl")
+        new_cid = _make_cid(sid, "tsl", getattr(self, "r", None))
 
         p: Dict[str, Any] = {
             "symbol": symbol,
@@ -4972,6 +4992,10 @@ class BinanceExecutor:
             sid, symbol=symbol, action="open", next_state=FSM_VALIDATED,
             details={"execution_policy": policy.name, "logical_side": logical, "side_int": side_int}
         )
+        self._exec_event({
+            "sid": sid, "symbol": symbol, "action": "open", "qty": float(q),
+            "event_type": "INTENT_ACCEPTED", "fsm_state": "VALIDATED", "ts_ms": _ms_now()
+        })
         if float(q) <= 0:
             raise ValueError("qty <= 0 after quantisation")
 
@@ -5024,7 +5048,7 @@ class BinanceExecutor:
             "side_int": side_int,
             "type": order_type,
             "quantity": q,
-            "newClientOrderId": _make_cid(sid, "entry"),
+            "newClientOrderId": _make_cid(sid, "entry", getattr(self, "r", None)),
         }
 
         pos_side = _position_side_for_mode(self.position_mode, logical)
@@ -5081,7 +5105,7 @@ class BinanceExecutor:
                         "side": side,
                         "type": "MARKET",
                         "quantity": rem_q_str,
-                        "newClientOrderId": _make_cid(sid, "entry_fb"),
+                        "newClientOrderId": _make_cid(sid, "entry_fb", getattr(self, "r", None)),
                     }
                     if pos_side:
                         params_mkt["positionSide"] = pos_side
@@ -6248,7 +6272,7 @@ class BinanceExecutor:
                 "side": resize_side,
                 "type": "MARKET",
                 "quantity": q_resize,
-                "newClientOrderId": _make_cid(sid, "resize"),
+                "newClientOrderId": _make_cid(sid, "resize", getattr(self, "r", None)),
             }
             if pos_side:
                 params["positionSide"] = pos_side
@@ -6394,6 +6418,29 @@ class BinanceExecutor:
             "ts_queue_ms",
             int(payload.get("ts_queue_ms") or payload.get("ts_event_ms") or payload["ts_exec_start_ms"])
         )
+        
+        try:
+            intent = ExecutionIntent.from_payload(payload)
+            if EXECUTION_INTENT_AGE_MS is not None:
+                EXECUTION_INTENT_AGE_MS.labels(symbol=intent.symbol).set(payload["ts_exec_start_ms"] - intent.ts_decision_ms)
+            validate_execution_intent(intent, payload["ts_exec_start_ms"])
+        except ValueError as e:
+            if str(e) == "INTENT_EXPIRED":
+                if EXECUTION_INTENT_REJECTED_TOTAL is not None:
+                    EXECUTION_INTENT_REJECTED_TOTAL.labels(symbol=symbol, reason="ttd_expired").inc()
+                self._transition_state(sid, symbol=symbol, action=action, next_state=FSM_FAILED,
+                                       details={"failure_reason": "ttd_expired"})
+                self._exec_event({
+                    "sid": sid, "symbol": symbol, "action": action,
+                    "event_type": "INTENT_EXPIRED", "fsm_state": "FAILED",
+                    "severity": "error", "msg": "Execution intent expired (TTD budget exceeded)"
+                })
+                self._dlq(raw, "ttd_expired")
+                self._ack_processing(raw)
+                return
+        except Exception:
+            pass
+
         try:
             if action == "open":
                 out = self.handle_open(payload)

@@ -38,12 +38,27 @@ class FakeRedis:
 
     def xrange(self, key, start='-', end='+', count=None):
         rows = list(self.streams.get(key, []))
+        if start != '-' and start != '0-0':
+            if start.startswith('('):
+                cmp_start = start[1:]
+                rows = [r for r in rows if r[0] > cmp_start]
+            else:
+                rows = [r for r in rows if r[0] >= start]
         if count is not None:
             rows = rows[: int(count)]
         return rows
 
     def xrevrange(self, key, start='+', end='-', count=None):
         return list(reversed(self.xrange(key)))
+
+    def xread(self, streams, count=None, block=None):
+        res = []
+        for k, v in streams.items():
+            start = v if v is not None else '0-0'
+            rows = self.xrange(k, start=start, count=count)
+            if rows:
+                res.append((k, rows))
+        return res
 
 
 def _mk_exec(redis_obj, *, inline_projection=False):

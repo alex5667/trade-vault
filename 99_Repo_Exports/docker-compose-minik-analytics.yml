@@ -594,6 +594,188 @@ services:
           cpus: '0.2'
         reservations:
           memory: 24M
+  scanner-trade-ml-sre-monitor-timer:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - ML_CONFIRM_METRICS_STREAM=metrics:ml_confirm
+    - NOTIFY_TELEGRAM_STREAM=notify:telegram
+    - ML_SRE_WINDOW_MS=600000
+    - ML_SRE_PEDGE_P50_MIN=0.20
+    - ML_SRE_MISSING_RATE_MAX=0.02
+    - ML_SRE_ERR_RATE_MAX=0.01
+    - ML_SRE_LAT_P99_MAX_MS=500
+    - TB_SRE_ENABLE=1
+    - TB_INPUT_STREAM=signals:of:inputs
+    - OF_INPUTS_GROUP=tb_labeler_v2
+    - TB_LABELS_STREAM=labels:tb
+    - TB_SRE_MAX_INPUT_LAG_MS=120000
+    - TB_SRE_MAX_LABEL_STALE_MS=360000
+    - TB_SRE_MAX_PENDING=5000
+    - ML_SRE_MAX_STALE_MS=600000
+    - ML_SRE_PEDGE_ZERO_RATE_MAX=0.05
+    - ML_SRE_REQUIRED_MISS_RATE_MAX=0.01
+    - ML_SRE_REQUIRED_FIELDS=p_edge,latency_ms,status,allow,ts_ms
+    - META_AB_SRE_ENABLE=1
+    - META_SRE_ENABLE=1
+    - META_AB_MAX_STALE_MS=3600000
+    - META_DRIFT_MAX_STALE_MS=3600000
+    - META_SRE_MAX_TRAIN_STALE_MS=86400000
+    - CFG_SUGGESTIONS_SRE_ENABLE=1
+    - CFG_SUGGESTIONS_PREFIX=cfg:suggestions:entry_policy
+    - CFG_SUGGESTIONS_KIND=meta_freeze
+    - CFG_SUGGESTIONS_SCOPES=ALL
+    - CFG_SUGGESTIONS_MAX_CREATED_AGE_MS=3600000
+    - CFG_SUGGESTIONS_MAX_APPROVED_AGE_MS=600000
+    - CFG_SUGGESTIONS_SRE_STRICT=1
+    - CFG_SUGGESTIONS_EMERGENCY_ENABLE=1
+    - CFG_SUGGESTIONS_EMERGENCY_KIND=emergency_apply_stuck
+    - CFG_SUGGESTIONS_EMERGENCY_MIN_MS=1800000
+    - CFG_SUGGESTIONS_EMERGENCY_COOLDOWN_SEC=3600
+    - CFG_SUGGESTIONS_EMERGENCY_TTL_SEC=86400
+    - NOTIFY_TELEGRAM_STREAM_WARN=notify:telegram
+    - NOTIFY_TELEGRAM_STREAM_CRIT=notify:telegram:crit
+    - NOTIFY_TELEGRAM_STREAM_PAGE=notify:telegram:page
+    - CFG_SUGGESTIONS_TRADE_PAUSE_ENABLE=1
+    - CFG_SUGGESTIONS_TRADE_PAUSE_KIND=trade_pause
+    - CFG_SUGGESTIONS_TRADE_UNPAUSE_KIND=trade_unpause
+    - NOTIFY_REQUIRE_RECEIPT_PAGE=1
+    - NOTIFY_RECEIPT_RESEND_SEC=300
+    - NOTIFY_SLO_EMIT_SUGGESTIONS=1
+    - NOTIFY_SLO_SUGGESTIONS_SCOPE=ALL
+    - NOTIFY_SLO_SUGGESTION_TTL_SEC=86400
+    - NOTIFY_SLO_EMIT_EMERGENCY=1
+    - NOTIFY_SLO_EMERGENCY_KIND=emergency_notify_delivery_degraded
+    - NOTIFY_SLO_EMERGENCY_COOLDOWN_SEC=1800
+    - NOTIFY_SLO_EMIT_TRADE_PAUSE=1
+    - NOTIFY_SLO_TRADE_PAUSE_KIND=trade_pause
+    - NOTIFY_SLO_TRADE_PAUSE_SCOPE=ALL
+    - NOTIFY_SLO_TRADE_PAUSE_COOLDOWN_SEC=3600
+    - NOTIFY_SLO_TRADE_UNPAUSE_KIND=trade_unpause
+    - NOTIFY_SLO_TRADE_UNPAUSE_COOLDOWN_SEC=3600
+    - NOTIFY_SLO_UNPAUSE_ON_OK=1
+    - NOTIFY_SLO_TRADE_PAUSE_OPS_JSON=[{"op":"hset","key":"cfg:execution_gate","field":"paused","value":"1"}]
+    - NOTIFY_SLO_TRADE_UNPAUSE_OPS_JSON=[{"op":"hset","key":"cfg:execution_gate","field":"paused","value":"0"}]
+    - NOTIFY_SLO_ALLOW_NOOP_SUGGESTIONS=0
+    - ENABLE_META_COV_OUTCOME_GUARD=1
+    - META_COV_OUTCOME_EMIT_SUGGESTION=1
+    - ENABLE_META_COV_OUTCOME_AUTO_APPLY=1
+    - TRADE_EVENTS_STREAM=trades:closed
+    - ENABLE_LOB_PRESSURE_SMOKE=1
+    - META_ENFORCE_COV_AUTO_APPROVE=1
+    - META_ENFORCE_COV_APPROVALS_REQUIRED=2
+    - ENABLE_OF_GATE_CONTRACT_CHECK=1
+    - ENABLE_POLICY_EFFECTIVENESS_REPORT=1
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-trade-ml-sre-monitor-timer
+    volumes:
+    - ./python-worker:/app
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name trade_ml_sre_monitor --is-minik -- sh -c \"sleep 5 && while true; do\\\n  NF=/tmp/.sre_notify_ts;\\\n \
+      \ if [ ! -f $$NF ] || find $$NF -mmin +60 | grep -q .; then\\\n    echo 'Running\
+      \ SRE Monitors WITH notify (1h gate)...';\\\n    python3 -m tools.sre_monitor_all_v3\
+      \ --emit-metrics --notify --emit-suggestions;\\\n    touch $$NF;\\\n  else\\\
+      \n    echo 'Running SRE Monitors metrics-only (notify suppressed)...';\\\n \
+      \   python3 -m tools.sre_monitor_all_v3 --emit-metrics --emit-suggestions;\\\
+      \n  fi;\\\n  echo 'Monitor done. Sleeping 10 minutes...';\\\n  sleep 600;\\\n\
+      done\"\n"
+
+  scanner-trade-execution-healthcheck-timer:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - EXECUTION_JOURNAL_DSN=${EXECUTION_JOURNAL_DSN}
+    - RUNBOOK_REPORT_DIR=/var/lib/trade-runbook/reports
+    - "USER_STREAM_CACHE_PREFIX=orders:user_stream:"
+    - USER_STREAM_STALE_MS=120000
+    - EXEC_CONSISTENCY_STREAM_COUNT=5000
+    - "EXEC_CONSISTENCY_SID_PREFIX_ALLOWLIST=crypto-of:"
+    - "ORDERS_STATE_KEY_PREFIX=orders:state:"
+    - "EXEC_STREAM=orders:exec"
+    - "EXEC_HEALTHCHECK_TEXTFILE_PATH="
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-trade-execution-healthcheck-timer
+    volumes:
+    - ./python-worker:/app
+    - ./var/runbook-reports:/var/lib/trade-runbook/reports:rw
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name exec_healthcheck_timer --is-minik -- sh -c \"sleep 5 && while true; do\n  echo '[p7-healthcheck] Running\
+      \ execution healthcheck...';\n  if [ -n \\\"$$EXEC_HEALTHCHECK_TEXTFILE_PATH\\\
+      \" ]; then\n    python3 -u scripts/execution_healthcheck.py --report-dir /var/lib/trade-runbook/reports\
+      \ --textfile-output \\\"$$EXEC_HEALTHCHECK_TEXTFILE_PATH\\\" || true;\n  else\n\
+      \    python3 -u scripts/execution_healthcheck.py --report-dir /var/lib/trade-runbook/reports\
+      \ || true;\n  fi;\n  sleep 60;\ndone\"\n"
+
+  scanner-bbo-ts-writer:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - ANALYTICS_DB_DSN=${ANALYTICS_DB_DSN}
+    - BBO_TS_STREAM=events:bbo_ts
+    - BBO_TS_CG=bbo_ts_writer
+    - BBO_TS_BLOCK_MS=5000
+    - BBO_TS_COUNT=256
+    - BBO_TS_DLQ_STREAM=events:bbo_ts:dlq
+    - BBO_TS_DLQ_MAXLEN=200000
+    - BBO_TS_WRITER_BATCH_SIZE=500
+    - BBO_TS_WRITER_METRICS_PORT=9826
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-bbo-ts-writer
+    volumes:
+    - ./python-worker:/app
+    command: python3 tools/run_daemon_with_minik_failover.py --job-name bbo_ts_writer --is-minik -- python -m services.posttrade.bbo_ts_writer
+
+  scanner-of-gate-sre:
+    build: *id001
+    restart: unless-stopped
+    environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=${REDIS_URL}
+    - OF_GATE_METRICS_STREAM=metrics:of_gate
+    - NOTIFY_TELEGRAM_STREAM=notify:telegram
+    - OF_INPUTS_STREAM=signals:of:inputs
+    - TRADE_EVENTS_STREAM=events:trades
+    - CONF_CAL_AB_SHADOW=false
+    - OF_SCORE_MIN=0.60
+    - TZ=UTC
+    networks: *id002
+    dns: *id003
+    container_name: scanner-of-gate-sre
+    volumes:
+    - /var/lib/trade:/var/lib/trade
+    - ./python-worker/persistence:/app/persistence
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name of_gate_sre --is-minik -- sh -c \"\n  echo '[OF-GATE-SRE] Starting monitoring loop...'\n  mkdir\
+      \ -p /var/lib/trade/of_bench /var/lib/trade/of_gate_golden /var/lib/trade/of_replay\n\
+      \n  echo '[OF-GATE-SRE] Waiting for redis-worker-1...'\n  for i in $$(seq 1\
+      \ 12); do\n    python -c \\\"import redis; r=redis.from_url('${REDIS_URL:-${REDIS_URL}}');\
+      \ r.ping()\\\" 2>/dev/null && echo '[OF-GATE-SRE] Redis ready.' && break\n \
+      \   echo \\\"[OF-GATE-SRE] Redis not ready, retry (max 12)...\\\"\n    sleep\
+      \ 5\n  done\n\n  while true; do\n    M=`date +%M`\n    H=`date +%H`\n\n    #\
+      \ SRE monitor: 00, 10, 20, 30, 40, 50\n    case \"$$M\" in 00|10|20|30|40|50)\
+      \ python -m tools.of_gate_sre_monitor --window-min 10 --always 0 || echo 'SRE\
+      \ monitor failed' ;; esac\n\n    # Latency benchmark: 05, 35\n    case \"$$M\"\
+      \ in 05|35) python -m tools.bench_of_gate_latency --window-min 60 --out /var/lib/trade/of_bench/latency_bench_last.json\
+      \ || echo 'Benchmark failed' ;; esac\n    \n    # Nightly tasks\n    if [ \"\
+      $$M\" = \"00\" ]; then\n      if [ \"$$H\" = \"02\" ]; then python -m tools.of_gate_golden_snapshot\
+      \ --window-hours 24 --baseline /var/lib/trade/of_gate_golden/baseline.json --out-dir\
+      \ /var/lib/trade/of_gate_golden --fail-on-drift 0 --notify 1 || echo 'Snapshot\
+      \ failed'; fi\n      if [ \"$$H\" = \"03\" ]; then python -m tools.golden_replay_of_confirm_from_redis\
+      \ --out-dir /var/lib/trade/of_replay --stream signals:of:inputs --field payload\
+      \ --since-hours 24 --max-records 200000 --baseline /var/lib/trade/of_replay/baseline.ndjson\
+      \ --fail-on-mismatch 0 || echo 'Replay failed'; fi\n      if [ \"$$H\" = \"\
+      04\" ]; then python -m tools.ml_calibration_health_monitor || echo 'ML monitor\
+      \ failed'; fi\n    fi\n    \n    sleep 60\n  done\n\"\n"
+
 networks:
   scanner-timers:
     name: scanner-timers

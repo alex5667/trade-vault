@@ -242,6 +242,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         str(int(args.train_embargo_ms)),
         "--p_min",
         str(float(args.train_p_min)),
+        "--feature_cols_json",
+        out_feature_cols,
+        "--lr_C",
+        "0.01",
     ]
     rc2, so2, se2 = _run(train_cmd, timeout_s=int(args.timeout_train_s))
     train_report = _last_json_line(so2)

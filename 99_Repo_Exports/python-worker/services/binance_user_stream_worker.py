@@ -194,10 +194,53 @@ class BinanceUserStreamWorker:
         fields["ingest_mono_ms"] = str(_mono_ms())
         try:
             self.r.xadd(self.stream_key, fields, maxlen=50000)
+            
+            exec_stream = os.getenv("EXEC_STREAM", "orders:exec")
+            
             if event.client_order_id:
                 self.r.set(self._cache_key("order", event.client_order_id), json.dumps({"event": fields, "order": event.raw.get("o") or {}}, ensure_ascii=False), ex=self.cache_ttl_sec)
+                try:
+                    sid = self.r.get(f"orders:cid_to_sid:{event.client_order_id}")
+                    if sid:
+                        order_data = event.raw.get("o") or {}
+                        exec_fields = {
+                            "event_type": "EXCHANGE_FILL" if str(event.event_type).upper() == "ORDER_TRADE_UPDATE" else "EXCHANGE_ORDER_UPDATE",
+                            "sid": sid,
+                            "symbol": str(event.symbol),
+                            "action": "reconcile",
+                            "status": str(event.status),
+                            "filled_qty": str(order_data.get("z") or "0"),
+                            "avg_price": str(order_data.get("ap") or "0"),
+                            "client_order_id": str(event.client_order_id),
+                            "binance_order_id": str(event.order_id) if event.order_id else "",
+                            "ts_event_ms": str(event.event_time_ms),
+                            "ts_ms": str(_ms_now()),
+                            "mono_ms": str(_mono_ms())
+                        }
+                        self.r.xadd(exec_stream, exec_fields, maxlen=50000)
+                except Exception:
+                    pass
+
             if event.client_algo_id:
                 self.r.set(self._cache_key("algo", event.client_algo_id), json.dumps({"event": fields, "algo": event.raw.get("ao") or event.raw.get("a") or event.raw.get("o") or {}}, ensure_ascii=False), ex=self.cache_ttl_sec)
+                try:
+                    sid = self.r.get(f"orders:cid_to_sid:{event.client_algo_id}")
+                    if sid:
+                        exec_fields = {
+                            "event_type": "EXCHANGE_ALGO_UPDATE",
+                            "sid": sid,
+                            "symbol": str(event.symbol),
+                            "action": "reconcile",
+                            "status": str(event.status),
+                            "client_algo_id": str(event.client_algo_id),
+                            "binance_order_id": str(event.algo_id) if event.algo_id else "",
+                            "ts_event_ms": str(event.event_time_ms),
+                            "ts_ms": str(_ms_now()),
+                            "mono_ms": str(_mono_ms())
+                        }
+                        self.r.xadd(exec_stream, exec_fields, maxlen=50000)
+                except Exception:
+                    pass
             # Update richer status contract required by ExecutionBootstrapSupervisor
             self._write_status(
                 status='stream_live',

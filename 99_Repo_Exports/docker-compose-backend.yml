@@ -288,7 +288,7 @@ services:
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - REDIS_SIGNALS_HOST=redis-worker-1
     - REDIS_SIGNALS_PORT=6379
-    - REDIS_SIGNALS_HOST_2=redis-worker-2
+    - REDIS_SIGNALS_HOST_2=redis-worker-1
     - REDIS_SIGNALS_PORT_2=6379
     - SIGNAL_OUTBOX_STREAM=stream:signals:outbox
     - OUTBOX_LABELS_STREAM=stream:signals:labels

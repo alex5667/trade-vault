@@ -64,6 +64,7 @@ def _mk_exec():
     ex.exec_state_derived_view = True
     ex.exec_inline_state_projection = True  # inline for p112 tests
     ex.execution_journal = None
+    ex.exec_stream_maxlen = 100000
     return ex
 
 

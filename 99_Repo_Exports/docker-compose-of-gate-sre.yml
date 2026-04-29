@@ -20,7 +20,7 @@ services:
     networks:
     - scanner-ops
     - scanner-infra
-    command: "sh -c \"\n  echo '[OF-GATE-SRE] Starting monitoring loop...'\n  mkdir\
+    command: "python3 tools/run_daemon_with_minik_failover.py --job-name of_gate_sre -- sh -c \"\n  echo '[OF-GATE-SRE] Starting monitoring loop...'\n  mkdir\
       \ -p /var/lib/trade/of_bench /var/lib/trade/of_gate_golden /var/lib/trade/of_replay\n\
       \n  echo '[OF-GATE-SRE] Waiting for redis-worker-1...'\n  for i in $$(seq 1\
       \ 12); do\n    python -c \\\"import redis; r=redis.from_url('${REDIS_URL:-${REDIS_URL}}');\
@@ -64,7 +64,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.0'
+          cpus: '0.5'
         reservations:
           devices:
           - driver: nvidia
