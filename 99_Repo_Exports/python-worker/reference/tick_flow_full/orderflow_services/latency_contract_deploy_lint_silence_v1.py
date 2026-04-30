@@ -20,10 +20,10 @@ from typing import Any
 
 from services.observability.latency_deploy_contract import CONTRACTS
 from services.observability.latency_deploy_lint_silence_state import (
-    clear_ack_silence,
-    parse_silence_state,
-    state_key as silence_state_key,
-    upsert_ack_silence,
+    clear_ack_silence
+    parse_silence_state
+    state_key as silence_state_key
+    upsert_ack_silence
 )
 from services.observability.latency_deploy_lint_state import state_key as lint_state_key
 
@@ -56,16 +56,16 @@ class Cfg:
 
 def load_cfg() -> Cfg:
     return Cfg(
-        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
-        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
-        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
-        ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
-        silence_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S', '2592000'), 2592000)),
-        default_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES', '360'), 360)),
-        policy_window_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_WINDOW_HOURS', '168'), 168) * 3600),
-        policy_max_budget_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_BUDGET_MINUTES', '1440'), 1440)),
-        policy_max_acks=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_ACKS', '3'), 3)),
-        policy_denied_exit_code=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE', '27'), 27)),
+        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0')
+        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last')
+        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence')
+        ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1')
+        silence_ttl_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_TTL_S', '2592000'), 2592000))
+        default_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DEFAULT_MINUTES', '360'), 360))
+        policy_window_s=max(3600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_WINDOW_HOURS', '168'), 168) * 3600)
+        policy_max_budget_minutes=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_BUDGET_MINUTES', '1440'), 1440))
+        policy_max_acks=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_MAX_ACKS', '3'), 3))
+        policy_denied_exit_code=max(1, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_POLICY_DENIED_EXIT_CODE', '27'), 27))
     )
 
 
@@ -74,35 +74,35 @@ def _read_purpose_status(r: Any, cfg: Cfg, purpose: str, now_ms: int) -> dict[st
     silence_raw = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
     silence = parse_silence_state(silence_raw, now_ms=now_ms)
     return {
-        'purpose': purpose,
-        'gate_active': str(lint_raw.get('gate_active', '0')) == '1',
-        'gate_reason_code': str(lint_raw.get('gate_reason_code', 'unknown') or 'unknown'),
-        'error_codes': str(lint_raw.get('error_codes', 'ok') or 'ok'),
-        'fail_age_s': _i(lint_raw.get('fail_age_s'), 0),
-        'silence_active': silence.silence_active,
-        'silence_until_ts_ms': silence.silence_until_ts_ms,
-        'silence_remaining_s': silence.remaining_s,
-        'ack_operator': silence.ack_operator,
-        'ack_ticket': silence.ack_ticket,
-        'ack_reason': silence.ack_reason,
-        'unsilence_operator': silence.unsilence_operator,
-        'unsilence_ticket': silence.unsilence_ticket,
-        'unsilence_reason': silence.unsilence_reason,
-        'last_action': silence.last_action,
-        'last_action_ts_ms': silence.last_action_ts_ms,
-        'policy_window_start_ts_ms': silence.policy_window_start_ts_ms,
-        'policy_window_end_ts_ms': silence.policy_window_end_ts_ms,
-        'policy_window_ack_count': silence.policy_window_ack_count,
-        'policy_window_budget_minutes_used': silence.policy_window_budget_minutes_used,
-        'policy_limit_hit_total': silence.policy_limit_hit_total,
-        'policy_denied_total': silence.policy_denied_total,
-        'policy_last_limit_kind': silence.policy_last_limit_kind,
-        'policy_last_limit_ts_ms': silence.policy_last_limit_ts_ms,
-        'policy_last_deny_ts_ms': silence.policy_last_deny_ts_ms,
-        'policy_last_deny_reason': silence.policy_last_deny_reason,
-        'policy_current_override_active': silence.policy_current_override_active,
-        'policy_current_override_ticket': silence.policy_current_override_ticket,
-        'policy_last_override_ticket': silence.policy_last_override_ticket,
+        'purpose': purpose
+        'gate_active': str(lint_raw.get('gate_active', '0')) == '1'
+        'gate_reason_code': str(lint_raw.get('gate_reason_code', 'unknown') or 'unknown')
+        'error_codes': str(lint_raw.get('error_codes', 'ok') or 'ok')
+        'fail_age_s': _i(lint_raw.get('fail_age_s'), 0)
+        'silence_active': silence.silence_active
+        'silence_until_ts_ms': silence.silence_until_ts_ms
+        'silence_remaining_s': silence.remaining_s
+        'ack_operator': silence.ack_operator
+        'ack_ticket': silence.ack_ticket
+        'ack_reason': silence.ack_reason
+        'unsilence_operator': silence.unsilence_operator
+        'unsilence_ticket': silence.unsilence_ticket
+        'unsilence_reason': silence.unsilence_reason
+        'last_action': silence.last_action
+        'last_action_ts_ms': silence.last_action_ts_ms
+        'policy_window_start_ts_ms': silence.policy_window_start_ts_ms
+        'policy_window_end_ts_ms': silence.policy_window_end_ts_ms
+        'policy_window_ack_count': silence.policy_window_ack_count
+        'policy_window_budget_minutes_used': silence.policy_window_budget_minutes_used
+        'policy_limit_hit_total': silence.policy_limit_hit_total
+        'policy_denied_total': silence.policy_denied_total
+        'policy_last_limit_kind': silence.policy_last_limit_kind
+        'policy_last_limit_ts_ms': silence.policy_last_limit_ts_ms
+        'policy_last_deny_ts_ms': silence.policy_last_deny_ts_ms
+        'policy_last_deny_reason': silence.policy_last_deny_reason
+        'policy_current_override_active': silence.policy_current_override_active
+        'policy_current_override_ticket': silence.policy_current_override_ticket
+        'policy_last_override_ticket': silence.policy_last_override_ticket
     }
 
 
@@ -113,58 +113,58 @@ def cmd_status(r: Any, cfg: Cfg, *, purpose: str | None = None, now_ms: int | No
 
 
 def cmd_ack(
-    r: Any,
-    cfg: Cfg,
-    *,
-    purpose: str,
-    operator: str,
-    ticket: str,
-    reason: str,
-    minutes: int,
-    escalation_ticket: str = '',
-    now_ms: int | None = None,
+    r: Any
+    cfg: Cfg
+    *
+    purpose: str
+    operator: str
+    ticket: str
+    reason: str
+    minutes: int
+    escalation_ticket: str = ''
+    now_ms: int | None = None
 ) -> dict[str, Any]:
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
     gate_active = str(lint_raw.get('gate_active', '0')) == '1'
     state = upsert_ack_silence(
-        r,
-        prefix=cfg.silence_prefix,
-        purpose=purpose,
-        operator=operator,
-        ticket=ticket,
-        reason=reason,
-        silence_minutes=minutes,
-        ttl_s=cfg.silence_ttl_s,
-        ops_stream=cfg.ops_stream,
-        gate_active=gate_active,
-        now_ms=now_ms,
-        policy_window_s=cfg.policy_window_s,
-        policy_max_budget_minutes=cfg.policy_max_budget_minutes,
-        policy_max_acks=cfg.policy_max_acks,
-        escalation_ticket=escalation_ticket,
+        r
+        prefix=cfg.silence_prefix
+        purpose=purpose
+        operator=operator
+        ticket=ticket
+        reason=reason
+        silence_minutes=minutes
+        ttl_s=cfg.silence_ttl_s
+        ops_stream=cfg.ops_stream
+        gate_active=gate_active
+        now_ms=now_ms
+        policy_window_s=cfg.policy_window_s
+        policy_max_budget_minutes=cfg.policy_max_budget_minutes
+        policy_max_acks=cfg.policy_max_acks
+        escalation_ticket=escalation_ticket
     )
     status = _read_purpose_status(r, cfg, purpose, now_ms)
     denied = state.get('last_action') == 'ack_denied_policy'
     return {
-        'ok': not denied,
-        'action': 'ack',
-        'purpose': purpose,
-        'operator': operator,
-        'ticket': ticket,
-        'minutes': int(minutes),
-        'escalation_ticket': str(escalation_ticket or ''),
+        'ok': not denied
+        'action': 'ack'
+        'purpose': purpose
+        'operator': operator
+        'ticket': ticket
+        'minutes': int(minutes)
+        'escalation_ticket': str(escalation_ticket or '')
         'policy': {
-            'window_hours': int(cfg.policy_window_s / 3600),
-            'max_budget_minutes': cfg.policy_max_budget_minutes,
-            'max_acks': cfg.policy_max_acks,
-            'denied': denied,
-            'requires_escalation': bool(status['policy_last_limit_kind'] and status['policy_last_limit_kind'] != 'none'),
-            'limit_kind': status['policy_last_limit_kind'],
-            'denied_reason': status['policy_last_deny_reason'] if denied else '',
-            'override_active': status['policy_current_override_active'],
-        },
-        'status': status,
+            'window_hours': int(cfg.policy_window_s / 3600)
+            'max_budget_minutes': cfg.policy_max_budget_minutes
+            'max_acks': cfg.policy_max_acks
+            'denied': denied
+            'requires_escalation': bool(status['policy_last_limit_kind'] and status['policy_last_limit_kind'] != 'none')
+            'limit_kind': status['policy_last_limit_kind']
+            'denied_reason': status['policy_last_deny_reason'] if denied else ''
+            'override_active': status['policy_current_override_active']
+        }
+        'status': status
     }
 
 
@@ -205,14 +205,14 @@ def main(argv: list[str] | None = None) -> int:
         rc = 0
     elif args.cmd in {'ack', 'silence'}:
         out = cmd_ack(
-            r,
-            cfg,
-            purpose=args.purpose,
-            operator=args.operator,
-            ticket=args.ticket,
-            reason=args.reason,
-            minutes=cfg.default_minutes if args.minutes is None else max(1, int(args.minutes)),
-            escalation_ticket=str(args.escalation_ticket or ''),
+            r
+            cfg
+            purpose=args.purpose
+            operator=args.operator
+            ticket=args.ticket
+            reason=args.reason
+            minutes=cfg.default_minutes if args.minutes is None else max(1, int(args.minutes))
+            escalation_ticket=str(args.escalation_ticket or '')
         )
         rc = 0 if out.get('ok') else cfg.policy_denied_exit_code
     else:

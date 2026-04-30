@@ -39,12 +39,12 @@ class BurstinessTracker:
     """
 
     def __init__(
-        self,
-        bucket_ms: int,
-        half_life_short_ms: int = 250,
-        half_life_long_ms: int = 2000,
-        fano_window_buckets: int = 60,
-        dt_alpha: float = 0.05,
+        self
+        bucket_ms: int
+        half_life_short_ms: int = 250
+        half_life_long_ms: int = 2000
+        fano_window_buckets: int = 60
+        dt_alpha: float = 0.05
     ):
         """
         Args:
@@ -172,12 +172,12 @@ class BurstinessTracker:
         self._last_side = 0
 
         return BurstStats(
-            trade_count_bucket=int(prev_trades),
-            rate_short=float(self.lambda_s),
-            rate_long=float(self.lambda_l),
-            burst_ratio=float(burst_ratio),
-            cv_dt=float(cv),
-            fano_counts=float(fano),
-            flip_ratio=float(flip_ratio),
+            trade_count_bucket=int(prev_trades)
+            rate_short=float(self.lambda_s)
+            rate_long=float(self.lambda_l)
+            burst_ratio=float(burst_ratio)
+            cv_dt=float(cv)
+            fano_counts=float(fano)
+            flip_ratio=float(flip_ratio)
         )
 

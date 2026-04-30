@@ -11,8 +11,8 @@ Side = Literal["LONG", "SHORT"]
 # #14: Canonical schema versions — cross-validate on any startup/test boundary.
 # Bump these when the payload contract changes and update consumers accordingly.
 EXPECTED_SCHEMA_VERSIONS: Dict[str, int] = {
-    "SignalNorm": 1,
-    "TradeClosed": 2,
+    "SignalNorm": 1
+    "TradeClosed": 2
 }
 
 
@@ -79,8 +79,8 @@ class SignalNorm:
                 object.__setattr__(self, "quantity", q)
             elif q != 0.0 and qu != 0.0 and abs(q - qu) > 1e-9:
                 _models_logger.warning(
-                    "SignalNorm qty/quantity diverge: qty=%.9f quantity=%.9f sid=%s",
-                    q, qu, self.sid,
+                    "SignalNorm qty/quantity diverge: qty=%.9f quantity=%.9f sid=%s"
+                    q, qu, self.sid
                 )
         except Exception:
             pass
@@ -154,8 +154,8 @@ class TradeClosed:
                 object.__setattr__(self, "quantity", q)
             elif q_val != 0.0 and qu_val != 0.0 and abs(q_val - qu_val) > 1e-9:
                 _models_logger.warning(
-                    "TradeClosed qty/quantity diverge: qty=%.9f quantity=%.9f trade_id=%s",
-                    q_val, qu_val, self.trade_id,
+                    "TradeClosed qty/quantity diverge: qty=%.9f quantity=%.9f trade_id=%s"
+                    q_val, qu_val, self.trade_id
                 )
         except Exception:
             pass
@@ -516,12 +516,12 @@ class PositionState:
     # NEW: execution-quality probes (for "slippage model by fact").
     #
     # Почему это в PositionState:
-    #   - значения считаются в момент тика (в process_tick) и относятся к конкретной сделке,
+    #   - значения считаются в момент тика (в process_tick) и относятся к конкретной сделке
     #     поэтому удобнее держать их рядом с состоянием позиции;
     #   - далее они переносятся в TradeClosed (finalize_trade) и пишутся в Redis статистикой.
     #
     # Примечание:
-    #   - exit_mid_price / exit_spread_bps — "срез рынка" на момент финального закрытия,
+    #   - exit_mid_price / exit_spread_bps — "срез рынка" на момент финального закрытия
     #     достаточный для оценки realized_slippage_bps и realized_spread_bps.
     #   - Эти поля fail-open: если данных нет, остаются 0 и downstream пропускает запись.
     # -------------------------------------------------------------------------
@@ -541,7 +541,7 @@ class PositionState:
     #   SHORT: adverse_bps = max(0, (mid - entry)/entry*1e4)
     #
     # Зачем:
-    #   - помогает калибровать "adverse_bps@T" и учитывать реальный impact/проскальзывание,
+    #   - помогает калибровать "adverse_bps@T" и учитывать реальный impact/проскальзывание
     #     а не фиксированный "0.5*spread".
     #
     # Реализация:
@@ -552,7 +552,7 @@ class PositionState:
     adverse_bps_t: Dict[int, float] = field(default_factory=dict)
 
     # -- tick activity tracking (orphan guard) --
-    # Обновляются при каждом тике on_tick. Используются _is_orphan_expired(),
+    # Обновляются при каждом тике on_tick. Используются _is_orphan_expired()
     # чтобы не выгонять позиции, которые получали тики, но были long-running.
     last_tick_ts_ms: int = 0
     last_update_ts_ms: int = 0

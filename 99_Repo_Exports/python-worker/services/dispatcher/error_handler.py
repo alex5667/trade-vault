@@ -11,14 +11,14 @@ class ErrorHandler:
         self.counters = counters
 
     def handle(
-        self,
-        exc: Exception,
-        *,
-        context: str,
-        msg_id: str = "",
-        ctr_transient: str = "transient_error",
-        ctr_fatal: str = "fatal_error",
-        log_transient: bool = False,
+        self
+        exc: Exception
+        *
+        context: str
+        msg_id: str = ""
+        ctr_transient: str = "transient_error"
+        ctr_fatal: str = "fatal_error"
+        log_transient: bool = False
     ) -> bool:
         """
         Handle exception: increment counters, log if needed.

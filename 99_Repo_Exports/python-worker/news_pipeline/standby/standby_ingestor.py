@@ -61,10 +61,10 @@ def _xadd_dedup(r: redis.Redis, *, uid: str, fields: Dict[str, Any]) -> bool:
     r.expire(key, DEDUP_TTL_SEC)
 
     r.xadd(
-        NEWS_RAW_STREAM,
-        fields,
-        maxlen=MAX_STREAM_LEN,
-        approximate=True,
+        NEWS_RAW_STREAM
+        fields
+        maxlen=MAX_STREAM_LEN
+        approximate=True
     )
     return True
 
@@ -84,10 +84,10 @@ def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
             redis.connection.Connection.lib_version = None
 
             r = redis.Redis.from_url(
-                redis_url,
-                decode_responses=True,
-                health_check_interval=30,
-                socket_timeout=10,
+                redis_url
+                decode_responses=True
+                health_check_interval=30
+                socket_timeout=10
             )
             # Test connection
             r.ping()
@@ -130,46 +130,46 @@ def run() -> None:
             # --- RSS (всегда можно) ---
             if cfg["rss"]["enabled"]:
                 items = fetch_rss(
-                    name="rss",
-                    urls=cfg["rss"]["urls"],
-                    user_agent=cfg["user_agent"],
+                    name="rss"
+                    urls=cfg["rss"]["urls"]
+                    user_agent=cfg["user_agent"]
                 )
                 _ingest_items(r, uid_policy, items, provider_id_fallback="rss")
 
             # --- CryptoPanic (только если токен) ---
             if cfg["cryptopanic"]["enabled"] and cfg["cryptopanic"]["token"]:
                 items = fetch_cryptopanic(
-                    base_url=cfg["cryptopanic"]["base_url"],
-                    path=cfg["cryptopanic"]["path"],
-                    auth_token=cfg["cryptopanic"]["token"],
-                    currencies=cfg["cryptopanic"]["currencies"],
-                    filter_=cfg["cryptopanic"]["filter"],
-                    kind=cfg["cryptopanic"]["kind"],
-                    region=cfg["cryptopanic"]["region"],
-                    user_agent=cfg["user_agent"],
+                    base_url=cfg["cryptopanic"]["base_url"]
+                    path=cfg["cryptopanic"]["path"]
+                    auth_token=cfg["cryptopanic"]["token"]
+                    currencies=cfg["cryptopanic"]["currencies"]
+                    filter_=cfg["cryptopanic"]["filter"]
+                    kind=cfg["cryptopanic"]["kind"]
+                    region=cfg["cryptopanic"]["region"]
+                    user_agent=cfg["user_agent"]
                 )
                 _ingest_items(r, uid_policy, items, provider_id_key="provider_id", provider_id_fallback="cryptopanic")
 
             # --- FMP stock news (только если ключ) ---
             if cfg["fmp"]["enabled"] and cfg["fmp"]["api_key"]:
                 items = fetch_fmp_stock_news(
-                    base_url=cfg["fmp"]["base_url"],
-                    path=cfg["fmp"]["stock_news_path"],
-                    api_key=cfg["fmp"]["api_key"],
-                    tickers=cfg["fmp"]["tickers"],
-                    user_agent=cfg["user_agent"],
+                    base_url=cfg["fmp"]["base_url"]
+                    path=cfg["fmp"]["stock_news_path"]
+                    api_key=cfg["fmp"]["api_key"]
+                    tickers=cfg["fmp"]["tickers"]
+                    user_agent=cfg["user_agent"]
                 )
                 _ingest_items(r, uid_policy, items, provider_id_key="provider_id", provider_id_fallback="fmp")
 
             # --- NewsAPI everything (только если ключ) ---
             if cfg["newsapi"]["enabled"] and cfg["newsapi"]["api_key"]:
                 items = fetch_newsapi_everything(
-                    base_url=cfg["newsapi"]["base_url"],
-                    path=cfg["newsapi"]["path"],
-                    api_key=cfg["newsapi"]["api_key"],
-                    q=cfg["newsapi"]["q"],
-                    language=cfg["newsapi"]["language"],
-                    user_agent=cfg["user_agent"],
+                    base_url=cfg["newsapi"]["base_url"]
+                    path=cfg["newsapi"]["path"]
+                    api_key=cfg["newsapi"]["api_key"]
+                    q=cfg["newsapi"]["q"]
+                    language=cfg["newsapi"]["language"]
+                    user_agent=cfg["user_agent"]
                 )
                 _ingest_items(r, uid_policy, items, provider_id_key="provider_id", provider_id_fallback="newsapi")
 
@@ -180,12 +180,12 @@ def run() -> None:
             time.sleep(2.0)
 
 def _ingest_items(
-    r: redis.Redis,
-    uid_policy: UIDPolicy,
-    items: List[Dict[str, Any]],
-    *,
-    provider_id_key: str = "provider_id",
-    provider_id_fallback: str = "na",
+    r: redis.Redis
+    uid_policy: UIDPolicy
+    items: List[Dict[str, Any]]
+    *
+    provider_id_key: str = "provider_id"
+    provider_id_fallback: str = "na"
 ) -> None:
     now_ms = _now_ms()
 
@@ -200,11 +200,11 @@ def _ingest_items(
         provider_id = str(it.get(provider_id_key) or "") or provider_id_fallback
 
         uid = uid_policy.uid_for_news(
-            source=source,
-            url=url,
-            title=title,
-            provider_id=provider_id,
-            published_ts_ms=published_ts_ms,
+            source=source
+            url=url
+            title=title
+            provider_id=provider_id
+            published_ts_ms=published_ts_ms
         )
 
         symbols = it.get("symbols") or []
@@ -220,16 +220,16 @@ def _ingest_items(
             payload_json = "{}"
 
         fields = {
-            "uid": uid,
-            "published_ts_ms": str(published_ts_ms),
-            "ingested_ts_ms": str(int(it.get("ingested_ts_ms") or now_ms)),
-            "source": source,
-            "title": title,
-            "url": url,
-            "summary": str(it.get("summary") or ""),
-            "symbols": symbols_json,
-            "importance": str(float(it.get("importance") or 0.0)),
-            "payload": payload_json,
+            "uid": uid
+            "published_ts_ms": str(published_ts_ms)
+            "ingested_ts_ms": str(int(it.get("ingested_ts_ms") or now_ms))
+            "source": source
+            "title": title
+            "url": url
+            "summary": str(it.get("summary") or "")
+            "symbols": symbols_json
+            "importance": str(float(it.get("importance") or 0.0))
+            "payload": payload_json
         }
 
         _xadd_dedup(r, uid=uid, fields=fields)
@@ -252,11 +252,11 @@ def _load_sources_cfg() -> Dict[str, Any]:
 
     # дефолт RSS из вашего Excel
     rss_def = [
-        "https://bitcoinmagazine.com/.rss/full/",
-        "https://cointelegraph.com/rss",
-        "https://thedefiant.io/feed",
-        "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "https://www.ecb.europa.eu/rss/press.html",
+        "https://bitcoinmagazine.com/.rss/full/"
+        "https://cointelegraph.com/rss"
+        "https://thedefiant.io/feed"
+        "https://www.coindesk.com/arc/outboundfeeds/rss/"
+        "https://www.ecb.europa.eu/rss/press.html"
     ]
 
     providers = _get(obj, "providers", ["rss"])
@@ -279,33 +279,33 @@ def _load_sources_cfg() -> Dict[str, Any]:
     na_enabled = bool(_get(na, "enabled", True)) and ("newsapi" in providers) and bool(na_key)
 
     return {
-        "user_agent": ua,
-        "rss": {"enabled": rss_enabled, "urls": list(rss_urls)},
+        "user_agent": ua
+        "rss": {"enabled": rss_enabled, "urls": list(rss_urls)}
         "cryptopanic": {
-            "enabled": cp_enabled,
-            "token": cp_token,
-            "base_url": str(_get(cp, "base_url", "https://cryptopanic.com")),
-            "path": str(_get(cp, "path", "/api/v1/posts/")),
-            "currencies": list(_get(cp, "currencies", ["BTC", "ETH"])),
-            "filter": str(_get(cp, "filter", "important")),
-            "kind": str(_get(cp, "kind", "news")),
-            "region": str(_get(cp, "region", "en")),
-        },
+            "enabled": cp_enabled
+            "token": cp_token
+            "base_url": str(_get(cp, "base_url", "https://cryptopanic.com"))
+            "path": str(_get(cp, "path", "/api/v1/posts/"))
+            "currencies": list(_get(cp, "currencies", ["BTC", "ETH"]))
+            "filter": str(_get(cp, "filter", "important"))
+            "kind": str(_get(cp, "kind", "news"))
+            "region": str(_get(cp, "region", "en"))
+        }
         "fmp": {
-            "enabled": fmp_enabled,
-            "api_key": fmp_key,
-            "base_url": str(_get(fmp, "base_url", "https://financialmodelingprep.com")),
-            "stock_news_path": str(_get(fmp, "stock_news_path", "/api/v3/stock_news")),
-            "tickers": list(_get(fmp, "tickers", ["SPY", "QQQ"])),
-        },
+            "enabled": fmp_enabled
+            "api_key": fmp_key
+            "base_url": str(_get(fmp, "base_url", "https://financialmodelingprep.com"))
+            "stock_news_path": str(_get(fmp, "stock_news_path", "/api/v3/stock_news"))
+            "tickers": list(_get(fmp, "tickers", ["SPY", "QQQ"]))
+        }
         "newsapi": {
-            "enabled": na_enabled,
-            "api_key": na_key,
-            "base_url": str(_get(na, "base_url", "https://newsapi.org")),
-            "path": str(_get(na, "path", "/v2/everything")),
-            "q": str(_get(na, "q", "(bitcoin OR ethereum OR crypto)")),
-            "language": str(_get(na, "language", "en")),
-        },
+            "enabled": na_enabled
+            "api_key": na_key
+            "base_url": str(_get(na, "base_url", "https://newsapi.org"))
+            "path": str(_get(na, "path", "/v2/everything"))
+            "q": str(_get(na, "q", "(bitcoin OR ethereum OR crypto)"))
+            "language": str(_get(na, "language", "en"))
+        }
     }
 
 if __name__ == "__main__":

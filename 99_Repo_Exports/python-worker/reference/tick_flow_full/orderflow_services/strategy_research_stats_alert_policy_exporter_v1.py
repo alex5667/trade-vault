@@ -21,36 +21,36 @@ LIFECYCLE_STATES = ('none', 'active', 'cleared', 'expired')
 DUAL_CONTROL_STATES = ('none', 'pending', 'approved', 'consumed', 'invalidated')
 LIMIT_KINDS = ('none', 'budget', 'max_renew')
 DEFAULT_PURPOSES = (
-    'conf_score_guardrails_apply',
-    'conf_score_guardrails_promote',
-    'conf_score_guardrails_autopromo_controller',
-    'meta_cov_rollout_controller',
+    'conf_score_guardrails_apply'
+    'conf_score_guardrails_promote'
+    'conf_score_guardrails_autopromo_controller'
+    'meta_cov_rollout_controller'
 )
 DEFAULTS = {
     'pbo_high': {
-        'enabled': 1.0,
-        'suppress_active': 0.0,
-        'min_events_24h': 3.0,
-        'min_events_7d': 0.0,
-        'share_threshold_24h': 0.0,
-        'delta_vs_7d': 0.0,
-    },
+        'enabled': 1.0
+        'suppress_active': 0.0
+        'min_events_24h': 3.0
+        'min_events_7d': 0.0
+        'share_threshold_24h': 0.0
+        'delta_vs_7d': 0.0
+    }
     'report_stale': {
-        'enabled': 1.0,
-        'suppress_active': 0.0,
-        'min_events_24h': 0.0,
-        'min_events_7d': 5.0,
-        'share_threshold_24h': 0.0,
-        'delta_vs_7d': 0.0,
-    },
+        'enabled': 1.0
+        'suppress_active': 0.0
+        'min_events_24h': 0.0
+        'min_events_7d': 5.0
+        'share_threshold_24h': 0.0
+        'delta_vs_7d': 0.0
+    }
     'psr_dsr_low': {
-        'enabled': 1.0,
-        'suppress_active': 0.0,
-        'min_events_24h': 4.0,
-        'min_events_7d': 0.0,
-        'share_threshold_24h': 0.60,
-        'delta_vs_7d': 0.15,
-    },
+        'enabled': 1.0
+        'suppress_active': 0.0
+        'min_events_24h': 4.0
+        'min_events_7d': 0.0
+        'share_threshold_24h': 0.60
+        'delta_vs_7d': 0.15
+    }
 }
 
 
@@ -105,8 +105,8 @@ def _purpose_key(purpose: str) -> str:
 
 def _override_key(purpose: str, family: str) -> str:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
-        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX'
+        'cfg:strategy_research_stats:alert_policy:suppress_override:v1'
     ).rstrip(':')
     return f'{prefix}:{purpose}:{family}'
 
@@ -130,39 +130,39 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
         except Exception:
             pass
         return {
-            'present': 0.0,
-            'active': 0.0,
-            'created_ts_ms': created_ts_ms,
-            'expire_ts_ms': expire_ts_ms,
-            'remaining_s': 0.0,
-            'has_ticket': has_ticket,
-            'has_operator': has_operator,
-            'has_reason': has_reason,
+            'present': 0.0
+            'active': 0.0
+            'created_ts_ms': created_ts_ms
+            'expire_ts_ms': expire_ts_ms
+            'remaining_s': 0.0
+            'has_ticket': has_ticket
+            'has_operator': has_operator
+            'has_reason': has_reason
         }
     return {
-        'present': 1.0,
-        'active': 1.0,
-        'created_ts_ms': created_ts_ms,
-        'expire_ts_ms': expire_ts_ms,
-        'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0),
-        'has_ticket': has_ticket,
-        'has_operator': has_operator,
-        'has_reason': has_reason,
+        'present': 1.0
+        'active': 1.0
+        'created_ts_ms': created_ts_ms
+        'expire_ts_ms': expire_ts_ms
+        'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0)
+        'has_ticket': has_ticket
+        'has_operator': has_operator
+        'has_reason': has_reason
     }
 
 
 def _override_key(purpose: str, family: str) -> str:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
-        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX'
+        'cfg:strategy_research_stats:alert_policy:suppress_override:v1'
     ).rstrip(':')
     return f'{prefix}:{purpose}:{family}'
 
 
 def _override_state_key(purpose: str, family: str) -> str:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_STATE_PREFIX',
-        'cfg:strategy_research_stats:alert_policy:suppress_state:v1',
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_STATE_PREFIX'
+        'cfg:strategy_research_stats:alert_policy:suppress_state:v1'
     ).rstrip(':')
     return f'{prefix}:{purpose}:{family}'
 
@@ -173,15 +173,15 @@ def _ops_stream() -> str:
 
 def _override_limits_defaults_key() -> str:
     return _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
-        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults',
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY'
+        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults'
     )
 
 
 def _override_limits_key(purpose: str) -> str:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX',
-        'cfg:strategy_research_stats:alert_policy:override_limits:v1',
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX'
+        'cfg:strategy_research_stats:alert_policy:override_limits:v1'
     ).rstrip(':')
     return f'{prefix}:{purpose}'
 
@@ -190,9 +190,9 @@ def _resolve_override_limits(client: Any, purpose: str, family: str) -> Dict[str
     defaults_hash = _read_hash(client, _override_limits_defaults_key())
     purpose_hash = _read_hash(client, _override_limits_key(purpose))
     values = {
-        'max_budget_s': max(300.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '259200'), 259200.0)),
-        'max_renew_count': max(0.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2'), 2.0)),
-        'require_escalation': 1.0 if _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1'), 1.0) > 0.0 else 0.0,
+        'max_budget_s': max(300.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_BUDGET_S', '259200'), 259200.0))
+        'max_renew_count': max(0.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2'), 2.0))
+        'require_escalation': 1.0 if _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1'), 1.0) > 0.0 else 0.0
     }
     for src in (defaults_hash, purpose_hash):
         if not src:
@@ -219,9 +219,9 @@ def _emit_event(client: Any, kind: str, payload: Dict[str, Any]) -> None:
     if client is None:
         return
     fields = {
-        'ts_ms': str(_now_ms()),
-        'kind': kind,
-        'source': 'strategy_research_stats_alert_policy_exporter_v1',
+        'ts_ms': str(_now_ms())
+        'kind': kind
+        'source': 'strategy_research_stats_alert_policy_exporter_v1'
     }
     for key, value in payload.items():
         if isinstance(value, (dict, list, tuple)):
@@ -252,8 +252,8 @@ def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, s
         if int(_to_float(state.get('dual_control_approved_deadline_ts_ms'), 0.0)) != deadline_ts_ms:
             updated = dict(state)
             updated.update({
-                'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
-                'dual_control_approved_freshness_s': str(int(freshness_s)),
+                'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms)
+                'dual_control_approved_freshness_s': str(int(freshness_s))
             })
             try:
                 client.hset(state_key, mapping=updated)
@@ -263,32 +263,32 @@ def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, s
         return state
     updated = dict(state)
     updated.update({
-        'dual_control_required': '1',
-        'dual_control_approval_state': 'invalidated',
-        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
-        'dual_control_approved_freshness_s': str(int(freshness_s)),
-        'dual_control_invalidated_ts_ms': str(now_ms),
-        'dual_control_invalidated_reason': 'approval_freshness_expired',
-        'dual_control_invalidated_stage': 'exporter',
+        'dual_control_required': '1'
+        'dual_control_approval_state': 'invalidated'
+        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms)
+        'dual_control_approved_freshness_s': str(int(freshness_s))
+        'dual_control_invalidated_ts_ms': str(now_ms)
+        'dual_control_invalidated_reason': 'approval_freshness_expired'
+        'dual_control_invalidated_stage': 'exporter'
     })
     try:
         client.hset(state_key, mapping=updated)
     except Exception:
         return updated
     _emit_event(
-        client,
-        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated',
+        client
+        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated'
         {
-            'purpose': purpose,
-            'family': family,
-            'reason': 'approval_freshness_expired',
-            'stage': 'exporter',
-            'approval_ticket': str(state.get('dual_control_approved_ticket') or ''),
-            'approver': str(state.get('dual_control_approved_operator') or ''),
-            'approved_ts_ms': approved_ts_ms,
-            'deadline_ts_ms': deadline_ts_ms,
-            'freshness_s': int(freshness_s),
-        },
+            'purpose': purpose
+            'family': family
+            'reason': 'approval_freshness_expired'
+            'stage': 'exporter'
+            'approval_ticket': str(state.get('dual_control_approved_ticket') or '')
+            'approver': str(state.get('dual_control_approved_operator') or '')
+            'approved_ts_ms': approved_ts_ms
+            'deadline_ts_ms': deadline_ts_ms
+            'freshness_s': int(freshness_s)
+        }
     )
     return updated
 
@@ -300,20 +300,20 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
     if raw and not state:
         # Backfill lifecycle state for overrides created before P6.8.
         state = {
-            'purpose': purpose,
-            'family': family,
-            'ticket': str(raw.get('ticket') or ''),
-            'operator': str(raw.get('operator') or ''),
-            'reason': str(raw.get('reason') or ''),
-            'created_ts_ms': str(int(_to_float(raw.get('created_ts_ms'), 0.0))),
-            'expire_ts_ms': str(int(_to_float(raw.get('expire_ts_ms'), 0.0))),
-            'active': '1',
-            'lifecycle_state': 'active',
-            'cleared_ts_ms': '0',
-            'expired_ts_ms': '0',
-            'last_reminder_ts_ms': '0',
-            'last_reminder_expire_ts_ms': '0',
-            'last_reminder_kind': '',
+            'purpose': purpose
+            'family': family
+            'ticket': str(raw.get('ticket') or '')
+            'operator': str(raw.get('operator') or '')
+            'reason': str(raw.get('reason') or '')
+            'created_ts_ms': str(int(_to_float(raw.get('created_ts_ms'), 0.0)))
+            'expire_ts_ms': str(int(_to_float(raw.get('expire_ts_ms'), 0.0)))
+            'active': '1'
+            'lifecycle_state': 'active'
+            'cleared_ts_ms': '0'
+            'expired_ts_ms': '0'
+            'last_reminder_ts_ms': '0'
+            'last_reminder_expire_ts_ms': '0'
+            'last_reminder_kind': ''
         }
         try:
             client.hset(state_key, mapping=state)
@@ -333,36 +333,36 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
             pass
         try:
             client.hset(
-                state_key,
+                state_key
                 mapping={
-                    'purpose': purpose,
-                    'family': family,
-                    'ticket': str((raw or state).get('ticket') or ''),
-                    'operator': str((raw or state).get('operator') or ''),
-                    'reason': str((raw or state).get('reason') or ''),
-                    'created_ts_ms': str(created_ts_ms),
-                    'expire_ts_ms': str(expire_ts_ms),
-                    'active': '0',
-                    'lifecycle_state': 'expired',
-                    'expired_ts_ms': str(expired_ts_ms),
+                    'purpose': purpose
+                    'family': family
+                    'ticket': str((raw or state).get('ticket') or '')
+                    'operator': str((raw or state).get('operator') or '')
+                    'reason': str((raw or state).get('reason') or '')
+                    'created_ts_ms': str(created_ts_ms)
+                    'expire_ts_ms': str(expire_ts_ms)
+                    'active': '0'
+                    'lifecycle_state': 'expired'
+                    'expired_ts_ms': str(expired_ts_ms)
                     # P6.9: flag that renew acknowledgement is required before next suppress
-                    'renew_ack_required': '1',
-                },
+                    'renew_ack_required': '1'
+                }
             )
         except Exception:
             pass
         _emit_event(
-            client,
-            'strategy_research_stats_alert_policy_suppress_override_expired',
+            client
+            'strategy_research_stats_alert_policy_suppress_override_expired'
             {
-                'purpose': purpose,
-                'family': family,
-                'ticket': str((raw or state).get('ticket') or ''),
-                'operator': str((raw or state).get('operator') or ''),
-                'reason': str((raw or state).get('reason') or ''),
-                'expire_ts_ms': expire_ts_ms,
-                'expired_ts_ms': expired_ts_ms,
-            },
+                'purpose': purpose
+                'family': family
+                'ticket': str((raw or state).get('ticket') or '')
+                'operator': str((raw or state).get('operator') or '')
+                'reason': str((raw or state).get('reason') or '')
+                'expire_ts_ms': expire_ts_ms
+                'expired_ts_ms': expired_ts_ms
+            }
         )
         raw = {}
         state = _read_hash(client, state_key)
@@ -373,33 +373,33 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
             reminder_ts_ms = now_ms
             try:
                 client.hset(
-                    state_key,
+                    state_key
                     mapping={
-                        'purpose': purpose,
-                        'family': family,
-                        'active': '1',
-                        'lifecycle_state': 'active',
-                        'last_reminder_ts_ms': str(reminder_ts_ms),
-                        'last_reminder_expire_ts_ms': str(expire_ts_ms),
-                        'last_reminder_kind': 'expiry_warning',
+                        'purpose': purpose
+                        'family': family
+                        'active': '1'
+                        'lifecycle_state': 'active'
+                        'last_reminder_ts_ms': str(reminder_ts_ms)
+                        'last_reminder_expire_ts_ms': str(expire_ts_ms)
+                        'last_reminder_kind': 'expiry_warning'
                         # P6.9: flag that renew acknowledgement is required before next suppress
-                        'renew_ack_required': '1',
-                    },
+                        'renew_ack_required': '1'
+                    }
                 )
             except Exception:
                 pass
             _emit_event(
-                client,
-                'strategy_research_stats_alert_policy_suppress_override_expiry_warning',
+                client
+                'strategy_research_stats_alert_policy_suppress_override_expiry_warning'
                 {
-                    'purpose': purpose,
-                    'family': family,
-                    'ticket': str((raw or state).get('ticket') or ''),
-                    'operator': str((raw or state).get('operator') or ''),
-                    'reason': str((raw or state).get('reason') or ''),
-                    'expire_ts_ms': expire_ts_ms,
-                    'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0),
-                },
+                    'purpose': purpose
+                    'family': family
+                    'ticket': str((raw or state).get('ticket') or '')
+                    'operator': str((raw or state).get('operator') or '')
+                    'reason': str((raw or state).get('reason') or '')
+                    'expire_ts_ms': expire_ts_ms
+                    'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0)
+                }
             )
     state = _sweep_stale_dual_control_approval(client, purpose, family, state_key, state, now_ms) if state else state
     has_ticket = 1.0 if str((raw or state).get('ticket') or '').strip() else 0.0 if (raw or state) else 0.0
@@ -428,47 +428,47 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
         dual_control_deadline_ts_ms = int(dual_control_approved_ts_ms + max(60.0, _to_float((state or {}).get('dual_control_approved_freshness_s'), _dual_control_approved_freshness_s())) * 1000.0)
     dual_control_freshness_remaining_s = max(0.0, (dual_control_deadline_ts_ms - now_ms) / 1000.0) if dual_control_state == 'approved' and dual_control_deadline_ts_ms > 0 else 0.0
     return {
-        'present': 1.0 if raw else 0.0,
-        'active': active,
-        'created_ts_ms': created_ts_ms,
-        'expire_ts_ms': expire_ts_ms,
-        'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0) if active else 0.0,
-        'has_ticket': has_ticket,
-        'has_operator': has_operator,
-        'has_reason': has_reason,
-        'state_present': 1.0 if state else 0.0,
-        'lifecycle_state': lifecycle_state,
-        'last_reminder_ts_ms': reminder_ts_ms,
-        'expired_ts_ms': expired_ts_ms,
-        'expiring_soon': expiring_soon,
-        'expired_recently': expired_recently,
+        'present': 1.0 if raw else 0.0
+        'active': active
+        'created_ts_ms': created_ts_ms
+        'expire_ts_ms': expire_ts_ms
+        'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0) if active else 0.0
+        'has_ticket': has_ticket
+        'has_operator': has_operator
+        'has_reason': has_reason
+        'state_present': 1.0 if state else 0.0
+        'lifecycle_state': lifecycle_state
+        'last_reminder_ts_ms': reminder_ts_ms
+        'expired_ts_ms': expired_ts_ms
+        'expiring_soon': expiring_soon
+        'expired_recently': expired_recently
         # P6.9 renewal tracking fields
-        'renew_ack_required': renew_ack_required,
-        'renew_ack_present': renew_ack_present,
-        'renew_ack_ts_ms': renew_ack_ts_ms,
-        'renew_count': renew_count,
-        'policy_budget_used_s': policy_budget_used_s,
-        'policy_max_budget_s': policy_max_budget_s,
-        'policy_budget_remaining_s': max(0.0, policy_max_budget_s - policy_budget_used_s) if policy_max_budget_s else 0.0,
-        'policy_max_renew_count': policy_max_renew_count,
-        'policy_limit_hit_kind': policy_limit_hit_kind,
-        'policy_limit_hit_ts_ms': policy_limit_hit_ts_ms,
-        'policy_requires_escalation': policy_requires_escalation,
-        'policy_escalation_present': escalation_present,
-        'dual_control_required': dual_control_required,
-        'dual_control_state': dual_control_state,
-        'dual_control_approved_ts_ms': dual_control_approved_ts_ms,
-        'dual_control_approver_present': dual_control_approver_present,
-        'dual_control_freshness_remaining_s': dual_control_freshness_remaining_s,
+        'renew_ack_required': renew_ack_required
+        'renew_ack_present': renew_ack_present
+        'renew_ack_ts_ms': renew_ack_ts_ms
+        'renew_count': renew_count
+        'policy_budget_used_s': policy_budget_used_s
+        'policy_max_budget_s': policy_max_budget_s
+        'policy_budget_remaining_s': max(0.0, policy_max_budget_s - policy_budget_used_s) if policy_max_budget_s else 0.0
+        'policy_max_renew_count': policy_max_renew_count
+        'policy_limit_hit_kind': policy_limit_hit_kind
+        'policy_limit_hit_ts_ms': policy_limit_hit_ts_ms
+        'policy_requires_escalation': policy_requires_escalation
+        'policy_escalation_present': escalation_present
+        'dual_control_required': dual_control_required
+        'dual_control_state': dual_control_state
+        'dual_control_approved_ts_ms': dual_control_approved_ts_ms
+        'dual_control_approver_present': dual_control_approver_present
+        'dual_control_freshness_remaining_s': dual_control_freshness_remaining_s
     }
 
 def _family_default(family: str, field: str) -> float:
     env_map = {
-        ('pbo_high', 'min_events_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H',
-        ('report_stale', 'min_events_7d'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D',
-        ('psr_dsr_low', 'min_events_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PSR_DSR_LOW_MIN_EVENTS_24H',
-        ('psr_dsr_low', 'share_threshold_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PSR_DSR_LOW_SHARE_24H',
-        ('psr_dsr_low', 'delta_vs_7d'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PSR_DSR_LOW_DELTA_VS_7D',
+        ('pbo_high', 'min_events_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PBO_HIGH_MIN_EVENTS_24H'
+        ('report_stale', 'min_events_7d'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_REPORT_STALE_MIN_EVENTS_7D'
+        ('psr_dsr_low', 'min_events_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PSR_DSR_LOW_MIN_EVENTS_24H'
+        ('psr_dsr_low', 'share_threshold_24h'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PSR_DSR_LOW_SHARE_24H'
+        ('psr_dsr_low', 'delta_vs_7d'): 'STRATEGY_RESEARCH_STATS_ALERT_POLICY_DEFAULT_PSR_DSR_LOW_DELTA_VS_7D'
     }
     env_name = env_map.get((family, field))
     base = DEFAULTS[family][field]
@@ -479,12 +479,12 @@ def _family_default(family: str, field: str) -> float:
 
 def resolve_family_policy(family: str, defaults_hash: Dict[str, str], purpose_hash: Dict[str, str]) -> Dict[str, float]:
     base = {
-        'enabled': _family_default(family, 'enabled'),
-        'suppress_active': _family_default(family, 'suppress_active'),
-        'min_events_24h': _family_default(family, 'min_events_24h'),
-        'min_events_7d': _family_default(family, 'min_events_7d'),
-        'share_threshold_24h': _family_default(family, 'share_threshold_24h'),
-        'delta_vs_7d': _family_default(family, 'delta_vs_7d'),
+        'enabled': _family_default(family, 'enabled')
+        'suppress_active': _family_default(family, 'suppress_active')
+        'min_events_24h': _family_default(family, 'min_events_24h')
+        'min_events_7d': _family_default(family, 'min_events_7d')
+        'share_threshold_24h': _family_default(family, 'share_threshold_24h')
+        'delta_vs_7d': _family_default(family, 'delta_vs_7d')
     }
     for src in (defaults_hash, purpose_hash):
         if not src:

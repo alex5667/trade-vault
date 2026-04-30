@@ -86,8 +86,8 @@ def _extract_mismatch_penalty(doc: Dict[str, Any]) -> Dict[str, float]:
     """
     rows = list(doc.get('rows') or [])
     target = next(
-        (x for x in rows if str(x.get('window_name')) == '24h' and str(x.get('tier') or '').upper() == 'ALL'),
-        None,
+        (x for x in rows if str(x.get('window_name')) == '24h' and str(x.get('tier') or '').upper() == 'ALL')
+        None
     )
     if target is None:
         target_rows = [x for x in rows if str(x.get('window_name')) == '24h']
@@ -102,9 +102,9 @@ def _extract_mismatch_penalty(doc: Dict[str, Any]) -> Dict[str, float]:
         avg_r = float(target.get('avg_mismatch_rate') or 0.0)
     penalty = min(avg_q * 2.0, 12.0) + min(avg_r * 100.0, 12.0)
     return {
-        'mismatch_quarantine_count_24h': avg_q,
-        'mismatch_avg_rate_24h': avg_r,
-        'mismatch_penalty': round(penalty, 2),
+        'mismatch_quarantine_count_24h': avg_q
+        'mismatch_avg_rate_24h': avg_r
+        'mismatch_penalty': round(penalty, 2)
     }
 
 
@@ -149,18 +149,18 @@ def build_report(report_dir: Path) -> Dict[str, Any]:
     score = max(0.0, min(100.0, score))
 
     return {
-        'execution_score': round(execution_score, 2),
-        'replay_score': round(replay_score, 2),
-        'risk_score': round(risk_score, 2),
-        'risk_mismatch_rate': mismatch_rate,
-        'health_status': status,
+        'execution_score': round(execution_score, 2)
+        'replay_score': round(replay_score, 2)
+        'risk_score': round(risk_score, 2)
+        'risk_mismatch_rate': mismatch_rate
+        'health_status': status
         # P4.9: spread mismatch penalty fields into output for observability
-        **summary,
+        **summary
         # P5X: archive consistency penalty fields
-        'archive_consistency_mismatch_count': int(archive_consistency.get('mismatch_count') or 0),
-        'archive_consistency_penalty': round(archive_mismatch_penalty, 2),
-        'score': round(score, 2),
-        'bucket': _bucket(score),
+        'archive_consistency_mismatch_count': int(archive_consistency.get('mismatch_count') or 0)
+        'archive_consistency_penalty': round(archive_mismatch_penalty, 2)
+        'score': round(score, 2)
+        'bucket': _bucket(score)
     }
 
 
@@ -169,17 +169,17 @@ def main() -> int:
         description='Build merged operator score from execution + replay + risk-engine reports.'
     )
     parser.add_argument(
-        '--report-dir',
-        default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'),
-        help='Directory containing input report JSON files',
+        '--report-dir'
+        default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports')
+        help='Directory containing input report JSON files'
     )
     parser.add_argument(
-        '--out',
+        '--out'
         default=os.getenv(
-            'OPERATOR_SCORE_REPORT_PATH',
-            '/var/lib/trade-runbook/reports/latest_operator_score.json',
-        ),
-        help='Output path for the merged operator score JSON',
+            'OPERATOR_SCORE_REPORT_PATH'
+            '/var/lib/trade-runbook/reports/latest_operator_score.json'
+        )
+        help='Output path for the merged operator score JSON'
     )
     args = parser.parse_args()
 

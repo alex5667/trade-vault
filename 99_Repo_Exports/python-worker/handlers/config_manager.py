@@ -201,10 +201,10 @@ class ConfigManager:
     def get_config_summary(self) -> Dict[str, Any]:
         """Сводка текущей конфигурации."""
         return {
-            'symbol': self.symbol,
-            'source_name': self._get_source_name(),
-            'strategy_key': self._get_strategy_key(),
-            'signal_stream': self.signal_stream(),
-            'min_confidence': self.min_confidence(self.symbol),
-            'trailing_params': self._get_calibrated_trailing_params(),
+            'symbol': self.symbol
+            'source_name': self._get_source_name()
+            'strategy_key': self._get_strategy_key()
+            'signal_stream': self.signal_stream()
+            'min_confidence': self.min_confidence(self.symbol)
+            'trailing_params': self._get_calibrated_trailing_params()
         }

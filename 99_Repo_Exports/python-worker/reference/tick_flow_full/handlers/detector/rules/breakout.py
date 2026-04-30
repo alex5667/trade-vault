@@ -30,12 +30,12 @@ class BreakoutRule:
         raw = max(self.min_raw, abs(z) / max(self.z_breakout, 1e-9))
         return [
             Candidate(
-                kind="breakout",
-                side=side,
-                raw_score=float(raw),
-                level_price=float(level_price) if level_price is not None else None,
-                level_key=getattr(ctx, "level_key", None),
-                reasons=["z_delta_breakout"],
-                meta={"z": float(z)},
+                kind="breakout"
+                side=side
+                raw_score=float(raw)
+                level_price=float(level_price) if level_price is not None else None
+                level_key=getattr(ctx, "level_key", None)
+                reasons=["z_delta_breakout"]
+                meta={"z": float(z)}
             )
         ]

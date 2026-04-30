@@ -21,20 +21,20 @@ def _ts() -> int:
 
 
 def _make_valid_row(
-    *,
-    ok: int = 0,
-    ok_soft: int = 0,
-    scenario_v4: str = "na",
-    ts_ms: Optional[int] = None,
+    *
+    ok: int = 0
+    ok_soft: int = 0
+    scenario_v4: str = "na"
+    ts_ms: Optional[int] = None
 ) -> Dict[str, Any]:
     """Build the minimal valid row BEFORE enrich_schema_fields."""
     return {
-        "ts_ms": str(ts_ms or _ts()),
-        "symbol": "BTCUSDT",
-        "ok": str(ok),
-        "ok_soft": str(ok_soft),
-        "missing_legs": "[]",
-        "scenario_v4": scenario_v4,
+        "ts_ms": str(ts_ms or _ts())
+        "symbol": "BTCUSDT"
+        "ok": str(ok)
+        "ok_soft": str(ok_soft)
+        "missing_legs": "[]"
+        "scenario_v4": scenario_v4
     }
 
 
@@ -43,8 +43,8 @@ def _make_valid_row(
 def test_contract_enrich_and_validate_ok():
     """enrich_schema_fields + validate_of_gate_row must pass for a well-formed row."""
     from services.orderflow.of_gate_metrics_contract import (
-        enrich_schema_fields,
-        validate_of_gate_row,
+        enrich_schema_fields
+        validate_of_gate_row
     )
 
     row = _make_valid_row(ok=1)
@@ -109,12 +109,12 @@ def test_contract_validate_rejects_bad_ts():
 def _row(ts_ms: int, ok: int, ok_soft: int = 0, scenario: str = "na") -> Dict[str, Any]:
     from services.orderflow.of_gate_metrics_contract import enrich_schema_fields
     r = {
-        "ts_ms": str(ts_ms),
-        "symbol": "BTCUSDT",
-        "ok": str(ok),
-        "ok_soft": str(ok_soft),
-        "missing_legs": "[]",
-        "scenario_v4": scenario,
+        "ts_ms": str(ts_ms)
+        "symbol": "BTCUSDT"
+        "ok": str(ok)
+        "ok_soft": str(ok_soft)
+        "missing_legs": "[]"
+        "scenario_v4": scenario
     }
     enrich_schema_fields(r)
     return r
@@ -128,10 +128,10 @@ def test_ok_rate_and_soft_rate_math():
     from tools.of_gate_sre_monitor import compute_stats
 
     rows = [
-        _row(NOW - 1000, ok=1, ok_soft=0),
-        _row(NOW - 2000, ok=1, ok_soft=0),
-        _row(NOW - 3000, ok=0, ok_soft=1),
-        _row(NOW - 4000, ok=0, ok_soft=0),
+        _row(NOW - 1000, ok=1, ok_soft=0)
+        _row(NOW - 2000, ok=1, ok_soft=0)
+        _row(NOW - 3000, ok=0, ok_soft=1)
+        _row(NOW - 4000, ok=0, ok_soft=0)
     ]
 
     stats = compute_stats(rows, None, dh_bad_th=0.70)
@@ -173,9 +173,9 @@ def _alerts_yml_path(tick_flow_full: bool = False) -> str:
     # Walk up to python-worker root
     root = os.path.abspath(os.path.join(base, "..", "..", ".."))
     if tick_flow_full:
-        return os.path.join(root, "tick_flow_full", "orderflow_services",
+        return os.path.join(root, "tick_flow_full", "orderflow_services"
                             "prometheus_alerts_of_gate_ok_rate_v1.yml")
-    return os.path.join(root, "orderflow_services",
+    return os.path.join(root, "orderflow_services"
                         "prometheus_alerts_of_gate_ok_rate_v1.yml")
 
 
@@ -184,9 +184,9 @@ def _dashboard_path(tick_flow_full: bool = False) -> str:
     base = os.path.dirname(__file__)
     root = os.path.abspath(os.path.join(base, "..", "..", ".."))
     if tick_flow_full:
-        return os.path.join(root, "tick_flow_full", "orderflow_services",
+        return os.path.join(root, "tick_flow_full", "orderflow_services"
                             "grafana", "of_gate_ok_rate_health_p76.json")
-    return os.path.join(root, "orderflow_services", "grafana",
+    return os.path.join(root, "orderflow_services", "grafana"
                         "of_gate_ok_rate_health_p76.json")
 
 

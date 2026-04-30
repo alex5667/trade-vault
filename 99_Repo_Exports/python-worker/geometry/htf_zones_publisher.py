@@ -51,12 +51,12 @@ class PubCfg:
         if not syms:
             syms = [s.strip().upper() for s in (os.getenv("FUTURES_SYMBOLS", "") or "").split(",") if s.strip()]
         return PubCfg(
-            symbols=syms,
-            interval_sec=float(os.getenv("HTF_ZONES_PUB_INTERVAL_SEC", "10")),
-            ttl_sec=int(os.getenv("HTF_ZONES_TTL_SEC", "120")),
-            key_prefix=str(os.getenv("HTF_ZONES_KEY_PREFIX", "zones:htf:v1:")),
-            state_hash_prefix=str(os.getenv("HTF_ZONES_HASH_PREFIX", "zones:htf:hash:v1:")),
-            min_change_publish_sec=float(os.getenv("HTF_ZONES_MIN_CHANGE_PUBLISH_SEC", "2")),
+            symbols=syms
+            interval_sec=float(os.getenv("HTF_ZONES_PUB_INTERVAL_SEC", "10"))
+            ttl_sec=int(os.getenv("HTF_ZONES_TTL_SEC", "120"))
+            key_prefix=str(os.getenv("HTF_ZONES_KEY_PREFIX", "zones:htf:v1:"))
+            state_hash_prefix=str(os.getenv("HTF_ZONES_HASH_PREFIX", "zones:htf:hash:v1:"))
+            min_change_publish_sec=float(os.getenv("HTF_ZONES_MIN_CHANGE_PUBLISH_SEC", "2"))
         )
 
 
@@ -132,14 +132,14 @@ class HTFZonesPublisher:
                     side = "MID"
                 zones.append(
                     {
-                        "id": zid,
-                        "type": "LEVEL",
-                        "src": src,
-                        "side": side,
-                        "px_lo": float(px),
-                        "px_hi": float(px),
-                        "ts_ms": int(ts_ms),
-                        "weight": float(w),
+                        "id": zid
+                        "type": "LEVEL"
+                        "src": src
+                        "side": side
+                        "px_lo": float(px)
+                        "px_hi": float(px)
+                        "ts_ms": int(ts_ms)
+                        "weight": float(w)
                     }
                 )
             except Exception:

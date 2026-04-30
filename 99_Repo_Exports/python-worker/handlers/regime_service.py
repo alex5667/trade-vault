@@ -154,7 +154,7 @@ class MarketRegimeService:
 
         if score >= cfg.score_hi:
             # Directional label for downstream (SMT/OF policy):
-            # prefer hold_side_score sign (price vs vwap persistence),
+            # prefer hold_side_score sign (price vs vwap persistence)
             # fallback to delta_ema sign if hold is too small.
             hs = float(getattr(features, "hold_side_score", 0.0) or 0.0)
             de = float(getattr(features, "delta_ema", 0.0) or 0.0)

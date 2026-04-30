@@ -6,7 +6,7 @@ Inputs:
 - decisions NDJSON exported from Redis Stream `decisions:final`
 - trades:closed NDJSON exported from Redis Stream `trades:closed`
 
-It joins by sid, computes reward (default: binary 1{realized_R > 0}),
+It joins by sid, computes reward (default: binary 1{realized_R > 0})
 and estimates the average treatment effect (challenger - champion) using AIPW/DR.
 
 This script is designed to be run offline (cron/systemd timer) and write a JSON report that
@@ -242,13 +242,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     mean = sum(used) / n if n else float("nan")
 
     report: Dict[str, Any] = {
-        "version": "dr_uplift_eval_v1",
-        "reward": args.reward,
-        "n_joined": joined,
-        "n_used": n,
-        "mean_uplift": mean,
-        "skipped": skipped,
-        "ci": {},
+        "version": "dr_uplift_eval_v1"
+        "reward": args.reward
+        "n_joined": joined
+        "n_used": n
+        "mean_uplift": mean
+        "skipped": skipped
+        "ci": {}
     }
 
     if n:

@@ -104,12 +104,12 @@ class HardDataQualityGate:
     @classmethod
     def from_env(cls) -> "HardDataQualityGate":
         return cls(
-            enabled=_env_bool("DATA_HARD_GATE_ENABLED", False),
-            require_epoch_ts=_env_bool("DATA_REQUIRE_EPOCH_TS", False),
-            atr_stale_max_ms=int(_env_float("DATA_ATR_STALE_MAX_MS", 180000.0)),
-            strict_missing_atr_ts=_env_bool("DATA_STRICT_MISSING_ATR_TS", False),
-            strict_touch_fresh=_env_bool("DATA_STRICT_TOUCH_FRESH", False),
-            veto_flags=_parse_csv_set(_cached_getenv("DATA_VETO_FLAGS", "") or ""),
+            enabled=_env_bool("DATA_HARD_GATE_ENABLED", False)
+            require_epoch_ts=_env_bool("DATA_REQUIRE_EPOCH_TS", False)
+            atr_stale_max_ms=int(_env_float("DATA_ATR_STALE_MAX_MS", 180000.0))
+            strict_missing_atr_ts=_env_bool("DATA_STRICT_MISSING_ATR_TS", False)
+            strict_touch_fresh=_env_bool("DATA_STRICT_TOUCH_FRESH", False)
+            veto_flags=_parse_csv_set(_cached_getenv("DATA_VETO_FLAGS", "") or "")
         )
 
     def _is_enabled_for(self, symbol: str) -> bool:
@@ -185,14 +185,14 @@ class HardDataQualityGate:
                 setattr(ctx, "dq_hz_allow_shadow", int(bool(shadow.get("allow_shadow", True))))
                 # Phase 2.3A: canary router (sticky, deterministic)
                 canary = should_enforce_horizon_gate(
-                    symbol=str(getattr(ctx, "symbol", "") or ""),
+                    symbol=str(getattr(ctx, "symbol", "") or "")
                     sid=str(
                         getattr(ctx, "sid", "")
                         or getattr(ctx, "signal_id", "")
                         or ""
-                    ),
-                    regime=str(getattr(ctx, "regime", "") or ""),
-                    scenario=str(getattr(ctx, "scenario", "") or ""),
+                    )
+                    regime=str(getattr(ctx, "regime", "") or "")
+                    scenario=str(getattr(ctx, "scenario", "") or "")
                 )
                 setattr(ctx, "dq_hz_canary", canary)
                 setattr(ctx, "dq_hz_should_enforce", int(bool(canary.get("should_enforce", False))))
@@ -200,11 +200,11 @@ class HardDataQualityGate:
                 # Enforce only when canary selected AND shadow says deny
                 if bool(canary.get("should_enforce", False)) and not bool(shadow.get("allow_shadow", True)):
                     return GateDecision(
-                        apply=True,
-                        veto=True,
-                        reason_code=str(shadow.get("shadow_reason_code") or "DQ_HZ_DENY"),
-                        gate="HardDataQualityGate",
-                        notes=f"horizon_dq_canary|mode={canary.get('mode')}|{canary.get('reason_code')}",
+                        apply=True
+                        veto=True
+                        reason_code=str(shadow.get("shadow_reason_code") or "DQ_HZ_DENY")
+                        gate="HardDataQualityGate"
+                        notes=f"horizon_dq_canary|mode={canary.get('mode')}|{canary.get('reason_code')}"
                     )
             except Exception:
                 pass  # fail-open: shadow evaluation must never block trading
@@ -244,21 +244,21 @@ class RegimeSessionGate:
     @classmethod
     def from_env(cls) -> "RegimeSessionGate":
         return cls(
-            enabled=_env_bool("RS_GATE_ENABLED", False),
+            enabled=_env_bool("RS_GATE_ENABLED", False)
             spread_max_bps_default=_env_float("RS_SPREAD_MAX_BPS_DEFAULT", 0.0),  # 0 => disabled by default
-            depth_min_default=_env_float("RS_DEPTH_MIN_DEFAULT", 0.0),
-            burst_flip_max_default=_env_float("RS_BURST_FLIP_MAX_DEFAULT", 0.0),
+            depth_min_default=_env_float("RS_DEPTH_MIN_DEFAULT", 0.0)
+            burst_flip_max_default=_env_float("RS_BURST_FLIP_MAX_DEFAULT", 0.0)
         )
 
     def _pick_float(self, key: str, sym: str, kind: str, regime: str, default: float) -> float:
         cand = [
-            f"{key}__{sym}__{kind}__{regime}",
-            f"{key}__{sym}__{kind}",
-            f"{key}__{sym}",
-            f"{key}__{kind}__{regime}",
-            f"{key}__{kind}",
-            f"{key}__{regime}",
-            f"{key}_DEFAULT",
+            f"{key}__{sym}__{kind}__{regime}"
+            f"{key}__{sym}__{kind}"
+            f"{key}__{sym}"
+            f"{key}__{kind}__{regime}"
+            f"{key}__{kind}"
+            f"{key}__{regime}"
+            f"{key}_DEFAULT"
         ]
         for name in cand:
             if _cached_getenv(name) is None:
@@ -343,12 +343,12 @@ class RegimeSessionGate:
                     tfv = str(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na")
                     ven = str(getattr(ctx, "venue", None) or "na")
                     drift_factor, drift_score, drift_feat = load_drift_active_factor(
-                        redis_client,
-                        symbol=str(sym).upper(),
-                        venue=str(ven),
-                        session=str(sess),
-                        tf=str(tfv),
-                        kind=str(kind_l),
+                        redis_client
+                        symbol=str(sym).upper()
+                        venue=str(ven)
+                        session=str(sess)
+                        tf=str(tfv)
+                        kind=str(kind_l)
                     )
                     if not math.isfinite(drift_factor) or drift_factor <= 0:
                         drift_factor = 1.0
@@ -428,9 +428,9 @@ class ConsistencyGate:
     @classmethod
     def from_env(cls) -> "ConsistencyGate":
         return cls(
-            enabled=_env_bool("CONSISTENCY_GATE_ENABLED", False),
-            absorption_require_touch_refill=_env_bool("ABSORPTION_REQUIRE_TOUCH_REFILL", False),
-            absorption_touch_refill_min_rho=_env_float("ABSORPTION_TOUCH_REFILL_MIN_RHO", 0.0),
+            enabled=_env_bool("CONSISTENCY_GATE_ENABLED", False)
+            absorption_require_touch_refill=_env_bool("ABSORPTION_REQUIRE_TOUCH_REFILL", False)
+            absorption_touch_refill_min_rho=_env_float("ABSORPTION_TOUCH_REFILL_MIN_RHO", 0.0)
         )
 
     def _base(self, symbol: str) -> str:
@@ -568,16 +568,16 @@ class SmtCoherenceGate:
       - no protocol breaks: audit uses dynamic setattr() on ctx
     """
     def __init__(
-        self,
-        *,
-        enabled: bool,
-        mode: str,
-        bundle_id: str,
-        coh_min: float,
-        state_stale_ms: int,
-        diag_stream: str,
-        diag_enabled: bool,
-        diag_maxlen: int,
+        self
+        *
+        enabled: bool
+        mode: str
+        bundle_id: str
+        coh_min: float
+        state_stale_ms: int
+        diag_stream: str
+        diag_enabled: bool
+        diag_maxlen: int
     ) -> None:
         self.enabled = bool(enabled)
         self.mode = (mode or "observe").strip().lower()
@@ -604,14 +604,14 @@ class SmtCoherenceGate:
                 return d
         enabled = _cached_getenv("SMT_GATE_ENABLED", "1").strip() not in ("0", "false", "no", "off")
         return cls(
-            enabled=enabled,
-            mode=(_cached_getenv("SMT_LEADER_MODE", "observe") or "observe"),
-            bundle_id=(_cached_getenv("SMT_COH_BUNDLE", "") or "").strip(),
-            coh_min=_f("SMT_COH_MIN", 0.65),
-            state_stale_ms=_i("SMT_STATE_STALE_MS", 5_000),
-            diag_stream=str(_cached_getenv("SMT_DIAG_STREAM", "") or ""),
-            diag_enabled=_cached_getenv("SMT_DIAG_ENABLED", "0").strip() in ("1", "true", "yes", "on"),
-            diag_maxlen=_i("SMT_DIAG_MAXLEN", 20000),
+            enabled=enabled
+            mode=(_cached_getenv("SMT_LEADER_MODE", "observe") or "observe")
+            bundle_id=(_cached_getenv("SMT_COH_BUNDLE", "") or "").strip()
+            coh_min=_f("SMT_COH_MIN", 0.65)
+            state_stale_ms=_i("SMT_STATE_STALE_MS", 5_000)
+            diag_stream=str(_cached_getenv("SMT_DIAG_STREAM", "") or "")
+            diag_enabled=_cached_getenv("SMT_DIAG_ENABLED", "0").strip() in ("1", "true", "yes", "on")
+            diag_maxlen=_i("SMT_DIAG_MAXLEN", 20000)
         )
 
     def _read_state(self, redis_client: Any) -> Optional[Dict[str, str]]:
@@ -637,10 +637,10 @@ class SmtCoherenceGate:
             return
         try:
             redis_client.xadd(
-                self.diag_stream,
-                fields=fields,
-                maxlen=self.diag_maxlen,
-                approximate=True,
+                self.diag_stream
+                fields=fields
+                maxlen=self.diag_maxlen
+                approximate=True
             )
         except Exception:
             return
@@ -694,19 +694,19 @@ class SmtCoherenceGate:
         # fail-open: no state / stale / invalid => never veto
         if st is None or stale or not leader_dir:
             self._diag(redis_client, fields={
-                "event": "SMT_GATE",
-                "mode": self.mode,
-                "bundle": self.bundle_id,
-                "symbol": str(symbol),
-                "kind": str(kind),
-                "side": str(side),
-                "veto": "0",
-                "reason": "NO_STATE_OR_STALE",
-                "coh": f"{coh:.6f}",
-                "leader": leader,
-                "leader_dir": leader_dir,
-                "leader_confirm": str(int(leader_confirm)),
-                "ts_ms": str(now),
+                "event": "SMT_GATE"
+                "mode": self.mode
+                "bundle": self.bundle_id
+                "symbol": str(symbol)
+                "kind": str(kind)
+                "side": str(side)
+                "veto": "0"
+                "reason": "NO_STATE_OR_STALE"
+                "coh": f"{coh:.6f}"
+                "leader": leader
+                "leader_dir": leader_dir
+                "leader_confirm": str(int(leader_confirm))
+                "ts_ms": str(now)
             })
             return GateDecision(True, False, "OK", "no_state_or_stale")
 
@@ -714,20 +714,20 @@ class SmtCoherenceGate:
         countertrend = (sig_ud in ("LONG", "SHORT")) and (sig_ud != lead_ud)
         if self.mode == "observe":
             self._diag(redis_client, fields={
-                "event": "SMT_GATE",
-                "mode": self.mode,
-                "bundle": self.bundle_id,
-                "symbol": str(symbol),
-                "kind": str(kind),
-                "side": str(side),
-                "veto": "0",
-                "reason": "OBSERVE_ONLY",
-                "coh": f"{coh:.6f}",
-                "leader": leader,
-                "leader_dir": leader_dir,
-                "leader_confirm": str(int(leader_confirm)),
-                "countertrend": "1" if countertrend else "0",
-                "ts_ms": str(now),
+                "event": "SMT_GATE"
+                "mode": self.mode
+                "bundle": self.bundle_id
+                "symbol": str(symbol)
+                "kind": str(kind)
+                "side": str(side)
+                "veto": "0"
+                "reason": "OBSERVE_ONLY"
+                "coh": f"{coh:.6f}"
+                "leader": leader
+                "leader_dir": leader_dir
+                "leader_confirm": str(int(leader_confirm))
+                "countertrend": "1" if countertrend else "0"
+                "ts_ms": str(now)
             })
             return GateDecision(True, False, "OK", "observe_only")
 
@@ -741,38 +741,38 @@ class SmtCoherenceGate:
             except Exception:
                 pass
             self._diag(redis_client, fields={
-                "event": "SMT_GATE",
-                "mode": self.mode,
-                "bundle": self.bundle_id,
-                "symbol": str(symbol),
-                "kind": str(kind),
-                "side": str(side),
-                "veto": "1",
-                "reason": "VETO_COUNTERTREND",
-                "coh": f"{coh:.6f}",
-                "coh_min": f"{float(self.coh_min):.6f}",
-                "leader": leader,
-                "leader_dir": leader_dir,
-                "leader_confirm": str(int(leader_confirm)),
-                "ts_ms": str(now),
+                "event": "SMT_GATE"
+                "mode": self.mode
+                "bundle": self.bundle_id
+                "symbol": str(symbol)
+                "kind": str(kind)
+                "side": str(side)
+                "veto": "1"
+                "reason": "VETO_COUNTERTREND"
+                "coh": f"{coh:.6f}"
+                "coh_min": f"{float(self.coh_min):.6f}"
+                "leader": leader
+                "leader_dir": leader_dir
+                "leader_confirm": str(int(leader_confirm))
+                "ts_ms": str(now)
             })
             return GateDecision(True, True, "VETO_SMT_COUNTERTREND", "countertrend_vs_confirmed_leader")
 
         self._diag(redis_client, fields={
-            "event": "SMT_GATE",
-            "mode": self.mode,
-            "bundle": self.bundle_id,
-            "symbol": str(symbol),
-            "kind": str(kind),
-            "side": str(side),
-            "veto": "0",
-            "reason": "PASS",
-            "coh": f"{coh:.6f}",
-            "leader": leader,
-            "leader_dir": leader_dir,
-            "leader_confirm": str(int(leader_confirm)),
-            "countertrend": "1" if countertrend else "0",
-            "ts_ms": str(now),
+            "event": "SMT_GATE"
+            "mode": self.mode
+            "bundle": self.bundle_id
+            "symbol": str(symbol)
+            "kind": str(kind)
+            "side": str(side)
+            "veto": "0"
+            "reason": "PASS"
+            "coh": f"{coh:.6f}"
+            "leader": leader
+            "leader_dir": leader_dir
+            "leader_confirm": str(int(leader_confirm))
+            "countertrend": "1" if countertrend else "0"
+            "ts_ms": str(now)
         })
         return GateDecision(True, False, "OK", "pass")
 
@@ -798,11 +798,11 @@ class AtrFloorGate:
     @classmethod
     def from_env(cls) -> "AtrFloorGate":
         return cls(
-            enabled=_env_bool("ATR_FLOOR_GATE_ENABLED", False),
-            t0_bps=_env_float("ATR_FLOOR_BPS_T0", 5.0),
-            t1_bps=_env_float("ATR_FLOOR_BPS_T1", 10.0),
-            t2_bps=_env_float("ATR_FLOOR_BPS_T2", 15.0),
-            fail_open=_env_bool("ATR_FLOOR_FAIL_OPEN", True),
+            enabled=_env_bool("ATR_FLOOR_GATE_ENABLED", False)
+            t0_bps=_env_float("ATR_FLOOR_BPS_T0", 5.0)
+            t1_bps=_env_float("ATR_FLOOR_BPS_T1", 10.0)
+            t2_bps=_env_float("ATR_FLOOR_BPS_T2", 15.0)
+            fail_open=_env_bool("ATR_FLOOR_FAIL_OPEN", True)
         )
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecision:
@@ -825,20 +825,20 @@ class AtrFloorGate:
         cfg = getattr(ctx, "config", {})
         
         tier, rg, threshold = compute_atr_bps_threshold(
-            regime=regime,
-            cfg=cfg,
-            t0=self.t0_bps,
-            t1=self.t1_bps,
+            regime=regime
+            cfg=cfg
+            t0=self.t0_bps
+            t1=self.t1_bps
             t2=self.t2_bps
         )
 
         # 3. Compare and Veto
         if float(atr_bps) < float(threshold):
             return GateDecision(
-                apply=True,
-                veto=True,
-                reason_code="VETO_ATR_FLOOR",
-                gate="AtrFloorGate",
+                apply=True
+                veto=True
+                reason_code="VETO_ATR_FLOOR"
+                gate="AtrFloorGate"
                 notes=f"atr={atr_bps:.2f} < threshold={threshold:.2f} (tier={tier}, regime={rg})"
             )
 
@@ -872,11 +872,11 @@ class BreadthGate:
             mode = mode_env
 
         return cls(
-            mode=mode,
-            canary_share=max(0.0, min(1.0, _env_float("BREADTH_GATE_CANARY_SHARE", 0.0))),
-            min_ret_24h=_env_float("BREADTH_MIN_RET_24H", -100.0),
-            min_vol_z=_env_float("BREADTH_MIN_VOL_Z", -50.0),
-            require_leader_confirm=_env_bool("BREADTH_REQUIRE_LEADER_CONFIRM", False),
+            mode=mode
+            canary_share=max(0.0, min(1.0, _env_float("BREADTH_GATE_CANARY_SHARE", 0.0)))
+            min_ret_24h=_env_float("BREADTH_MIN_RET_24H", -100.0)
+            min_vol_z=_env_float("BREADTH_MIN_VOL_Z", -50.0)
+            require_leader_confirm=_env_bool("BREADTH_REQUIRE_LEADER_CONFIRM", False)
         )
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> GateDecision:

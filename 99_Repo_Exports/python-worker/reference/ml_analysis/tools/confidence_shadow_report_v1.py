@@ -101,8 +101,8 @@ def load_arrays_custom(path: str, prob_keys: List[str]) -> Tuple[np.ndarray, np.
                 probs_lists[i].append(v if v is not None else np.nan)
 
     res = [
-        np.array(y, dtype=np.float32),
-        np.array(r, dtype=np.float32),
+        np.array(y, dtype=np.float32)
+        np.array(r, dtype=np.float32)
     ]
     for pl in probs_lists:
         res.append(np.array(pl, dtype=np.float32))

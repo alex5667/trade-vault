@@ -4,7 +4,7 @@ What it does
 - Reads DLQ streams produced by stream_archiver.dlq() (fields: stream, stream_id, err, payload).
 - Parses payload JSON.
 - For parse_error DLQ entries, attempts to recover original payload from stored "fields".
-- Applies safe, conservative fixes (schema markers, schema_version coercion, ts_ms normalization,
+- Applies safe, conservative fixes (schema markers, schema_version coercion, ts_ms normalization
   missing_legs default/sanitization).
 - Validates using the canonical OF-gate contract validator.
 - Optionally replays fixed rows back to their original stream.
@@ -114,9 +114,9 @@ def _load_contract():
     # Prefer canonical location
     try:
         from services.orderflow.of_gate_metrics_contract import (  # type: ignore
-            enrich_schema_fields,
-            validate_of_gate_row,
-            derive_reason_code,
+            enrich_schema_fields
+            validate_of_gate_row
+            derive_reason_code
         )
 
         return enrich_schema_fields, validate_of_gate_row, derive_reason_code
@@ -124,18 +124,18 @@ def _load_contract():
         pass
     try:
         from tick_flow_full.common.of_gate_metrics_contract import (  # type: ignore
-            enrich_schema_fields,
-            validate_of_gate_row,
-            derive_reason_code,
+            enrich_schema_fields
+            validate_of_gate_row
+            derive_reason_code
         )
 
         return enrich_schema_fields, validate_of_gate_row, derive_reason_code
     except Exception:
         pass
     from ok_rate_logic.of_gate_metrics_contract import (  # type: ignore
-        enrich_schema_fields,
-        validate_of_gate_row,
-        derive_reason_code,
+        enrich_schema_fields
+        validate_of_gate_row
+        derive_reason_code
     )
 
     return enrich_schema_fields, validate_of_gate_row, derive_reason_code
@@ -426,14 +426,14 @@ def triage(args: argparse.Namespace) -> int:
     if args.notify:
         try:
             _xadd_best_effort(
-                r,
-                _notify_stream_name(),
+                r
+                _notify_stream_name()
                 {
-                    "ts_ms": get_ny_time_millis(),
-                    "source": "of_gate_dlq_fixed_replay_p84",
-                    "message": out[:3500],
-                    "severity": "warn" if total > 0 else "info",
-                },
+                    "ts_ms": get_ny_time_millis()
+                    "source": "of_gate_dlq_fixed_replay_p84"
+                    "message": out[:3500]
+                    "severity": "warn" if total > 0 else "info"
+                }
             )
         except Exception:
             pass
@@ -491,15 +491,15 @@ def replay(args: argparse.Namespace) -> int:
 
                 try:
                     r.xadd(
-                        tgt,
+                        tgt
                         {
                             k: json.dumps(v, ensure_ascii=False)
                             if isinstance(v, (dict, list))
                             else str(v)
                             for k, v in fields.items()
-                        },
-                        maxlen=2000000,
-                        approximate=True,
+                        }
+                        maxlen=2000000
+                        approximate=True
                     )
                 except Exception as ex:
                     still_bad += 1
@@ -519,19 +519,19 @@ def replay(args: argparse.Namespace) -> int:
             if move_unfixable and commit:
                 try:
                     r.xadd(
-                        out_stream_unfixable,
+                        out_stream_unfixable
                         {
-                            "src_dlq_stream": source,
-                            "src_dlq_id": e.dlq_id,
-                            "src_stream": e.src_stream,
-                            "src_stream_id": e.src_stream_id,
-                            "dq_code": dq_code,
-                            "hint_code": h.hint_code,
-                            "err": (e.err or "")[:500],
-                            "payload": json.dumps(e.payload, ensure_ascii=False)[:4000],
-                        },
-                        maxlen=200000,
-                        approximate=True,
+                            "src_dlq_stream": source
+                            "src_dlq_id": e.dlq_id
+                            "src_stream": e.src_stream
+                            "src_stream_id": e.src_stream_id
+                            "dq_code": dq_code
+                            "hint_code": h.hint_code
+                            "err": (e.err or "")[:500]
+                            "payload": json.dumps(e.payload, ensure_ascii=False)[:4000]
+                        }
+                        maxlen=200000
+                        approximate=True
                     )
                 except Exception:
                     pass
@@ -560,8 +560,8 @@ def auto(args: argparse.Namespace) -> int:
     target_override = args.target
 
     allow_fixes = _parse_allow_fixes(args.allow_fixes or env(
-        "OF_GATE_DLQ_AUTO_ALLOW_FIXES",
-        "add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs",
+        "OF_GATE_DLQ_AUTO_ALLOW_FIXES"
+        "add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs"
     ))
     require_fix = bool(args.require_fix) or env_bool("OF_GATE_DLQ_AUTO_REQUIRE_FIX", True)
 
@@ -617,10 +617,10 @@ def auto(args: argparse.Namespace) -> int:
 
             try:
                 r.xadd(
-                    tgt,
-                    {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v) for k, v in fields.items()},
-                    maxlen=2000000,
-                    approximate=True,
+                    tgt
+                    {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v) for k, v in fields.items()}
+                    maxlen=2000000
+                    approximate=True
                 )
                 totals["replayed"] += 1
                 if delete_after:
@@ -637,13 +637,13 @@ def auto(args: argparse.Namespace) -> int:
         return ", ".join([f"{a}:{b}" for a, b in counter.most_common(k)])
 
     out_lines = [
-        "OF-Gate DLQ auto-replay (P3):",
-        f"  streams={len(streams)} seen={totals['seen']} eligible={totals['eligible']} replayed={totals['replayed']} deleted={totals['deleted']}",
-        f"  skipped_no_fix={totals['skipped_no_fix']} skipped_disallowed={totals['skipped_disallowed']} still_bad={totals['still_bad']} replay_write_failed={totals['replay_write_failed']}",
-        f"  allow_fixes={','.join(sorted(allow_fixes))}",
-        "  by_stream: " + ", ".join([f"{k}:{v}" for k, v in by_stream.most_common()]),
-        "  top_err_prefix: " + top(by_err, 10),
-        "  top_fix_tags: " + top(by_fix, 10),
+        "OF-Gate DLQ auto-replay (P3):"
+        f"  streams={len(streams)} seen={totals['seen']} eligible={totals['eligible']} replayed={totals['replayed']} deleted={totals['deleted']}"
+        f"  skipped_no_fix={totals['skipped_no_fix']} skipped_disallowed={totals['skipped_disallowed']} still_bad={totals['still_bad']} replay_write_failed={totals['replay_write_failed']}"
+        f"  allow_fixes={','.join(sorted(allow_fixes))}"
+        "  by_stream: " + ", ".join([f"{k}:{v}" for k, v in by_stream.most_common()])
+        "  top_err_prefix: " + top(by_err, 10)
+        "  top_fix_tags: " + top(by_fix, 10)
     ]
     out = "\n".join(out_lines)
     print(out)
@@ -651,14 +651,14 @@ def auto(args: argparse.Namespace) -> int:
     if notify:
         try:
             _xadd_best_effort(
-                r,
-                _notify_stream_name(),
+                r
+                _notify_stream_name()
                 {
-                    "ts_ms": get_ny_time_millis(),
-                    "source": "of_gate_dlq_auto_replay_p3",
-                    "message": out[:3500],
-                    "severity": "warn" if totals["seen"] else "info",
-                },
+                    "ts_ms": get_ny_time_millis()
+                    "source": "of_gate_dlq_auto_replay_p3"
+                    "message": out[:3500]
+                    "severity": "warn" if totals["seen"] else "info"
+                }
             )
         except Exception:
             pass

@@ -60,9 +60,9 @@ class OFITracker:
                      try:
                          if getattr(runtime, "resilience", None) is not None:
                              runtime.resilience.on_book(
-                                 book_ts_ms,
-                                 bid_depth_usd=float(db) * float(mid),
-                                 ask_depth_usd=float(da) * float(mid),
+                                 book_ts_ms
+                                 bid_depth_usd=float(db) * float(mid)
+                                 ask_depth_usd=float(da) * float(mid)
                              )
                      except Exception:
                          pass
@@ -135,9 +135,9 @@ class OFITracker:
              # OFI Update
              try:
                  ev = runtime.ofi_tracker.update(
-                     ts_ms=book_ts_ms,
-                     bid_px=bb_px, bid_qty=bb_q,
-                     ask_px=ba_px, ask_qty=ba_q,
+                     ts_ms=book_ts_ms
+                     bid_px=bb_px, bid_qty=bb_q
+                     ask_px=ba_px, ask_qty=ba_q
                  )
                  if ev is not None:
                      # Reclaim Bonus Logic
@@ -149,13 +149,13 @@ class OFITracker:
                          pass
                      
                      runtime.last_ofi_event = {
-                         "ts_ms": _safe_int(ev.ts_ms),
-                         "direction": str(ev.direction),
-                         "ofi": float(ev.ofi),
-                         "ofi_usd": float(ev.ofi_usd),
-                         "ofi_z": float(ev.ofi_z),
-                         "stable_secs": float(ev.stable_secs),
-                         "stability_score": float(ev.stability_score),
+                         "ts_ms": _safe_int(ev.ts_ms)
+                         "direction": str(ev.direction)
+                         "ofi": float(ev.ofi)
+                         "ofi_usd": float(ev.ofi_usd)
+                         "ofi_z": float(ev.ofi_z)
+                         "stable_secs": float(ev.stable_secs)
+                         "stability_score": float(ev.stability_score)
                      }
              except Exception:
                  pass
@@ -164,34 +164,34 @@ class OFITracker:
              if prev_snap is not None:
                  try:
                      ofi_raw = runtime.ofi_tracker.compute_ofi_best_level(
-                         prev_bid_px=float(prev_snap.best_bid_px),
-                         prev_bid_qty=float(prev_snap.best_bid_qty),
-                         prev_ask_px=float(prev_snap.best_ask_px),
-                         prev_ask_qty=float(prev_snap.best_ask_qty),
-                         bid_px=float(snap.best_bid_px),
-                         bid_qty=float(snap.best_bid_qty),
-                         ask_px=float(snap.best_ask_px),
-                         ask_qty=float(snap.best_ask_qty),
+                         prev_bid_px=float(prev_snap.best_bid_px)
+                         prev_bid_qty=float(prev_snap.best_bid_qty)
+                         prev_ask_px=float(prev_snap.best_ask_px)
+                         prev_ask_qty=float(prev_snap.best_ask_qty)
+                         bid_px=float(snap.best_bid_px)
+                         bid_qty=float(snap.best_bid_qty)
+                         ask_px=float(snap.best_ask_px)
+                         ask_qty=float(snap.best_ask_qty)
                      )
                      depth_qty = float(min(snap.depth_5_bid_vol, snap.depth_5_ask_vol))
                      ofi_z, stable_secs, score = runtime.ofi_tracker.update(
-                         ts_ms=_safe_int(book_ts_ms),
-                         ofi=float(ofi_raw),
-                         depth_qty=depth_qty,
-                         deadband_abs=float(runtime.config.get("ofi_deadband_abs", 0.0) or 0.0),
-                         deadband_frac_depth=float(runtime.config.get("ofi_deadband_frac_depth", 0.02) or 0.02),
-                         z_full=float(runtime.config.get("ofi_z_full", 3.0) or 3.0),
+                         ts_ms=_safe_int(book_ts_ms)
+                         ofi=float(ofi_raw)
+                         depth_qty=depth_qty
+                         deadband_abs=float(runtime.config.get("ofi_deadband_abs", 0.0) or 0.0)
+                         deadband_frac_depth=float(runtime.config.get("ofi_deadband_frac_depth", 0.02) or 0.02)
+                         z_full=float(runtime.config.get("ofi_z_full", 3.0) or 3.0)
                      )
                      is_stable = bool(stable_secs >= 1.0 and score >= 0.8)
                      
                      from services.orderflow.metrics_events import OFIEvent # I'll just use a dict directly if I can't import
                      ev_ofi = {
-                         "ts_ms": _safe_int(book_ts_ms),
-                         "ofi": float(ofi_raw),
-                         "ofi_z": float(ofi_z),
-                         "stable_secs": float(stable_secs),
-                         "stability_score": float(score),
-                         "stable": _safe_int(is_stable),
+                         "ts_ms": _safe_int(book_ts_ms)
+                         "ofi": float(ofi_raw)
+                         "ofi_z": float(ofi_z)
+                         "stable_secs": float(stable_secs)
+                         "stability_score": float(score)
+                         "stable": _safe_int(is_stable)
                      }
                      runtime.last_ofi_event = ev_ofi
                  except Exception:

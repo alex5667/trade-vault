@@ -24,16 +24,16 @@ class RealizedSpreadTracker:
     """
 
     __slots__ = (
-        "horizon_ms",
-        "alpha",
-        "max_pending",
-        "pending",
-        "_head",
-        "last_realized_bps",
-        "realized_ema_bps",
-        "adverse_ratio_ema",
-        "dropped_pending",
-        "settled",
+        "horizon_ms"
+        "alpha"
+        "max_pending"
+        "pending"
+        "_head"
+        "last_realized_bps"
+        "realized_ema_bps"
+        "adverse_ratio_ema"
+        "dropped_pending"
+        "settled"
     )
 
     def __init__(self, horizon_ms: int = 2000, alpha: float = 0.08, max_pending: int = 5000):
@@ -52,13 +52,13 @@ class RealizedSpreadTracker:
         self.settled: int = 0
 
     def update(
-        self,
-        *,
-        ts: int,
-        bid: float,
-        ask: float,
-        is_trade: bool,
-        side: int,
+        self
+        *
+        ts: int
+        bid: float
+        ask: float
+        is_trade: bool
+        side: int
     ) -> Tuple[float, float, float, float]:
         """
         Returns:

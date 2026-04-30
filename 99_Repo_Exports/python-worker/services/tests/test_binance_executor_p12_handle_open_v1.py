@@ -59,9 +59,9 @@ class FakeRedis:
 class FakeClient:
     def inspect_protection_set(self, symbol, sid, expected_sl=True, expected_tps=None, trail_expected=False):
         return {
-            "is_complete": False, "missing": ["sl", "tp1"],
-            "sl": None, "tp_by_index": {},
-            "trail": None, "by_client_algo_id": {},
+            "is_complete": False, "missing": ["sl", "tp1"]
+            "sl": None, "tp_by_index": {}
+            "trail": None, "by_client_algo_id": {}
         }
 
 
@@ -135,23 +135,23 @@ def test_handle_open_does_not_mark_protected_after_emergency_flatten():
     if True:  # simulating _protection_confirmed returning False
         if ex.exec_strict_protection_verify:
             verify = ex._verify_protection_on_exchange(
-                sid=sid, symbol=symbol, payload={}, state={}, client=client,
+                sid=sid, symbol=symbol, payload={}, state={}, client=client
             )
             if verify.get("is_complete"):
                 pass
             else:
                 _, repair_ok = ex._repair_open_protection(
-                    sid=sid, symbol=symbol, payload={}, state={},
-                    client=client, filters=None, policy=None,
+                    sid=sid, symbol=symbol, payload={}, state={}
+                    client=client, filters=None, policy=None
                 )
                 if not repair_ok:
                     emerg = ex._emergency_flatten_position(
-                        sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty,
-                        client=client, filters=None,
+                        sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty
+                        client=client, filters=None
                     )
                     ex._transition_state(
-                        sid, symbol=symbol, action="open",
-                        next_state=mod.FSM_EMERGENCY_FLATTENED, details=emerg,
+                        sid, symbol=symbol, action="open"
+                        next_state=mod.FSM_EMERGENCY_FLATTENED, details=emerg
                     )
                     prot = {**prot, **emerg, "protection_invariant_failed": True}
                     _emergency_flattened = True
@@ -177,7 +177,7 @@ def test_handle_open_does_not_mark_protected_after_emergency_flatten():
 # ============================================================
 
 def test_handle_open_sets_protected_when_verify_passes():
-    """When strict verification passes (exchange says complete),
+    """When strict verification passes (exchange says complete)
     FSM_PROTECTED should be set even though _protection_confirmed was False.
     """
     ex = _mk_executor()
@@ -194,7 +194,7 @@ def test_handle_open_sets_protected_when_verify_passes():
     if True:  # simulating _protection_confirmed returning False
         if ex.exec_strict_protection_verify:
             verify = ex._verify_protection_on_exchange(
-                sid=sid, symbol=symbol, payload={}, state={}, client=client,
+                sid=sid, symbol=symbol, payload={}, state={}, client=client
             )
             if verify.get("is_complete"):
                 pass  # All good — exchange confirmed
@@ -215,7 +215,7 @@ def test_handle_open_sets_protected_when_verify_passes():
 # ============================================================
 
 def test_handle_open_repair_success_sets_protected():
-    """When strict verify fails but repair succeeds,
+    """When strict verify fails but repair succeeds
     FSM_PROTECTED should still be set.
     """
     ex = _mk_executor()
@@ -232,14 +232,14 @@ def test_handle_open_repair_success_sets_protected():
     if True:
         if ex.exec_strict_protection_verify:
             verify = ex._verify_protection_on_exchange(
-                sid=sid, symbol=symbol, payload={}, state={}, client=client,
+                sid=sid, symbol=symbol, payload={}, state={}, client=client
             )
             if verify.get("is_complete"):
                 pass
             else:
                 _, repair_ok = ex._repair_open_protection(
-                    sid=sid, symbol=symbol, payload={}, state={},
-                    client=client, filters=None, policy=None,
+                    sid=sid, symbol=symbol, payload={}, state={}
+                    client=client, filters=None, policy=None
                 )
                 if not repair_ok:
                     _emergency_flattened = True

@@ -28,20 +28,20 @@ def test_payload_builder_json_safe_and_parts_split():
     ctx = DummyCtx()
     cand = DummyCand()
     f = CandidateFrame(
-        handler=object(),
-        ctx=ctx,
-        cand=cand,
-        kind_str="breakout",
-        kind_key="breakout",
-        side_int=1,
-        ctx_symbol="BTCUSDT",
-        ctx_ts=123,
-        ctx_price=100.0,
+        handler=object()
+        ctx=ctx
+        cand=cand
+        kind_str="breakout"
+        kind_key="breakout"
+        side_int=1
+        ctx_symbol="BTCUSDT"
+        ctx_ts=123
+        ctx_price=100.0
     )
 
     parts = {
-        "small_scalar": 1,
-        "small_list": [1, 2, 3],
+        "small_scalar": 1
+        "small_list": [1, 2, 3]
         "big_list": list(range(100)),         # должно уйти в meta.parts_full
         "big_dict": {str(i): i for i in range(100)},  # тоже в meta.parts_full
     }
@@ -49,13 +49,13 @@ def test_payload_builder_json_safe_and_parts_split():
 
     b = PayloadBuilder()
     payload, meta = b.build(
-        f,
-        raw_score=1.0,
-        conf_factor01=0.7,
-        final_score=0.7,
-        confidence_pct=80.0,
-        parts=parts,
-        res=res,
+        f
+        raw_score=1.0
+        conf_factor01=0.7
+        final_score=0.7
+        confidence_pct=80.0
+        parts=parts
+        res=res
     )
 
     # json-serializable
@@ -76,15 +76,15 @@ def test_candidateframe_memo_get_compute_once():
     ctx = DummyCtx()
     cand = DummyCand()
     f = CandidateFrame(
-        handler=object(),
-        ctx=ctx,
-        cand=cand,
-        kind_str="breakout",
-        kind_key="breakout",
-        side_int=1,
-        ctx_symbol="BTCUSDT",
-        ctx_ts=123,
-        ctx_price=100.0,
+        handler=object()
+        ctx=ctx
+        cand=cand
+        kind_str="breakout"
+        kind_key="breakout"
+        side_int=1
+        ctx_symbol="BTCUSDT"
+        ctx_ts=123
+        ctx_price=100.0
     )
 
     calls = {"n": 0}

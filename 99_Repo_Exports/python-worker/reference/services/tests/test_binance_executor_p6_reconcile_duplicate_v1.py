@@ -21,9 +21,9 @@ def _make_mock_executor():
     We patch all external deps to test logic in isolation.
     """
     with patch("redis.from_url"), patch.dict(os.environ, {
-        "REDIS_URL": "redis://localhost:6379/0",
-        "BINANCE_API_KEY": "k",
-        "BINANCE_API_SECRET": "s",
+        "REDIS_URL": "redis://localhost:6379/0"
+        "BINANCE_API_KEY": "k"
+        "BINANCE_API_SECRET": "s"
     }):
         try:
             from services.binance_executor import BinanceExecutor
@@ -54,8 +54,8 @@ class TestReconcileWithUserStreamCache:
         with patch.object(e, "_mark_pending_reconcile"), \
              patch.object(e, "_lookup_user_stream_event", return_value={"order": cached_order}):
             result = e._submit_plain_order_with_reconcile(
-                sid="s1", symbol="BTCUSDT", action="open",
-                params={"newClientOrderId": "cid1"}, client=mock_client,
+                sid="s1", symbol="BTCUSDT", action="open"
+                params={"newClientOrderId": "cid1"}, client=mock_client
             )
         assert result.get("orderId") == 999
 
@@ -66,8 +66,8 @@ class TestDuplicatePrevention:
         e = _make_mock_executor()
 
         state = {
-            "fsm_state": "PROTECTED",
-            "symbol": "BTCUSDT",
+            "fsm_state": "PROTECTED"
+            "symbol": "BTCUSDT"
         }
         with patch.object(e, "_load_order_state", return_value=state), \
              patch.object(e, "_exec_event"):

@@ -76,14 +76,14 @@ def eval_experiment(conn, experiment_id: str) -> None:
         cur.execute(
             """
             select
-                s.experiment_variant,
-                coalesce(sp.realized_r, 0.0) as pnl_r,
+                s.experiment_variant
+                coalesce(sp.realized_r, 0.0) as pnl_r
                 case when sp.outcome in ('realized', 'stopped') then 1 else 0 end as was_traded
             from signals s
             left join signal_performance sp on s.signal_id = sp.signal_id
             where s.experiment_id = %s
-            """,
-            (experiment_id,),
+            """
+            (experiment_id,)
         )
         rows = cur.fetchall()
 
@@ -127,40 +127,40 @@ def eval_experiment(conn, experiment_id: str) -> None:
             cur.execute(
                 """
                 insert into signal_experiment_snapshot (
-                    experiment_id, as_of, variant,
-                    signals_total, traded_total, winners_total, losers_total,
-                    expectancy_r, sharpe_r, max_dd_r, cl_ratio, winrate,
+                    experiment_id, as_of, variant
+                    signals_total, traded_total, winners_total, losers_total
+                    expectancy_r, sharpe_r, max_dd_r, cl_ratio, winrate
                     precision, recall, f1, extra
                 )
                 values (
-                    %s, to_timestamp(%s), %s,
-                    %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
+                    %s, to_timestamp(%s), %s
+                    %s, %s, %s, %s
+                    %s, %s, %s, %s, %s
                     %s, %s, %s, %s::jsonb
                 )
                 on conflict (experiment_id, as_of, variant) do nothing
-                """,
+                """
                 (
-                    experiment_id,
-                    as_of,
-                    variant,
-                    signals_total,
-                    traded_total,
-                    metrics["winners_total"],
-                    metrics["losers_total"],
-                    metrics["expectancy_r"],
-                    metrics["sharpe_r"],
-                    metrics["max_dd_r"],
-                    metrics["cl_ratio"],
-                    metrics["winrate"],
-                    metrics["precision"],
-                    metrics["recall"],
-                    metrics["f1"],
+                    experiment_id
+                    as_of
+                    variant
+                    signals_total
+                    traded_total
+                    metrics["winners_total"]
+                    metrics["losers_total"]
+                    metrics["expectancy_r"]
+                    metrics["sharpe_r"]
+                    metrics["max_dd_r"]
+                    metrics["cl_ratio"]
+                    metrics["winrate"]
+                    metrics["precision"]
+                    metrics["recall"]
+                    metrics["f1"]
                     json.dumps({
-                        "success_threshold_r": SUCCESS_THRESHOLD_R,
-                        "evaluation_timestamp": now_ts,
-                    }),
-                ),
+                        "success_threshold_r": SUCCESS_THRESHOLD_R
+                        "evaluation_timestamp": now_ts
+                    })
+                )
             )
 
         conn.commit()

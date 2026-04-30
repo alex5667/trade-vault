@@ -11,8 +11,8 @@ from .crypto_orderflow_generate import CryptoOrderFlowGenerateMixin
 from .crypto_orderflow_geometry import CryptoOrderFlowGeometryMixin
 
 __all__ = [
-    'CryptoOrderFlowInitMixin',
-    'CryptoOrderFlowL2StalenessMixin',
-    'CryptoOrderFlowGenerateMixin',
-    'CryptoOrderFlowGeometryMixin',
+    'CryptoOrderFlowInitMixin'
+    'CryptoOrderFlowL2StalenessMixin'
+    'CryptoOrderFlowGenerateMixin'
+    'CryptoOrderFlowGeometryMixin'
 ]

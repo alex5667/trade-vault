@@ -76,8 +76,8 @@ class TelegramMessageAnalyzer:
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         # Since LLMs can output arbitrary chars, omit parse_mode to prevent HTML/MD breakage
         payload = {
-            "chat_id": chat_id,
-            "text": f"--- DeepSeek Analysis ---\n{analysis}",
+            "chat_id": chat_id
+            "text": f"--- DeepSeek Analysis ---\n{analysis}"
             "reply_to_message_id": reply_to_message_id
         }
         
@@ -219,9 +219,9 @@ class TelegramMessageAnalyzer:
         source_service = str(payload.get("source_service", payload.get("source", "unknown_source")))
         
         envelope = build_analysis_envelope(
-            source_service=source_service,
-            payload=payload,
-            model=MODEL,
+            source_service=source_service
+            payload=payload
+            model=MODEL
         )
         llm_request_payload = envelope["llm_request"]
 
@@ -239,15 +239,15 @@ class TelegramMessageAnalyzer:
         messages = llm_request_payload.get("messages", [])
         
         request_body = {
-            "model": MODEL,
-            "messages": messages,
-            "stream": False,
+            "model": MODEL
+            "messages": messages
+            "stream": False
             "format": "json",  # force JSON mode in Ollama
             "options": {
-                "temperature": prof_temperature,
-                "num_predict": min(prof_max_tokens, 600),
-                "num_ctx": 8192,
-                "repeat_penalty": 1.05,
+                "temperature": prof_temperature
+                "num_predict": min(prof_max_tokens, 600)
+                "num_ctx": 8192
+                "repeat_penalty": 1.05
             }
         }
 

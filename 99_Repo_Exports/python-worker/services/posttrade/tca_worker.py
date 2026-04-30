@@ -53,17 +53,17 @@ except Exception:  # pragma: no cover
     aioredis = None
 
 from services.posttrade.tca_math import (
-    effective_spread_bps,
-    realized_spread_bps,
-    permanent_impact_bps,
-    implementation_shortfall_bps,
+    effective_spread_bps
+    realized_spread_bps
+    permanent_impact_bps
+    implementation_shortfall_bps
 )
 from services.posttrade.tca_redis_state import TcaKeyDims, write_rollups
 from services.orderflow.inline_exec_health import InlineExecDims, update_inline_exec_from_fill
 from services.orderflow.metrics_inline_exec_health import (
-    inline_exec_rollup_count,
-    inline_exec_rollup_p95_bps,
-    inline_exec_rollup_updates_total,
+    inline_exec_rollup_count
+    inline_exec_rollup_p95_bps
+    inline_exec_rollup_updates_total
 )
 
 
@@ -152,15 +152,15 @@ class Pg:
             for row in cur.fetchall() or []:
                 out.append(
                     {
-                        "ts_fill_ms": int(row[0]),
-                        "sid": str(row[1]),
-                        "sym": str(row[2]),
-                        "venue": str(row[3]),
-                        "side": str(row[4]),
-                        "fill_role": str(row[5]),
-                        "px": float(row[6]),
-                        "qty": float(row[7]),
-                        "fee_bps": float(row[8]),
+                        "ts_fill_ms": int(row[0])
+                        "sid": str(row[1])
+                        "sym": str(row[2])
+                        "venue": str(row[3])
+                        "side": str(row[4])
+                        "fill_role": str(row[5])
+                        "px": float(row[6])
+                        "qty": float(row[7])
+                        "fee_bps": float(row[8])
                     }
                 )
             return out
@@ -181,13 +181,13 @@ class Pg:
             if not row:
                 return None
             return {
-                "decision_ts_ms": int(row[0]),
-                "session": str(row[1]),
-                "tf": str(row[2]),
-                "kind": str(row[3]),
-                "side": str(row[4]),
-                "venue": str(row[5]),
-                "decision_mid": float(row[6]) if row[6] is not None else None,
+                "decision_ts_ms": int(row[0])
+                "session": str(row[1])
+                "tf": str(row[2])
+                "kind": str(row[3])
+                "side": str(row[4])
+                "venue": str(row[5])
+                "decision_mid": float(row[6]) if row[6] is not None else None
             }
         finally:
             self._put_conn(conn)
@@ -208,10 +208,10 @@ class Pg:
             if not row:
                 return None
             return {
-                "bid": float(row[0]),
-                "ask": float(row[1]),
-                "mid": float(row[2]),
-                "ts_ms": int(row[3]),
+                "bid": float(row[0])
+                "ask": float(row[1])
+                "mid": float(row[2])
+                "ts_ms": int(row[3])
             }
         finally:
             self._put_conn(conn)
@@ -271,16 +271,16 @@ class Pg:
         try:
             cur = conn.cursor()
             cur.execute(
-                q2,
+                q2
                 (
-                    int(window_min),
-                    dims.sym.upper(),
-                    dims.venue.lower(),
-                    dims.session,
-                    dims.tf,
-                    dims.kind,
-                    dims.side.upper(),
-                ),
+                    int(window_min)
+                    dims.sym.upper()
+                    dims.venue.lower()
+                    dims.session
+                    dims.tf
+                    dims.kind
+                    dims.side.upper()
+                )
             )
             row = cur.fetchone()
             if not row:
@@ -318,19 +318,19 @@ class Cfg:
     @staticmethod
     def from_env() -> "Cfg":
         return Cfg(
-            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            batch_size=_env_int("TCA_WORKER_BATCH_SIZE", "200"),
-            poll_sec=float(_env("TCA_WORKER_POLL_SEC", "2") or 2),
-            cursor_key=_env("TCA_CURSOR_KEY", "tca_worker:cursor_v1"),
-            deltas=_parse_delta_list(_env("EXEC_TCA_DELTA_SEC_LIST", "1,5")),
-            rollup_window_min=_env_int("EXEC_TCA_ROLLUP_WINDOW_MIN", "60"),
-            redis_ttl_sec=_env_int("EXEC_TCA_REDIS_TTL_SEC", "600"),
-            rollups_enable=_env_bool("TCA_ROLLUPS_ENABLE", "1"),
-            bbo_lookback_ms=_env_int("TCA_MAX_BBO_LOOKBACK_MS", "3000"),
-            inline_enable=_env_bool("INLINE_EXEC_HEALTH_ENABLE", "1"),
-            inline_ttl_sec=_env_int("INLINE_EXEC_HEALTH_REDIS_TTL_SEC", "21600"),
-            inline_max_samples=_env_int("INLINE_EXEC_HEALTH_MAX_SAMPLES", "128"),
-            inline_ema_alpha=float(_env("INLINE_EXEC_HEALTH_EMA_ALPHA", "0.2") or 0.2),
+            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+            batch_size=_env_int("TCA_WORKER_BATCH_SIZE", "200")
+            poll_sec=float(_env("TCA_WORKER_POLL_SEC", "2") or 2)
+            cursor_key=_env("TCA_CURSOR_KEY", "tca_worker:cursor_v1")
+            deltas=_parse_delta_list(_env("EXEC_TCA_DELTA_SEC_LIST", "1,5"))
+            rollup_window_min=_env_int("EXEC_TCA_ROLLUP_WINDOW_MIN", "60")
+            redis_ttl_sec=_env_int("EXEC_TCA_REDIS_TTL_SEC", "600")
+            rollups_enable=_env_bool("TCA_ROLLUPS_ENABLE", "1")
+            bbo_lookback_ms=_env_int("TCA_MAX_BBO_LOOKBACK_MS", "3000")
+            inline_enable=_env_bool("INLINE_EXEC_HEALTH_ENABLE", "1")
+            inline_ttl_sec=_env_int("INLINE_EXEC_HEALTH_REDIS_TTL_SEC", "21600")
+            inline_max_samples=_env_int("INLINE_EXEC_HEALTH_MAX_SAMPLES", "128")
+            inline_ema_alpha=float(_env("INLINE_EXEC_HEALTH_EMA_ALPHA", "0.2") or 0.2)
         )
 
 
@@ -431,40 +431,40 @@ async def main() -> None:
                 is_bps = None
                 if decision_mid is not None:
                     is_bps = implementation_shortfall_bps(
-                        vwap_fill_px=float(f["px"]),
-                        decision_mid=float(decision_mid),
-                        side=side,
-                        fee_bps=float(f["fee_bps"]),
+                        vwap_fill_px=float(f["px"])
+                        decision_mid=float(decision_mid)
+                        side=side
+                        fee_bps=float(f["fee_bps"])
                     )
 
                 tca_rows.append(
                     {
-                        "ts_fill_ms": ts_fill_ms,
-                        "sid": sid,
-                        "sym": sym,
-                        "venue": venue,
-                        "side": side,
-                        "fill_role": str(f.get("fill_role") or "entry"),
-                        "decision_ts_ms": int(dec["decision_ts_ms"]),
-                        "session": session,
-                        "tf": tf,
-                        "kind": kind,
-                        "decision_mid": float(decision_mid) if decision_mid is not None else None,
-                        "mid_t": float(mid_t) if mid_t is not None else None,
-                        "bid_t": float(bid_t) if bid_t is not None else None,
-                        "ask_t": float(ask_t) if ask_t is not None else None,
-                        "mid_t_1s": float(mid_1s) if mid_1s is not None else None,
-                        "mid_t_5s": float(mid_5s) if mid_5s is not None else None,
-                        "eff_spread_bps": float(eff) if eff is not None else None,
-                        "realized_spread_1s_bps": float(rs_1) if rs_1 is not None else None,
-                        "realized_spread_5s_bps": float(rs_5) if rs_5 is not None else None,
-                        "perm_impact_1s_bps": float(imp_1) if imp_1 is not None else None,
-                        "perm_impact_5s_bps": float(imp_5) if imp_5 is not None else None,
-                        "is_bps": float(is_bps) if is_bps is not None else None,
-                        "px": float(f["px"]),
-                        "qty": float(f["qty"]),
-                        "fee_bps": float(f["fee_bps"]),
-                        "ts_insert_ms": _now_ms(),
+                        "ts_fill_ms": ts_fill_ms
+                        "sid": sid
+                        "sym": sym
+                        "venue": venue
+                        "side": side
+                        "fill_role": str(f.get("fill_role") or "entry")
+                        "decision_ts_ms": int(dec["decision_ts_ms"])
+                        "session": session
+                        "tf": tf
+                        "kind": kind
+                        "decision_mid": float(decision_mid) if decision_mid is not None else None
+                        "mid_t": float(mid_t) if mid_t is not None else None
+                        "bid_t": float(bid_t) if bid_t is not None else None
+                        "ask_t": float(ask_t) if ask_t is not None else None
+                        "mid_t_1s": float(mid_1s) if mid_1s is not None else None
+                        "mid_t_5s": float(mid_5s) if mid_5s is not None else None
+                        "eff_spread_bps": float(eff) if eff is not None else None
+                        "realized_spread_1s_bps": float(rs_1) if rs_1 is not None else None
+                        "realized_spread_5s_bps": float(rs_5) if rs_5 is not None else None
+                        "perm_impact_1s_bps": float(imp_1) if imp_1 is not None else None
+                        "perm_impact_5s_bps": float(imp_5) if imp_5 is not None else None
+                        "is_bps": float(is_bps) if is_bps is not None else None
+                        "px": float(f["px"])
+                        "qty": float(f["qty"])
+                        "fee_bps": float(f["fee_bps"])
+                        "ts_insert_ms": _now_ms()
                     }
                 )
 
@@ -486,17 +486,17 @@ async def main() -> None:
                 if cfg.inline_enable and str(f.get("fill_role") or "").lower() == "entry" and is_bps is not None:
                     try:
                         stats = await update_inline_exec_from_fill(
-                            redis=r,
-                            sid=sid,
-                            dims=InlineExecDims(symbol=sym, side=side, session=session, kind=kind, tf=tf),
-                            decision_mid=float(decision_mid),
-                            fill_px=float(f["px"]),
-                            fill_qty=float(f["qty"]),
-                            fee_bps=float(f["fee_bps"]),
-                            ts_fill_ms=int(ts_fill_ms),
-                            ttl_sec=int(cfg.inline_ttl_sec),
-                            max_samples=int(cfg.inline_max_samples),
-                            ema_alpha=float(cfg.inline_ema_alpha),
+                            redis=r
+                            sid=sid
+                            dims=InlineExecDims(symbol=sym, side=side, session=session, kind=kind, tf=tf)
+                            decision_mid=float(decision_mid)
+                            fill_px=float(f["px"])
+                            fill_qty=float(f["qty"])
+                            fee_bps=float(f["fee_bps"])
+                            ts_fill_ms=int(ts_fill_ms)
+                            ttl_sec=int(cfg.inline_ttl_sec)
+                            max_samples=int(cfg.inline_max_samples)
+                            ema_alpha=float(cfg.inline_ema_alpha)
                         )
                         if stats:
                             side_u = str(side).upper()
@@ -522,11 +522,11 @@ async def main() -> None:
                         roll = pg.compute_rollups(dims=dims, window_min=cfg.rollup_window_min, delta_sec=1)
                         if roll:
                             await write_rollups(
-                                redis=r,
-                                dims=dims,
-                                rollups=roll,
-                                ttl_sec=cfg.redis_ttl_sec,
-                                delta_sec=1,
+                                redis=r
+                                dims=dims
+                                rollups=roll
+                                ttl_sec=cfg.redis_ttl_sec
+                                delta_sec=1
                             )
                     except Exception:
                         continue

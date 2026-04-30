@@ -4,8 +4,8 @@
 
 Запуск: python -m regime.baseline_job
 
-Читает историю сигналов из TimescaleDB (signal_executions),
-считает winrate, expectancy_R, max_dd_R по каждому (family, venue, symbol, timeframe),
+Читает историю сигналов из TimescaleDB (signal_executions)
+считает winrate, expectancy_R, max_dd_R по каждому (family, venue, symbol, timeframe)
 записывает p10/лимиты в signal_family_baseline.
 """
 
@@ -33,12 +33,12 @@ DD_R_LIMIT_MULT = float(os.getenv("BASELINE_DD_LIMIT_MULT", "1.5"))  # лими�
 
 
 def calculate_baseline_for_family(
-    pg_conn,
-    family: str,
-    venue: str,
-    symbol: str,
-    timeframe: str,
-    window_days: int = WINDOW_DAYS,
+    pg_conn
+    family: str
+    venue: str
+    symbol: str
+    timeframe: str
+    window_days: int = WINDOW_DAYS
 ) -> Optional[Dict]:
     """
     Считает baseline для конкретной комбинации family/venue/symbol/timeframe.
@@ -49,8 +49,8 @@ def calculate_baseline_for_family(
 
     query = """
     SELECT
-        pnl_net,
-        risk_amount,
+        pnl_net
+        risk_amount
         CASE WHEN pnl_net > 0 THEN 1 ELSE 0 END as win
     FROM signal_executions
     WHERE family = %s
@@ -107,13 +107,13 @@ def calculate_baseline_for_family(
     dd_r_limit = abs(max_dd) * DD_R_LIMIT_MULT if max_dd < 0 else 0.0
 
     return {
-        "wr_p10": float(wr_p10),
-        "wr_p50": float(np.percentile(wr_values, 50)),
-        "exp_r_p10": float(exp_r_p10),
-        "exp_r_p50": float(np.percentile(exp_r_values, 50)),
-        "dd_r_limit": float(dd_r_limit),
-        "trades_count": len(r_values),
-        "min_trades": MIN_TRADES_DEFAULT,
+        "wr_p10": float(wr_p10)
+        "wr_p50": float(np.percentile(wr_values, 50))
+        "exp_r_p10": float(exp_r_p10)
+        "exp_r_p50": float(np.percentile(exp_r_values, 50))
+        "dd_r_limit": float(dd_r_limit)
+        "trades_count": len(r_values)
+        "min_trades": MIN_TRADES_DEFAULT
     }
 
 
@@ -125,22 +125,22 @@ def update_baseline_table(pg_conn, baselines: Dict[Tuple[str, str, str, str], Di
             cur.execute(
                 """
                 INSERT INTO signal_family_baseline (
-                    family, venue, symbol, timeframe,
+                    family, venue, symbol, timeframe
                     wr_p10, wr_p50, exp_r_p10, exp_r_p50, dd_r_limit, min_trades, updated_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
                 ON CONFLICT (family, venue, symbol, timeframe)
                 DO UPDATE SET
-                    wr_p10 = EXCLUDED.wr_p10,
-                    wr_p50 = EXCLUDED.wr_p50,
-                    exp_r_p10 = EXCLUDED.exp_r_p10,
-                    exp_r_p50 = EXCLUDED.exp_r_p50,
-                    dd_r_limit = EXCLUDED.dd_r_limit,
-                    min_trades = EXCLUDED.min_trades,
+                    wr_p10 = EXCLUDED.wr_p10
+                    wr_p50 = EXCLUDED.wr_p50
+                    exp_r_p10 = EXCLUDED.exp_r_p10
+                    exp_r_p50 = EXCLUDED.exp_r_p50
+                    dd_r_limit = EXCLUDED.dd_r_limit
+                    min_trades = EXCLUDED.min_trades
                     updated_at = now()
-                """,
+                """
                 (
-                    family, venue, symbol, timeframe,
-                    data["wr_p10"], data["wr_p50"], data["exp_r_p10"], data["exp_r_p50"],
+                    family, venue, symbol, timeframe
+                    data["wr_p10"], data["wr_p50"], data["exp_r_p10"], data["exp_r_p50"]
                     data["dd_r_limit"], data["min_trades"]
                 )
             )

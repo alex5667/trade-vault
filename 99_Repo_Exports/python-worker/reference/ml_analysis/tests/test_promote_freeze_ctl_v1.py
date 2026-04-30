@@ -29,10 +29,10 @@ def test_cmd_status(mock_read, capsys):
 def test_cmd_set(mock_write_ops, mock_set, capsys):
     mock_set.return_value = True
     args = argparse.Namespace(
-        redis_url="redis://localhost:6379/0",
-        duration_s=3600,
-        reason="manual investigation",
-        source="manual",
+        redis_url="redis://localhost:6379/0"
+        duration_s=3600
+        reason="manual investigation"
+        source="manual"
         actor="ops"
     )
     
@@ -55,10 +55,10 @@ def test_cmd_set(mock_write_ops, mock_set, capsys):
 def test_cmd_set_fail(mock_write_ops, mock_set, capsys):
     mock_set.return_value = False
     args = argparse.Namespace(
-        redis_url="redis://localhost:6379/0",
-        duration_s=3600,
-        reason="manual investigation",
-        source="manual",
+        redis_url="redis://localhost:6379/0"
+        duration_s=3600
+        reason="manual investigation"
+        source="manual"
         actor="ops"
     )
     
@@ -72,7 +72,7 @@ def test_cmd_set_fail(mock_write_ops, mock_set, capsys):
 def test_cmd_clear(mock_write_ops, mock_clear, capsys):
     mock_clear.return_value = True
     args = argparse.Namespace(
-        redis_url="redis://localhost:6379/0",
+        redis_url="redis://localhost:6379/0"
         actor="ops"
     )
     

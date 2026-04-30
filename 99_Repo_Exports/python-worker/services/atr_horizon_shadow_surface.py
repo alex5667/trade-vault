@@ -68,8 +68,8 @@ def build_risk_surface_shadow(signal: Dict[str, Any]) -> Dict[str, Any]:
     entry_price = _safe_float(
         signal.get("entry_price")
         or signal.get("entry")
-        or signal.get("price"),
-        0.0,
+        or signal.get("price")
+        0.0
     )
 
     # Selected ATR from atr_profile (Phase 2 selector output)
@@ -85,14 +85,14 @@ def build_risk_surface_shadow(signal: Dict[str, Any]) -> Dict[str, Any]:
     sl_atr_mult = _safe_float(
         meta.get("sl_atr_mult")
         or signal.get("sl_atr_mult")
-        or os.getenv("ATR_HORIZON_SHADOW_SL_ATR_MULT", "1.5"),
-        1.5,
+        or os.getenv("ATR_HORIZON_SHADOW_SL_ATR_MULT", "1.5")
+        1.5
     )
     tp1_atr_mult = _safe_float(
         meta.get("tp1_atr_mult")
         or signal.get("tp1_atr_mult")
-        or os.getenv("ATR_HORIZON_SHADOW_TP1_ATR_MULT", "2.0"),
-        2.0,
+        or os.getenv("ATR_HORIZON_SHADOW_TP1_ATR_MULT", "2.0")
+        2.0
     )
 
     stop_dist = atr_value * sl_atr_mult if atr_value > 0.0 else 0.0
@@ -111,19 +111,19 @@ def build_risk_surface_shadow(signal: Dict[str, Any]) -> Dict[str, Any]:
     reason = "RS_SHADOW_OK" if (atr_value > 0.0 and entry_price > 0.0) else "RS_SHADOW_INCOMPLETE"
 
     return asdict(RiskSurfaceShadow(
-        mode="shadow",
-        atr_tf_ms=atr_tf_ms,
-        atr_value=atr_value,
-        atr_pct=atr_pct,
-        hold_target_ms=hold_target_ms,
-        alpha_half_life_ms=alpha_half_life_ms,
-        max_signal_age_ms=max_signal_age_ms,
-        sl_atr_mult=sl_atr_mult,
-        tp1_atr_mult=tp1_atr_mult,
-        selected_stop_dist_px=stop_dist,
-        selected_tp1_dist_px=tp1_dist,
-        selected_sl_price_shadow=sl_shadow,
-        selected_tp1_price_shadow=tp1_shadow,
-        entry_ttl_ms_shadow=max_signal_age_ms,
-        risk_reason_code=reason,
+        mode="shadow"
+        atr_tf_ms=atr_tf_ms
+        atr_value=atr_value
+        atr_pct=atr_pct
+        hold_target_ms=hold_target_ms
+        alpha_half_life_ms=alpha_half_life_ms
+        max_signal_age_ms=max_signal_age_ms
+        sl_atr_mult=sl_atr_mult
+        tp1_atr_mult=tp1_atr_mult
+        selected_stop_dist_px=stop_dist
+        selected_tp1_dist_px=tp1_dist
+        selected_sl_price_shadow=sl_shadow
+        selected_tp1_price_shadow=tp1_shadow
+        entry_ttl_ms_shadow=max_signal_age_ms
+        risk_reason_code=reason
     ))

@@ -48,9 +48,9 @@ def compute_progress_score(ctx: SignalContext, cfg: WeakProgressConfig) -> int:
 
 
 def apply_weak_progress_and_fade_filters(
-    ctx: SignalContext,
-    pattern_cfg: WeakProgressConfig,
-    base_conf: int,
+    ctx: SignalContext
+    pattern_cfg: WeakProgressConfig
+    base_conf: int
 ) -> int:
     """
     1) For fade patterns, check mandatory conditions (weakProgress + volume/Delta)
@@ -113,15 +113,15 @@ def validate_signal_for_weak_progress(ctx: SignalContext) -> dict:
     cfg = get_weak_progress_config(ctx.pattern_name)
 
     result = {
-        "pattern_family": cfg.family,
-        "weak_progress": ctx.weak_progress,
-        "progress_strength": None,
-        "fade_preconditions": None,
-        "fade_confirmation": None,
-        "continuation_preconditions": None,
-        "progress_score": 0,
-        "is_valid": True,
-        "reasons": [],
+        "pattern_family": cfg.family
+        "weak_progress": ctx.weak_progress
+        "progress_strength": None
+        "fade_preconditions": None
+        "fade_confirmation": None
+        "continuation_preconditions": None
+        "progress_score": 0
+        "is_valid": True
+        "reasons": []
     }
 
     # Classify progress strength

@@ -43,13 +43,13 @@ def _sha1(s: str) -> str:
 
 def _entry_id(cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> str:
     base = {
-        "sym": str(cand.get("symbol", "")).upper(),
-        "side": str(cand.get("side", "")).upper(),
-        "bundle": str(cand.get("bundle", "")),
-        "setup_ts_ms": int(cand.get("setup_ts_ms", 0) or 0),
-        "zone_id": str(snap.get("zone_id", cand.get("zone_id", "")) or ""),
-        "ab_key": str(cand.get("ab_key", "") or ""),
-        "kind": str(bundle.get("decision", "") or ""),
+        "sym": str(cand.get("symbol", "")).upper()
+        "side": str(cand.get("side", "")).upper()
+        "bundle": str(cand.get("bundle", ""))
+        "setup_ts_ms": int(cand.get("setup_ts_ms", 0) or 0)
+        "zone_id": str(snap.get("zone_id", cand.get("zone_id", "")) or "")
+        "ab_key": str(cand.get("ab_key", "") or "")
+        "kind": str(bundle.get("decision", "") or "")
     }
     return _sha1(json.dumps(base, sort_keys=True, separators=(",", ":")))
 
@@ -80,27 +80,27 @@ class PolicyCfg:
     @staticmethod
     def from_env() -> "PolicyCfg":
         return PolicyCfg(
-            in_stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
-            out_stream=os.getenv("TRADE_ENTRY_STREAM", "stream:trade:entry"),
-            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
-            group=os.getenv("ENTRY_POLICY_GROUP", "entry-policy"),
-            consumer=os.getenv("ENTRY_POLICY_CONSUMER", "c1"),
-            snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:"),
-            bundle_prefix=os.getenv("SMT_BUNDLE_PREFIX", "smt:bundle:v1:"),
-            coh_thr=float(os.getenv("SMT_COH_THRESHOLD", "0.65")),
-            leader_conf_min=float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65")),
-            min_of_score=float(os.getenv("SMT_ENTRY_MIN_OF_SCORE", "1.0")),
-            max_zone_bp=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP", "15.0")),
-            max_zone_bp_thin=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP_THIN", "10.0")),
-            obi_min_sec=float(os.getenv("SMT_ENTRY_OBI_MIN_SEC", "1.5")),
-            shadow=bool(int(os.getenv("ENTRY_POLICY_SHADOW", "0"))),
-            dedup_ms=int(os.getenv("SMT_ENTRY_DEDUP_MS", "60000")),
-            poll_ms=int(os.getenv("ENTRY_POLICY_POLL_MS", "100")),
-            max_age_ms=int(os.getenv("ENTRY_POLICY_MAX_CANDIDATE_AGE_MS", "120000")),
-            allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0"))),
-            active_arm_cache_ttl_ms=int(os.getenv("ENTRY_POLICY_ACTIVE_ARM_CACHE_TTL_MS", "2000")),
-            audit_stream_maxlen=int(os.getenv("TRADE_ENTRY_AUDIT_MAXLEN", "200000")),
-            out_stream_maxlen=int(os.getenv("TRADE_ENTRY_MAXLEN", "20000")),
+            in_stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate")
+            out_stream=os.getenv("TRADE_ENTRY_STREAM", "stream:trade:entry")
+            audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit")
+            group=os.getenv("ENTRY_POLICY_GROUP", "entry-policy")
+            consumer=os.getenv("ENTRY_POLICY_CONSUMER", "c1")
+            snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:")
+            bundle_prefix=os.getenv("SMT_BUNDLE_PREFIX", "smt:bundle:v1:")
+            coh_thr=float(os.getenv("SMT_COH_THRESHOLD", "0.65"))
+            leader_conf_min=float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65"))
+            min_of_score=float(os.getenv("SMT_ENTRY_MIN_OF_SCORE", "1.0"))
+            max_zone_bp=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP", "15.0"))
+            max_zone_bp_thin=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP_THIN", "10.0"))
+            obi_min_sec=float(os.getenv("SMT_ENTRY_OBI_MIN_SEC", "1.5"))
+            shadow=bool(int(os.getenv("ENTRY_POLICY_SHADOW", "0")))
+            dedup_ms=int(os.getenv("SMT_ENTRY_DEDUP_MS", "60000"))
+            poll_ms=int(os.getenv("ENTRY_POLICY_POLL_MS", "100"))
+            max_age_ms=int(os.getenv("ENTRY_POLICY_MAX_CANDIDATE_AGE_MS", "120000"))
+            allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0")))
+            active_arm_cache_ttl_ms=int(os.getenv("ENTRY_POLICY_ACTIVE_ARM_CACHE_TTL_MS", "2000"))
+            audit_stream_maxlen=int(os.getenv("TRADE_ENTRY_AUDIT_MAXLEN", "200000"))
+            out_stream_maxlen=int(os.getenv("TRADE_ENTRY_MAXLEN", "20000"))
         )
 
 class EntryPolicyService:
@@ -123,20 +123,20 @@ class EntryPolicyService:
 
         # === Active arm stabilizer ===
         self._arm_stab = ActiveArmStabilizer(
-            hold_down_ms=int(os.getenv("ACTIVE_ARM_HOLD_DOWN_MS", "600000")),
-            min_switch_gap_ms=int(os.getenv("ACTIVE_ARM_MIN_SWITCH_GAP_MS", "1800000")),
+            hold_down_ms=int(os.getenv("ACTIVE_ARM_HOLD_DOWN_MS", "600000"))
+            min_switch_gap_ms=int(os.getenv("ACTIVE_ARM_MIN_SWITCH_GAP_MS", "1800000"))
         )
 
         from services.entry_policy_core import EntryPolicyCfg
         self.core_cfg = EntryPolicyCfg(
-            coh_thr=self.cfg.coh_thr,
-            leader_conf_min=self.cfg.leader_conf_min,
-            min_of_score=self.cfg.min_of_score,
-            max_zone_bp=self.cfg.max_zone_bp,
-            max_zone_bp_thin=self.cfg.max_zone_bp_thin,
-            obi_min_sec=self.cfg.obi_min_sec,
-            dedup_ms=self.cfg.dedup_ms,
-            allow_zone_id_change_if_near=self.cfg.allow_zone_id_change_if_near,
+            coh_thr=self.cfg.coh_thr
+            leader_conf_min=self.cfg.leader_conf_min
+            min_of_score=self.cfg.min_of_score
+            max_zone_bp=self.cfg.max_zone_bp
+            max_zone_bp_thin=self.cfg.max_zone_bp_thin
+            obi_min_sec=self.cfg.obi_min_sec
+            dedup_ms=self.cfg.dedup_ms
+            allow_zone_id_change_if_near=self.cfg.allow_zone_id_change_if_near
         )
 
         # Optional: max expected slippage veto (used by entry_policy_core).
@@ -251,14 +251,14 @@ class EntryPolicyService:
             sess = str(session_utc(int(now_ms)))
 
             roll = await read_exec_rollups(
-                redis=self.r,
-                sym=sym,
-                venue=self._exec_venue,
-                session=sess,
-                tf=self._exec_tf,
-                kind=kind,
-                side=side,
-                delta_sec=1,
+                redis=self.r
+                sym=sym
+                venue=self._exec_venue
+                session=sess
+                tf=self._exec_tf
+                kind=kind
+                side=side
+                delta_sec=1
             )
             if not roll:
                 return
@@ -293,10 +293,10 @@ class EntryPolicyService:
         scn = str(bundle.get("decision", cand.get("scenario", "")) or "").strip().lower()
         prefix = "cfg:entry_policy:overrides:v1"
         keys = [
-            f"{prefix}:{sym}:{rg}:{scn}:{grp}" if (sym and rg and scn) else "",
-            f"{prefix}:{sym}:{rg}:{grp}" if (sym and rg) else "",
-            f"{prefix}:{grp}" if grp else "",
-            prefix,
+            f"{prefix}:{sym}:{rg}:{scn}:{grp}" if (sym and rg and scn) else ""
+            f"{prefix}:{sym}:{rg}:{grp}" if (sym and rg) else ""
+            f"{prefix}:{grp}" if grp else ""
+            prefix
         ]
         keys = [k for k in keys if k]
         raw = ""
@@ -331,49 +331,49 @@ class EntryPolicyService:
             o = ovr or EntryPolicyOverridesV1()
             eid = _entry_id(cand, snap, bundle)
             payload = {
-                "ts_ms": now_ms, "entry_id": eid, "ok": 1 if ok else 0, "reason_code": str(reason_code), "notes": str(notes),
-                "regime": str(snap.get("regime", cand.get("regime", "na"))), "ab_arm": str(cand.get("ab_arm", arm)),
-                "ab_group": str(cand.get("ab_group", "default")), "symbol": cand.get("symbol"), "side": cand.get("side"),
-                "ab_split_reason": str(cand.get("ab_split_reason","") or ""),
-                "ab_split_a": float(cand.get("ab_split_a", 0.0) or 0.0),
-                "ab_split_b": float(cand.get("ab_split_b", 0.0) or 0.0),
-                "ab_split_c": float(cand.get("ab_split_c", 0.0) or 0.0),
-                "pressure_sps": float(snap.get("pressure_sps", 0.0) or 0.0),
-                "adx_q": float(snap.get("adx_q", 0.5) or 0.5),
-                "spread_z": float(snap.get("spread_z", 0.0) or 0.0),
+                "ts_ms": now_ms, "entry_id": eid, "ok": 1 if ok else 0, "reason_code": str(reason_code), "notes": str(notes)
+                "regime": str(snap.get("regime", cand.get("regime", "na"))), "ab_arm": str(cand.get("ab_arm", arm))
+                "ab_group": str(cand.get("ab_group", "default")), "symbol": cand.get("symbol"), "side": cand.get("side")
+                "ab_split_reason": str(cand.get("ab_split_reason","") or "")
+                "ab_split_a": float(cand.get("ab_split_a", 0.0) or 0.0)
+                "ab_split_b": float(cand.get("ab_split_b", 0.0) or 0.0)
+                "ab_split_c": float(cand.get("ab_split_c", 0.0) or 0.0)
+                "pressure_sps": float(snap.get("pressure_sps", 0.0) or 0.0)
+                "adx_q": float(snap.get("adx_q", 0.5) or 0.5)
+                "spread_z": float(snap.get("spread_z", 0.0) or 0.0)
                 "policy_runtime": {
                     "overrides": {
-                        "enabled": int(getattr(o, "enabled", 1) or 1),
-                        "updated_ts_ms": int(getattr(o, "updated_ts_ms", 0) or 0),
-                        "force_active_arm": str(getattr(o, "force_active_arm", "") or ""),
-                        "freeze_active": int(getattr(o, "freeze_active", 0) or 0),
-                        "freeze_mode": str(getattr(o, "freeze_mode", "shadow") or "shadow"),
-                        "overrides_apply_hold_ms": int(getattr(o, "overrides_apply_hold_ms", 0) or 0),
-                        "overrides_min_switch_gap_ms": int(getattr(o, "overrides_min_switch_gap_ms", 0) or 0),
-                        "active_arm_hold_down_ms": int(getattr(o, "active_arm_hold_down_ms", 0) or 0),
-                        "active_arm_min_switch_gap_ms": int(getattr(o, "active_arm_min_switch_gap_ms", 0) or 0),
-                    },
-                    "active_arm_dbg": getattr(self, "_last_active_arm_dbg", None),
+                        "enabled": int(getattr(o, "enabled", 1) or 1)
+                        "updated_ts_ms": int(getattr(o, "updated_ts_ms", 0) or 0)
+                        "force_active_arm": str(getattr(o, "force_active_arm", "") or "")
+                        "freeze_active": int(getattr(o, "freeze_active", 0) or 0)
+                        "freeze_mode": str(getattr(o, "freeze_mode", "shadow") or "shadow")
+                        "overrides_apply_hold_ms": int(getattr(o, "overrides_apply_hold_ms", 0) or 0)
+                        "overrides_min_switch_gap_ms": int(getattr(o, "overrides_min_switch_gap_ms", 0) or 0)
+                        "active_arm_hold_down_ms": int(getattr(o, "active_arm_hold_down_ms", 0) or 0)
+                        "active_arm_min_switch_gap_ms": int(getattr(o, "active_arm_min_switch_gap_ms", 0) or 0)
+                    }
+                    "active_arm_dbg": getattr(self, "_last_active_arm_dbg", None)
                     # Liquidity geometry / resiliency (Phase C)
                     # These fields are *best-effort* and may be missing depending on
                     # how SMT snapshots are produced.
                     "liq_geom": {
-                        "profile": str(snap.get("liq_geom_profile", "")),
-                        "flags": str(snap.get("liq_geom_flags", "")),
-                        "slope_min": float(snap.get("liq_geom_slope_min", 0.0) or 0.0),
-                        "dws_bps": float(snap.get("liq_geom_dws_bps", 0.0) or 0.0),
-                        "recovery_time_ms": int(snap.get("liq_geom_recovery_time_ms", 0) or 0),
-                        "tighten_add_bps": float(snap.get("liq_geom_tighten_add_bps", 0.0) or 0.0),
-                    },
+                        "profile": str(snap.get("liq_geom_profile", ""))
+                        "flags": str(snap.get("liq_geom_flags", ""))
+                        "slope_min": float(snap.get("liq_geom_slope_min", 0.0) or 0.0)
+                        "dws_bps": float(snap.get("liq_geom_dws_bps", 0.0) or 0.0)
+                        "recovery_time_ms": int(snap.get("liq_geom_recovery_time_ms", 0) or 0)
+                        "tighten_add_bps": float(snap.get("liq_geom_tighten_add_bps", 0.0) or 0.0)
+                    }
                     "flow_toxic": {
-                        "profile": str(snap.get("flow_toxic_profile", "")),
-                        "flags": str(snap.get("flow_toxic_flags", "")),
-                        "ofi_norm_z": float(snap.get("ofi_norm_z", snap.get("flow_toxic_ofi_norm_z", 0.0)) or 0.0),
-                        "vpin_cdf": float(snap.get("vpin_cdf", snap.get("flow_toxic_vpin_cdf", 0.0)) or 0.0),
-                        "tighten_add_bps": float(snap.get("flow_toxic_tighten_add_bps", 0.0) or 0.0),
-                    },
-                },
-                "snap": {k: snap.get(k) for k in ("close_px", "spread_bp", "pressure_sps", "cooldown_sps", "obi_age_ms", "regime")},
+                        "profile": str(snap.get("flow_toxic_profile", ""))
+                        "flags": str(snap.get("flow_toxic_flags", ""))
+                        "ofi_norm_z": float(snap.get("ofi_norm_z", snap.get("flow_toxic_ofi_norm_z", 0.0)) or 0.0)
+                        "vpin_cdf": float(snap.get("vpin_cdf", snap.get("flow_toxic_vpin_cdf", 0.0)) or 0.0)
+                        "tighten_add_bps": float(snap.get("flow_toxic_tighten_add_bps", 0.0) or 0.0)
+                    }
+                }
+                "snap": {k: snap.get(k) for k in ("close_px", "spread_bp", "pressure_sps", "cooldown_sps", "obi_age_ms", "regime")}
             }
             await self.r.xadd(self.cfg.audit_stream, {"data": json.dumps(payload)}, maxlen=self.cfg.audit_stream_maxlen, approximate=True)
         except Exception: pass
@@ -409,16 +409,16 @@ class EntryPolicyService:
 
             from services.orderflow.liquidity_geom_policy import evaluate_liq_geom
             decg = evaluate_liq_geom(
-                profile=profile,
-                slope_bid=slope_bid,
-                slope_ask=slope_ask,
-                dws_bps=dws_bps,
-                recovery_ms=rec_ms,
-                thr_slope=thr_slope,
-                thr_dws=thr_dws,
-                thr_recovery_ms=thr_rec,
-                tighten_cap_bps=cap,
-                tighten_mult=mult,
+                profile=profile
+                slope_bid=slope_bid
+                slope_ask=slope_ask
+                dws_bps=dws_bps
+                recovery_ms=rec_ms
+                thr_slope=thr_slope
+                thr_dws=thr_dws
+                thr_recovery_ms=thr_rec
+                tighten_cap_bps=cap
+                tighten_mult=mult
             )
 
             # Always annotate (for downstream audit + observability)
@@ -489,18 +489,18 @@ class EntryPolicyService:
             tca_imp = float(snap.get("tca_perm_impact_p95_bps", snap.get("perm_impact_p95_bps", 0.0)) or 0.0)
 
             dec = evaluate_flow_toxicity(
-                profile=profile,
-                ofi_norm_z=ofi_z,
-                thr_ofi_norm_z=thr_z,
-                vpin_cdf=vpin_cdf,
-                thr_vpin_cdf=thr_vpin,
-                tca_is_p95_bps=tca_is,
-                tca_perm_impact_p95_bps=tca_imp,
-                thr_is_p95_bps=thr_is,
-                thr_perm_impact_p95_bps=thr_imp,
-                tighten_mult=mult,
-                tighten_cap_bps=cap,
-                veto_without_tca=veto_wo_tca,
+                profile=profile
+                ofi_norm_z=ofi_z
+                thr_ofi_norm_z=thr_z
+                vpin_cdf=vpin_cdf
+                thr_vpin_cdf=thr_vpin
+                tca_is_p95_bps=tca_is
+                tca_perm_impact_p95_bps=tca_imp
+                thr_is_p95_bps=thr_is
+                thr_perm_impact_p95_bps=thr_imp
+                tighten_mult=mult
+                tighten_cap_bps=cap
+                veto_without_tca=veto_wo_tca
             )
 
             snap["flow_toxic_profile"] = profile
@@ -605,17 +605,17 @@ class EntryPolicyService:
         try:
             eid = _entry_id(cand, snap, bundle)
             payload = {
-                "ts_ms": now_ms,
-                "entry_id": eid,
-                "symbol": cand["symbol"],
-                "side": cand["side"],
-                "bundle": cand.get("bundle", ""),
+                "ts_ms": now_ms
+                "entry_id": eid
+                "symbol": cand["symbol"]
+                "side": cand["side"]
+                "bundle": cand.get("bundle", "")
                 # --- AB routing (must survive into PositionState.signal_payload) ---
-                "ab_arm": str(cand.get("ab_arm") or "A"),
-                "ab_group": str(cand.get("ab_group") or "default"),
-                "ab_key": str(cand.get("ab_key") or ""),
-                "ab_ver": _i(cand.get("arm_ver", 0), 0),
-                "leader": _s(bundle.get("leader", "")),
+                "ab_arm": str(cand.get("ab_arm") or "A")
+                "ab_group": str(cand.get("ab_group") or "default")
+                "ab_key": str(cand.get("ab_key") or "")
+                "ab_ver": _i(cand.get("arm_ver", 0), 0)
+                "leader": _s(bundle.get("leader", ""))
                 "decision": _s(bundle.get("decision", "")),  # scenario taxonomy: continuation|reversal
                 # ------------------------------------------------------------
                 # Policy/quality fields (for TradeMonitor autopilot analytics)
@@ -623,47 +623,47 @@ class EntryPolicyService:
                 # ------------------------------------------------------------
                 "policy": {
                     # tiers (если нет — будет -1, tuner пропустит)
-                    "abs_lvl_tier": _i(snap.get("abs_lvl_tier", snap.get("abs_lvl_tier_used", -1)), -1),
-                    "dn_tier": _i(snap.get("dn_tier", -1), -1),
+                    "abs_lvl_tier": _i(snap.get("abs_lvl_tier", snap.get("abs_lvl_tier_used", -1)), -1)
+                    "dn_tier": _i(snap.get("dn_tier", -1), -1)
                     # book quality
-                    "book_health_ok": _i(snap.get("book_health_ok", -1), -1),
-                    "book_age_ms": _i(snap.get("book_age_ms", snap.get("book_age", 0)), 0),
-                    "book_rate_hz": _f(snap.get("book_rate_hz", snap.get("book_rate_ema", 0.0)), 0.0),
+                    "book_health_ok": _i(snap.get("book_health_ok", -1), -1)
+                    "book_age_ms": _i(snap.get("book_age_ms", snap.get("book_age", 0)), 0)
+                    "book_rate_hz": _f(snap.get("book_rate_hz", snap.get("book_rate_ema", 0.0)), 0.0)
                     # of/strong gate summary
-                    "of_confirm_ok": _i(snap.get("of_confirm_ok", snap.get("of_strong", 0)), 0),
-                    "of_confirm_score": _f(snap.get("of_confirm_score", 0.0), 0.0),
-                    "strong_gate_have": _i(snap.get("strong_gate_have", 0), 0),
-                    "strong_gate_need": _i(snap.get("strong_gate_need", 0), 0),
-                    "strong_gate_scn": _s(snap.get("strong_gate_scn", "")),
+                    "of_confirm_ok": _i(snap.get("of_confirm_ok", snap.get("of_strong", 0)), 0)
+                    "of_confirm_score": _f(snap.get("of_confirm_score", 0.0), 0.0)
+                    "strong_gate_have": _i(snap.get("strong_gate_have", 0), 0)
+                    "strong_gate_need": _i(snap.get("strong_gate_need", 0), 0)
+                    "strong_gate_scn": _s(snap.get("strong_gate_scn", ""))
                     # microstructure
-                    "spread_bp": _f(snap.get("spread_bp", 0.0), 0.0),
-                },
+                    "spread_bp": _f(snap.get("spread_bp", 0.0), 0.0)
+                }
                 # === AB routing (must reach TradeMonitor -> POSITION_CLOSED) ===
                 "ab": {
-                    "arm": _s(cand.get("ab_arm", "A")).upper(),
-                    "group": _s(cand.get("ab_group", "default")).lower(),
-                    "key": _s(cand.get("ab_key", "")),
-                    "arm_ver": _i(cand.get("arm_ver", 0)),
-                    "split_reason": _s(cand.get("ab_split_reason", "")),
-                    "split_a": _f(cand.get("ab_split_a", 0.0)),
-                    "split_b": _f(cand.get("ab_split_b", 0.0)),
-                    "split_c": _f(cand.get("ab_split_c", 0.0)),
-                },
+                    "arm": _s(cand.get("ab_arm", "A")).upper()
+                    "group": _s(cand.get("ab_group", "default")).lower()
+                    "key": _s(cand.get("ab_key", ""))
+                    "arm_ver": _i(cand.get("arm_ver", 0))
+                    "split_reason": _s(cand.get("ab_split_reason", ""))
+                    "split_a": _f(cand.get("ab_split_a", 0.0))
+                    "split_b": _f(cand.get("ab_split_b", 0.0))
+                    "split_c": _f(cand.get("ab_split_c", 0.0))
+                }
                 "ctx": {
-                    "regime": _s(snap.get("regime", "na")),
-                    "atr": _f(snap.get("atr", 0.0)),
-                    "coh": _f(bundle.get("coh", 0.0)),
-                    "leader_conf_score": _f(bundle.get("leader_conf_score", 0.0)),
+                    "regime": _s(snap.get("regime", "na"))
+                    "atr": _f(snap.get("atr", 0.0))
+                    "coh": _f(bundle.get("coh", 0.0))
+                    "leader_conf_score": _f(bundle.get("leader_conf_score", 0.0))
                     # === microstructure penalties (entry-time snapshot) ===
-                    "adx_q": _f(snap.get("adx_q", 0.5)),
-                    "spread_z": _f(snap.get("spread_z", 0.0)),
-                    "pressure_sps": _f(snap.get("pressure_sps", 0.0)),
-                    "cooldown_sps": _f(snap.get("cooldown_sps", 0.0)),
-                    "obi_age_ms": _i(snap.get("obi_age_ms", 0)),
-                    "abs_th_unstable": _i(snap.get("abs_lvl_th_unstable", 0)),
-                    "news_blocked": _i(bundle.get("news_blocked", 0)),
-                },
-                "source": "smt_entry_policy",
+                    "adx_q": _f(snap.get("adx_q", 0.5))
+                    "spread_z": _f(snap.get("spread_z", 0.0))
+                    "pressure_sps": _f(snap.get("pressure_sps", 0.0))
+                    "cooldown_sps": _f(snap.get("cooldown_sps", 0.0))
+                    "obi_age_ms": _i(snap.get("obi_age_ms", 0))
+                    "abs_th_unstable": _i(snap.get("abs_lvl_th_unstable", 0))
+                    "news_blocked": _i(bundle.get("news_blocked", 0))
+                }
+                "source": "smt_entry_policy"
             }
             await self.r.xadd(self.cfg.out_stream, {"type": "trade_entry", "ts_ms": str(now_ms), "payload": json.dumps(payload)}, maxlen=self.cfg.out_stream_maxlen)
         except Exception: pass
@@ -673,14 +673,14 @@ class EntryPolicyService:
             if str(fields.get("type")) != "entry_candidate": return None
             pl = json.loads(fields.get("payload", "{}"))
             return {
-                "symbol": _s(fields.get("symbol")).upper(), "ts_ms": _i(fields.get("ts_ms")), "side": _s(fields.get("side")).upper(),
-                "bundle": _s(fields.get("bundle")), "ab_arm": _s(pl.get("ab_arm", "A")).upper(), "ab_group": _s(pl.get("ab_group", "default")).lower(),
-                "ab_key": _s(pl.get("ab_key", "")),
-                "regime": _s(pl.get("regime", "na")).lower(), "payload": pl,
-                "ab_split_reason": str(pl.get("ab_split_reason", "")),
-                "ab_split_a": _f(pl.get("ab_split_a", 0.0)),
-                "ab_split_b": _f(pl.get("ab_split_b", 0.0)),
-                "ab_split_c": _f(pl.get("ab_split_c", 0.0)),
+                "symbol": _s(fields.get("symbol")).upper(), "ts_ms": _i(fields.get("ts_ms")), "side": _s(fields.get("side")).upper()
+                "bundle": _s(fields.get("bundle")), "ab_arm": _s(pl.get("ab_arm", "A")).upper(), "ab_group": _s(pl.get("ab_group", "default")).lower()
+                "ab_key": _s(pl.get("ab_key", ""))
+                "regime": _s(pl.get("regime", "na")).lower(), "payload": pl
+                "ab_split_reason": str(pl.get("ab_split_reason", ""))
+                "ab_split_a": _f(pl.get("ab_split_a", 0.0))
+                "ab_split_b": _f(pl.get("ab_split_b", 0.0))
+                "ab_split_c": _f(pl.get("ab_split_c", 0.0))
             }
         except Exception: return None
 
@@ -728,7 +728,7 @@ class EntryPolicyService:
                     await self._audit(
                         now_ms=_now_ms(), cand=cand, ok=False, 
                         reason_code="DENY_ABS_LVL_TIER_POLICY", 
-                        notes=f"req={req_tier} obs={obs_tier} mode={mode}",
+                        notes=f"req={req_tier} obs={obs_tier} mode={mode}"
                         snap=snap, bundle=bundle, ovr=ovr
                     )
                     return
@@ -764,10 +764,10 @@ class EntryPolicyService:
 
         
         active_val_raw = await self._get_active_arm(
-            symbol=cand["symbol"],
-            regime=snap.get("regime", "na"),
-            group=grp,
-            scenario=scn,
+            symbol=cand["symbol"]
+            regime=snap.get("regime", "na")
+            group=grp
+            scenario=scn
             raw_only=True
         )
         

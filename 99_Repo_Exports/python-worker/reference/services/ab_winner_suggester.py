@@ -125,10 +125,10 @@ class WinnerSuggester:
         # Notify Telegram
         if self.tg:
             msg = [
-                f"<b>AB Winner Suggestion</b> ({reg_group})",
-                f"Winner: <b>{winner}</b>",
-                "",
-                "Stats:",
+                f"<b>AB Winner Suggestion</b> ({reg_group})"
+                f"Winner: <b>{winner}</b>"
+                ""
+                "Stats:"
             ]
             for arm in sorted(st.keys()):
                 d = st[arm]

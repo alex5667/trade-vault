@@ -28,12 +28,12 @@ def _is_finite_number(x: Any) -> bool:
 
 
 def assert_json_safe(
-    obj: Any,
-    *,
-    where: str,
-    max_depth: int = DEFAULT_MAX_DEPTH,
-    max_keys: int = DEFAULT_MAX_KEYS,
-    max_list: int = DEFAULT_MAX_LIST,
+    obj: Any
+    *
+    where: str
+    max_depth: int = DEFAULT_MAX_DEPTH
+    max_keys: int = DEFAULT_MAX_KEYS
+    max_list: int = DEFAULT_MAX_LIST
 ) -> None:
     """
     Жёстко проверяет: obj состоит ТОЛЬКО из str/int/float/bool/None/list/dict
@@ -71,11 +71,11 @@ def assert_json_safe(
 
 
 def assert_tradeable_dict(
-    d: Dict[str, Any],
-    *,
-    where: str,
-    max_json_bytes: int = DEFAULT_MAX_JSON_BYTES,
-    forbidden_keys: Iterable[str] = FORBIDDEN_TOPLEVEL_KEYS,
+    d: Dict[str, Any]
+    *
+    where: str
+    max_json_bytes: int = DEFAULT_MAX_JSON_BYTES
+    forbidden_keys: Iterable[str] = FORBIDDEN_TOPLEVEL_KEYS
 ) -> None:
     if not isinstance(d, dict):
         raise AssertionError(f"{where}: expected dict, got {type(d).__name__}")

@@ -20,8 +20,8 @@ from typing import Any, Callable, Dict, Optional
 from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory
 from services.observability import metrics_registry  # noqa: F401 (side-effect import для init)
 from services.orderflow.metrics import (
-    burst_active_gauge, burst_flush_total,
-    signals_emitted_total, signals_published_total,
+    burst_active_gauge, burst_flush_total
+    signals_emitted_total, signals_published_total
 )
 from services.signal_preprocess import preprocess_signal_for_publish
 from utils.task_manager import safe_create_task
@@ -41,12 +41,12 @@ class BurstFlusher:
     """
 
     def __init__(
-        self,
-        *,
-        symbol_contexts_fn: Callable[[], Dict[str, Any]],
-        strategy_fn: Callable[[], Optional[Any]],
+        self
+        *
+        symbol_contexts_fn: Callable[[], Dict[str, Any]]
+        strategy_fn: Callable[[], Optional[Any]]
         gate: Any,                    # SignalGate
-        is_shutdown_fn: Callable[[], bool],
+        is_shutdown_fn: Callable[[], bool]
     ) -> None:
         self._contexts = symbol_contexts_fn
         self._strategy = strategy_fn
@@ -84,8 +84,8 @@ class BurstFlusher:
                 if now_s - last_alive_log > 60:
                     if _sampler.should_log("burst_loop_alive"):
                         logger.info(
-                            "💓 Burst flush loop alive. symbols=%d mode=%s",
-                            len(self._contexts()), mode,
+                            "💓 Burst flush loop alive. symbols=%d mode=%s"
+                            len(self._contexts()), mode
                         )
                     last_alive_log = now_s
 
@@ -121,11 +121,11 @@ class BurstFlusher:
     # ── Public: вызывается из consume_ticks ──────────────────────────────────
 
     async def process(
-        self,
-        runtime: Any,
-        trigger_source: str,
-        ts_ms: int,
-        do_publish: bool = True,
+        self
+        runtime: Any
+        trigger_source: str
+        ts_ms: int
+        do_publish: bool = True
     ) -> Optional[Dict]:
         """Единая точка burst-проверки.
 
@@ -160,19 +160,19 @@ class BurstFlusher:
         _fs = LogSamplerFactory.get_sampler("BURST_FLUSH", 10000)
         if _fs.should_log(f"burst_flush_{runtime.symbol}"):
             logger.info(
-                "🔥 (%s) Burst flushed via %s: dir=%s p=%.2f score=%.2f",
-                runtime.symbol, trigger_source,
-                out.get("direction"), out.get("entry"), out.get("burst_best_score"),
+                "🔥 (%s) Burst flushed via %s: dir=%s p=%.2f score=%.2f"
+                runtime.symbol, trigger_source
+                out.get("direction"), out.get("entry"), out.get("burst_best_score")
             )
 
         if do_publish:
             try:
                 preprocess_signal_for_publish(
-                    out,
-                    symbol=runtime.symbol,
-                    source="crypto_orderflow_service",
-                    logger=logger,
-                    fast_path=False,
+                    out
+                    symbol=runtime.symbol
+                    source="crypto_orderflow_service"
+                    logger=logger
+                    fast_path=False
                 )
             except Exception:
                 pass

@@ -60,14 +60,14 @@ def main(argv=None) -> int:  # pragma: no cover
     redis_obj = _redis_from_env()
     client = BinanceFuturesClient.from_env() if args.exchange else None
     diag = ActiveSymbolGuardDiagnostics(
-        redis_obj,
-        client=client,
-        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
-        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
-        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
-        tombstone_ttl_sec=int(os.getenv('ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC', '120')),
-        stale_tombstone_ms=int(os.getenv('ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS', '600000')),
-        hot_symbol_limit=int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOT_LIMIT', '10')),
+        redis_obj
+        client=client
+        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:')
+        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:')
+        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400'))
+        tombstone_ttl_sec=int(os.getenv('ACTIVE_SYMBOL_GUARD_TOMBSTONE_TTL_SEC', '120'))
+        stale_tombstone_ms=int(os.getenv('ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS', '600000'))
+        hot_symbol_limit=int(os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_HOT_LIMIT', '10'))
     )
     runbook = ActiveSymbolGuardRunbookExecutor(redis_obj, diagnostics=diag, policy=ActiveSymbolGuardIncidentPolicyEngine(redis_obj, diag), client=client)
     if args.snapshot:

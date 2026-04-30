@@ -97,15 +97,15 @@ class TrailingConditionConfig:
             giveback_min_samples = 30
 
         return cls(
-            enabled=bool(enabled),
-            kinds_allow=set(kinds_allow),
-            require_alignment=bool(require_alignment),
-            z_thr=float(max(0.0, z_thr)),
-            obi_thr=float(max(0.0, obi_thr)),
-            require_obi_sustained=bool(require_obi_sustained),
-            use_giveback_ema=bool(use_giveback_ema),
-            giveback_bps_min=float(max(0.0, giveback_bps_min)),
-            giveback_min_samples=int(max(0, giveback_min_samples)),
+            enabled=bool(enabled)
+            kinds_allow=set(kinds_allow)
+            require_alignment=bool(require_alignment)
+            z_thr=float(max(0.0, z_thr))
+            obi_thr=float(max(0.0, obi_thr))
+            require_obi_sustained=bool(require_obi_sustained)
+            use_giveback_ema=bool(use_giveback_ema)
+            giveback_bps_min=float(max(0.0, giveback_bps_min))
+            giveback_min_samples=int(max(0, giveback_min_samples))
         )
 
 
@@ -161,14 +161,14 @@ class TrailingConditionEvaluator:
         return None
 
     def evaluate(
-        self,
-        ctx: Any,
-        *,
-        side: str,
-        symbol: str,
-        kind: str,
-        tf: str,
-        regime: str,
+        self
+        ctx: Any
+        *
+        side: str
+        symbol: str
+        kind: str
+        tf: str
+        regime: str
     ) -> TrailingDecision:
         # Default is "enabled" if config disabled -> preserves legacy behavior.
         if not self.cfg.enabled:
@@ -222,12 +222,12 @@ class TrailingConditionEvaluator:
         giveback_ok = False
         if self.cfg.use_giveback_ema and self.redis is not None:
             st = read_giveback_ema(
-                self.redis,
-                cfg=self.gb_cfg,
-                kind=kd,
-                symbol=str(symbol),
-                tf=str(tf or "1m"),
-                regime=_canon_regime(regime),
+                self.redis
+                cfg=self.gb_cfg
+                kind=kd
+                symbol=str(symbol)
+                tf=str(tf or "1m")
+                regime=_canon_regime(regime)
             )
             if st:
                 gb_samples = int(st.get("samples") or 0)

@@ -97,11 +97,11 @@ class SignalDispatcher:
                 time.sleep(delay)
             try:
                 self.redis = redis.from_url(
-                    self.redis_url,
-                    decode_responses=True,
-                    socket_connect_timeout=5,
-                    socket_timeout=15,
-                    health_check_interval=0,
+                    self.redis_url
+                    decode_responses=True
+                    socket_connect_timeout=5
+                    socket_timeout=15
+                    health_check_interval=0
                 )
                 result = self.redis.ping()
                 if result is True or result == "PONG" or result == b"PONG":
@@ -248,29 +248,29 @@ class SignalDispatcher:
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
         res = self._eval(
-            client,
-            "xadd_fields_then_mark",
-            _LUA_XADD_FIELDS_THEN_MARK,
-            2,
-            self._marker_key(target, sid),
-            stream,
-            str(self.marker_ttl_sec),
-            str(maxlen),
-            *fv,
+            client
+            "xadd_fields_then_mark"
+            _LUA_XADD_FIELDS_THEN_MARK
+            2
+            self._marker_key(target, sid)
+            stream
+            str(self.marker_ttl_sec)
+            str(maxlen)
+            *fv
         )
         return bool(res and int(res[0]) in (0, 1))
 
     def _setex_idempotent(self, client: Any, *, target: str, sid: str, key: str, value_json: str, ttl_sec: int) -> bool:
         res = self._eval(
-            client,
-            "setex_then_mark",
-            _LUA_SETEX_THEN_MARK,
-            2,
-            self._marker_key(target, sid),
-            key,
-            str(self.marker_ttl_sec),
-            str(int(ttl_sec)),
-            value_json,
+            client
+            "setex_then_mark"
+            _LUA_SETEX_THEN_MARK
+            2
+            self._marker_key(target, sid)
+            key
+            str(self.marker_ttl_sec)
+            str(int(ttl_sec))
+            value_json
         )
         return bool(res and int(res[0]) in (0, 1))
 
@@ -280,17 +280,17 @@ class SignalDispatcher:
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
         res = self._eval(
-            client,
-            "notify_gate",
-            _LUA_NOTIFY_GATE,
-            3,
-            self._marker_key("notify", sid),
-            self.notify_stream,
-            self.notify_signal_counter_key,
-            str(self.marker_ttl_sec),
-            str(500),
-            str(self.notify_signal_every_n),
-            *fv,
+            client
+            "notify_gate"
+            _LUA_NOTIFY_GATE
+            3
+            self._marker_key("notify", sid)
+            self.notify_stream
+            self.notify_signal_counter_key
+            str(self.marker_ttl_sec)
+            str(500)
+            str(self.notify_signal_every_n)
+            *fv
         )
         return bool(res and int(res[0]) in (0, 1))
 
@@ -339,10 +339,10 @@ class SignalDispatcher:
 
     def _send_dlq(self, msg_id: str, data: Any, reason: str) -> None:
         payload = {
-            "ts": get_ny_time_millis(),
-            "reason": reason,
-            "orig_id": msg_id,
-            "data": data,
+            "ts": get_ny_time_millis()
+            "reason": reason
+            "orig_id": msg_id
+            "data": data
         }
         try:
             self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)
@@ -353,10 +353,10 @@ class SignalDispatcher:
     def _process_pending(self, helper: SyncRedisStreamHelper) -> None:
         try:
             next_id, msgs = helper.claim_pending(
-                self.outbox_stream,
-                min_idle_ms=self.claim_min_idle_ms,
-                start_id=self._pending_start_id,
-                count=self.claim_count,
+                self.outbox_stream
+                min_idle_ms=self.claim_min_idle_ms
+                start_id=self._pending_start_id
+                count=self.claim_count
             )
             if (not msgs) and (next_id == "0-0"):
                 # keep start_id to avoid scan reset storms
@@ -407,9 +407,9 @@ class SignalDispatcher:
                 self._process_pending(helper)
 
                 messages = helper.read(
-                    {self.outbox_stream: ">"},
-                    count=self.read_count,
-                    block=self.read_block_ms,
+                    {self.outbox_stream: ">"}
+                    count=self.read_count
+                    block=self.read_block_ms
                     recover_start_id="0",  # C) recovery must also be "0"
                 )
                 if not messages:
@@ -459,12 +459,12 @@ class SignalDispatcher:
         signal_payload = targets.get("signal_stream_payload")
         if signal_stream and signal_payload and simple_client:
             ok = self._xadd_idempotent(
-                simple_client,
-                target="signal_stream",
-                sid=sid,
-                stream=signal_stream,
-                fields={"data": json.dumps(signal_payload, ensure_ascii=False)},
-                maxlen=1000,
+                simple_client
+                target="signal_stream"
+                sid=sid
+                stream=signal_stream
+                fields={"data": json.dumps(signal_payload, ensure_ascii=False)}
+                maxlen=1000
             )
             if not ok:
                 raise RuntimeError("signal_stream_delivery_failed")
@@ -476,12 +476,12 @@ class SignalDispatcher:
         audit_payload = targets.get("audit_payload")
         if audit_stream and audit_payload and self.redis:
             ok = self._xadd_idempotent(
-                self.redis,
-                target="audit",
-                sid=sid,
-                stream=audit_stream,
-                fields={"data": json.dumps(audit_payload, ensure_ascii=False)},
-                maxlen=200000,
+                self.redis
+                target="audit"
+                sid=sid
+                stream=audit_stream
+                fields={"data": json.dumps(audit_payload, ensure_ascii=False)}
+                maxlen=200000
             )
             if not ok:
                 raise RuntimeError("audit_delivery_failed")
@@ -493,12 +493,12 @@ class SignalDispatcher:
         manual_payload = targets.get("manual_payload")
         if manual_stream and manual_payload and dual_client:
             ok = self._xadd_idempotent(
-                dual_client,
-                target="manual",
-                sid=sid,
-                stream=manual_stream,
-                fields={"data": json.dumps(manual_payload, ensure_ascii=False)},
-                maxlen=2000,
+                dual_client
+                target="manual"
+                sid=sid
+                stream=manual_stream
+                fields={"data": json.dumps(manual_payload, ensure_ascii=False)}
+                maxlen=2000
             )
             if not ok:
                 raise RuntimeError("manual_delivery_failed")
@@ -511,12 +511,12 @@ class SignalDispatcher:
         snap_payload = targets.get("snapshot")
         if snap_key and snap_payload and self.redis:
             ok = self._setex_idempotent(
-                self.redis,
-                target="snapshot",
-                sid=sid,
-                key=snap_key,
-                value_json=json.dumps(snap_payload, ensure_ascii=False),
-                ttl_sec=snap_ttl,
+                self.redis
+                target="snapshot"
+                sid=sid
+                key=snap_key
+                value_json=json.dumps(snap_payload, ensure_ascii=False)
+                ttl_sec=snap_ttl
             )
             if not ok:
                 raise RuntimeError("snapshot_delivery_failed")

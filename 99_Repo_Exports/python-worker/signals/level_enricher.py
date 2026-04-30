@@ -195,6 +195,10 @@ def attach_trade_levels_to_ctx(
 
     # 2) Собрать entry & atr из ctx/of с консервативными фоллбэками.
     of = getattr(ctx, "of", None)
+    
+    # Inject spread and slippage into cfgd for adaptive SL floor
+    cfgd["spread_bps"] = float(getattr(ctx, "spread_bps", None) or getattr(of, "spread_bps", 0.0) or 0.0)
+    cfgd["slippage_ema_bps"] = float(getattr(ctx, "slippage_ema_bps", None) or getattr(of, "slippage_ema_bps", 0.0) or 0.0)
 
     entry = (
         getattr(ctx, "entry_price", None)

@@ -39,11 +39,11 @@ class SlippageEmaConfig:
     @staticmethod
     def from_env() -> "SlippageEmaConfig":
         return SlippageEmaConfig(
-            enabled=_env_bool("EXEC_SLIPPAGE_EMA_ENABLED", True),
-            alpha=float(os.getenv("EXEC_SLIPPAGE_EMA_ALPHA", "0.05")),
-            min_samples_to_trust=int(os.getenv("EXEC_SLIPPAGE_EMA_MIN_SAMPLES", "20")),
-            ttl_s=int(os.getenv("EXEC_SLIPPAGE_EMA_TTL_S", str(3600 * 24 * 30))),
-            prefix=str(os.getenv("EXEC_SLIPPAGE_EMA_PREFIX", "slipema:")),
+            enabled=_env_bool("EXEC_SLIPPAGE_EMA_ENABLED", True)
+            alpha=float(os.getenv("EXEC_SLIPPAGE_EMA_ALPHA", "0.05"))
+            min_samples_to_trust=int(os.getenv("EXEC_SLIPPAGE_EMA_MIN_SAMPLES", "20"))
+            ttl_s=int(os.getenv("EXEC_SLIPPAGE_EMA_TTL_S", str(3600 * 24 * 30)))
+            prefix=str(os.getenv("EXEC_SLIPPAGE_EMA_PREFIX", "slipema:"))
         )
 
 
@@ -65,16 +65,16 @@ def build_key(*, cfg: SlippageEmaConfig, symbol: str, venue: str, session: str, 
 
 
 def update_slippage_ema(
-    redis_client: Any,
-    *,
-    cfg: SlippageEmaConfig,
-    symbol: str,
-    venue: str,
-    tf: str,
-    kind: str,
-    ts_ms: Any,
-    realized_slippage_bps: float,
-    realized_spread_bps: float = 0.0,
+    redis_client: Any
+    *
+    cfg: SlippageEmaConfig
+    symbol: str
+    venue: str
+    tf: str
+    kind: str
+    ts_ms: Any
+    realized_slippage_bps: float
+    realized_spread_bps: float = 0.0
 ) -> None:
     """
     Best-effort EMA update (fail-open).
@@ -159,19 +159,19 @@ def update_slippage_ema(
 
         if pipe is not None:
             pipe.hset(key, mapping={
-                "samples": str(n0 + 1),
-                "ema_slip_bps": str(float(ema1)),
-                "ema_spread_bps": str(float(ema_sp1)),
-                "last_ts_ms": str(int(tsm)),
+                "samples": str(n0 + 1)
+                "ema_slip_bps": str(float(ema1))
+                "ema_spread_bps": str(float(ema_sp1))
+                "last_ts_ms": str(int(tsm))
             })
             pipe.expire(key, int(cfg.ttl_s))
             pipe.execute()
         else:
             redis_client.hset(key, mapping={
-                "samples": str(n0 + 1),
-                "ema_slip_bps": str(float(ema1)),
-                "ema_spread_bps": str(float(ema_sp1)),
-                "last_ts_ms": str(int(tsm)),
+                "samples": str(n0 + 1)
+                "ema_slip_bps": str(float(ema1))
+                "ema_spread_bps": str(float(ema_sp1))
+                "last_ts_ms": str(int(tsm))
             })
             redis_client.expire(key, int(cfg.ttl_s))
     except Exception:

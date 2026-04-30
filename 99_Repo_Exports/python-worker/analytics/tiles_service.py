@@ -81,10 +81,10 @@ class TilesService:
 
         # Счётчики
         self.stats = {
-            "signals_read": 0,
-            "orders_read": 0,
-            "events_read": 0,
-            "files_written": 0,
+            "signals_read": 0
+            "orders_read": 0
+            "events_read": 0
+            "files_written": 0
             "errors": 0
         }
 
@@ -151,8 +151,8 @@ class TilesService:
 
             # Читаем новые сообщения
             msgs = self.r.xread(
-                {stream: last},
-                count=self.flush_every,
+                {stream: last}
+                count=self.flush_every
                 block=self.poll_ms
             )
 

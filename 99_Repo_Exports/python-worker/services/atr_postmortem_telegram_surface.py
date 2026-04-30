@@ -69,13 +69,13 @@ def create_postmortem_inline_keyboard(payload: dict) -> dict:
     return {
         "inline_keyboard": [
             [
-                {"text": "📖 Review PM", "callback_data": f"postmortem|review_pm|{pm_id}"},
+                {"text": "📖 Review PM", "callback_data": f"postmortem|review_pm|{pm_id}"}
                 {"text": "⏳ Mark In Progress", "callback_data": f"postmortem|mark_in_progress|{pm_id}"}
-            ],
+            ]
             [
-                {"text": "✅ Attach Verification", "callback_data": f"postmortem|attach_verification|{pm_id}"},
+                {"text": "✅ Attach Verification", "callback_data": f"postmortem|attach_verification|{pm_id}"}
                 {"text": "🔄 Reopen", "callback_data": f"postmortem|reopen|{pm_id}"}
-            ],
+            ]
             [
                 {"text": "🔒 Close PM", "callback_data": f"postmortem|close|{pm_id}"}
             ]

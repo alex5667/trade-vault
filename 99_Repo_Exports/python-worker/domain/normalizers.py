@@ -4,30 +4,30 @@ from typing import Any, Dict, List
 
 
 _CRYPTO_SOURCE_ALIASES = {
-    "cryptoorderflow": "CryptoOrderFlow",
-    "crypto-orderflow": "CryptoOrderFlow",
-    "orderflow": "OrderFlow",
-    "technicalanalysis": "TechnicalAnalysis",
-    "ta": "TechnicalAnalysis",
-    "aggregatedhub-v2": "AggregatedHub-V2",
-    "aggregated": "AggregatedHub-V2",
+    "cryptoorderflow": "CryptoOrderFlow"
+    "crypto-orderflow": "CryptoOrderFlow"
+    "orderflow": "OrderFlow"
+    "technicalanalysis": "TechnicalAnalysis"
+    "ta": "TechnicalAnalysis"
+    "aggregatedhub-v2": "AggregatedHub-V2"
+    "aggregated": "AggregatedHub-V2"
 }
 
 _STRATEGY_BY_SOURCE = {
-    "cryptoorderflow": "cryptoorderflow",
-    "crypto-orderflow": "cryptoorderflow",
-    "orderflow": "orderflow",
-    "technicalanalysis": "ta",
-    "ta": "ta",
-    "aggregatedhub-v2": "aggregated",
-    "aggregated": "aggregated",
+    "cryptoorderflow": "cryptoorderflow"
+    "crypto-orderflow": "cryptoorderflow"
+    "orderflow": "orderflow"
+    "technicalanalysis": "ta"
+    "ta": "ta"
+    "aggregatedhub-v2": "aggregated"
+    "aggregated": "aggregated"
 }
 
 _REVERSE_SOURCE_ALIASES = {
-    "cryptoorderflow": "CryptoOrderFlow",
-    "orderflow": "OrderFlow",
-    "ta": "TechnicalAnalysis",
-    "aggregated": "AggregatedHub-V2",
+    "cryptoorderflow": "CryptoOrderFlow"
+    "orderflow": "OrderFlow"
+    "ta": "TechnicalAnalysis"
+    "aggregated": "AggregatedHub-V2"
 }
 
 def source_from_strategy(strategy: str, fallback_source: str) -> str:
@@ -50,36 +50,36 @@ def source_from_strategy(strategy: str, fallback_source: str) -> str:
 #   => ключи Redis:
 #        closed:...:m1:...
 #      vs closed:...:1m:...
-#      могли быть параллельными,
+#      могли быть параллельными
 #      и periodic_reporter/аналитика "теряли" часть сделок.
 #
 # Решение:
 #   1) canon_tf() приводит к канону: "1m", "5m", ...
-#   2) tf_variants() возвращает список вариантов ключей (канон + легаси),
-#      чтобы писать индексы/листы в оба ключа,
+#   2) tf_variants() возвращает список вариантов ключей (канон + легаси)
+#      чтобы писать индексы/листы в оба ключа
 #      читать из обоих ключей без миграций.
 #
 _TF_ALIASES: Dict[str, str] = {
     # легаси "m1/m5" -> канонические
-    "m1": "1m",
-    "m5": "5m",
-    "m15": "15m",
-    "h1": "1h",
-    "h4": "4h",
-    "d1": "1d",
-    "w1": "1w",
+    "m1": "1m"
+    "m5": "5m"
+    "m15": "15m"
+    "h1": "1h"
+    "h4": "4h"
+    "d1": "1d"
+    "w1": "1w"
     # варианты month
-    "month": "1month",
-    "mo": "1month",
-    "1mo": "1month",
+    "month": "1month"
+    "mo": "1month"
+    "1mo": "1month"
     # текстовые минуты
-    "1min": "1m",
-    "5min": "5m",
-    "15min": "15m",
+    "1min": "1m"
+    "5min": "5m"
+    "15min": "15m"
     # секунды (иногда встречается в конфиге/логике)
-    "60s": "1m",
-    "300s": "5m",
-    "900s": "15m",
+    "60s": "1m"
+    "300s": "5m"
+    "900s": "15m"
 }
 
 # нормализованные категории для отчётности/статистики
@@ -121,7 +121,7 @@ def canon_source(v) -> str:
 def tf_variants(v) -> List[str]:
     """
     Возвращает список TF-ключей (канон + легаси), чтобы:
-      - писать индексы/листы в оба ключа,
+      - писать индексы/листы в оба ключа
       - читать из обоих ключей без миграций.
 
     Пример:
@@ -182,7 +182,7 @@ def norm_close_reason(raw: str) -> str:
     #   ORPHAN_TIMEOUT
     #   ORPHAN_TIMEOUT_NO_PRICE
     # и т.п.
-    # Мы сохраняем как отдельный "нормализованный" reason,
+    # Мы сохраняем как отдельный "нормализованный" reason
     # а bucket уже решает как агрегировать (например в EXPIRED).
     if r.startswith("ORPHAN_TIMEOUT"):
         return "ORPHAN_TIMEOUT"

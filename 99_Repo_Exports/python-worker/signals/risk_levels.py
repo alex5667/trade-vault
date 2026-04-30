@@ -82,6 +82,37 @@ def _should_strict_rr(cfg: dict, stop_dist_override: Optional[float], eps: float
     return False
 
 
+def compute_sl_floor_bps(symbol: str, entry: float, atr: float, cfg: dict) -> float:
+    """
+    Вычисляет гибридный (адаптивный) Hard Floor для стоп-лосса.
+    SL_min_bps = max(FIXED_FLOOR_BY_SYMBOL, k1 * spread_bps, k2 * slippage_ema_bps, k3 * ATR_pct)
+    """
+    # 1. fixed floor
+    sym_clean = (symbol or "").strip().upper().replace("/", "").replace("-", "")
+    default_fixed = os.getenv("SL_FLOOR_DEFAULT_BPS", "25.0")
+    fixed_env = os.getenv(f"SL_FLOOR_BPS__{sym_clean}", default_fixed)
+    fixed = float(_cfg_get(cfg, f"SL_FLOOR_BPS__{sym_clean}", default=fixed_env))
+    
+    # 2. market components
+    spread_bps = float(_cfg_get(cfg, "spread_bps", default=0.0))
+    slippage_bps = float(_cfg_get(cfg, "slippage_ema_bps", default=0.0))
+    atr_pct_bps = (atr / entry) * 10_000.0 if entry > 0 else 0.0
+    
+    # 3. multipliers
+    k_spread = float(os.getenv("SL_FLOOR_SPREAD_MULT", "2.0"))
+    k_slip = float(os.getenv("SL_FLOOR_SLIPPAGE_MULT", "1.5"))
+    k_atr = float(os.getenv("SL_FLOOR_ATR_MULT", "0.25"))
+    
+    dynamic = max(
+        spread_bps * k_spread,
+        slippage_bps * k_slip,
+        atr_pct_bps * k_atr
+    )
+    
+    final_floor = max(fixed, dynamic)
+    return final_floor
+
+
 # Simple counter for sampled logging if LEVELS_DEBUG=0
 _COMPUTE_LEVELS_N = 0
 
@@ -140,6 +171,14 @@ def compute_levels(
     # Если stop_dist всё ещё 0/invalid (например, missing config), fail-open (пустой словарь)
     if stop_dist <= 1e-12:
          return {}
+
+    # Внедрение адаптивной минимальной дистанции (Adaptive Hard Floor)
+    # Вместо жесткого MIN_STOP_BPS используем гибридный расчет (spread, slippage, atr)
+    min_stop_bps = compute_sl_floor_bps(symbol, entry, atr, cfg)
+    if min_stop_bps > 0.0:
+        min_stop_dist = abs(entry) * min_stop_bps / 10000.0
+        if stop_dist < min_stop_dist:
+            stop_dist = min_stop_dist
 
     # Цена SL
     sl = entry - sgn * stop_dist

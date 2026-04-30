@@ -21,15 +21,15 @@ def _canon(x: Any) -> str:
 
 
 def write_empirical_time_buffers(
-    redis_client: Any,
-    *,
-    kind: str,
-    symbol: str,
-    tf: str,
-    regime: str,
-    bucket_ms: int,
-    mfe_bps: Optional[float],
-    mae_bps: Optional[float],
+    redis_client: Any
+    *
+    kind: str
+    symbol: str
+    tf: str
+    regime: str
+    bucket_ms: int
+    mfe_bps: Optional[float]
+    mae_bps: Optional[float]
 ) -> None:
     """
     Pushes (MFE@bucket, MAE@bucket) into Redis lists:
@@ -93,12 +93,12 @@ def write_empirical_time_buffers(
 
 
 def write_empirical_trade_counter(
-    redis_client: Any,
-    *,
-    kind: str,
-    symbol: str,
-    tf: str,
-    regime: str,
+    redis_client: Any
+    *
+    kind: str
+    symbol: str
+    tf: str
+    regime: str
 ) -> None:
     """
     Sliding-window denominator for survival-aware calibration:

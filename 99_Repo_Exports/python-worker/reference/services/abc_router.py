@@ -53,12 +53,12 @@ class ABCConfig:
         if not isinstance(overrides, dict):
             overrides = {}
         return ABCConfig(
-            enabled=bool(int(d.get("enabled", 1) or 0)),
-            version=int(d.get("version", 1) or 1),
-            salt=str(d.get("salt") or "smt-entry-v1"),
-            splits=splits,
-            poll_ms=int(d.get("poll_ms", 2000) or 2000),
-            overrides=overrides,
+            enabled=bool(int(d.get("enabled", 1) or 0))
+            version=int(d.get("version", 1) or 1)
+            salt=str(d.get("salt") or "smt-entry-v1")
+            splits=splits
+            poll_ms=int(d.get("poll_ms", 2000) or 2000)
+            overrides=overrides
         )
 
     def get_splits(self, group: str) -> Tuple[int, int]:

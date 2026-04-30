@@ -27,23 +27,23 @@ import pytest
 # ──────────────────────────────────────────────────────────────────────────────
 
 LOB_PRESSURE_METRICS = [
-    "trade_qi_mean",
-    "trade_qi_max_abs",
-    "trade_qi_slope",
-    "trade_micro_mid_div_bps",
-    "trade_micro_shift_bps",
-    "trade_depth_slope_bid",
-    "trade_depth_slope_ask",
-    "trade_depth_slope_imb",
-    "trade_depth_slope_imb_norm",
-    "trade_depth_convexity_bid",
-    "trade_depth_convexity_ask",
-    "trade_depth_convexity_imb",
-    "trade_dw_obi",
-    "trade_dw_obi_z",
-    "trade_dw_obi_stability_score",
-    "trade_dw_obi_stable_secs",
-    "trade_dw_obi_stable",
+    "trade_qi_mean"
+    "trade_qi_max_abs"
+    "trade_qi_slope"
+    "trade_micro_mid_div_bps"
+    "trade_micro_shift_bps"
+    "trade_depth_slope_bid"
+    "trade_depth_slope_ask"
+    "trade_depth_slope_imb"
+    "trade_depth_slope_imb_norm"
+    "trade_depth_convexity_bid"
+    "trade_depth_convexity_ask"
+    "trade_depth_convexity_imb"
+    "trade_dw_obi"
+    "trade_dw_obi_z"
+    "trade_dw_obi_stability_score"
+    "trade_dw_obi_stable_secs"
+    "trade_dw_obi_stable"
 ]
 
 
@@ -110,22 +110,22 @@ class TestEmissionFromIndicators:
     def test_all_keys_present_full_indicators(self) -> None:
         """All 17 output keys must be present when indicators is fully populated."""
         ind = {
-            "lob_qi_mean": 0.12,
-            "lob_qi_max_abs": 0.45,
-            "lob_qi_slope": -0.03,
-            "lob_micro_mid_div_bps": 1.5,
-            "lob_micro_shift_bps": 0.2,
-            "lob_depth_slope_bid": 50.0,
-            "lob_depth_slope_ask": 30.0,
-            "lob_depth_slope_imb": 20.0,
-            "lob_depth_convexity_bid": 0.15,
-            "lob_depth_convexity_ask": 0.10,
-            "lob_depth_convexity_imb": 0.05,
-            "lob_dw_obi": 0.35,
-            "lob_dw_obi_z": 2.8,
-            "lob_dw_obi_stability_score": 0.72,
-            "lob_dw_obi_stable_secs": 180.0,
-            "lob_dw_obi_stable": 1,
+            "lob_qi_mean": 0.12
+            "lob_qi_max_abs": 0.45
+            "lob_qi_slope": -0.03
+            "lob_micro_mid_div_bps": 1.5
+            "lob_micro_shift_bps": 0.2
+            "lob_depth_slope_bid": 50.0
+            "lob_depth_slope_ask": 30.0
+            "lob_depth_slope_imb": 20.0
+            "lob_depth_convexity_bid": 0.15
+            "lob_depth_convexity_ask": 0.10
+            "lob_depth_convexity_imb": 0.05
+            "lob_dw_obi": 0.35
+            "lob_dw_obi_z": 2.8
+            "lob_dw_obi_stability_score": 0.72
+            "lob_dw_obi_stable_secs": 180.0
+            "lob_dw_obi_stable": 1
         }
         res = _emit_lob_pressure(ind)
         assert len(res) == 17
@@ -146,8 +146,8 @@ class TestEmissionFromIndicators:
     def test_none_values_default_to_zero(self) -> None:
         """None values in indicators must default to 0.0 (or 0 for flags)."""
         ind = {k: None for k in [
-            "lob_qi_mean", "lob_dw_obi", "lob_dw_obi_z",
-            "lob_micro_mid_div_bps", "lob_dw_obi_stable",
+            "lob_qi_mean", "lob_dw_obi", "lob_dw_obi_z"
+            "lob_micro_mid_div_bps", "lob_dw_obi_stable"
         ]}
         res = _emit_lob_pressure(ind)
         assert res["lob_qi_mean"] == 0.0
@@ -179,11 +179,11 @@ class TestDepthSlopeImbNorm:
     def test_normalization_bounded_minus_one_to_one(self) -> None:
         # any bid/ask combination should produce norm in [-1, 1]
         cases = [
-            (0.0, 0.0),
-            (100.0, 0.0),
-            (0.0, 100.0),
-            (50.0, 50.0),
-            (-30.0, 70.0),
+            (0.0, 0.0)
+            (100.0, 0.0)
+            (0.0, 100.0)
+            (50.0, 50.0)
+            (-30.0, 70.0)
         ]
         for bid, ask in cases:
             ind = {"lob_depth_slope_bid": bid, "lob_depth_slope_ask": ask}
@@ -199,8 +199,8 @@ class TestDepthSlopeImbNorm:
     def test_explicit_imb_key_overrides_bid_minus_ask(self) -> None:
         """If lob_depth_slope_imb is explicitly set, it takes precedence over bid-ask."""
         ind = {
-            "lob_depth_slope_bid": 80.0,
-            "lob_depth_slope_ask": 20.0,
+            "lob_depth_slope_bid": 80.0
+            "lob_depth_slope_ask": 20.0
             "lob_depth_slope_imb": 99.0,  # explicit override
         }
         res = _emit_lob_pressure(ind)
@@ -254,11 +254,11 @@ class TestAlertFilePresence:
                 if "alert" in rule:
                     alert_names.add(rule["alert"])
         expected = {
-            "OF_WP_MicroMidDivHigh_Warn",
-            "OF_WP_MicroShiftSpike_Warn",
-            "OF_WP_DWOBIStableHigh_Warn",
-            "OF_WP_DepthConvexityImbHigh_Warn",
-            "OF_WP_LobPressureSnapshotsStuckZero_Crit",
+            "OF_WP_MicroMidDivHigh_Warn"
+            "OF_WP_MicroShiftSpike_Warn"
+            "OF_WP_DWOBIStableHigh_Warn"
+            "OF_WP_DepthConvexityImbHigh_Warn"
+            "OF_WP_LobPressureSnapshotsStuckZero_Crit"
         }
         missing = expected - alert_names
         assert not missing, f"Missing alert names: {missing}"

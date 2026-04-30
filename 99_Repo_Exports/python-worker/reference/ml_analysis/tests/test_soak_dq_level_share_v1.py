@@ -14,13 +14,13 @@ def _build_ndjson(tmp_path: Path, n: int = 300) -> Path:
         for i in range(n):
             sym = "BTCUSDT" if i < 200 else "ETHUSDT"
             rec = {
-                "symbol": sym,
-                "dq_level": 2 if i % 5 == 0 else 0,
+                "symbol": sym
+                "dq_level": 2 if i % 5 == 0 else 0
                 "indicators": {
-                    "book_missing_seq_ema": 0.05 + (i % 7) * 0.01,
-                    "tick_missing_seq_ema": 0.03 + (i % 3) * 0.01,
-                    "tick_gap_p95_ms": 100.0 + (i % 11),
-                },
+                    "book_missing_seq_ema": 0.05 + (i % 7) * 0.01
+                    "tick_missing_seq_ema": 0.03 + (i % 3) * 0.01
+                    "tick_gap_p95_ms": 100.0 + (i % 11)
+                }
             }
             f.write(json.dumps(rec) + "\n")
     return p

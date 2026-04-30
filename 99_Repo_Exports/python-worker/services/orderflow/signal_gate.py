@@ -1,8 +1,8 @@
 """
 SignalGate — единственная точка решения «публиковать ли сигнал».
 
-Ранее эта логика была размазана по _pre_publish_allows_signal,
-_build_redis_dq_snapshot, _build_portfolio_risk_input,
+Ранее эта логика была размазана по _pre_publish_allows_signal
+_build_redis_dq_snapshot, _build_portfolio_risk_input
 _refresh_quarantine_sid_cache, _persist_risk_decisions
 внутри CryptoOrderflowService.
 
@@ -35,27 +35,27 @@ except Exception:
 
 try:
     from services.risk.risk_policy_engine import (
-        PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-        infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+        PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
+        infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
     )
 except Exception:
     try:
         from risk.risk_policy_engine import (  # type: ignore
-            PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-            infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+            PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
+            infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
         )
     except Exception:
         try:
             from services.risk.portfolio_risk_engine import (  # type: ignore
-                PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-                RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+                PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
+                RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
             )
             infer_symbol_tier = None
         except Exception:
             try:
                 from risk.portfolio_risk_engine import (  # type: ignore
-                    PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-                    RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+                    PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
+                    RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
                 )
                 infer_symbol_tier = None
             except Exception:
@@ -87,6 +87,18 @@ def _utc_epoch_ms() -> int:
     return get_ny_time_millis()
 
 
+def _runtime_ms(runtime: Any, *names: str) -> int:
+    """Read first non-zero int from runtime attributes (in priority order)."""
+    for name in names:
+        try:
+            v = int(getattr(runtime, name, 0) or 0)
+            if v > 0:
+                return v
+        except Exception:
+            continue
+    return 0
+
+
 def _ensure_audit_chain_fields(signal: Dict[str, Any]) -> Dict[str, Any]:
     """Материализует signal_id / execution_plan_id / decision_id перед публикацией."""
     if not isinstance(signal, dict):
@@ -112,17 +124,17 @@ class SignalGate:
     """
 
     def __init__(
-        self,
-        *,
+        self
+        *
         redis_main: Any,                              # aioredis.Redis для quarantine cache
         publisher: Any,                               # AsyncSignalPublisher (для outbox_backlog)
         risk_limits: Optional[Any],                   # PortfolioRiskLimits | None
         dq_thresholds: Optional[Any],                 # RedisDQThresholds | None
-        risk_hard_veto: bool = True,
-        risk_audit_sink: Optional[Any] = None,
-        quarantine_enable: bool = True,
-        quarantine_sids_key: str = "orders:quarantine:state:sids",
-        quarantine_cache_ms: int = 1000,
+        risk_hard_veto: bool = True
+        risk_audit_sink: Optional[Any] = None
+        quarantine_enable: bool = True
+        quarantine_sids_key: str = "orders:quarantine:state:sids"
+        quarantine_cache_ms: int = 1000
     ) -> None:
         self._redis = redis_main
         self._publisher = publisher
@@ -142,15 +154,15 @@ class SignalGate:
         """Фабрика из сервиса — принимает уже созданные объекты, не дублирует from_env()."""
         rc = svc._svc_cfg.risk
         return cls(
-            redis_main=svc._pools.main,
-            publisher=svc.publisher,
-            risk_limits=svc.portfolio_risk_limits,
-            dq_thresholds=svc.redis_dq_thresholds,
-            risk_hard_veto=rc.risk_hard_veto,
-            risk_audit_sink=svc.risk_audit_sql_sink,
-            quarantine_enable=rc.quarantine_enable,
-            quarantine_sids_key=rc.quarantine_sids_key,
-            quarantine_cache_ms=rc.quarantine_cache_ms,
+            redis_main=svc._pools.main
+            publisher=svc.publisher
+            risk_limits=svc.portfolio_risk_limits
+            dq_thresholds=svc.redis_dq_thresholds
+            risk_hard_veto=rc.risk_hard_veto
+            risk_audit_sink=svc.risk_audit_sql_sink
+            quarantine_enable=rc.quarantine_enable
+            quarantine_sids_key=rc.quarantine_sids_key
+            quarantine_cache_ms=rc.quarantine_cache_ms
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -193,8 +205,8 @@ class SignalGate:
             signal["quarantine_denylist_hit"] = True
             signal["quarantine_sid"] = str(deny.matched_sid)
             logger.warning(
-                "\U0001f6ab (%s) Quarantine denylist veto: sid=%s candidates=%s",
-                signal.get("symbol", "?"), deny.matched_sid, deny.candidates,
+                "\U0001f6ab (%s) Quarantine denylist veto: sid=%s candidates=%s"
+                signal.get("symbol", "?"), deny.matched_sid, deny.candidates
             )
             return False
         return True
@@ -211,8 +223,8 @@ class SignalGate:
         signal["dq_hard_veto"] = not bool(decision.allow_trade_publish)
         if not decision.allow_trade_publish:
             logger.warning(
-                "\U0001f6ab (%s) DQ hard veto: reasons=%s snapshot=%s",
-                signal.get("symbol", "?"), decision.reasons, decision.snapshot,
+                "\U0001f6ab (%s) DQ hard veto: reasons=%s snapshot=%s"
+                signal.get("symbol", "?"), decision.reasons, decision.snapshot
             )
             return False
         return True
@@ -239,8 +251,8 @@ class SignalGate:
         self._persist_risk_decision(signal=signal, risk_input=risk_input, decision=decision)
         if decision.level in {RISK_DENY_SOFT, RISK_DENY_HARD, RISK_FORCE_FLATTEN} and self._risk_hard_veto:
             logger.warning(
-                "\U0001f6ab (%s) Portfolio risk veto: level=%s reasons=%s",
-                signal.get("symbol", "?"), decision.level, decision.reasons,
+                "\U0001f6ab (%s) Portfolio risk veto: level=%s reasons=%s"
+                signal.get("symbol", "?"), decision.level, decision.reasons
             )
             return False
         if decision.allow_trade_publish and decision.adjusted_notional_usd > 0:
@@ -252,28 +264,37 @@ class SignalGate:
     def _build_dq_snapshot(self, runtime: Any, now_ms: int) -> Optional[Any]:
         if RedisDQSnapshot is None:
             return None
-        last_tick_ms = int(getattr(runtime, "last_tick_ts", 0) or 0)
-        last_book_ms = int(getattr(runtime, "last_book_ts", 0) or 0)
+        last_tick_ms = _runtime_ms(
+            runtime
+            "last_tick_ts_ms"
+            "last_ts_ms"
+            "last_tick_ts"
+        )
+        last_book_ms = _runtime_ms(
+            runtime
+            "last_book_ts_ms"
+            "last_book_ts"
+        )
         tick_stale = max(0, now_ms - last_tick_ms) if last_tick_ms > 0 else 0
         book_stale = max(0, now_ms - last_book_ms) if last_book_ms > 0 else 0
         outbox_backlog = 0
         try:
-            q = getattr(self._publisher, "_q", None)
+            q = getattr(self._publisher, "_retry_queue", None)
             if q is not None and hasattr(q, "qsize"):
                 outbox_backlog = int(q.qsize())
         except Exception:
             pass
         return RedisDQSnapshot(
-            symbol=str(getattr(runtime, "symbol", "") or "UNKNOWN"),
-            queue_lag_ms=tick_stale,
-            tick_staleness_ms=tick_stale,
-            book_staleness_ms=book_stale,
-            redis_timeout_events=int(getattr(runtime, "redis_timeout_events", 0) or 0),
-            negative_age_events=int(getattr(runtime, "negative_age_events", 0) or 0),
-            xack_fail_events=int(getattr(runtime, "xack_fail_events", 0) or 0),
-            outbox_backlog=outbox_backlog,
-            stream_timeout_burst=int(getattr(runtime, "stream_timeout_burst", 0) or 0),
-            force_hard_veto=bool(getattr(runtime, "force_hard_veto", False)),
+            symbol=str(getattr(runtime, "symbol", "") or "UNKNOWN")
+            queue_lag_ms=tick_stale
+            tick_staleness_ms=tick_stale
+            book_staleness_ms=book_stale
+            redis_timeout_events=int(getattr(runtime, "redis_timeout_events", 0) or 0)
+            negative_age_events=int(getattr(runtime, "negative_age_events", 0) or 0)
+            xack_fail_events=int(getattr(runtime, "xack_fail_events", 0) or 0)
+            outbox_backlog=outbox_backlog
+            stream_timeout_burst=int(getattr(runtime, "stream_timeout_burst", 0) or 0)
+            force_hard_veto=bool(getattr(runtime, "force_hard_veto", False))
         )
 
     def _build_risk_input(self, runtime: Any, signal: Dict[str, Any]) -> Optional[Any]:
@@ -285,12 +306,12 @@ class SignalGate:
                 continue
             try:
                 positions.append(PortfolioPosition(
-                    symbol=str(p.get("symbol") or ""),
-                    notional_usd=float(p.get("notional_usd") or 0.0),
-                    side=str(p.get("side") or "LONG"),
-                    cluster=str(p.get("cluster") or "default"),
-                    tier=str(p.get("tier") or "B"),
-                    beta=float(p.get("beta") or 1.0),
+                    symbol=str(p.get("symbol") or "")
+                    notional_usd=float(p.get("notional_usd") or 0.0)
+                    side=str(p.get("side") or "LONG")
+                    cluster=str(p.get("cluster") or "default")
+                    tier=str(p.get("tier") or "B")
+                    beta=float(p.get("beta") or 1.0)
                 ))
             except Exception:
                 continue
@@ -308,43 +329,43 @@ class SignalGate:
             return default
 
         return PortfolioRiskInput(
-            symbol=symbol,
+            symbol=symbol
             cluster=str(
                 signal.get("risk_cluster")
                 or signal.get("cluster")
                 or signal.get("symbol")
                 or getattr(runtime, "symbol", "")
-            ),
-            tier=tier or "B",
-            requested_notional_usd=_f("planned_notional_usd", "notional_usd"),
-            current_positions=positions,
-            equity_usd=_f("account_equity_usd",
-                          default=float(os.getenv("ACCOUNT_DEPOSIT_USD", "0") or 0)),
-            daily_pnl_pct=_f("daily_pnl_pct"),
-            stop_distance_bps=_f("stop_distance_bps", "planned_stop_distance_bps", "sl_bps", "stop_bps"),
-            volatility_bps=_f("volatility_bps", "atr_bps", "realized_vol_bps"),
-            spread_bps=_f("spread_bps"),
-            expected_slippage_bps=_f("expected_slippage_bps", "slippage_bps"),
-            expected_edge_bps=_f("expected_edge_bps", "edge_bps"),
-            fee_bps=_f("fee_bps", "estimated_fee_bps"),
-            confidence=_f("confidence", "signal_confidence"),
+            )
+            tier=tier or "B"
+            requested_notional_usd=_f("planned_notional_usd", "notional_usd")
+            current_positions=positions
+            equity_usd=_f("account_equity_usd"
+                          default=float(os.getenv("ACCOUNT_DEPOSIT_USD", "0") or 0))
+            daily_pnl_pct=_f("daily_pnl_pct")
+            stop_distance_bps=_f("stop_distance_bps", "planned_stop_distance_bps", "sl_bps", "stop_bps")
+            volatility_bps=_f("volatility_bps", "atr_bps", "realized_vol_bps")
+            spread_bps=_f("spread_bps")
+            expected_slippage_bps=_f("expected_slippage_bps", "slippage_bps")
+            expected_edge_bps=_f("expected_edge_bps", "edge_bps")
+            fee_bps=_f("fee_bps", "estimated_fee_bps")
+            confidence=_f("confidence", "signal_confidence")
             maker_policy_requested=bool(
                 signal.get("maker_policy_requested")
                 or signal.get("prefer_maker")
                 or str(signal.get("execution_policy") or "").strip().upper() == "MAKER_FIRST"
-            ),
-            infra_degraded=bool(signal.get("infra_degraded") or signal.get("dq_hard_veto")),
-            high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol")),
-            kill_switch=bool(signal.get("risk_kill_switch") or signal.get("kill_switch")),
-            net_beta=_f("net_beta", "beta", default=1.0),
-            leader_symbol=str(signal.get("leader_symbol") or "BTCUSDT"),
-            leader_drawdown_bps=_f("leader_drawdown_bps"),
+            )
+            infra_degraded=bool(signal.get("infra_degraded") or signal.get("dq_hard_veto"))
+            high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol"))
+            kill_switch=bool(signal.get("risk_kill_switch") or signal.get("kill_switch"))
+            net_beta=_f("net_beta", "beta", default=1.0)
+            leader_symbol=str(signal.get("leader_symbol") or "BTCUSDT")
+            leader_drawdown_bps=_f("leader_drawdown_bps")
             news_blackout=bool(
                 signal.get("news_blackout")
                 or signal.get("high_vol_blackout")
                 or signal.get("news_blackout_active")
-            ),
-            shadow_only=bool(signal.get("shadow_only") or signal.get("paper_only")),
+            )
+            shadow_only=bool(signal.get("shadow_only") or signal.get("paper_only"))
         )
 
     # ── Side effects ──────────────────────────────────────────────────────────
@@ -362,11 +383,11 @@ class SignalGate:
             pass
 
     def _persist_risk_decision(
-        self,
-        *,
-        signal: Dict[str, Any],
-        risk_input: Any,
-        decision: Any,
+        self
+        *
+        signal: Dict[str, Any]
+        risk_input: Any
+        decision: Any
     ) -> None:
         if not self._audit_sink:
             return
@@ -379,11 +400,11 @@ class SignalGate:
             async def _bg():
                 try:
                     await asyncio.to_thread(
-                        self._audit_sink.record_decision,
-                        decision_id=decision_id,
-                        signal=signal,
-                        risk_input=risk_input,
-                        risk_decision=decision,
+                        self._audit_sink.record_decision
+                        decision_id=decision_id
+                        signal=signal
+                        risk_input=risk_input
+                        risk_decision=decision
                     )
                 except Exception:
                     pass

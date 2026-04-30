@@ -45,9 +45,9 @@ class FeatureSnapshotWriter:
             safe_features = {}
 
         params = (
-            symbol,
-            ts_ms,
-            json.dumps(safe_features),
+            symbol
+            ts_ms
+            json.dumps(safe_features)
         )
 
         try:

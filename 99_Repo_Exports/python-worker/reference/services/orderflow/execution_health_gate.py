@@ -81,11 +81,11 @@ class ExecHealthThresholds:
     @staticmethod
     def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
         return ExecHealthThresholds(
-            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
-            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
-            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0),
-            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0),
-            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0),
+            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0)
+            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0)
+            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0)
+            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0)
+            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0)
         )
 
 
@@ -99,14 +99,14 @@ class ExecHealthDecision:
 
 
 def build_rollup_keys(
-    *,
-    metric: str,
-    sym: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
-    side: str,
+    *
+    metric: str
+    sym: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
+    side: str
 ) -> List[str]:
     """Return fallback key list for one metric."""
     sym = (sym or "").upper()
@@ -120,11 +120,11 @@ def build_rollup_keys(
         return f"tca:{metric}:{sym}:{venue}:{_sess}:{_tf}:{_kind}:{side}"
 
     keys = [
-        k(session, tf, kind),
-        k(session, "all", kind),
-        k(session, tf, "all"),
-        k("all", tf, kind),
-        k("all", "all", "all"),
+        k(session, tf, kind)
+        k(session, "all", kind)
+        k(session, tf, "all")
+        k("all", tf, kind)
+        k("all", "all", "all")
     ]
     # Deduplicate while preserving order
     out = []
@@ -160,15 +160,15 @@ async def redis_mget_first(redis, keys: Sequence[str]) -> Optional[float]:
 
 
 async def read_exec_rollups(
-    *,
-    redis,
-    sym: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
-    side: str,
-    delta_sec: int = 1,
+    *
+    redis
+    sym: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
+    side: str
+    delta_sec: int = 1
 ) -> Dict[str, float]:
     """Read the minimal set of rollups needed for P6.
 
@@ -199,9 +199,9 @@ async def read_exec_rollups(
 
 
 def decide_execution_health(
-    *,
-    rollups: Dict[str, float],
-    thr: ExecHealthThresholds,
+    *
+    rollups: Dict[str, float]
+    thr: ExecHealthThresholds
 ) -> ExecHealthDecision:
     """Pure policy decision for execution-health gate."""
     flags: List[str] = []
@@ -246,11 +246,11 @@ def decide_execution_health(
     do_veto = ("is_p95_high" in flags) and ("perm_impact_p95_high" in flags)
     if do_veto:
         return ExecHealthDecision(
-            apply=True,
-            veto=True,
-            flags=flags,
-            reason_code="VETO_IMPL_SHORTFALL_P95" if "is_p95_high" in flags else "VETO_EXEC_HEALTH",
-            tighten_add_bps=float(tighten_add),
+            apply=True
+            veto=True
+            flags=flags
+            reason_code="VETO_IMPL_SHORTFALL_P95" if "is_p95_high" in flags else "VETO_EXEC_HEALTH"
+            tighten_add_bps=float(tighten_add)
         )
 
     # Otherwise still tighten (but do not veto)

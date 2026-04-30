@@ -24,10 +24,10 @@ from services.orderflow.runtime import SymbolRuntime, MicroBar
 from services.tp_config import parse_tp_ratio
 from services.orderflow.configuration import _safe_int
 from services.orderflow.metrics import (
-    log_silent_error, bars_closed_total, sweep_detected_total, divergence_detected_total,
-    cvd_reclaim_eval_total, cvd_reclaim_ok_total, fp_buckets_evicted_total,
-    ptier_tier0_usd, ptier_tier1_usd, ptier_tier2_usd,
-    atr_tf_target_bps, atr_tf_candidate_score, atr_tf_switch_total,
+    log_silent_error, bars_closed_total, sweep_detected_total, divergence_detected_total
+    cvd_reclaim_eval_total, cvd_reclaim_ok_total, fp_buckets_evicted_total
+    ptier_tier0_usd, ptier_tier1_usd, ptier_tier2_usd
+    atr_tf_target_bps, atr_tf_candidate_score, atr_tf_switch_total
     divergence_bias_source_total, divergence_bias_inferred_total
 )
 from services.signal_preprocess import preprocess_signal_for_publish
@@ -178,10 +178,10 @@ class BarProcessor:
                     if getattr(runtime, "rolling_vwap", None) is not None:
                         runtime.dynamic_cfg.update(
                             runtime.rolling_vwap.update(
-                                ts_ms=ts_roll,
-                                vwap=float(getattr(bar, "vwap", 0.0) or 0.0),
-                                vol=float(getattr(bar, "vol", 0.0) or 0.0),
-                                ref_px=ref_px,
+                                ts_ms=ts_roll
+                                vwap=float(getattr(bar, "vwap", 0.0) or 0.0)
+                                vol=float(getattr(bar, "vol", 0.0) or 0.0)
+                                ref_px=ref_px
                             )
                         )
                     if getattr(runtime, "rolling_momentum", None) is not None:
@@ -315,7 +315,7 @@ class BarProcessor:
         """Read regime from Redis; if missing, compute inline from bar data.
 
         The handler pipeline (scanner-python-worker) publishes ``regime:{symbol}``
-        but only for Shard 1/1B/2.  Shard 3/3B symbols have no external writer,
+        but only for Shard 1/1B/2.  Shard 3/3B symbols have no external writer
         so they always see ``na``.  The inline computation here acts as a
         self-contained fallback that uses the same MarketRegimeService math.
         """
@@ -429,13 +429,13 @@ class BarProcessor:
                     pass
 
             features = RegimeFeatures(
-                atr_q=atr_q,
+                atr_q=atr_q
                 adx_q=0.5,  # ADX not available inline; neutral value
-                delta_ema=self._regime_delta_ema,
-                hold_side_score=self._regime_hold_ema,
-                vwap_cross_rate=cross_rate,
-                vwap=self._regime_vwap,
-                open_day=self._regime_open_day,
+                delta_ema=self._regime_delta_ema
+                hold_side_score=self._regime_hold_ema
+                vwap_cross_rate=cross_rate
+                vwap=self._regime_vwap
+                open_day=self._regime_open_day
             )
 
             regime = self._regime_svc.update_regime(features)
@@ -448,11 +448,11 @@ class BarProcessor:
                     # fire-and-forget async SET
                     safe_create_task(
                         self.redis.set(
-                            f"regime:{sym}",
-                            str(regime),
-                            ex=self._regime_redis_ttl_sec,
-                        ),
-                        name=f"regime-pub-{sym}",
+                            f"regime:{sym}"
+                            str(regime)
+                            ex=self._regime_redis_ttl_sec
+                        )
+                        name=f"regime-pub-{sym}"
                     )
                     self._regime_last_pub_ms = now_ms
                 except Exception:
@@ -719,7 +719,7 @@ class BarProcessor:
                          runtime.dynamic_cfg[DK.ATR_TF_MODE] = mode
                          
                          choice = runtime.atr_tf_calib.recommend_tf(
-                             regime=rg, target_bps=target_bps, fallback_tf=fallback_tf,
+                             regime=rg, target_bps=target_bps, fallback_tf=fallback_tf
                              now_ts_ms=now_ts, current_tf=current_tf, allow_switch=allow_switch
                          )
                          
@@ -777,10 +777,10 @@ class BarProcessor:
                 try:
                     if bool(int(os.getenv("ATR_TF_CALIB_ENABLE", "1"))) and close_px > 0:
                         choice = self.atr_tf_selector.choose(
-                            symbol=str(runtime.symbol),
-                            price=float(close_px),
-                            now_ms=int(now_ts),
-                            atr_cache=self.atr_cache,
+                            symbol=str(runtime.symbol)
+                            price=float(close_px)
+                            now_ms=int(now_ts)
+                            atr_cache=self.atr_cache
                         )
                         if choice is not None:
                             runtime.dynamic_cfg[DK.ATR_TF_ALT_CANDIDATE] = str(choice.tf)
@@ -812,12 +812,12 @@ class BarProcessor:
                             age0 = int(atr_meta.get("age_ms", 0) or 0)
                         if hasattr(runtime, "atr_sanity"):
                             res = runtime.atr_sanity.update(
-                                symbol=str(runtime.symbol),
-                                atr=float(atr_tmp),
-                                px=float(px0),
-                                age_ms=int(age0),
-                                now_ms=int(now_ts),
-                                tf=str(atr_meta.get("tf", "1m")) if isinstance(atr_meta, dict) else "1m",
+                                symbol=str(runtime.symbol)
+                                atr=float(atr_tmp)
+                                px=float(px0)
+                                age_ms=int(age0)
+                                now_ms=int(now_ts)
+                                tf=str(atr_meta.get("tf", "1m")) if isinstance(atr_meta, dict) else "1m"
                             )
                             runtime.last_atr = float(res.atr_used)
                             runtime.last_atr_ts_ms = int(now_ts)
@@ -900,9 +900,9 @@ class BarProcessor:
                                     pools_all.sort(key=lambda p: abs(float(p.level) - float(bar.close)))
                                     np = pools_all[0]
                                     npool_info = {
-                                        "id": str(getattr(np, "pool_id", "")),
-                                        "kind": str(getattr(np, "kind", "")),
-                                        "level": float(getattr(np, "level", 0.0)),
+                                        "id": str(getattr(np, "pool_id", ""))
+                                        "kind": str(getattr(np, "kind", ""))
+                                        "level": float(getattr(np, "level", 0.0))
                                         "dist_px": abs(float(np.level) - float(bar.close))
                                     }
                             except Exception:
@@ -914,38 +914,38 @@ class BarProcessor:
                             
                             if direction in ("LONG", "SHORT"):
                                 signal_payload = {
-                                    "signal_id": f"div:{runtime.symbol}:{d.ts_ms}",
-                                    "symbol": str(runtime.symbol),
-                                    "tf": str(runtime.config.get("micro_tf", "1s")),
-                                    "ts_ms": int(d.ts_ms),
-                                    "tick_ts": int(d.ts_ms),
-                                    "direction": direction,
-                                    "side": direction.lower(),
-                                    "entry": float(d.price_curr),
-                                    "close": float(bar.close),
-                                    "signal_kind": "divergence",
-                                    "kind": "divergence",
-                                    "reason": f"divergence_{d.kind}",
-                                    "confidence": min(0.99, float(d.strength) / 10.0),
+                                    "signal_id": f"div:{runtime.symbol}:{d.ts_ms}"
+                                    "symbol": str(runtime.symbol)
+                                    "tf": str(runtime.config.get("micro_tf", "1s"))
+                                    "ts_ms": int(d.ts_ms)
+                                    "tick_ts": int(d.ts_ms)
+                                    "direction": direction
+                                    "side": direction.lower()
+                                    "entry": float(d.price_curr)
+                                    "close": float(bar.close)
+                                    "signal_kind": "divergence"
+                                    "kind": "divergence"
+                                    "reason": f"divergence_{d.kind}"
+                                    "confidence": min(0.99, float(d.strength) / 10.0)
                                     "indicators": {
-                                        "rsi": float(getattr(runtime, "rsi_price_value", 50.0)),
-                                        "adx": float(runtime.dynamic_cfg.get(DK.ADX14, 0.0)),
-                                        "delta": float(d.cvd_curr),
-                                        "delta_z": 0.0,
-                                        "divergence_kind": str(d.kind),
-                                        "div_strength": float(d.strength),
-                                        "nearest_pool": npool_info,
-                                        "features": feats,
-                                        "side_bias": str(eff_bias),
-                                        "bias_source": str(eff_bias_source),
-                                        "bias_strength": float(eff_bias_strength),
-                                        "direction_inferred": int(inferred),
-                                    },
+                                        "rsi": float(getattr(runtime, "rsi_price_value", 50.0))
+                                        "adx": float(runtime.dynamic_cfg.get(DK.ADX14, 0.0))
+                                        "delta": float(d.cvd_curr)
+                                        "delta_z": 0.0
+                                        "divergence_kind": str(d.kind)
+                                        "div_strength": float(d.strength)
+                                        "nearest_pool": npool_info
+                                        "features": feats
+                                        "side_bias": str(eff_bias)
+                                        "bias_source": str(eff_bias_source)
+                                        "bias_strength": float(eff_bias_strength)
+                                        "direction_inferred": int(inferred)
+                                    }
                                     "confirmations": [
                                         f"div_kind={d.kind}", 
-                                        f"strength={d.strength:.2f}",
+                                        f"strength={d.strength:.2f}"
                                         f"bias_src={eff_bias_source}"
-                                    ],
+                                    ]
                                     "trail_profile": runtime.config.get("trail_profile", "rocket_v1")
                                 }
 
@@ -1023,10 +1023,10 @@ class BarProcessor:
                     tier = int(cfg.get("abs_lvl_tier_thin", 2))
 
                 th = runtime.eff_calib.thresholds(
-                    regime=regime,
-                    default_eff_th=float(runtime.config.get("abs_lvl_eff_quote_th", 0.0020)),
-                    default_min_qd=float(runtime.config.get("abs_lvl_min_quote_delta", 0.0)),
-                    tier=tier,
+                    regime=regime
+                    default_eff_th=float(runtime.config.get("abs_lvl_eff_quote_th", 0.0020))
+                    default_min_qd=float(runtime.config.get("abs_lvl_min_quote_delta", 0.0))
+                    tier=tier
                 )
                 runtime.dynamic_cfg[DK.ABS_LVL_EFF_QUOTE_TH] = float(th.eff_quote_th)
                 runtime.dynamic_cfg[DK.ABS_LVL_MIN_QUOTE_DELTA] = float(th.min_quote_delta)
@@ -1122,14 +1122,14 @@ class BarProcessor:
                             runtime.last_sweep_ts_ms > 0):
                             
                             res = compute_cvd_reclaim(
-                                ts_ms=int(ev.ts_ms),
-                                sweep_ts_ms=runtime.last_sweep_ts_ms,
-                                cvd_sweep=float(runtime.last_sweep_cvd),
-                                reclaim_ts_ms=int(ev.ts_ms),
-                                cvd_reclaim=float(bar.cvd_close),
-                                direction_bias=str(ev.direction_bias),
-                                min_abs=float(runtime.config.get("cvd_reclaim_min_abs", 0.0)),
-                                sat_abs=float(runtime.config.get("cvd_reclaim_sat_abs", 0.0)),
+                                ts_ms=int(ev.ts_ms)
+                                sweep_ts_ms=runtime.last_sweep_ts_ms
+                                cvd_sweep=float(runtime.last_sweep_cvd)
+                                reclaim_ts_ms=int(ev.ts_ms)
+                                cvd_reclaim=float(bar.cvd_close)
+                                direction_bias=str(ev.direction_bias)
+                                min_abs=float(runtime.config.get("cvd_reclaim_min_abs", 0.0))
+                                sat_abs=float(runtime.config.get("cvd_reclaim_sat_abs", 0.0))
                             )
                             runtime.last_cvd_reclaim = res
                             
@@ -1138,7 +1138,7 @@ class BarProcessor:
                                 cvd_reclaim_ok_total.labels(symbol=runtime.symbol, bias=str(ev.direction_bias)).inc()
                             
                             logger.info(
-                                "CVDReclaim computed sym=%s bias=%s ok=%d score=%.3f delta=%.1f window_ms=%d",
+                                "CVDReclaim computed sym=%s bias=%s ok=%d score=%.3f delta=%.1f window_ms=%d"
                                 runtime.symbol, ev.direction_bias, res.ok, res.score, res.cvd_delta, (int(ev.ts_ms) - runtime.last_sweep_ts_ms)
                             )
                     except Exception:
@@ -1170,9 +1170,9 @@ class BarProcessor:
         try:
              # Construct payload
              bar_out = {
-                 "type": "microbar_closed",
-                 "symbol": runtime.symbol,
-                 "ts_ms": int(bar.end_ts_ms),
+                 "type": "microbar_closed"
+                 "symbol": runtime.symbol
+                 "ts_ms": int(bar.end_ts_ms)
                  # ...
              }
              safe_create_task(
@@ -1243,8 +1243,8 @@ class BarProcessor:
                  try:
                       pm = (getattr(runtime, 'pm', None) or get_persistence_manager())
                       b_dict = {
-                          "ts_ms": int(bar.end_ts_ms),
-                          "open": float(bar.open), "high": float(bar.high), "low": float(bar.low), "close": float(bar.close),
+                          "ts_ms": int(bar.end_ts_ms)
+                          "open": float(bar.open), "high": float(bar.high), "low": float(bar.low), "close": float(bar.close)
                           "vol": float(bar.vol), "cvd": float(bar.cvd_close)
                       }
                       safe_create_task(pm.save_microbar(runtime.symbol, b_dict))
@@ -1370,34 +1370,34 @@ class BarProcessor:
                          pass
 
                  payload = {
-                     "symbol": str(runtime.symbol),
-                     "ts_ms": int(now_ts),
-                     "close": float(close_px),
-                     "trend_dir": str(trend_dir),
-                     "close_cross": int(close_cross),
-                     "close_cross_dir": str(close_cross_dir),
-                     "of_strong": int(of_strong),
-                     "weak_progress": int(wp),
-                     "reclaim": int(reclaim),
-                     "reclaim_dir": str(reclaim_dir),
-                     "sweep": int(sweep),
-                     "sweep_dir": str(sweep_dir),
-                     "obi_stable_sec": float(obi_stable_sec),
-                     "iceberg_strict": int(iceberg_strict),
-                     "div_kind": str(div_kind),
-                     "div_ts": int(div_ts),
-                     "rsi14": float(rsi14),
-                     "cvd_slope": float(cvd_slope),
-                     "retrace_atr": float(retrace_atr),
-                     "delta_z": float(delta_z),
-                     "delta_eff_norm": float(delta_eff_norm),
-                     "abs_lvl_ok": int(abs_lvl_ok),
-                     "zone_ok": int(zone_ok),
-                     "zone_type": str(zone_type),
-                     "zone_dist_bp": float(zone_dist_bp),
-                     "near_zone": int(near_zone),
-                     "tf": str(runtime.config.get("micro_tf", "1s")),
-                     "regime": str(getattr(runtime, "last_regime", "na")),
+                     "symbol": str(runtime.symbol)
+                     "ts_ms": int(now_ts)
+                     "close": float(close_px)
+                     "trend_dir": str(trend_dir)
+                     "close_cross": int(close_cross)
+                     "close_cross_dir": str(close_cross_dir)
+                     "of_strong": int(of_strong)
+                     "weak_progress": int(wp)
+                     "reclaim": int(reclaim)
+                     "reclaim_dir": str(reclaim_dir)
+                     "sweep": int(sweep)
+                     "sweep_dir": str(sweep_dir)
+                     "obi_stable_sec": float(obi_stable_sec)
+                     "iceberg_strict": int(iceberg_strict)
+                     "div_kind": str(div_kind)
+                     "div_ts": int(div_ts)
+                     "rsi14": float(rsi14)
+                     "cvd_slope": float(cvd_slope)
+                     "retrace_atr": float(retrace_atr)
+                     "delta_z": float(delta_z)
+                     "delta_eff_norm": float(delta_eff_norm)
+                     "abs_lvl_ok": int(abs_lvl_ok)
+                     "zone_ok": int(zone_ok)
+                     "zone_type": str(zone_type)
+                     "zone_dist_bp": float(zone_dist_bp)
+                     "near_zone": int(near_zone)
+                     "tf": str(runtime.config.get("micro_tf", "1s"))
+                     "regime": str(getattr(runtime, "last_regime", "na"))
                  }
                  
                  pl_json = json.dumps(payload, default=str, ensure_ascii=False)

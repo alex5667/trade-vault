@@ -138,8 +138,8 @@ class SignalTargetDeliverer:
         # "ещё выше": retry-delay queue (ZSET) вместо ре-энкью в stream
         self.retry_zset = os.getenv(f"SIGNAL_RETRY_ZSET_{target.upper()}", f"zset:signals:retry:{target}")
         self.task_key_prefix = os.getenv(
-            f"SIGNAL_TASK_KEY_PREFIX_{target.upper()}",
-            f"signal:task:{target}:",
+            f"SIGNAL_TASK_KEY_PREFIX_{target.upper()}"
+            f"signal:task:{target}:"
         )
         self.retry_base_ms = int(os.getenv("SIGNAL_RETRY_BASE_MS", "250"))
         self.retry_cap_ms = int(os.getenv("SIGNAL_RETRY_CAP_MS", "30000"))
@@ -254,12 +254,12 @@ class SignalTargetDeliverer:
         if not self._sha_pop_retry:
             return None
         res = self._evalsha_fallback(
-            self._sha_pop_retry,
-            _LUA_POP_DUE_RETRY,
-            1,
-            self.retry_zset,
-            str(int(now_ms)),
-            self.task_key_prefix,
+            self._sha_pop_retry
+            _LUA_POP_DUE_RETRY
+            1
+            self.retry_zset
+            str(int(now_ms))
+            self.task_key_prefix
         )
         if not res or not isinstance(res, (list, tuple)) or len(res) < 2:
             return None
@@ -356,15 +356,15 @@ class SignalTargetDeliverer:
                 raise ValueError("missing_notify_payload")
             client = self.dual_redis or self.simple_redis or self.redis
             res = client.evalsha(
-                self._sha_notify,
-                4,
-                inflight, done,
-                self.notify_counter_key, self.notify_stream,
-                str(int(self.inflight_ttl_ms)),
-                str(int(self.done_ttl_sec)),
-                str(int(self.notify_every_n)),
-                str(500),
-                json.dumps(notify, ensure_ascii=False, separators=(",", ":")),
+                self._sha_notify
+                4
+                inflight, done
+                self.notify_counter_key, self.notify_stream
+                str(int(self.inflight_ttl_ms))
+                str(int(self.done_ttl_sec))
+                str(int(self.notify_every_n))
+                str(500)
+                json.dumps(notify, ensure_ascii=False, separators=(",", ":"))
             )
             code = int(res[0]) if res else 0
             if code == -3:
@@ -391,13 +391,13 @@ class SignalTargetDeliverer:
                 maxlen = int(os.getenv("AUDIT_STREAM_MAXLEN", "200000"))
 
             res = client.evalsha(
-                self._sha_xadd,
-                3,
-                inflight, done, stream,
-                str(int(self.inflight_ttl_ms)),
-                str(int(self.done_ttl_sec)),
-                str(int(maxlen)),
-                json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+                self._sha_xadd
+                3
+                inflight, done, stream
+                str(int(self.inflight_ttl_ms))
+                str(int(self.done_ttl_sec))
+                str(int(maxlen))
+                json.dumps(data, ensure_ascii=False, separators=(",", ":"))
             )
             code = int(res[0]) if res else 0
             if code == -3:
@@ -411,13 +411,13 @@ class SignalTargetDeliverer:
             if not key or data is None:
                 raise ValueError("missing_snapshot_fields")
             res = self.redis.evalsha(
-                self._sha_setex,
-                3,
-                inflight, done, key,
-                str(int(self.inflight_ttl_ms)),
-                str(int(self.done_ttl_sec)),
-                str(int(ttl)),
-                json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+                self._sha_setex
+                3
+                inflight, done, key
+                str(int(self.inflight_ttl_ms))
+                str(int(self.done_ttl_sec))
+                str(int(ttl))
+                json.dumps(data, ensure_ascii=False, separators=(",", ":"))
             )
             code = int(res[0]) if res else 0
             if code == -3:
@@ -447,8 +447,8 @@ class SignalTargetDeliverer:
                 # 0) pending recovery
                 try:
                     next_id, pending = helper.claim_pending(
-                        self.stream, min_idle_ms=self.claim_min_idle_ms,
-                        start_id=self._start_id, count=self.claim_count,
+                        self.stream, min_idle_ms=self.claim_min_idle_ms
+                        start_id=self._start_id, count=self.claim_count
                     )
                     if (not pending) and (next_id == "0-0"):
                         pass

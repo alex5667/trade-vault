@@ -1,7 +1,7 @@
 """services.orderflow.evidence_contract
 
 P0 deliverable: a versioned, numeric-only evidence payload for "on-the-wire" exchange
-between generators (tick_processor/OFC/ML gate) and consumers (scorer, archivers,
+between generators (tick_processor/OFC/ML gate) and consumers (scorer, archivers
 offline evaluation).
 
 Contract guarantees:
@@ -30,52 +30,52 @@ _NUM_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
 _KEY_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 
 EVIDENCE_ALLOWLIST: set[str] = {
-    "data_health",
-    "book_stale_ms",
-    "tick_time_age_ms",
-    "dq_ok",
-    "dq_soft",
-    "dq_bad",
-    "market_mode_id",
-    "reclaim",
-    "obi_stable",
-    "iceberg_strict",
-    "sweep_any",
-    "sweep_eqh",
-    "sweep_eql",
-    "rsi_agree",
-    "div_match",
-    "div_strength",
-    "div_z",
-    "weak_progress",
-    "progress_z",
-    "pressure_sps",
-    "spread_z",
+    "data_health"
+    "book_stale_ms"
+    "tick_time_age_ms"
+    "dq_ok"
+    "dq_soft"
+    "dq_bad"
+    "market_mode_id"
+    "reclaim"
+    "obi_stable"
+    "iceberg_strict"
+    "sweep_any"
+    "sweep_eqh"
+    "sweep_eql"
+    "rsi_agree"
+    "div_match"
+    "div_strength"
+    "div_z"
+    "weak_progress"
+    "progress_z"
+    "pressure_sps"
+    "spread_z"
     "sweep",       # legacy input only; mapped to sweep_any
     "ice_strict",  # legacy input only; mapped to iceberg_strict
-    "conf_rsi_agree",
-    "conf_div_match",
-    "conf_sweep_eqh",
-    "conf_sweep_eql",
-    "conf_sweep_any",
-    "conf_iceberg_strict",
-    "conf_obi_stable",
-    "conf_reclaim",
-    "conf_weak_progress",
+    "conf_rsi_agree"
+    "conf_div_match"
+    "conf_sweep_eqh"
+    "conf_sweep_eql"
+    "conf_sweep_any"
+    "conf_iceberg_strict"
+    "conf_obi_stable"
+    "conf_reclaim"
+    "conf_weak_progress"
 }
 
 EVIDENCE_ALIASES: Dict[str, str] = {
-    "ice_strict": "iceberg_strict",
-    "iceberg": "iceberg_strict",
-    "iceberg_confirm": "iceberg_strict",
-    "sweep": "sweep_any",
-    "sweep_any": "sweep_any",
-    "sweep_eq": "sweep_any",
-    "sweep_eq_high": "sweep_eqh",
-    "sweep_eq_low": "sweep_eql",
-    "div": "div_match",
-    "divergence": "div_match",
-    "rsi": "rsi_agree",
+    "ice_strict": "iceberg_strict"
+    "iceberg": "iceberg_strict"
+    "iceberg_confirm": "iceberg_strict"
+    "sweep": "sweep_any"
+    "sweep_any": "sweep_any"
+    "sweep_eq": "sweep_any"
+    "sweep_eq_high": "sweep_eqh"
+    "sweep_eq_low": "sweep_eql"
+    "div": "div_match"
+    "divergence": "div_match"
+    "rsi": "rsi_agree"
 }
 
 def env(name: str, default: str) -> str:
@@ -198,19 +198,19 @@ class EvidenceNormalizeResult:
     warnings: List[str]
 
 def normalize_evidence_payload(
-    *,
-    producer: str,
-    sid: Optional[str],
-    ts_event_ms: int,
-    symbol: Optional[str],
-    tf: Optional[str],
-    direction: Optional[str],
-    entry: Optional[float],
-    evidence_raw: Optional[Mapping[str, Any]] = None,
-    confirmations_legacy: Optional[Sequence[Any]] = None,
-    market_mode: Optional[Any] = None,
-    strict_unknown: Optional[bool] = None,
-    accepted_schema_versions: Optional[Iterable[int]] = None,
+    *
+    producer: str
+    sid: Optional[str]
+    ts_event_ms: int
+    symbol: Optional[str]
+    tf: Optional[str]
+    direction: Optional[str]
+    entry: Optional[float]
+    evidence_raw: Optional[Mapping[str, Any]] = None
+    confirmations_legacy: Optional[Sequence[Any]] = None
+    market_mode: Optional[Any] = None
+    strict_unknown: Optional[bool] = None
+    accepted_schema_versions: Optional[Iterable[int]] = None
 ) -> EvidenceNormalizeResult:
     strict = strict_unknown
     if strict is None:
@@ -271,36 +271,36 @@ def normalize_evidence_payload(
         evidence_map[k] = fv
 
     payload = EvidencePayload(
-        schema_version=EVIDENCE_SCHEMA_VERSION,
-        producer=str(producer),
-        sid=sid2,
-        ts_event_ms=int(ts_event_ms),
-        evidence_map=evidence_map,
-        symbol=symbol,
-        tf=tf,
-        market_mode=str(mm_val) if isinstance(mm_val, str) and mm_val.strip() else None,
+        schema_version=EVIDENCE_SCHEMA_VERSION
+        producer=str(producer)
+        sid=sid2
+        ts_event_ms=int(ts_event_ms)
+        evidence_map=evidence_map
+        symbol=symbol
+        tf=tf
+        market_mode=str(mm_val) if isinstance(mm_val, str) and mm_val.strip() else None
     )
     if payload.schema_version not in accepted:
         warnings.append(f"schema_rejected:{payload.schema_version}")
     return EvidenceNormalizeResult(payload=payload, unknown_keys=unknown_keys, dropped=dropped, warnings=warnings)
 
 def make_scores_row(
-    *,
-    evidence_payload: EvidencePayload,
-    confidence_raw: Optional[float],
-    confidence_final: Optional[float],
-    context: Optional[Mapping[str, Any]] = None,
+    *
+    evidence_payload: EvidencePayload
+    confidence_raw: Optional[float]
+    confidence_final: Optional[float]
+    context: Optional[Mapping[str, Any]] = None
 ) -> Dict[str, Any]:
     return {
-        "ts_event_ms": evidence_payload.ts_event_ms,
-        "sid": evidence_payload.sid,
-        "symbol": evidence_payload.symbol,
-        "tf": evidence_payload.tf,
-        "market_mode": evidence_payload.market_mode,
-        "confidence_raw": None if confidence_raw is None else float(confidence_raw),
-        "confidence_final": None if confidence_final is None else float(confidence_final),
-        "schema_version": evidence_payload.schema_version,
-        "producer": evidence_payload.producer,
-        "evidence_map": evidence_payload.evidence_map,
-        "context": dict(context or {}),
+        "ts_event_ms": evidence_payload.ts_event_ms
+        "sid": evidence_payload.sid
+        "symbol": evidence_payload.symbol
+        "tf": evidence_payload.tf
+        "market_mode": evidence_payload.market_mode
+        "confidence_raw": None if confidence_raw is None else float(confidence_raw)
+        "confidence_final": None if confidence_final is None else float(confidence_final)
+        "schema_version": evidence_payload.schema_version
+        "producer": evidence_payload.producer
+        "evidence_map": evidence_payload.evidence_map
+        "context": dict(context or {})
     }

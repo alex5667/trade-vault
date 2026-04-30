@@ -52,14 +52,14 @@ class StreamIntegrityDecision:
 
 class StreamIntegrityGate:
     def __init__(
-        self,
-        *,
-        enabled: bool,
-        mode: str,
-        max_gap_rate_ema: float,
-        max_dup_rate_ema: float = 0.0,
-        max_gap_window: int,
-        veto_on_schema_change: bool,
+        self
+        *
+        enabled: bool
+        mode: str
+        max_gap_rate_ema: float
+        max_dup_rate_ema: float = 0.0
+        max_gap_window: int
+        veto_on_schema_change: bool
     ) -> None:
         self.enabled = bool(enabled)
         self.mode = str(mode or "auto").strip().lower()
@@ -78,12 +78,12 @@ class StreamIntegrityGate:
         # DATA_MAX_DUP_RATE is an alias for DATA_MAX_DUP_RATE_EMA.
         dup_rate_env = os.getenv("DATA_MAX_DUP_RATE_EMA", os.getenv("DATA_MAX_DUP_RATE", "0"))
         return StreamIntegrityGate(
-            enabled=enabled,
-            mode=str(mode),
-            max_gap_rate_ema=_f(gap_rate_env, 0.0),
-            max_dup_rate_ema=_f(dup_rate_env, 0.0),
-            max_gap_window=_i(os.getenv("DATA_MAX_SEQ_GAP_WINDOW", "0"), 0),
-            veto_on_schema_change=bool(int(os.getenv("DATA_VETO_ON_SCHEMA_CHANGE", "0") or 0)),
+            enabled=enabled
+            mode=str(mode)
+            max_gap_rate_ema=_f(gap_rate_env, 0.0)
+            max_dup_rate_ema=_f(dup_rate_env, 0.0)
+            max_gap_window=_i(os.getenv("DATA_MAX_SEQ_GAP_WINDOW", "0"), 0)
+            veto_on_schema_change=bool(int(os.getenv("DATA_VETO_ON_SCHEMA_CHANGE", "0") or 0))
         )
 
     def _effective_mode(self) -> str:

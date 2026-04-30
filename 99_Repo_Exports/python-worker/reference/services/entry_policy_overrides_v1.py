@@ -108,8 +108,8 @@ class EntryPolicyOverridesV1:
                 x = d.get(key, None)
                 if not isinstance(x, dict):
                     return default.normalize()
-                s = SplitABC(a=_f(x.get("a", default.a), default.a),
-                             b=_f(x.get("b", default.b), default.b),
+                s = SplitABC(a=_f(x.get("a", default.a), default.a)
+                             b=_f(x.get("b", default.b), default.b)
                              c=_f(x.get("c", default.c), default.c))
                 return s.normalize()
 

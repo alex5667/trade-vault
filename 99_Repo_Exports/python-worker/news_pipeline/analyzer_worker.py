@@ -63,14 +63,14 @@ class NewsAnalyzerWorker(StreamWorker):
 
     def __init__(self, *, redis: redis.Redis):
         super().__init__(
-            redis=redis,
-            stream=NEWS_RAW_STREAM,
-            group=GROUP,
-            consumer=CONSUMER,
-            dlq_stream=DLQ,
-            block_ms=2000,
-            count=100,
-            claim_idle_ms=60_000,
+            redis=redis
+            stream=NEWS_RAW_STREAM
+            group=GROUP
+            consumer=CONSUMER
+            dlq_stream=DLQ
+            block_ms=2000
+            count=100
+            claim_idle_ms=60_000
         )
         primary_llm = GeminiHTTPClient()
         if os.getenv("LLM_FALLBACK_ENABLED", "1") == "1":
@@ -115,14 +115,14 @@ class NewsAnalyzerWorker(StreamWorker):
 
             # heavy JSON store
             heavy = {
-                "uid": uid,
-                "source": source,
-                "url": url,
-                "title": title,
-                "ts_ms": published_ts_ms,
-                "symbols": syms,
-                "analysis": a,
-                "raw": {k: _safe_s(v) for k, v in fields.items()},
+                "uid": uid
+                "source": source
+                "url": url
+                "title": title
+                "ts_ms": published_ts_ms
+                "symbols": syms
+                "analysis": a
+                "raw": {k: _safe_s(v) for k, v in fields.items()}
             }
             heavy_key = f"news:analysis:{uid}"
             self.r.setex(heavy_key, ANALYSIS_TTL_SEC, json.dumps(heavy, ensure_ascii=False))
@@ -138,16 +138,16 @@ class NewsAnalyzerWorker(StreamWorker):
 
             for sym in syms:
                 out = {
-                    "uid": uid,
-                    "symbol": sym,
-                    "risk": str(a.get("risk", 0.0)),
-                    "surprise": str(a.get("surprise", 0.0)),
-                    "confidence": str(a.get("confidence", 0.0)),
-                    "tags_mask": str(mask),
-                    "primary_tag_id": str(primary_tag_id),
-                    "summary": str(a.get("summary", "")),
-                    "ts_ms": str(published_ts_ms),
-                    "ingested_ts_ms": str(now_ms),
+                    "uid": uid
+                    "symbol": sym
+                    "risk": str(a.get("risk", 0.0))
+                    "surprise": str(a.get("surprise", 0.0))
+                    "confidence": str(a.get("confidence", 0.0))
+                    "tags_mask": str(mask)
+                    "primary_tag_id": str(primary_tag_id)
+                    "summary": str(a.get("summary", ""))
+                    "ts_ms": str(published_ts_ms)
+                    "ingested_ts_ms": str(now_ms)
                 }
                 self.r.xadd(NEWS_ANALYSIS_STREAM, out, maxlen=int(os.getenv("NEWS_ANALYSIS_MAXLEN", "200000")))
 
@@ -194,9 +194,9 @@ def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
     while retry_count < max_retries:
         try:
             r = redis.Redis.from_url(
-                redis_url,
-                decode_responses=True,
-                health_check_interval=30,
+                redis_url
+                decode_responses=True
+                health_check_interval=30
             )
             # Test connection
             r.ping()

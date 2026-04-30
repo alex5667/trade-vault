@@ -1,6 +1,6 @@
 """P12 Runbook CLI/exporter/executor asset smoke-tests.
 
-These tests verify structural invariants (function/method names, CLI flags,
+These tests verify structural invariants (function/method names, CLI flags
 HTTP endpoint strings) without importing the full service dependencies.
 4 tests total — all must pass in isolation.
 """

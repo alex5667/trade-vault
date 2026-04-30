@@ -28,13 +28,13 @@ def main() -> int:
     ns = ap.parse_args()
 
     report = lint_deploy_contract(
-        repo_root=ns.repo_root,
-        purpose=ns.purpose,
-        env=dict(os.environ),
-        compose_file=ns.compose_file or None,
-        wrapper_file=ns.wrapper_file or None,
-        unit_file=ns.unit_file or None,
-        env_file=ns.env_file or None,
+        repo_root=ns.repo_root
+        purpose=ns.purpose
+        env=dict(os.environ)
+        compose_file=ns.compose_file or None
+        wrapper_file=ns.wrapper_file or None
+        unit_file=ns.unit_file or None
+        env_file=ns.env_file or None
     )
     payload = render_json(report)
     if ns.json_out:

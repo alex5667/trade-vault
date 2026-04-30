@@ -14,22 +14,22 @@ import os
 import pytest
 from unittest import mock
 from services.orderflow.execution_health_gate import (
-    ExecHealthThresholds,
-    ExecHealthDecision,
-    decide_execution_health,
-    build_rollup_keys,
-    apply_exec_health_to_indicators,
+    ExecHealthThresholds
+    ExecHealthDecision
+    decide_execution_health
+    build_rollup_keys
+    apply_exec_health_to_indicators
 )
 
 
 class TestDecideExecutionHealth:
     def _thr(self, max_is=5.0, max_pi=3.0, min_rs=-999.0) -> ExecHealthThresholds:
         return ExecHealthThresholds(
-            max_is_p95_bps=max_is,
-            max_perm_impact_p95_bps=max_pi,
-            min_realized_spread_p50_bps=min_rs,
-            tighten_add_mult=1.0,
-            tighten_add_cap_bps=8.0,
+            max_is_p95_bps=max_is
+            max_perm_impact_p95_bps=max_pi
+            min_realized_spread_p50_bps=min_rs
+            tighten_add_mult=1.0
+            tighten_add_cap_bps=8.0
         )
 
     def test_no_rollups_no_action(self):

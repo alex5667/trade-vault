@@ -18,18 +18,18 @@ def test_liqmap_levels_overlay_metrics_exports_d21():
 
     # Import only SoT metrics to avoid default-registry collisions from the mirror module.
     sot = _load_module_from_path(
-        "tick_flow_full_sot_metrics_d21",
-        root / "reference" / "tick_flow_full" / "services" / "orderflow" / "metrics.py",
+        "tick_flow_full_sot_metrics_d21"
+        root / "reference" / "tick_flow_full" / "services" / "orderflow" / "metrics.py"
     )
 
     expected = [
-        "liqmap_levels_overlay_enabled_gauge",
-        "liqmap_levels_attempt_total",
-        "liqmap_levels_applied_gauge",
-        "liqmap_levels_applied_total",
-        "liqmap_levels_cap_sl_widen_total",
-        "liqmap_tp1_adj_bps_hist",
-        "liqmap_sl_adj_bps_hist",
+        "liqmap_levels_overlay_enabled_gauge"
+        "liqmap_levels_attempt_total"
+        "liqmap_levels_applied_gauge"
+        "liqmap_levels_applied_total"
+        "liqmap_levels_cap_sl_widen_total"
+        "liqmap_tp1_adj_bps_hist"
+        "liqmap_sl_adj_bps_hist"
     ]
     for name in expected:
         assert hasattr(sot, name), f"SoT metrics missing {name}"

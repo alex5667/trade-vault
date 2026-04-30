@@ -1,7 +1,7 @@
 """P82: Staleness gates for enforce-bucket automation.
 
 Goal:
-  If data sources are stale (Redis stream lag, DB view stale, status files stale),
+  If data sources are stale (Redis stream lag, DB view stale, status files stale)
   promoter/freezer/rollback must NOT apply changes.
 
 This module is intentionally dependency-light and deterministic.
@@ -20,8 +20,8 @@ ENV defaults (conservative):
 
 Return shape:
   {
-    "blocked": bool,
-    "severity": "soft"|"hard",
+    "blocked": bool
+    "severity": "soft"|"hard"
     "reasons": ["..."]
     "checks": { ... details ... }
   }
@@ -55,11 +55,11 @@ def _env_str(name: str, default: str) -> str:
 def check_status_file_staleness(path: str, max_age_sec: int) -> Dict[str, Any]:
     """Checks mtime age of a local status/report file."""
     out: Dict[str, Any] = {
-        "ok": True,
-        "path": path,
-        "age_sec": None,
-        "max_age_sec": max_age_sec,
-        "reason": "ok",
+        "ok": True
+        "path": path
+        "age_sec": None
+        "max_age_sec": max_age_sec
+        "reason": "ok"
     }
     p = str(path or "").strip()
     if not p:
@@ -100,22 +100,22 @@ def _stream_last_entry(redis_client: Any, stream: str) -> Tuple[Optional[str], O
 
 
 def check_redis_stream_staleness(
-    redis_client: Any,
-    stream: str,
-    max_age_sec: int,
-    min_events: int,
-    scan: int,
+    redis_client: Any
+    stream: str
+    max_age_sec: int
+    min_events: int
+    scan: int
 ) -> Dict[str, Any]:
     """Checks staleness and basic liveness of a Redis stream."""
     out: Dict[str, Any] = {
-        "ok": True,
-        "stream": stream,
-        "age_sec": None,
-        "max_age_sec": max_age_sec,
-        "min_events": min_events,
-        "scan": scan,
-        "last_id": None,
-        "reason": "ok",
+        "ok": True
+        "stream": stream
+        "age_sec": None
+        "max_age_sec": max_age_sec
+        "min_events": min_events
+        "scan": scan
+        "last_id": None
+        "reason": "ok"
     }
     try:
         info = redis_client.xinfo_stream(stream)
@@ -144,23 +144,23 @@ def check_redis_stream_staleness(
 
 
 def check_db_view_staleness(
-    conn: Any,
-    view: str,
-    ts_col: str,
-    max_age_sec: int,
-    min_rows: int,
+    conn: Any
+    view: str
+    ts_col: str
+    max_age_sec: int
+    min_rows: int
 ) -> Dict[str, Any]:
     """Checks freshness of a DB view/MV by last timestamp and row count in recent window."""
     out: Dict[str, Any] = {
-        "ok": True,
-        "view": view,
-        "ts_col": ts_col,
-        "age_sec": None,
-        "max_age_sec": max_age_sec,
-        "min_rows": min_rows,
-        "last_ts": None,
-        "rows": None,
-        "reason": "ok",
+        "ok": True
+        "view": view
+        "ts_col": ts_col
+        "age_sec": None
+        "max_age_sec": max_age_sec
+        "min_rows": min_rows
+        "last_ts": None
+        "rows": None
+        "reason": "ok"
     }
     v = str(view or "").strip()
     c = str(ts_col or "").strip()
@@ -227,10 +227,10 @@ def should_block_apply(checks: Dict[str, Dict[str, Any]]) -> Tuple[bool, str, Li
 
 
 def run_staleness_gates(
-    *,
-    redis_client: Optional[Any] = None,
-    db_conn: Optional[Any] = None,
-    status_files: Optional[Dict[str, str]] = None,
+    *
+    redis_client: Optional[Any] = None
+    db_conn: Optional[Any] = None
+    status_files: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """Run all configured gates and return structured result."""
     status_files = status_files or {}
@@ -265,23 +265,23 @@ def run_staleness_gates(
 
     blocked, severity, reasons = should_block_apply(checks)
     return {
-        "blocked": bool(blocked),
-        "severity": str(severity),
-        "reasons": list(reasons),
-        "checks": checks,
-        "ts_s": _now_s(),
+        "blocked": bool(blocked)
+        "severity": str(severity)
+        "reasons": list(reasons)
+        "checks": checks
+        "ts_s": _now_s()
         "cfg": {
-            "redis_stream": redis_stream,
-            "db_view": db_view,
-            "db_ts_col": db_ts_col,
-        },
+            "redis_stream": redis_stream
+            "db_view": db_view
+            "db_ts_col": db_ts_col
+        }
     }
 
 
 __all__ = [
-    "check_status_file_staleness",
-    "check_redis_stream_staleness",
-    "check_db_view_staleness",
-    "should_block_apply",
-    "run_staleness_gates",
+    "check_status_file_staleness"
+    "check_redis_stream_staleness"
+    "check_db_view_staleness"
+    "should_block_apply"
+    "run_staleness_gates"
 ]

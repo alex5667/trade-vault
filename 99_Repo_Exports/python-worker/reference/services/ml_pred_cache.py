@@ -15,11 +15,11 @@ def _pred_key(sid: str) -> str:
 
 
 def cache_pred(
-    r: redis.Redis,
-    *,
-    sid: str,
-    payload: Dict[str, Any],
-    ttl_sec: Optional[int] = None,
+    r: redis.Redis
+    *
+    sid: str
+    payload: Dict[str, Any]
+    ttl_sec: Optional[int] = None
 ) -> None:
     """Cache ML prediction for outcome joiner.
     
@@ -32,8 +32,8 @@ def cache_pred(
     if ttl_sec is None:
         ttl_sec = int(os.getenv("ML_PRED_TTL_SEC", "1209600") or 1209600)  # 14d
     retry_redis_operation(
-        lambda: r.set(_pred_key(sid), json.dumps(payload, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec),
-        operation_name="cache_pred set",
+        lambda: r.set(_pred_key(sid), json.dumps(payload, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec)
+        operation_name="cache_pred set"
     )
 
 
@@ -48,8 +48,8 @@ def get_pred(r: redis.Redis, sid: str) -> Optional[Dict[str, Any]]:
         Prediction payload dict or None if not found
     """
     raw = retry_redis_operation(
-        lambda: r.get(_pred_key(sid)),
-        operation_name="get_pred get",
+        lambda: r.get(_pred_key(sid))
+        operation_name="get_pred get"
     )
     if not raw:
         return None

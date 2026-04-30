@@ -1,6 +1,6 @@
 """Autogen actionable output for feature-selection loop.
 
-Creates a candidate unified diff that moves noisy v5 extras into denylist,
+Creates a candidate unified diff that moves noisy v5 extras into denylist
 so you can train on v5_of_stable (v5_of minus denylist) without touching
 online schema immediately.
 
@@ -124,11 +124,11 @@ def _load_registry_keys() -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
 def _load_denylist_json(path: Path) -> Dict:
     if not path.exists():
         return {
-            "ver": "v1",
-            "updated_utc": "",
-            "deny_num": [],
-            "deny_bool": [],
-            "notes": "",
+            "ver": "v1"
+            "updated_utc": ""
+            "deny_num": []
+            "deny_bool": []
+            "notes": ""
         }
     try:
         obj = json.loads(path.read_text(encoding="utf-8"))
@@ -137,11 +137,11 @@ def _load_denylist_json(path: Path) -> Dict:
     except Exception:
         pass
     return {
-        "ver": "v1",
-        "updated_utc": "",
-        "deny_num": [],
-        "deny_bool": [],
-        "notes": "",
+        "ver": "v1"
+        "updated_utc": ""
+        "deny_num": []
+        "deny_bool": []
+        "notes": ""
     }
 
 
@@ -149,11 +149,11 @@ def _unified_diff(a_text: str, b_text: str, a_path: str, b_path: str) -> str:
     a_lines = a_text.splitlines(True)
     b_lines = b_text.splitlines(True)
     diff = difflib.unified_diff(
-        a_lines,
-        b_lines,
-        fromfile=f"a/{a_path}",
-        tofile=f"b/{b_path}",
-        lineterm="",
+        a_lines
+        b_lines
+        fromfile=f"a/{a_path}"
+        tofile=f"b/{b_path}"
+        lineterm=""
     )
     return "\n".join(diff) + "\n"
 
@@ -187,14 +187,14 @@ def _list_recent_manifests(proposals_dir: Path, since: datetime) -> List[Path]:
 
 
 def _select_candidates(
-    rows: List[Dict[str, str]],
-    extras_num: Set[str],
-    extras_bool: Set[str],
-    v5_num: Set[str],
-    v5_bool: Set[str],
-    max_features: int,
-    min_importance: float,
-    max_cv: float,
+    rows: List[Dict[str, str]]
+    extras_num: Set[str]
+    extras_bool: Set[str]
+    v5_num: Set[str]
+    v5_bool: Set[str]
+    max_features: int
+    min_importance: float
+    max_cv: float
 ) -> List[Candidate]:
     cands: List[Candidate] = []
 
@@ -258,22 +258,22 @@ def _select_candidates(
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--fs-run-dir",
-        default=os.environ.get("FEATURE_SELECTION_RUN_DIR", ""),
-        help="Directory containing stability_table.csv from feature selection loop.",
+        "--fs-run-dir"
+        default=os.environ.get("FEATURE_SELECTION_RUN_DIR", "")
+        help="Directory containing stability_table.csv from feature selection loop."
     )
     ap.add_argument(
-        "--denylist-path",
+        "--denylist-path"
         default=os.environ.get(
-            "ML_FEATURE_DENYLIST_PATH",
-            str(Path("tick_flow_full/core/feature_denylist_v1.json")),
-        ),
-        help="Path to feature_denylist_v1.json in the repo.",
+            "ML_FEATURE_DENYLIST_PATH"
+            str(Path("tick_flow_full/core/feature_denylist_v1.json"))
+        )
+        help="Path to feature_denylist_v1.json in the repo."
     )
     ap.add_argument(
-        "--proposals-dir",
-        default=os.environ.get("FEATURE_DENYLIST_PROPOSALS_DIR", ""),
-        help="Output dir for proposals (default: <fs-run-dir>/proposals).",
+        "--proposals-dir"
+        default=os.environ.get("FEATURE_DENYLIST_PROPOSALS_DIR", "")
+        help="Output dir for proposals (default: <fs-run-dir>/proposals)."
     )
     ap.add_argument("--dedup-days", type=int, default=int(os.environ.get("FEATURE_DENYLIST_DEDUP_DAYS", "7")))
     ap.add_argument("--max-features", type=int, default=int(os.environ.get("FEATURE_DENYLIST_MAX", "12")))
@@ -316,14 +316,14 @@ def main() -> int:
                 extras_bool.add(_parse_feature_name(feat)[0])
 
     cands = _select_candidates(
-        rows=rows,
-        extras_num=extras_num,
-        extras_bool=extras_bool,
-        v5_num=v5n,
-        v5_bool=v5b,
-        max_features=int(args.max_features),
-        min_importance=float(args.min_importance),
-        max_cv=float(args.max_cv),
+        rows=rows
+        extras_num=extras_num
+        extras_bool=extras_bool
+        v5_num=v5n
+        v5_bool=v5b
+        max_features=int(args.max_features)
+        min_importance=float(args.min_importance)
+        max_cv=float(args.max_cv)
     )
 
     if not cands:
@@ -354,11 +354,11 @@ def main() -> int:
     # proposal hash (stable)
     proposal_payload = json.dumps(
         {
-            "deny_num": sorted(deny_num),
-            "deny_bool": sorted(deny_bool),
-        },
-        sort_keys=True,
-        separators=(",", ":"),
+            "deny_num": sorted(deny_num)
+            "deny_bool": sorted(deny_bool)
+        }
+        sort_keys=True
+        separators=(",", ":")
     )
     ph = _sha1_8(proposal_payload)
 
@@ -401,41 +401,41 @@ def main() -> int:
     diff_path.write_text(diff_txt, encoding="utf-8")
 
     manifest = {
-        "kind": "feature_denylist_proposal",
-        "created_utc": _utc_now().isoformat(),
-        "proposal_hash": ph,
-        "status": "pending_ab",
+        "kind": "feature_denylist_proposal"
+        "created_utc": _utc_now().isoformat()
+        "proposal_hash": ph
+        "status": "pending_ab"
         "inputs": {
-            "fs_run_dir": str(fs_run_dir),
-            "stability_table": str(st_path),
-            "denylist_path": a_rel,
-        },
+            "fs_run_dir": str(fs_run_dir)
+            "stability_table": str(st_path)
+            "denylist_path": a_rel
+        }
         "adds": {
-            "deny_num": sorted(added_num),
-            "deny_bool": sorted(added_bool),
-        },
+            "deny_num": sorted(added_num)
+            "deny_bool": sorted(added_bool)
+        }
         "denylist_after": {
-            "deny_num": sorted(deny_num),
-            "deny_bool": sorted(deny_bool),
-        },
+            "deny_num": sorted(deny_num)
+            "deny_bool": sorted(deny_bool)
+        }
         "selection_thresholds": {
-            "min_importance": float(args.min_importance),
-            "max_cv": float(args.max_cv),
-            "max_features": int(args.max_features),
-        },
+            "min_importance": float(args.min_importance)
+            "max_cv": float(args.max_cv)
+            "max_features": int(args.max_features)
+        }
         "required_confirmation": {
-            "type": "replay_ab",
+            "type": "replay_ab"
             "must": [
-                "Replay/AB compare v5_of (full) vs v5_of_stable (denylist applied) on same input window",
-                "Check model metrics (AUC/MCC) AND trading metrics (PnL/DD) AND stability by regime/hour buckets",
-                "Only after approval apply the diff and bump model artifact/version if you promote",
-            ],
-        },
+                "Replay/AB compare v5_of (full) vs v5_of_stable (denylist applied) on same input window"
+                "Check model metrics (AUC/MCC) AND trading metrics (PnL/DD) AND stability by regime/hour buckets"
+                "Only after approval apply the diff and bump model artifact/version if you promote"
+            ]
+        }
         "apply_instructions": [
-            f"python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 --manifest {manifest_path} --apply 1",
-            f"(or for code-review: git apply {diff_path})",
-        ],
-        "notes": "This proposal only affects v5_of_stable (training baseline). v5_of remains unchanged unless you switch schema_ver.",
+            f"python -m ml_analysis.tools.apply_feature_denylist_proposal_v1 --manifest {manifest_path} --apply 1"
+            f"(or for code-review: git apply {diff_path})"
+        ]
+        "notes": "This proposal only affects v5_of_stable (training baseline). v5_of remains unchanged unless you switch schema_ver."
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 

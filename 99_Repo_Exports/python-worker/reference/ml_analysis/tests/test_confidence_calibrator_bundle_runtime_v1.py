@@ -25,8 +25,8 @@ class TestConfidenceCalibratorBundleRuntime(unittest.TestCase):
 
     def test_load_and_reload(self):
         data1 = {
-            "schema_version": 2,
-            "meta": {"bucket_by": "none"},
+            "schema_version": 2
+            "meta": {"bucket_by": "none"}
             "buckets": {
                 "global": {"method": "identity"}
             }
@@ -44,8 +44,8 @@ class TestConfidenceCalibratorBundleRuntime(unittest.TestCase):
         # Update bundle
         time.sleep(0.2) # Wait for mtime diff
         data2 = {
-            "schema_version": 2,
-            "meta": {"bucket_by": "none"},
+            "schema_version": 2
+            "meta": {"bucket_by": "none"}
             "buckets": {
                 "global": {"method": "platt", "params": {"a": 10.0, "b": 0.0}}
             }
@@ -67,10 +67,10 @@ class TestConfidenceCalibratorBundleRuntime(unittest.TestCase):
 
     def test_bucketing_regime(self):
         data = {
-            "schema_version": 2,
-            "meta": {"bucket_by": "regime"},
+            "schema_version": 2
+            "meta": {"bucket_by": "regime"}
             "buckets": {
-                "global": {"method": "identity"},
+                "global": {"method": "identity"}
                 "trend_up": {"method": "input"}, # alias for identity
                 "trend_down": {"method": "platt", "params": {"a": 0.0, "b": 100.0}} # sigmoid(100) -> 1.0
             }
@@ -97,8 +97,8 @@ class TestConfidenceCalibratorBundleRuntime(unittest.TestCase):
     def test_methods(self):
         # Test beta, temperature, isotonic
         data = {
-            "schema_version": 2,
-            "meta": {"bucket_by": "none"},
+            "schema_version": 2
+            "meta": {"bucket_by": "none"}
             "buckets": {
                 "global": {"method": "identity"}, # Only one bucket can exist if bucket_by=none but let's cheat and switch at runtime or test logic
             }

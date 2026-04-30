@@ -26,42 +26,42 @@ class OrderFlowHandlerFactory:
     # Регистрация обработчиков по типу инструмента
     _handlers: Dict[str, Dict[str, Type[BaseOrderFlowHandler]]] = {
         "FOREX": {
-            "XAUUSD": XAUUSDOrderFlowHandlerV2,
+            "XAUUSD": XAUUSDOrderFlowHandlerV2
             "XAGUSD": XAUUSDOrderFlowHandlerV2,  # Используем тот же обработчик для серебра
-        },
+        }
         "CRYPTO": {
-            "BTCUSD": CryptoOrderFlowHandler,
-            "BTCUSDT": CryptoOrderFlowHandler,
-            "ETHUSD": CryptoOrderFlowHandler,
-            "ETHUSDT": CryptoOrderFlowHandler,
-            "BNBUSD": CryptoOrderFlowHandler,
-            "BNBUSDT": CryptoOrderFlowHandler,
-            "SOLUSD": CryptoOrderFlowHandler,
-            "SOLUSDT": CryptoOrderFlowHandler,
-            "XRPUSD": CryptoOrderFlowHandler,
-            "XRPUSDT": CryptoOrderFlowHandler,
-            "ADAUSD": CryptoOrderFlowHandler,
-            "ADAUSDT": CryptoOrderFlowHandler,
-            "XAUUSDT": CryptoOrderFlowHandler,
-            "PEPEUSDT": CryptoOrderFlowHandler,
-            "DOGEUSDT": CryptoOrderFlowHandler,
-            "SHIBUSDT": CryptoOrderFlowHandler,
-            "FLOKIUSDT": CryptoOrderFlowHandler,
-            "BONKUSDT": CryptoOrderFlowHandler,
-            "WIFUSDT": CryptoOrderFlowHandler,
-            "SUIUSDT": CryptoOrderFlowHandler,
-            "APTUSDT": CryptoOrderFlowHandler,
-            "ARBUSDT": CryptoOrderFlowHandler,
+            "BTCUSD": CryptoOrderFlowHandler
+            "BTCUSDT": CryptoOrderFlowHandler
+            "ETHUSD": CryptoOrderFlowHandler
+            "ETHUSDT": CryptoOrderFlowHandler
+            "BNBUSD": CryptoOrderFlowHandler
+            "BNBUSDT": CryptoOrderFlowHandler
+            "SOLUSD": CryptoOrderFlowHandler
+            "SOLUSDT": CryptoOrderFlowHandler
+            "XRPUSD": CryptoOrderFlowHandler
+            "XRPUSDT": CryptoOrderFlowHandler
+            "ADAUSD": CryptoOrderFlowHandler
+            "ADAUSDT": CryptoOrderFlowHandler
+            "XAUUSDT": CryptoOrderFlowHandler
+            "PEPEUSDT": CryptoOrderFlowHandler
+            "DOGEUSDT": CryptoOrderFlowHandler
+            "SHIBUSDT": CryptoOrderFlowHandler
+            "FLOKIUSDT": CryptoOrderFlowHandler
+            "BONKUSDT": CryptoOrderFlowHandler
+            "WIFUSDT": CryptoOrderFlowHandler
+            "SUIUSDT": CryptoOrderFlowHandler
+            "APTUSDT": CryptoOrderFlowHandler
+            "ARBUSDT": CryptoOrderFlowHandler
         }
     }
     
     # Маппинг alias символов (для обратной совместимости)
     _symbol_aliases: Dict[str, str] = {
-        "BTC": "BTCUSD",
-        "ETH": "ETHUSD",
-        "BNB": "BNBUSD",
-        "SOL": "SOLUSD",
-        "ADA": "ADAUSD",
+        "BTC": "BTCUSD"
+        "ETH": "ETHUSD"
+        "BNB": "BNBUSD"
+        "SOL": "SOLUSD"
+        "ADA": "ADAUSD"
     }
     
     @classmethod
@@ -194,7 +194,7 @@ class OrderFlowHandlerFactory:
             # SO we should instantiate here OR pass a Factory.
             # LiquidityGeometryAnalyzer takes (window_ms, min_levels, etc.) which come from Config.
             # Ideally we pass a Factory closure or Partial.
-            # For this phase, let's pass the CLASS so we can at least mock it in deps if needed,
+            # For this phase, let's pass the CLASS so we can at least mock it in deps if needed
             # OR better: Refactor logic to accept instance. 
             deps.liquidity_analyzer = LiquidityGeometryAnalyzer
         except ImportError:
@@ -299,7 +299,7 @@ class OrderFlowHandlerFactory:
         # 10. Signal Execution Services (Heavy)
         try:
             from signal_exec import (
-                SignalService, ExecutionPlanner, SignalPerformanceTracker,
+                SignalService, ExecutionPlanner, SignalPerformanceTracker
                 SignalRepository, SignalBus
             )
             # Store as a bundle or individual classes
@@ -315,9 +315,9 @@ class OrderFlowHandlerFactory:
     
     @classmethod
     def register_handler(
-        cls,
-        symbol: str,
-        handler_class: Type[BaseOrderFlowHandler],
+        cls
+        symbol: str
+        handler_class: Type[BaseOrderFlowHandler]
         instrument_type: str = "CUSTOM"
     ) -> None:
         """

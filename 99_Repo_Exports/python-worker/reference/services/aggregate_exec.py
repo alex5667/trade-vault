@@ -112,9 +112,9 @@ def attach_snapshots(df: pd.DataFrame, r: redis.Redis) -> pd.DataFrame:
             try:
                 j = json.loads(snap)
                 notes[sid] = {
-                    "note": j.get("note", ""),
-                    "side": j.get("side", ""),
-                    "entry": float(j.get("price") or 0.0),
+                    "note": j.get("note", "")
+                    "side": j.get("side", "")
+                    "entry": float(j.get("price") or 0.0)
                     "atr": j.get("risk", {}).get("atr", 0.0)
                 }
             except Exception as e:
@@ -213,13 +213,13 @@ def main():
         grouped = df.groupby(group_key)
         
         summary = pd.DataFrame({
-            "trades": grouped.size(),
-            "avg_profit": grouped["profit"].mean(),
-            "median_profit": grouped["profit"].median(),
-            "total_profit": grouped["profit"].sum(),
-            "win_rate": grouped["profit"].apply(lambda s: (s > 0).mean()),
-            "max_profit": grouped["profit"].max(),
-            "max_loss": grouped["profit"].min(),
+            "trades": grouped.size()
+            "avg_profit": grouped["profit"].mean()
+            "median_profit": grouped["profit"].median()
+            "total_profit": grouped["profit"].sum()
+            "win_rate": grouped["profit"].apply(lambda s: (s > 0).mean())
+            "max_profit": grouped["profit"].max()
+            "max_loss": grouped["profit"].min()
             "std_profit": grouped["profit"].std()
         })
         

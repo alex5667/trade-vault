@@ -22,8 +22,8 @@ from domain.normalizers import canon_source, canon_symbol
 
 try:
     from analysis.trailing_recommender import (
-        ClosedTradeSnapshot,
-        recommend_trailing_size,
+        ClosedTradeSnapshot
+        recommend_trailing_size
     )
 except ImportError:
     ClosedTradeSnapshot = None
@@ -308,15 +308,15 @@ class TagStats:
     def finalize(self) -> dict:
         """Возвращает все метрики по тегу в виде dict."""
         res = {
-            "tag": self.tag,
-            "n": self.n,
-            "wins": self.wins,
-            "losses": self.losses,
-            "be": self.be,
-            "n_fixed": self.n_fixed,
-            "fixed_wins": self.fixed_wins,
-            "fixed_losses": self.fixed_losses,
-            "fixed_be": self.fixed_be,
+            "tag": self.tag
+            "n": self.n
+            "wins": self.wins
+            "losses": self.losses
+            "be": self.be
+            "n_fixed": self.n_fixed
+            "fixed_wins": self.fixed_wins
+            "fixed_losses": self.fixed_losses
+            "fixed_be": self.fixed_be
         }
 
         # --- managed ---
@@ -356,10 +356,10 @@ class TagStats:
             payoff_usd = 0.0
 
         res.update(
-            expectancy_r=exp_r,
-            wr=wr,
-            payoff_r=payoff_r,
-            payoff_usd=payoff_usd,
+            expectancy_r=exp_r
+            wr=wr
+            payoff_r=payoff_r
+            payoff_usd=payoff_usd
         )
 
         # --- baseline ---
@@ -401,11 +401,11 @@ class TagStats:
         delta_exp_r = exp_r - exp_fixed_r
 
         res.update(
-            wr_fixed=wr_fixed,
-            expectancy_fixed_r=exp_fixed_r,
-            payoff_fixed_r=payoff_fixed_r,
-            payoff_fixed_usd=payoff_fixed_usd,
-            delta_expectancy_r=delta_exp_r,
+            wr_fixed=wr_fixed
+            expectancy_fixed_r=exp_fixed_r
+            payoff_fixed_r=payoff_fixed_r
+            payoff_fixed_usd=payoff_fixed_usd
+            delta_expectancy_r=delta_exp_r
         )
 
         # --- Giveback aggregated ---
@@ -424,10 +424,10 @@ class TagStats:
             giveback_share = 0.0
 
         res.update(
-            giveback_avg_usd=giveback_avg_usd,
-            giveback_avg_r=giveback_avg_r,
-            giveback_avg_ratio=giveback_avg_ratio,
-            giveback_share=giveback_share,
+            giveback_avg_usd=giveback_avg_usd
+            giveback_avg_r=giveback_avg_r
+            giveback_avg_ratio=giveback_avg_ratio
+            giveback_share=giveback_share
         )
 
         # --- Missed profit aggregated ---
@@ -446,10 +446,10 @@ class TagStats:
             missed_share = 0.0
 
         res.update(
-            missed_avg_usd=missed_avg_usd,
-            missed_avg_r=missed_avg_r,
-            missed_avg_ratio=missed_avg_ratio,
-            missed_share=missed_share,
+            missed_avg_usd=missed_avg_usd
+            missed_avg_r=missed_avg_r
+            missed_avg_ratio=missed_avg_ratio
+            missed_share=missed_share
         )
 
         # --- Excursions aggregated ---
@@ -464,8 +464,8 @@ class TagStats:
             mae_avg_r = 0.0
 
         res.update(
-            mfe_avg_r=mfe_avg_r,
-            mae_avg_r=mae_avg_r,
+            mfe_avg_r=mfe_avg_r
+            mae_avg_r=mae_avg_r
         )
 
         # --- Trailing aggregated ---
@@ -492,28 +492,28 @@ class TagStats:
             trailing_delta_expectancy_r = 0.0
 
         res.update(
-            trailing_share=trailing_share,
-            trailing_close_share=trailing_close_share,
-            trailing_wr=trailing_wr,
-            trailing_expectancy_r=trailing_expectancy_r,
-            trailing_expectancy_fixed_r=trailing_expectancy_fixed_r,
-            trailing_delta_expectancy_r=trailing_delta_expectancy_r,
-            trailing_trades=self.tr_n,
+            trailing_share=trailing_share
+            trailing_close_share=trailing_close_share
+            trailing_wr=trailing_wr
+            trailing_expectancy_r=trailing_expectancy_r
+            trailing_expectancy_fixed_r=trailing_expectancy_fixed_r
+            trailing_delta_expectancy_r=trailing_delta_expectancy_r
+            trailing_trades=self.tr_n
         )
 
         # Доли сравнения managed vs baseline
         n_total = float(self.n_fixed)
         if n_total > 0:
             res.update(
-                share_better=self.better_count / n_total,
-                share_worse=self.worse_count / n_total,
-                share_equal=self.equal_count / n_total,
+                share_better=self.better_count / n_total
+                share_worse=self.worse_count / n_total
+                share_equal=self.equal_count / n_total
             )
         else:
             res.update(
-                share_better=0.0,
-                share_worse=0.0,
-                share_equal=0.0,
+                share_better=0.0
+                share_worse=0.0
+                share_equal=0.0
             )
 
         return res
@@ -578,23 +578,23 @@ def load_trades_from_pg(limit: int) -> List[Dict[str, Any]]:
     trades: List[Dict[str, Any]] = []
     for row in rows:
         trades.append({
-            "source": row.get("source"),
-            "symbol": row.get("symbol"),
-            "entry_tag": row.get("entry_tag"),
-            "pnl_net": row.get("pnl_net"),
-            "pnl_if_fixed_exit": row.get("pnl_if_fixed_exit"),
-            "one_r_money": row.get("one_r_money"),
-            "giveback": row.get("giveback"),
-            "missed_profit": row.get("missed_profit"),
-            "mfe_pnl": row.get("mfe_pnl"),
-            "mae_pnl": row.get("mae_pnl"),
-            "trailing_started": row.get("trailing_started"),
-            "trailing_active": row.get("trailing_active"),
-            "close_reason": row.get("close_reason"),
-            "close_reason_raw": row.get("close_reason_raw"),
-            "close_reason_detail": row.get("close_reason_detail"),
-            "notional_usd": row.get("notional_usd"),
-            "exit_ts_ms": row.get("exit_ts_ms"),
+            "source": row.get("source")
+            "symbol": row.get("symbol")
+            "entry_tag": row.get("entry_tag")
+            "pnl_net": row.get("pnl_net")
+            "pnl_if_fixed_exit": row.get("pnl_if_fixed_exit")
+            "one_r_money": row.get("one_r_money")
+            "giveback": row.get("giveback")
+            "missed_profit": row.get("missed_profit")
+            "mfe_pnl": row.get("mfe_pnl")
+            "mae_pnl": row.get("mae_pnl")
+            "trailing_started": row.get("trailing_started")
+            "trailing_active": row.get("trailing_active")
+            "close_reason": row.get("close_reason")
+            "close_reason_raw": row.get("close_reason_raw")
+            "close_reason_detail": row.get("close_reason_detail")
+            "notional_usd": row.get("notional_usd")
+            "exit_ts_ms": row.get("exit_ts_ms")
         })
     return trades
 
@@ -623,12 +623,12 @@ def load_trades(r, source: str, symbol: str, limit: int = 5000) -> Iterable[Dict
 
 
 def analyze_by_entry_tag(
-    trades: Iterable[Dict[str, Any]],
-    source: Optional[str] = None,
-    symbol: Optional[str] = None,
-    min_trades: int = 5,
-    include_untagged: bool = False,
-    legacy_format: bool = False,
+    trades: Iterable[Dict[str, Any]]
+    source: Optional[str] = None
+    symbol: Optional[str] = None
+    min_trades: int = 5
+    include_untagged: bool = False
+    legacy_format: bool = False
 ) -> Union[List[dict], Dict[str, Dict[str, Any]]]:
     """
     Анализирует сделки по entry_tag с разделением baseline vs managed.
@@ -687,21 +687,21 @@ def analyze_by_entry_tag(
         for res in results:
             tag = res["tag"]
             legacy_dict[tag] = {
-                "n": res["n"],
-                "wins": res["wins"],
-                "losses": res["losses"],
-                "sum_pnl": res.get("sum_win_usd", 0.0) - res.get("sum_loss_usd", 0.0),
-                "sum_r_net": res.get("expectancy_r", 0.0) * res["n"],
-                "sum_r_fixed": res.get("expectancy_fixed_r", 0.0) * res.get("n_fixed", 0),
-                "sum_r_mgmt": (res.get("expectancy_r", 0.0) - res.get("expectancy_fixed_r", 0.0)) * res["n"],
-                "sum_r_win": res.get("sum_win_r", 0.0),
-                "sum_r_loss": res.get("sum_loss_r", 0.0),
-                "sum_r_fixed_win": res.get("sum_fixed_win_r", 0.0),
-                "sum_r_fixed_loss": res.get("sum_fixed_loss_r", 0.0),
-                "n_r": res["n"],
-                "wins_fixed": res.get("fixed_wins", 0),
-                "losses_fixed": res.get("fixed_losses", 0),
-                "n_fixed": res.get("n_fixed", 0),
+                "n": res["n"]
+                "wins": res["wins"]
+                "losses": res["losses"]
+                "sum_pnl": res.get("sum_win_usd", 0.0) - res.get("sum_loss_usd", 0.0)
+                "sum_r_net": res.get("expectancy_r", 0.0) * res["n"]
+                "sum_r_fixed": res.get("expectancy_fixed_r", 0.0) * res.get("n_fixed", 0)
+                "sum_r_mgmt": (res.get("expectancy_r", 0.0) - res.get("expectancy_fixed_r", 0.0)) * res["n"]
+                "sum_r_win": res.get("sum_win_r", 0.0)
+                "sum_r_loss": res.get("sum_loss_r", 0.0)
+                "sum_r_fixed_win": res.get("sum_fixed_win_r", 0.0)
+                "sum_r_fixed_loss": res.get("sum_fixed_loss_r", 0.0)
+                "n_r": res["n"]
+                "wins_fixed": res.get("fixed_wins", 0)
+                "losses_fixed": res.get("fixed_losses", 0)
+                "n_fixed": res.get("n_fixed", 0)
             }
         return legacy_dict
     
@@ -813,25 +813,25 @@ def print_tag_stats(per_tag: Dict[str, Dict[str, Any]], min_trades_per_tag: int 
         tag_stats = TagStats(tag)
         # Не можем восстановить полные данные, но можем показать что есть
         results.append({
-            "tag": tag,
-            "n": n,
-            "wins": stats.get("wins", 0),
-            "losses": stats.get("losses", 0),
-            "be": n - stats.get("wins", 0) - stats.get("losses", 0),
-            "n_fixed": stats.get("n_fixed", 0),
-            "fixed_wins": stats.get("wins_fixed", 0),
-            "fixed_losses": stats.get("losses_fixed", 0),
-            "fixed_be": stats.get("n_fixed", 0) - stats.get("wins_fixed", 0) - stats.get("losses_fixed", 0),
-            "expectancy_r": stats.get("sum_r_net", 0.0) / max(stats.get("n_r", 1), 1),
-            "wr": stats.get("wins", 0) / max(n, 1),
+            "tag": tag
+            "n": n
+            "wins": stats.get("wins", 0)
+            "losses": stats.get("losses", 0)
+            "be": n - stats.get("wins", 0) - stats.get("losses", 0)
+            "n_fixed": stats.get("n_fixed", 0)
+            "fixed_wins": stats.get("wins_fixed", 0)
+            "fixed_losses": stats.get("losses_fixed", 0)
+            "fixed_be": stats.get("n_fixed", 0) - stats.get("wins_fixed", 0) - stats.get("losses_fixed", 0)
+            "expectancy_r": stats.get("sum_r_net", 0.0) / max(stats.get("n_r", 1), 1)
+            "wr": stats.get("wins", 0) / max(n, 1)
             "payoff_r": 0.0,  # нужно больше данных
-            "payoff_usd": 0.0,
-            "wr_fixed": stats.get("wins_fixed", 0) / max(stats.get("n_fixed", 1), 1),
-            "expectancy_fixed_r": stats.get("sum_r_fixed", 0.0) / max(stats.get("n_fixed", 1), 1),
-            "payoff_fixed_r": 0.0,
-            "payoff_fixed_usd": 0.0,
+            "payoff_usd": 0.0
+            "wr_fixed": stats.get("wins_fixed", 0) / max(stats.get("n_fixed", 1), 1)
+            "expectancy_fixed_r": stats.get("sum_r_fixed", 0.0) / max(stats.get("n_fixed", 1), 1)
+            "payoff_fixed_r": 0.0
+            "payoff_fixed_usd": 0.0
             "delta_expectancy_r": (stats.get("sum_r_net", 0.0) / max(stats.get("n_r", 1), 1)) - 
-                                  (stats.get("sum_r_fixed", 0.0) / max(stats.get("n_fixed", 1), 1)),
+                                  (stats.get("sum_r_fixed", 0.0) / max(stats.get("n_fixed", 1), 1))
         })
     
     print(format_report(results))
@@ -843,8 +843,8 @@ def run_cli() -> None:
         description="Анализ baseline vs managed по entry_tag (trades:closed)."
     )
     parser.add_argument(
-        "--redis-url",
-        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
+        "--redis-url"
+        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     )
     parser.add_argument("--source", default=None, help="Фильтр по source (например, CryptoOrderFlow)")
     parser.add_argument("--symbol", default=None, help="Фильтр по symbol (например, BTCUSDT)")
@@ -858,9 +858,9 @@ def run_cli() -> None:
         "--include-untagged", action="store_true", help="Включать сделки без entry_tag"
     )
     parser.add_argument(
-        "--use-pg",
-        action="store_true",
-        help="Брать сделки из Timescale/Postgres (TRADES_DB_DSN) вместо Redis.",
+        "--use-pg"
+        action="store_true"
+        help="Брать сделки из Timescale/Postgres (TRADES_DB_DSN) вместо Redis."
     )
 
     args = parser.parse_args()
@@ -874,21 +874,21 @@ def run_cli() -> None:
         trades = load_trades_from_redis(r, limit=args.limit)
 
     results = analyze_by_entry_tag(
-        trades,
-        source=args.source,
-        symbol=args.symbol,
-        min_trades=args.min_trades,
-        include_untagged=args.include_untagged,
+        trades
+        source=args.source
+        symbol=args.symbol
+        min_trades=args.min_trades
+        include_untagged=args.include_untagged
     )
 
     # Анализируем trailing рекомендации
     trailing_reports = analyze_trailing_by_entry_tag(
-        trades,
-        source=args.source,
-        symbol=args.symbol,
+        trades
+        source=args.source
+        symbol=args.symbol
         stop_atr_mult=1.0,  # можно параметризовать
-        min_trades=args.min_trades,
-        mfe_quantile=0.25,
+        min_trades=args.min_trades
+        mfe_quantile=0.25
     )
 
     print(format_report(results, trailing_reports))
@@ -907,16 +907,16 @@ def _build_trailing_snapshots_for_group(group_trades: list[dict]) -> list[Closed
     for t in group_trades:
         try:
             snap = ClosedTradeSnapshot(
-                source=str(t.get("source") or t.get("strategy_source") or "Unknown"),
-                symbol=str(t.get("symbol") or "UNKNOWN").upper(),
-                pnl_net=float(t.get("pnl_net") or 0.0),
-                one_r_money=float(t.get("one_r_money") or 0.0),
-                mfe_pnl=float(t.get("mfe_pnl") or 0.0),
-                giveback=float(t.get("giveback") or 0.0),
-                trailing_started=str(t.get("trailing_started") or "0") in ("1", "true", "True"),
-                trailing_active=str(t.get("trailing_active") or "0") in ("1", "true", "True"),
-                exit_ts_ms=int(t.get("exit_ts_ms") or 0),
-                entry_tag=str(t.get("entry_tag") or ""),
+                source=str(t.get("source") or t.get("strategy_source") or "Unknown")
+                symbol=str(t.get("symbol") or "UNKNOWN").upper()
+                pnl_net=float(t.get("pnl_net") or 0.0)
+                one_r_money=float(t.get("one_r_money") or 0.0)
+                mfe_pnl=float(t.get("mfe_pnl") or 0.0)
+                giveback=float(t.get("giveback") or 0.0)
+                trailing_started=str(t.get("trailing_started") or "0") in ("1", "true", "True")
+                trailing_active=str(t.get("trailing_active") or "0") in ("1", "true", "True")
+                exit_ts_ms=int(t.get("exit_ts_ms") or 0)
+                entry_tag=str(t.get("entry_tag") or "")
             )
             snaps.append(snap)
         except Exception:
@@ -925,12 +925,12 @@ def _build_trailing_snapshots_for_group(group_trades: list[dict]) -> list[Closed
 
 
 def analyze_trailing_by_entry_tag(
-    trades: Iterable[Dict[str, Any]],
-    source: Optional[str] = None,
-    symbol: Optional[str] = None,
-    stop_atr_mult: float = 1.0,
-    min_trades: int = 30,
-    mfe_quantile: float = 0.25,
+    trades: Iterable[Dict[str, Any]]
+    source: Optional[str] = None
+    symbol: Optional[str] = None
+    stop_atr_mult: float = 1.0
+    min_trades: int = 30
+    mfe_quantile: float = 0.25
 ) -> Dict[str, str]:
     """
     Анализирует trailing рекомендации для каждого entry_tag.
@@ -978,13 +978,13 @@ def analyze_trailing_by_entry_tag(
 
         # Получаем рекомендации
         md_trail = _format_trailing_rec_for_tag(
-            source=source or "",
-            symbol=symbol or "",
-            entry_tag=entry_tag,
-            snaps=snaps,
-            stop_atr_mult=stop_atr_mult,
-            min_trades=min_trades,
-            mfe_quantile=mfe_quantile,
+            source=source or ""
+            symbol=symbol or ""
+            entry_tag=entry_tag
+            snaps=snaps
+            stop_atr_mult=stop_atr_mult
+            min_trades=min_trades
+            mfe_quantile=mfe_quantile
         )
 
         if md_trail.strip():
@@ -994,13 +994,13 @@ def analyze_trailing_by_entry_tag(
 
 
 def _format_trailing_rec_for_tag(
-    source: str,
-    symbol: str,
-    entry_tag: str,
-    snaps: list[ClosedTradeSnapshot],
-    stop_atr_mult: float,
-    min_trades: int = 30,
-    mfe_quantile: float = 0.25,
+    source: str
+    symbol: str
+    entry_tag: str
+    snaps: list[ClosedTradeSnapshot]
+    stop_atr_mult: float
+    min_trades: int = 30
+    mfe_quantile: float = 0.25
 ) -> str:
     """
     Возвращает Markdown-блок с рекомендацией по трейлингу для конкретного entry_tag.
@@ -1009,22 +1009,22 @@ def _format_trailing_rec_for_tag(
         return ""
 
     rec_all = recommend_trailing_size(
-        snaps,
-        source=source,
-        symbol=symbol,
-        stop_atr_mult=stop_atr_mult,
-        min_trades=min_trades,
-        mfe_quantile=mfe_quantile,
-        trailing_only=False,
+        snaps
+        source=source
+        symbol=symbol
+        stop_atr_mult=stop_atr_mult
+        min_trades=min_trades
+        mfe_quantile=mfe_quantile
+        trailing_only=False
     )
     rec_tr = recommend_trailing_size(
-        snaps,
-        source=source,
-        symbol=symbol,
-        stop_atr_mult=stop_atr_mult,
-        min_trades=max(10, min_trades // 2),
-        mfe_quantile=mfe_quantile,
-        trailing_only=True,
+        snaps
+        source=source
+        symbol=symbol
+        stop_atr_mult=stop_atr_mult
+        min_trades=max(10, min_trades // 2)
+        mfe_quantile=mfe_quantile
+        trailing_only=True
     )
 
     lines = []

@@ -14,9 +14,9 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.orderflow.side_policy import (
-    is_unknown_side_tick,
-    normalize_unknown_side_policy,
-    deterministic_sample,
+    is_unknown_side_tick
+    normalize_unknown_side_policy
+    deterministic_sample
 )
 
 
@@ -96,23 +96,23 @@ class TestNormalizeUnknownSidePolicy(unittest.TestCase):
 class TestUnknownSideCanonicalFields(unittest.TestCase):
     """
     Test that UNKNOWN side + ignore_delta produces the complete canonical
-    downstream contract fields: qty_signed=0, aggressor_sign=0,
+    downstream contract fields: qty_signed=0, aggressor_sign=0
     counted_in_delta=False, side=UNKNOWN, side_reason=unknown.
     """
 
     def _make_unknown_tick(self) -> dict:
         return {
-            "symbol": "BTCUSDT",
-            "ts_ms": 1_700_000_100_000,
-            "event_ts_ms": 1_700_000_100_000,
-            "qty": 0.1,
-            "price": 50000.0,
-            "side": "UNKNOWN",
-            "side_conf": "unknown",
-            "is_buyer_maker": None,
-            "trade_id": None,
-            "tick_uid": "BTCUSDT:mid1700000100000-0",
-            "qty_signed": None,
+            "symbol": "BTCUSDT"
+            "ts_ms": 1_700_000_100_000
+            "event_ts_ms": 1_700_000_100_000
+            "qty": 0.1
+            "price": 50000.0
+            "side": "UNKNOWN"
+            "side_conf": "unknown"
+            "is_buyer_maker": None
+            "trade_id": None
+            "tick_uid": "BTCUSDT:mid1700000100000-0"
+            "qty_signed": None
         }
 
     def test_ignore_delta_sets_canonical_fields(self):

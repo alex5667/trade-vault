@@ -11,21 +11,21 @@ def test_exec_slippage_eval_view_contract_p86():
     #  - enforce_bucket_state_exporter DB stats query
     #  - promoter/rollback/freezer validation
     required_cols = [
-        "expected_slip_model_bps",
-        "expected_slip_decomp_bps",
-        "slip_decomp_coeff_bps",
-        "slip_decomp_spread_bps",
-        "slip_decomp_impact_bps",
-        "realized_slip_worse_bps",
-        "slippage_residual_bps",
-        "slippage_residual_model_bps",
-        "edge_minus_expected_bps",
-        "edge_minus_expected_model_bps",
-        "exec_regime_bucket",
-        "taker_flow_imb_z",
-        "liq_regime_label",
-        "vol_regime_label",
-        "features_json",
+        "expected_slip_model_bps"
+        "expected_slip_decomp_bps"
+        "slip_decomp_coeff_bps"
+        "slip_decomp_spread_bps"
+        "slip_decomp_impact_bps"
+        "realized_slip_worse_bps"
+        "slippage_residual_bps"
+        "slippage_residual_model_bps"
+        "edge_minus_expected_bps"
+        "edge_minus_expected_model_bps"
+        "exec_regime_bucket"
+        "taker_flow_imb_z"
+        "liq_regime_label"
+        "vol_regime_label"
+        "features_json"
     ]
 
     for col in required_cols:

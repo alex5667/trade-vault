@@ -60,9 +60,9 @@ def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
 
 def _telegram_links_smoke(webhook_url: str, *, verify_tls: bool) -> Tuple[bool, str]:
     payload = {
-        "status": "firing",
-        "alerts": [{"labels": {"alertname": "SmokeTest"}}],
-        "commonAnnotations": {"smoke": "1"},
+        "status": "firing"
+        "alerts": [{"labels": {"alertname": "SmokeTest"}}]
+        "commonAnnotations": {"smoke": "1"}
         "commonLabels": {"smoke": "1"}
     }
     # Usually alertmanager webhook supports ?dry_run=1 to just generate links without sending Telegram msg
@@ -104,10 +104,10 @@ def main() -> int:
     verify_tls = _env("SMOKE_VERIFY_TLS", "0") in ("1", "true", "yes")
 
     health_urls = [
-        f"{public_base}/grafana/api/health",
-        f"{public_base}/runbooks/healthz",
-        f"{public_base}/alertmanager/-/ready",
-        f"{public_base}/prometheus/-/ready",
+        f"{public_base}/grafana/api/health"
+        f"{public_base}/runbooks/healthz"
+        f"{public_base}/alertmanager/-/ready"
+        f"{public_base}/prometheus/-/ready"
     ]
     runbook_urls, dash_urls = _smoke_contract_targets(public_base)
 
@@ -148,15 +148,15 @@ def main() -> int:
     failed_health = [c for c in failed_checks if c.get("kind") == "health"]
     failed_contract = [c for c in failed_checks if c.get("kind") in ("runbook", "dashboard")]
     fields = {
-        "success": "1" if ok_all else "0",
-        "runbooks_ok": "1" if runbooks_ok else "0",
-        "dashboards_ok": "1" if dashboards_ok else "0",
-        "updated_ts_ms": str(ts_ms),
-        "reason": "ok" if ok_all else "failed",
-        "public_base_url": public_base,
-        "failed_total": str(len(failed_checks)),
-        "failed_health": json.dumps(failed_health, ensure_ascii=False)[:1200],
-        "failed_contract": json.dumps(failed_contract, ensure_ascii=False)[:1200],
+        "success": "1" if ok_all else "0"
+        "runbooks_ok": "1" if runbooks_ok else "0"
+        "dashboards_ok": "1" if dashboards_ok else "0"
+        "updated_ts_ms": str(ts_ms)
+        "reason": "ok" if ok_all else "failed"
+        "public_base_url": public_base
+        "failed_total": str(len(failed_checks))
+        "failed_health": json.dumps(failed_health, ensure_ascii=False)[:1200]
+        "failed_contract": json.dumps(failed_contract, ensure_ascii=False)[:1200]
     }
     _write_redis(key, fields)
     return 0 if ok_all else 2

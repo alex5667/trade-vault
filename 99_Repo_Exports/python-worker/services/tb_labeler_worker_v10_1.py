@@ -193,11 +193,11 @@ def _stream_id(ms: int, seq: int) -> str:
 
 
 def fetch_ticks_window(
-    r_ticks: redis.Redis,
-    stream: str,
-    start_ms: int,
-    end_ms: int,
-    max_rows: int = 250_000,
+    r_ticks: redis.Redis
+    stream: str
+    start_ms: int
+    end_ms: int
+    max_rows: int = 250_000
 ) -> List[Tuple[int, float]]:
     """
     XRANGE by ID because your IDs are ms-based (<ms>-<seq>).
@@ -359,19 +359,19 @@ class TBLabelerWorker:
                     # Apply migration
                     migration_sql = """
                     CREATE TABLE tb_labels (
-                      sid            TEXT PRIMARY KEY,
-                      symbol         TEXT NOT NULL,
-                      ts_ms          BIGINT NOT NULL,
-                      direction      TEXT NOT NULL,
-                      primary_h_ms   INTEGER NOT NULL,
-                      primary_label  TEXT NOT NULL,
-                      primary_hit_ms BIGINT NOT NULL,
-                      primary_ret_bps DOUBLE PRECISION NOT NULL,
-                      primary_r_mult  DOUBLE PRECISION NOT NULL,
-                      primary_y_edge  INTEGER NOT NULL,
-                      horizons_json  JSONB NOT NULL,
-                      ticks_sample   JSONB,
-                      meta           JSONB,
+                      sid            TEXT PRIMARY KEY
+                      symbol         TEXT NOT NULL
+                      ts_ms          BIGINT NOT NULL
+                      direction      TEXT NOT NULL
+                      primary_h_ms   INTEGER NOT NULL
+                      primary_label  TEXT NOT NULL
+                      primary_hit_ms BIGINT NOT NULL
+                      primary_ret_bps DOUBLE PRECISION NOT NULL
+                      primary_r_mult  DOUBLE PRECISION NOT NULL
+                      primary_y_edge  INTEGER NOT NULL
+                      horizons_json  JSONB NOT NULL
+                      ticks_sample   JSONB
+                      meta           JSONB
                       created_ms     BIGINT NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS tb_labels_symbol_ts_idx ON tb_labels(symbol, ts_ms);
@@ -391,11 +391,11 @@ class TBLabelerWorker:
             return
         q = """
         insert into tb_labels
-        (sid, symbol, ts_ms, direction,
-         primary_h_ms, primary_label, primary_hit_ms, primary_ret_bps, primary_r_mult, primary_y_edge,
+        (sid, symbol, ts_ms, direction
+         primary_h_ms, primary_label, primary_hit_ms, primary_ret_bps, primary_r_mult, primary_y_edge
          horizons_json, ticks_sample, meta, created_ms)
-        values (%(sid)s, %(symbol)s, %(ts_ms)s, %(direction)s,
-                %(primary_h_ms)s, %(primary_label)s, %(primary_hit_ms)s, %(primary_ret_bps)s, %(primary_r_mult)s, %(primary_y_edge)s,
+        values (%(sid)s, %(symbol)s, %(ts_ms)s, %(direction)s
+                %(primary_h_ms)s, %(primary_label)s, %(primary_hit_ms)s, %(primary_ret_bps)s, %(primary_r_mult)s, %(primary_y_edge)s
                 %(horizons_json)s::jsonb, %(ticks_sample)s::jsonb, %(meta)s::jsonb, %(created_ms)s)
         on conflict (sid) do nothing
         """
@@ -423,16 +423,16 @@ class TBLabelerWorker:
         # store compact job payload with TTL (so zset member is only sid)
         job_key = TB_JOB_KEY_PREFIX + sid
         job = {
-            "sid": sid,
-            "symbol": symbol,
-            "ts_ms": ts_ms,
-            "direction": direction,
+            "sid": sid
+            "symbol": symbol
+            "ts_ms": ts_ms
+            "direction": direction
             "indicators": {
                 # keep minimal set
-                "stop_bps": indicators.get("stop_bps", 0.0),
-                "atr_bps": indicators.get("atr_bps", 0.0),
-                "spread_bps": indicators.get("spread_bps", 0.0),
-                "expected_slippage_bps": indicators.get("expected_slippage_bps", 0.0),
+                "stop_bps": indicators.get("stop_bps", 0.0)
+                "atr_bps": indicators.get("atr_bps", 0.0)
+                "spread_bps": indicators.get("spread_bps", 0.0)
+                "expected_slippage_bps": indicators.get("expected_slippage_bps", 0.0)
             }
         }
         self.r.set(job_key, json.dumps(job, ensure_ascii=False, separators=(",", ":")), ex=TB_JOB_TTL_SEC)
@@ -482,47 +482,47 @@ class TBLabelerWorker:
                 entry_px = ticks[0][1] if ticks else 0.0
 
                 b = infer_tp_sl_bps(
-                    indicators,
-                    tp_k_atr=TP_K_ATR,
-                    sl_k_atr=SL_K_ATR,
-                    fallback_tp_bps=FALLBACK_TP_BPS,
-                    fallback_sl_bps=FALLBACK_SL_BPS,
+                    indicators
+                    tp_k_atr=TP_K_ATR
+                    sl_k_atr=SL_K_ATR
+                    fallback_tp_bps=FALLBACK_TP_BPS
+                    fallback_sl_bps=FALLBACK_SL_BPS
                 )
 
                 horizons_out: Dict[str, Any] = {}
                 for h in HORIZONS:
                     horizons_out[str(h)] = barrier_stats(
-                        ts0=ts0,
-                        direction=direction,
-                        entry_px=entry_px,
-                        path=ticks,
-                        b=b,
-                        h_ms=h,
-                        adv_max=TB_ADV_MAX,
+                        ts0=ts0
+                        direction=direction
+                        entry_px=entry_px
+                        path=ticks
+                        b=b
+                        h_ms=h
+                        adv_max=TB_ADV_MAX
                     )
 
                 primary = horizons_out.get(str(PRIMARY_H_MS), horizons_out[str(HORIZONS[len(HORIZONS)//2])])
 
                 meta = {
-                    "tp_bps": float(b.tp_bps),
-                    "sl_bps": float(b.sl_bps),
-                    "scale_bps": float(b.scale_bps),
-                    "exec_cost_r": exec_cost_r(indicators, b.scale_bps),
+                    "tp_bps": float(b.tp_bps)
+                    "sl_bps": float(b.sl_bps)
+                    "scale_bps": float(b.scale_bps)
+                    "exec_cost_r": exec_cost_r(indicators, b.scale_bps)
                 }
                 meta["util_r"] = float(primary.get("r_mult", 0.0) or 0.0) - float(meta["exec_cost_r"])  # risk penalty can be added later
 
                 payload = {
-                    "sid": sid,
-                    "symbol": symbol,
-                    "ts_ms": ts0,
-                    "direction": direction,
-                    "primary_h_ms": PRIMARY_H_MS,
-                    "primary": primary,
-                    "horizons": horizons_out,
-                    "entry_px": float(entry_px),
-                    "created_ms": now_ms(),
-                    "ticks_sample": sample_ticks(ticks, every=TB_TICKS_SAMPLE_EVERY, max_n=TB_TICKS_MAX) if TB_STORE_TICKS == 1 else None,
-                    "meta": meta,
+                    "sid": sid
+                    "symbol": symbol
+                    "ts_ms": ts0
+                    "direction": direction
+                    "primary_h_ms": PRIMARY_H_MS
+                    "primary": primary
+                    "horizons": horizons_out
+                    "entry_px": float(entry_px)
+                    "created_ms": now_ms()
+                    "ticks_sample": sample_ticks(ticks, every=TB_TICKS_SAMPLE_EVERY, max_n=TB_TICKS_MAX) if TB_STORE_TICKS == 1 else None
+                    "meta": meta
                 }
 
                 # write to Redis stream
@@ -541,20 +541,20 @@ class TBLabelerWorker:
 
                 # write to Postgres (optional)
                 row = {
-                    "sid": sid,
-                    "symbol": symbol,
-                    "ts_ms": ts0,
-                    "direction": direction,
-                    "primary_h_ms": int(PRIMARY_H_MS),
-                    "primary_label": str(primary["label"]),
-                    "primary_hit_ms": int(primary["hit_ms"]),
-                    "primary_ret_bps": float(primary["ret_bps"]),
-                    "primary_r_mult": float(primary["r_mult"]),
-                    "primary_y_edge": int(primary["y_edge"]),
-                    "horizons_json": json.dumps(horizons_out, ensure_ascii=False, separators=(",", ":")),
-                    "ticks_sample": json.dumps(payload.get("ticks_sample"), ensure_ascii=False, separators=(",", ":")) if payload.get("ticks_sample") is not None else None,
-                    "meta": json.dumps(meta, ensure_ascii=False, separators=(",", ":")),
-                    "created_ms": int(payload["created_ms"]),
+                    "sid": sid
+                    "symbol": symbol
+                    "ts_ms": ts0
+                    "direction": direction
+                    "primary_h_ms": int(PRIMARY_H_MS)
+                    "primary_label": str(primary["label"])
+                    "primary_hit_ms": int(primary["hit_ms"])
+                    "primary_ret_bps": float(primary["ret_bps"])
+                    "primary_r_mult": float(primary["r_mult"])
+                    "primary_y_edge": int(primary["y_edge"])
+                    "horizons_json": json.dumps(horizons_out, ensure_ascii=False, separators=(",", ":"))
+                    "ticks_sample": json.dumps(payload.get("ticks_sample"), ensure_ascii=False, separators=(",", ":")) if payload.get("ticks_sample") is not None else None
+                    "meta": json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
+                    "created_ms": int(payload["created_ms"])
                 }
                 try:
                     self._pg_upsert(row)

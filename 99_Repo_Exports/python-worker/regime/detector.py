@@ -28,13 +28,13 @@ class RegimeDetector:
     """
 
     def __init__(
-        self,
-        *,
-        cfg: Any,
-        history: Dict[str, Deque[RegimeSample]],
-        get_htf_levels: Callable[[str], Any],
-        compute_daily_open_cross_freq: Callable[[str], Optional[float]],
-        now_s: Callable[[], float] = time.time,
+        self
+        *
+        cfg: Any
+        history: Dict[str, Deque[RegimeSample]]
+        get_htf_levels: Callable[[str], Any]
+        compute_daily_open_cross_freq: Callable[[str], Optional[float]]
+        now_s: Callable[[], float] = time.time
     ) -> None:
         self.cfg = cfg
         self._history = history
@@ -116,11 +116,11 @@ class RegimeDetector:
         h = self._hist(str(symbol))
         h.append(
             RegimeSample(
-                ts=now_f,
-                price=price_f,
-                vwap_side=vwap_side,
-                daily_open_side=daily_open_side,
-                bar_index=None,
+                ts=now_f
+                price=price_f
+                vwap_side=vwap_side
+                daily_open_side=daily_open_side
+                bar_index=None
             )
         )
 
@@ -243,16 +243,16 @@ class RegimeDetector:
                 weak_progress_bias = _clamp((w - 0.5) * 2.0, -1.0, 1.0)
 
         return RegimeFeatures(
-            vwap_dev_bps=vwap_dev_bps,
-            daily_open_dev_bps=daily_open_dev_bps,
-            daily_open_cross_freq=daily_open_cross_freq,
-            htf_level_dist_bps=htf_level_dist_bps,
-            atr_bias=atr_bias,
-            delta_dir_bias=delta_dir_bias,
-            vwap_dev_bias=vwap_dev_bias,
-            daily_open_dev_bias=daily_open_dev_bias,
-            daily_open_cross_bias=daily_open_cross_bias,
-            htf_prox_bias=htf_prox_bias,
-            weak_progress_bias=weak_progress_bias,
-            session_bias=None,
+            vwap_dev_bps=vwap_dev_bps
+            daily_open_dev_bps=daily_open_dev_bps
+            daily_open_cross_freq=daily_open_cross_freq
+            htf_level_dist_bps=htf_level_dist_bps
+            atr_bias=atr_bias
+            delta_dir_bias=delta_dir_bias
+            vwap_dev_bias=vwap_dev_bias
+            daily_open_dev_bias=daily_open_dev_bias
+            daily_open_cross_bias=daily_open_cross_bias
+            htf_prox_bias=htf_prox_bias
+            weak_progress_bias=weak_progress_bias
+            session_bias=None
         )

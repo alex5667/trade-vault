@@ -147,18 +147,18 @@ def main() -> int:
             buckets_out[bk] = _quantile_qhat(scs, alpha)
 
     out = {
-        "schema_version": "conf_conformal_v1",
-        "alpha": alpha,
-        "global_qhat": float(global_qhat),
-        "buckets": buckets_out,
-        "trained_ts_ms": now_ms(),
+        "schema_version": "conf_conformal_v1"
+        "alpha": alpha
+        "global_qhat": float(global_qhat)
+        "buckets": buckets_out
+        "trained_ts_ms": now_ms()
         "stats": {
-            "rows_total": rows,
-            "rows_used": used,
-            "n_global": len(global_scores),
-            "n_buckets": len(buckets_out),
-            "min_bucket_n": int(args.min_bucket_n),
-        },
+            "rows_total": rows
+            "rows_used": used
+            "n_global": len(global_scores)
+            "n_buckets": len(buckets_out)
+            "min_bucket_n": int(args.min_bucket_n)
+        }
     }
 
     os.makedirs(os.path.dirname(args.out_json) or ".", exist_ok=True)

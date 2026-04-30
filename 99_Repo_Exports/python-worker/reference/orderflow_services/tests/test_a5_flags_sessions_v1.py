@@ -8,10 +8,10 @@ from pathlib import Path
 import math
 
 from core.flags_sessions_v1 import (
-    compute_a5_flags,
-    session_onehot,
-    session_open_close_flags,
-    update_time_ema,
+    compute_a5_flags
+    session_onehot
+    session_open_close_flags
+    update_time_ema
 )
 from core.feature_registry import get_edge_stack_feature_spec
 
@@ -71,26 +71,26 @@ def test_update_time_ema_dt() -> None:
 def test_compute_a5_flags_basic() -> None:
     ts_ms = _ts(10)
     indicators = {
-        "vol_ratio_z": 2.1,
-        "microbar_range_bps": 12.0,
-        "microbar_body_bps": 2.0,
+        "vol_ratio_z": 2.1
+        "microbar_range_bps": 12.0
+        "microbar_body_bps": 2.0
     }
 
     out = compute_a5_flags(
-        ts_ms=ts_ms,
-        qty=10.0,
-        indicators=indicators,
-        trade_qty_ema=1.5,
-        depth_total10=100.0,
-        depth_total10_ema=400.0,
+        ts_ms=ts_ms
+        qty=10.0
+        indicators=indicators
+        trade_qty_ema=1.5
+        depth_total10=100.0
+        depth_total10_ema=400.0
         cfg={
-            "a5_high_vol_z_th": 2.0,
-            "a5_low_liq_ratio_th": 0.35,
-            "a5_large_trade_mult": 6.0,
-            "a5_mr_body_ratio_th": 0.35,
-            "a5_mr_range_th_bps": 5.0,
-            "a5_session_edge_window_ms": 300_000,
-        },
+            "a5_high_vol_z_th": 2.0
+            "a5_low_liq_ratio_th": 0.35
+            "a5_large_trade_mult": 6.0
+            "a5_mr_body_ratio_th": 0.35
+            "a5_mr_range_th_bps": 5.0
+            "a5_session_edge_window_ms": 300_000
+        }
     )
 
     assert out["flag_high_vol"] == 1
@@ -116,7 +116,7 @@ def test_feature_registry_v10_includes_session_onehot() -> None:
     f_cols = [c for c in spec.feature_cols if c.startswith("f_")]
     assert len(f_cols) >= 160, f"v10_of only has {len(f_cols)} f_* cols, expected >= 160"
     # Spot-check key Group 2 additions
-    for key in ("f_vpin_rolling", "f_rsi_price", "f_spread_bps", "f_microbar_range_bps",
+    for key in ("f_vpin_rolling", "f_rsi_price", "f_spread_bps", "f_microbar_range_bps"
                 "f_mae_r", "f_btc_corr_5m", "f_book_slope_bid"):
         assert key in spec.feature_cols, f"v10_of missing expected key {key}"
 
@@ -154,23 +154,23 @@ def test_feature_registry_v12_spot_checks_all_groups() -> None:
     spec = get_edge_stack_feature_spec("v12_of")
     spot_keys = [
         # Group MA — microstructure / trade-by-trade
-        "f_trade_arrival_rate_hz",
-        "f_large_trade_ratio",
+        "f_trade_arrival_rate_hz"
+        "f_large_trade_ratio"
         # Group MB — order book dynamics
-        "f_depth_migration_bps",
-        "f_level2_wap_divergence",
+        "f_depth_migration_bps"
+        "f_level2_wap_divergence"
         # Group MC — temporal / seasonality
-        "f_minutes_to_funding",
-        "f_session_overlap_flag",
+        "f_minutes_to_funding"
+        "f_session_overlap_flag"
         # Group MD — cross-asset / macro
-        "f_perp_spot_basis_bps",
-        "f_eth_btc_corr_5m",
+        "f_perp_spot_basis_bps"
+        "f_eth_btc_corr_5m"
         # Group ME — meta-signal
-        "f_signal_frequency_1h",
-        "f_calibration_age_ms",
+        "f_signal_frequency_1h"
+        "f_calibration_age_ms"
         # Group MX — derived
-        "f_spread_percentile_rank_1d",
-        "f_atr_percentile_rank_30d",
+        "f_spread_percentile_rank_1d"
+        "f_atr_percentile_rank_30d"
     ]
     for key in spot_keys:
         assert key in spec.feature_cols, f"v12_of missing expected key {key}"
@@ -211,26 +211,26 @@ def test_feature_registry_v13_spot_checks_all_groups() -> None:
     spec = get_edge_stack_feature_spec("v13_of")
     spot_keys = [
         # Group NA — advanced volatility
-        "f_garman_klass_vol",
-        "f_yang_zhang_vol",
+        "f_garman_klass_vol"
+        "f_yang_zhang_vol"
         # Group NB — academic liquidity
-        "f_amihud_illiquidity",
-        "f_corwin_schultz_spread",
+        "f_amihud_illiquidity"
+        "f_corwin_schultz_spread"
         # Group NC — flow toxicity
-        "f_pin_estimate",
-        "f_toxicity_regime_score",
+        "f_pin_estimate"
+        "f_toxicity_regime_score"
         # Group ND — cross-asset macro
-        "f_btc_dominance_momentum",
-        "f_liq_heatmap_distance_bps",
+        "f_btc_dominance_momentum"
+        "f_liq_heatmap_distance_bps"
         # Group NE — entropy
-        "f_price_entropy_50",
-        "f_order_size_gini",
+        "f_price_entropy_50"
+        "f_order_size_gini"
         # Group NF — mean reversion
-        "f_half_life_mean_reversion",
-        "f_zscore_mid_to_vwap",
+        "f_half_life_mean_reversion"
+        "f_zscore_mid_to_vwap"
         # Group NX — interactions
-        "f_vpin_x_funding",
-        "f_amihud_x_oi_delta",
+        "f_vpin_x_funding"
+        "f_amihud_x_oi_delta"
     ]
     for key in spot_keys:
         assert key in spec.feature_cols, f"v13_of missing expected key {key}"

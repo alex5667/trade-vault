@@ -15,7 +15,7 @@ def detect_and_record_signature(signature_kind: str, signature_hash: str, payloa
         with get_conn() as conn, conn.cursor() as cur:
             # Check if signature exists
             cur.execute(
-                "SELECT signature_id, hit_count FROM atr_failure_signatures WHERE signature_kind = %s AND signature_hash = %s",
+                "SELECT signature_id, hit_count FROM atr_failure_signatures WHERE signature_kind = %s AND signature_hash = %s"
                 (signature_kind, signature_hash)
             )
             row = cur.fetchone()

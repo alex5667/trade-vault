@@ -18,11 +18,11 @@ def _setattr_safe(obj: Any, name: str, value: Any) -> None:
 
 
 def cached_on_ctx(
-    ctx: Any,
-    *,
-    slot: str,
-    key: Tuple[Any, ...],
-    compute: Callable[[], Any],
+    ctx: Any
+    *
+    slot: str
+    key: Tuple[Any, ...]
+    compute: Callable[[], Any]
 ) -> Any:
     """
     Small, deterministic, fail-open cache that lives on ctx.

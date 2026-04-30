@@ -29,18 +29,18 @@ class Metrics:
 
 def build_metrics() -> Metrics:
     return Metrics(
-        processed_total=Counter("decision_snapshot_processed_total", "Total snapshots processed"),
-        written_total=Counter("decision_snapshot_publish_total", "Total snapshots written to DB", ["tca_ready"]),
-        dlq_total=Counter("decision_snapshot_dlq_total", "Snapshots sent to DLQ", ["reason"]),
-        db_fail_total=Counter("decision_snapshot_db_fail_total", "Database write failures"),
+        processed_total=Counter("decision_snapshot_processed_total", "Total snapshots processed")
+        written_total=Counter("decision_snapshot_publish_total", "Total snapshots written to DB", ["tca_ready"])
+        dlq_total=Counter("decision_snapshot_dlq_total", "Snapshots sent to DLQ", ["reason"])
+        db_fail_total=Counter("decision_snapshot_db_fail_total", "Database write failures")
         redis_lag_ms=Histogram(
-            "decision_snapshot_pg_lag_ms",
-            "Lag between decision_ts_ms and DB write",
-            buckets=[10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000],
-        ),
-        pending_count=Gauge("decision_snapshot_pending_count", "Pending messages in consumer group"),
-        last_ok=Gauge("decision_snapshot_last_ok", "1 if last run was successful, 0 otherwise"),
-        last_batch_rows=Gauge("decision_snapshot_last_batch_rows", "Number of rows in last batch"),
+            "decision_snapshot_pg_lag_ms"
+            "Lag between decision_ts_ms and DB write"
+            buckets=[10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000]
+        )
+        pending_count=Gauge("decision_snapshot_pending_count", "Pending messages in consumer group")
+        last_ok=Gauge("decision_snapshot_last_ok", "1 if last run was successful, 0 otherwise")
+        last_batch_rows=Gauge("decision_snapshot_last_batch_rows", "Number of rows in last batch")
     )
 
 def _env(name: str, default: str) -> str:
@@ -131,19 +131,19 @@ def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
     flags = [str(x) for x in flags_raw] if isinstance(flags_raw, list) else []
 
     row = {
-        "decision_ts_ms": decision_ts_ms,
-        "sid": sid,
-        "signal_id": signal_id,
-        "symbol": symbol,
-        "decision_mid": _to_float(evt.get("decision_mid")),
-        "decision_bid": _to_float(evt.get("decision_bid")),
-        "decision_ask": _to_float(evt.get("decision_ask")),
-        "decision_spread_bps": _to_float(evt.get("decision_spread_bps")),
-        "decision_expected_slippage_bps": _to_float(evt.get("decision_expected_slippage_bps")),
-        "decision_exec_risk_norm": _to_float(evt.get("decision_exec_risk_norm")),
-        "book_sanity_flags": json.dumps(flags, ensure_ascii=False),
-        "tca_ready": bool(evt.get("tca_ready", False)),
-        "payload_jsonb": json.dumps(evt, ensure_ascii=False),
+        "decision_ts_ms": decision_ts_ms
+        "sid": sid
+        "signal_id": signal_id
+        "symbol": symbol
+        "decision_mid": _to_float(evt.get("decision_mid"))
+        "decision_bid": _to_float(evt.get("decision_bid"))
+        "decision_ask": _to_float(evt.get("decision_ask"))
+        "decision_spread_bps": _to_float(evt.get("decision_spread_bps"))
+        "decision_expected_slippage_bps": _to_float(evt.get("decision_expected_slippage_bps"))
+        "decision_exec_risk_norm": _to_float(evt.get("decision_exec_risk_norm"))
+        "book_sanity_flags": json.dumps(flags, ensure_ascii=False)
+        "tca_ready": bool(evt.get("tca_ready", False))
+        "payload_jsonb": json.dumps(evt, ensure_ascii=False)
     }
     return row, ""
 
@@ -167,11 +167,11 @@ class PgWriter:
             cur = conn.cursor()
             sql = (
                 "INSERT INTO trade_decisions_tca ("
-                "decision_ts_ms,sid,signal_id,symbol,decision_mid,decision_bid,decision_ask,"
-                "decision_spread_bps,decision_expected_slippage_bps,decision_exec_risk_norm,"
+                "decision_ts_ms,sid,signal_id,symbol,decision_mid,decision_bid,decision_ask"
+                "decision_spread_bps,decision_expected_slippage_bps,decision_exec_risk_norm"
                 "book_sanity_flags,tca_ready,payload_jsonb) "
-                "VALUES (%(decision_ts_ms)s,%(sid)s,%(signal_id)s,%(symbol)s,%(decision_mid)s,%(decision_bid)s,%(decision_ask)s,"
-                "%(decision_spread_bps)s,%(decision_expected_slippage_bps)s,%(decision_exec_risk_norm)s,"
+                "VALUES (%(decision_ts_ms)s,%(sid)s,%(signal_id)s,%(symbol)s,%(decision_mid)s,%(decision_bid)s,%(decision_ask)s"
+                "%(decision_spread_bps)s,%(decision_expected_slippage_bps)s,%(decision_exec_risk_norm)s"
                 "%(book_sanity_flags)s,%(tca_ready)s,%(payload_jsonb)s) "
                 "ON CONFLICT (decision_ts_ms, sid) DO NOTHING"
             )
@@ -200,17 +200,17 @@ class Cfg:
     def from_env() -> "Cfg":
         host = socket.gethostname()
         return Cfg(
-            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("DECISION_SNAPSHOT_STREAM", "events:decision_snapshot"),
-            group=_env("DECISION_SNAPSHOT_CG", "tca_persistence_cg"),
-            consumer=_env("DECISION_SNAPSHOT_CONSUMER", f"{host}:{os.getpid()}"),
-            block_ms=_env_int("DECISION_SNAPSHOT_BLOCK_MS", 5000),
-            count=_env_int("DECISION_SNAPSHOT_COUNT", 500),
-            dlq_stream=_env("DECISION_SNAPSHOT_DLQ_STREAM", "events:decision_snapshot:dlq"),
-            dlq_maxlen=_env_int("DECISION_SNAPSHOT_DLQ_MAXLEN", 200000),
-            batch_size=_env_int("DECISION_SNAPSHOT_BATCH_SIZE", 500),
-            metrics_port=_env_int("DECISION_SNAPSHOT_METRICS_PORT", 9841),
-            fail_sleep_sec=_env_float("DECISION_SNAPSHOT_FAIL_SLEEP_SEC", 1.0),
+            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+            stream=_env("DECISION_SNAPSHOT_STREAM", "events:decision_snapshot")
+            group=_env("DECISION_SNAPSHOT_CG", "tca_persistence_cg")
+            consumer=_env("DECISION_SNAPSHOT_CONSUMER", f"{host}:{os.getpid()}")
+            block_ms=_env_int("DECISION_SNAPSHOT_BLOCK_MS", 5000)
+            count=_env_int("DECISION_SNAPSHOT_COUNT", 500)
+            dlq_stream=_env("DECISION_SNAPSHOT_DLQ_STREAM", "events:decision_snapshot:dlq")
+            dlq_maxlen=_env_int("DECISION_SNAPSHOT_DLQ_MAXLEN", 200000)
+            batch_size=_env_int("DECISION_SNAPSHOT_BATCH_SIZE", 500)
+            metrics_port=_env_int("DECISION_SNAPSHOT_METRICS_PORT", 9841)
+            fail_sleep_sec=_env_float("DECISION_SNAPSHOT_FAIL_SLEEP_SEC", 1.0)
         )
 
 async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
@@ -245,11 +245,11 @@ async def main() -> None:
     while True:
         try:
             res = await r.xreadgroup(
-                groupname=cfg.group,
-                consumername=cfg.consumer,
-                streams={cfg.stream: ">"},
-                count=cfg.count,
-                block=cfg.block_ms,
+                groupname=cfg.group
+                consumername=cfg.consumer
+                streams={cfg.stream: ">"}
+                count=cfg.count
+                block=cfg.block_ms
             )
             if not res:
                 try:
@@ -310,7 +310,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level=os.getenv("LOG_LEVEL", "INFO").upper()
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     raise SystemExit(asyncio.run(main()))

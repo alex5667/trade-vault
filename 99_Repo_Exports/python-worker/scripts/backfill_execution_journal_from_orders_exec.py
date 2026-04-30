@@ -77,12 +77,12 @@ def _i(v: Any, default: int = 0) -> int:
 def parse_exec_stream_entry(stream_id: str, fields: Dict[str, Any]) -> ExecEventRow:
     payload = {str(k): v for k, v in dict(fields or {}).items()}
     return ExecEventRow(
-        stream_id=str(stream_id),
-        sid=str(payload.get("sid") or ""),
-        symbol=str(payload.get("symbol") or ""),
-        event_type=str(payload.get("event_type") or payload.get("action") or "event"),
-        event_ts_ms=_i(payload.get("ts_ms") or 0),
-        payload_jsonb=json.dumps(payload, ensure_ascii=False, default=str),
+        stream_id=str(stream_id)
+        sid=str(payload.get("sid") or "")
+        symbol=str(payload.get("symbol") or "")
+        event_type=str(payload.get("event_type") or payload.get("action") or "event")
+        event_ts_ms=_i(payload.get("ts_ms") or 0)
+        payload_jsonb=json.dumps(payload, ensure_ascii=False, default=str)
     )
 
 
@@ -114,33 +114,33 @@ def derive_snapshot_rows(events: Iterable[ExecEventRow]) -> Tuple[List[ExecSnaps
     for sid, doc in latest_by_sid.items():
         snapshots.append(
             ExecSnapshotRow(
-                sid=sid,
-                symbol=str(doc.get("symbol") or ""),
-                action=str(doc.get("action") or ""),
-                status=str(doc.get("status") or ""),
-                fsm_state=str(doc.get("fsm_state") or ""),
-                execution_policy=str(doc.get("execution_policy") or ""),
-                venue=str(doc.get("venue") or "binance"),
-                position_mode=str(doc.get("position_mode") or ""),
-                position_side=str(doc.get("position_side") or ""),
-                working_type_policy=str(doc.get("working_type_policy") or ""),
-                state_jsonb=json.dumps(doc, ensure_ascii=False, default=str),
-                created_at_ms=_i(doc.get("created_at_ms") or doc.get("ts_ms") or 0),
-                updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0),
+                sid=sid
+                symbol=str(doc.get("symbol") or "")
+                action=str(doc.get("action") or "")
+                status=str(doc.get("status") or "")
+                fsm_state=str(doc.get("fsm_state") or "")
+                execution_policy=str(doc.get("execution_policy") or "")
+                venue=str(doc.get("venue") or "binance")
+                position_mode=str(doc.get("position_mode") or "")
+                position_side=str(doc.get("position_side") or "")
+                working_type_policy=str(doc.get("working_type_policy") or "")
+                state_jsonb=json.dumps(doc, ensure_ascii=False, default=str)
+                created_at_ms=_i(doc.get("created_at_ms") or doc.get("ts_ms") or 0)
+                updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0)
             )
         )
         refs.append(
             ProtectionRefsRow(
-                sid=sid,
-                symbol=str(doc.get("symbol") or ""),
-                sl_algo_id=_i(doc.get("sl_algo_id"), 0) or None,
-                sl_client_algo_id=str(doc.get("sl_client_algo_id") or ""),
-                tp1_algo_id=_i(doc.get("tp1_algo_id"), 0) or None,
-                tp2_algo_id=_i(doc.get("tp2_algo_id"), 0) or None,
-                tp3_algo_id=_i(doc.get("tp3_algo_id"), 0) or None,
-                trail_algo_id=_i(doc.get("trail_algo_id"), 0) or None,
-                trail_client_algo_id=str(doc.get("trail_client_algo_id") or ""),
-                updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0),
+                sid=sid
+                symbol=str(doc.get("symbol") or "")
+                sl_algo_id=_i(doc.get("sl_algo_id"), 0) or None
+                sl_client_algo_id=str(doc.get("sl_client_algo_id") or "")
+                tp1_algo_id=_i(doc.get("tp1_algo_id"), 0) or None
+                tp2_algo_id=_i(doc.get("tp2_algo_id"), 0) or None
+                tp3_algo_id=_i(doc.get("tp3_algo_id"), 0) or None
+                trail_algo_id=_i(doc.get("trail_algo_id"), 0) or None
+                trail_client_algo_id=str(doc.get("trail_client_algo_id") or "")
+                updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0)
             )
         )
     return snapshots, refs
@@ -179,8 +179,8 @@ def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[Exe
         with conn.cursor() as cur:
             for ev in events:
                 cur.execute(
-                    "INSERT INTO execution_order_events (sid, symbol, event_type, event_ts_ms, payload_jsonb) VALUES (%s,%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING",
-                    (ev.sid, ev.symbol, ev.event_type, ev.event_ts_ms, ev.payload_jsonb),
+                    "INSERT INTO execution_order_events (sid, symbol, event_type, event_ts_ms, payload_jsonb) VALUES (%s,%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING"
+                    (ev.sid, ev.symbol, ev.event_type, ev.event_ts_ms, ev.payload_jsonb)
                 )
             for row in snapshots:
                 cur.execute(
@@ -188,19 +188,19 @@ def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[Exe
                     INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                     ON CONFLICT (sid) DO UPDATE SET
-                      symbol = EXCLUDED.symbol,
-                      action = EXCLUDED.action,
-                      status = EXCLUDED.status,
-                      fsm_state = EXCLUDED.fsm_state,
-                      execution_policy = EXCLUDED.execution_policy,
-                      venue = EXCLUDED.venue,
-                      position_mode = EXCLUDED.position_mode,
-                      position_side = EXCLUDED.position_side,
-                      working_type_policy = EXCLUDED.working_type_policy,
-                      state_jsonb = EXCLUDED.state_jsonb,
+                      symbol = EXCLUDED.symbol
+                      action = EXCLUDED.action
+                      status = EXCLUDED.status
+                      fsm_state = EXCLUDED.fsm_state
+                      execution_policy = EXCLUDED.execution_policy
+                      venue = EXCLUDED.venue
+                      position_mode = EXCLUDED.position_mode
+                      position_side = EXCLUDED.position_side
+                      working_type_policy = EXCLUDED.working_type_policy
+                      state_jsonb = EXCLUDED.state_jsonb
                       updated_at_ms = GREATEST(execution_orders.updated_at_ms, EXCLUDED.updated_at_ms)
-                    """,
-                    (row.sid, row.symbol, row.action, row.status, row.fsm_state, row.execution_policy, row.venue, row.position_mode, row.position_side, row.working_type_policy, row.state_jsonb, row.created_at_ms, row.updated_at_ms),
+                    """
+                    (row.sid, row.symbol, row.action, row.status, row.fsm_state, row.execution_policy, row.venue, row.position_mode, row.position_side, row.working_type_policy, row.state_jsonb, row.created_at_ms, row.updated_at_ms)
                 )
             for row in refs:
                 cur.execute(
@@ -208,17 +208,17 @@ def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[Exe
                     INSERT INTO execution_protection_refs (sid, symbol, sl_algo_id, sl_client_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id, trail_client_algo_id, updated_at_ms)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (sid) DO UPDATE SET
-                      symbol = EXCLUDED.symbol,
-                      sl_algo_id = COALESCE(EXCLUDED.sl_algo_id, execution_protection_refs.sl_algo_id),
-                      sl_client_algo_id = COALESCE(NULLIF(EXCLUDED.sl_client_algo_id, ''), execution_protection_refs.sl_client_algo_id),
-                      tp1_algo_id = COALESCE(EXCLUDED.tp1_algo_id, execution_protection_refs.tp1_algo_id),
-                      tp2_algo_id = COALESCE(EXCLUDED.tp2_algo_id, execution_protection_refs.tp2_algo_id),
-                      tp3_algo_id = COALESCE(EXCLUDED.tp3_algo_id, execution_protection_refs.tp3_algo_id),
-                      trail_algo_id = COALESCE(EXCLUDED.trail_algo_id, execution_protection_refs.trail_algo_id),
-                      trail_client_algo_id = COALESCE(NULLIF(EXCLUDED.trail_client_algo_id, ''), execution_protection_refs.trail_client_algo_id),
+                      symbol = EXCLUDED.symbol
+                      sl_algo_id = COALESCE(EXCLUDED.sl_algo_id, execution_protection_refs.sl_algo_id)
+                      sl_client_algo_id = COALESCE(NULLIF(EXCLUDED.sl_client_algo_id, ''), execution_protection_refs.sl_client_algo_id)
+                      tp1_algo_id = COALESCE(EXCLUDED.tp1_algo_id, execution_protection_refs.tp1_algo_id)
+                      tp2_algo_id = COALESCE(EXCLUDED.tp2_algo_id, execution_protection_refs.tp2_algo_id)
+                      tp3_algo_id = COALESCE(EXCLUDED.tp3_algo_id, execution_protection_refs.tp3_algo_id)
+                      trail_algo_id = COALESCE(EXCLUDED.trail_algo_id, execution_protection_refs.trail_algo_id)
+                      trail_client_algo_id = COALESCE(NULLIF(EXCLUDED.trail_client_algo_id, ''), execution_protection_refs.trail_client_algo_id)
                       updated_at_ms = GREATEST(execution_protection_refs.updated_at_ms, EXCLUDED.updated_at_ms)
-                    """,
-                    (row.sid, row.symbol, row.sl_algo_id, row.sl_client_algo_id, row.tp1_algo_id, row.tp2_algo_id, row.tp3_algo_id, row.trail_algo_id, row.trail_client_algo_id, row.updated_at_ms),
+                    """
+                    (row.sid, row.symbol, row.sl_algo_id, row.sl_client_algo_id, row.tp1_algo_id, row.tp2_algo_id, row.tp3_algo_id, row.trail_algo_id, row.trail_client_algo_id, row.updated_at_ms)
                 )
 
 

@@ -135,15 +135,15 @@ def _mk_ab_key(setup: Any, snap: Dict[str, Any]) -> str:
 
 
 def _fsm_step(
-    *,
-    setup: Setup,
-    st: RetestState,
-    snap: Dict[str, Any],
-    now_ms: int,
-    touch_bp: float,
-    away_bp: float,
-    retest_bp: float,
-    pol: ArmPolicy = None,
+    *
+    setup: Setup
+    st: RetestState
+    snap: Dict[str, Any]
+    now_ms: int
+    touch_bp: float
+    away_bp: float
+    retest_bp: float
+    pol: ArmPolicy = None
 ) -> Tuple[bool, str]:
     try:
         px = float(snap.get("close_px", 0.0) or 0.0)
@@ -238,11 +238,11 @@ class SmtEntryCandidateService:
         self._abc = ABCPolicyLoader(cfg_key=os.getenv("CFG_SMT_ENTRY_ABC_KEY", "cfg:smt_entry:abc:config"))
         
         self.streams = Streams(
-            in_stream=os.getenv("SMT_SETUP_STREAM", "stream:signals"),
-            in_group=os.getenv("SMT_SETUP_GROUP", "smt_entry"),
-            in_consumer=os.getenv("SMT_SETUP_CONSUMER", f"smt_entry:{os.getpid()}"),
-            out_candidate=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
-            out_audit=os.getenv("SMT_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
+            in_stream=os.getenv("SMT_SETUP_STREAM", "stream:signals")
+            in_group=os.getenv("SMT_SETUP_GROUP", "smt_entry")
+            in_consumer=os.getenv("SMT_SETUP_CONSUMER", f"smt_entry:{os.getpid()}")
+            out_candidate=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate")
+            out_audit=os.getenv("SMT_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit")
         )
         self.maxlen = int(os.getenv("SMT_ENTRY_MAXLEN", "20000"))
         self.snap_prefix = os.getenv("SMT_SNAP_PREFIX", "smt:snap:")
@@ -316,16 +316,16 @@ class SmtEntryCandidateService:
                                 payload = _json_load(data.get("payload", "{}"))
                                 if not payload: continue
                                 setup = Setup(
-                                    bundle=str(payload.get("bundle", "")),
-                                    kind=str(payload.get("kind", "")),
-                                    leader=str(payload.get("leader", "")),
-                                    pick=str(payload.get("symbol", "")),
-                                    trend_dir=str(payload.get("trend_dir", "")),
-                                    ts_ms=int(payload.get("ts_ms", _now_ms())),
-                                    ttl_ms=int(os.getenv("SMT_SETUP_TTL_MS", "120000")),
-                                    div=str(payload.get("div", "")),
-                                    coh=float(payload.get("coherence", 0.0)),
-                                    leader_conf_score=float(payload.get("confidence", 0.0)),
+                                    bundle=str(payload.get("bundle", ""))
+                                    kind=str(payload.get("kind", ""))
+                                    leader=str(payload.get("leader", ""))
+                                    pick=str(payload.get("symbol", ""))
+                                    trend_dir=str(payload.get("trend_dir", ""))
+                                    ts_ms=int(payload.get("ts_ms", _now_ms()))
+                                    ttl_ms=int(os.getenv("SMT_SETUP_TTL_MS", "120000"))
+                                    div=str(payload.get("div", ""))
+                                    coh=float(payload.get("coherence", 0.0))
+                                    leader_conf_score=float(payload.get("confidence", 0.0))
                                 )
                                 if setup.pick:
                                     sid = f"{setup.pick}:{setup.kind}:{setup.leader}"
@@ -378,9 +378,9 @@ class SmtEntryCandidateService:
 
                     pol = self._abc.policy_for(arm)
                     emit, reason = _fsm_step(
-                        setup=setup, st=st, snap=snap, now_ms=now,
-                        touch_bp=float(pol.touch_bp), away_bp=float(pol.away_bp), retest_bp=float(pol.retest_bp),
-                        pol=pol,
+                        setup=setup, st=st, snap=snap, now_ms=now
+                        touch_bp=float(pol.touch_bp), away_bp=float(pol.away_bp), retest_bp=float(pol.retest_bp)
+                        pol=pol
                     )
 
                     if reason == "touch":
@@ -388,10 +388,10 @@ class SmtEntryCandidateService:
                         st.ab_split_reason = split_reason; st.ab_split_a = A; st.ab_split_b = B; st.ab_split_c = C
 
                     audit_payload = {
-                        "type": "smt_entry_fsm_audit", "ts_ms": now, "symbol": setup.pick, "bundle": setup.bundle,
-                        "kind": setup.kind, "leader": setup.leader, "ab_arm": st.ab_arm, "ab_group": st.ab_group,
-                        "ab_key": st.ab_key, "ab_split_reason": st.ab_split_reason, "stage": st.stage, "reason": reason,
-                        "ok": int(1 if emit else 0), "regime": regime, "zone_id": str(snap.get("zone_id", "")),
+                        "type": "smt_entry_fsm_audit", "ts_ms": now, "symbol": setup.pick, "bundle": setup.bundle
+                        "kind": setup.kind, "leader": setup.leader, "ab_arm": st.ab_arm, "ab_group": st.ab_group
+                        "ab_key": st.ab_key, "ab_split_reason": st.ab_split_reason, "stage": st.stage, "reason": reason
+                        "ok": int(1 if emit else 0), "regime": regime, "zone_id": str(snap.get("zone_id", ""))
                     }
                     await self.r.xadd(self.streams.out_audit, {"payload": _json_dump(audit_payload)}, maxlen=self.maxlen, approximate=True)
                     
@@ -404,9 +404,9 @@ class SmtEntryCandidateService:
                         self._dedup[dk] = now
                         
                         entry_payload = {
-                            "type": "entry_candidate", "ts_ms": now, "symbol": setup.pick, "side": side,
-                            "bundle": setup.bundle, "kind": setup.kind, "leader": setup.leader,
-                            "ab_arm": st.ab_arm, "ab_group": st.ab_group, "regime": regime,
+                            "type": "entry_candidate", "ts_ms": now, "symbol": setup.pick, "side": side
+                            "bundle": setup.bundle, "kind": setup.kind, "leader": setup.leader
+                            "ab_arm": st.ab_arm, "ab_group": st.ab_group, "regime": regime
                         }
                         await self.r.xadd(self.streams.out_candidate, {"payload": _json_dump(entry_payload)}, maxlen=self.maxlen, approximate=True)
                         self.active.pop(setup_id, None)

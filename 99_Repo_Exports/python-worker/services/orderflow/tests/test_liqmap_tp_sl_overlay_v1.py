@@ -30,21 +30,21 @@ class TestLiqMapTpSlOverlayV1:
     def test_long_tp1_before_peak_derived_price(self):
         # entry=100, base_tp1=105, peak_up at +300 bps => 103, strong enough
         ind = {
-            "liqmap_1h_dist_up_bps": 300.0,
-            "liqmap_1h_peak_up1_usd": 200_000.0,
+            "liqmap_1h_dist_up_bps": 300.0
+            "liqmap_1h_peak_up1_usd": 200_000.0
         }
         new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
-            entry=100.0,
-            side="LONG",
-            base_sl=99.0,
-            base_tp1=105.0,
-            indicators=ind,
-            window="1h",
-            min_usd=50_000.0,
-            buffer_bps=10.0,
-            max_sl_widen_bps=50.0,
-            enable_tp1=True,
-            enable_sl=False,
+            entry=100.0
+            side="LONG"
+            base_sl=99.0
+            base_tp1=105.0
+            indicators=ind
+            window="1h"
+            min_usd=50_000.0
+            buffer_bps=10.0
+            max_sl_widen_bps=50.0
+            enable_tp1=True
+            enable_sl=False
         )
 
         assert _approx(new_sl, 99.0)
@@ -62,21 +62,21 @@ class TestLiqMapTpSlOverlayV1:
     def test_long_sl_behind_peak_cap(self):
         # entry=100, base_sl=99 (100 bps), dn peak at -150 bps => 98.5, strong enough
         ind = {
-            "liqmap_1h_dist_dn_bps": 150.0,
-            "liqmap_1h_peak_dn1_usd": 150_000.0,
+            "liqmap_1h_dist_dn_bps": 150.0
+            "liqmap_1h_peak_dn1_usd": 150_000.0
         }
         new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
-            entry=100.0,
-            side="LONG",
-            base_sl=99.0,
-            base_tp1=105.0,
-            indicators=ind,
-            window="1h",
-            min_usd=50_000.0,
-            buffer_bps=10.0,
+            entry=100.0
+            side="LONG"
+            base_sl=99.0
+            base_tp1=105.0
+            indicators=ind
+            window="1h"
+            min_usd=50_000.0
+            buffer_bps=10.0
             max_sl_widen_bps=50.0,  # cap widening to +50 bps (150 total)
-            enable_tp1=False,
-            enable_sl=True,
+            enable_tp1=False
+            enable_sl=True
         )
 
         assert _approx(new_tp1, 105.0)
@@ -95,21 +95,21 @@ class TestLiqMapTpSlOverlayV1:
 
     def test_short_tp1_after_peak_explicit_price(self):
         ind = {
-            "liqmap_1h_peak_dn_price": 97.0,
-            "liqmap_1h_peak_dn_usd": 200_000.0,
+            "liqmap_1h_peak_dn_price": 97.0
+            "liqmap_1h_peak_dn_usd": 200_000.0
         }
         new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
-            entry=100.0,
-            side="SHORT",
-            base_sl=101.0,
-            base_tp1=95.0,
-            indicators=ind,
-            window="1h",
-            min_usd=50_000.0,
-            buffer_bps=10.0,
-            max_sl_widen_bps=50.0,
-            enable_tp1=True,
-            enable_sl=False,
+            entry=100.0
+            side="SHORT"
+            base_sl=101.0
+            base_tp1=95.0
+            indicators=ind
+            window="1h"
+            min_usd=50_000.0
+            buffer_bps=10.0
+            max_sl_widen_bps=50.0
+            enable_tp1=True
+            enable_sl=False
         )
 
         assert _approx(new_sl, 101.0)
@@ -122,21 +122,21 @@ class TestLiqMapTpSlOverlayV1:
     def test_short_sl_behind_peak_tighten_ok(self):
         # entry=100, base_sl=101, up peak at 100.8 => proposed sl 100.9008 (tightens)
         ind = {
-            "liqmap_1h_peak_up_price": 100.8,
-            "liqmap_1h_peak_up_usd": 120_000.0,
+            "liqmap_1h_peak_up_price": 100.8
+            "liqmap_1h_peak_up_usd": 120_000.0
         }
         new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
-            entry=100.0,
+            entry=100.0
             side="SELL",  # alias
-            base_sl=101.0,
-            base_tp1=95.0,
-            indicators=ind,
-            window="1h",
-            min_usd=50_000.0,
-            buffer_bps=10.0,
-            max_sl_widen_bps=50.0,
-            enable_tp1=False,
-            enable_sl=True,
+            base_sl=101.0
+            base_tp1=95.0
+            indicators=ind
+            window="1h"
+            min_usd=50_000.0
+            buffer_bps=10.0
+            max_sl_widen_bps=50.0
+            enable_tp1=False
+            enable_sl=True
         )
 
         assert _approx(new_tp1, 95.0)
@@ -147,17 +147,17 @@ class TestLiqMapTpSlOverlayV1:
     def test_no_peak_returns_base(self):
         ind = {}
         new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
-            entry=100.0,
-            side="LONG",
-            base_sl=99.0,
-            base_tp1=105.0,
-            indicators=ind,
-            window="1h",
-            min_usd=50_000.0,
-            buffer_bps=10.0,
-            max_sl_widen_bps=50.0,
-            enable_tp1=True,
-            enable_sl=True,
+            entry=100.0
+            side="LONG"
+            base_sl=99.0
+            base_tp1=105.0
+            indicators=ind
+            window="1h"
+            min_usd=50_000.0
+            buffer_bps=10.0
+            max_sl_widen_bps=50.0
+            enable_tp1=True
+            enable_sl=True
         )
         assert _approx(new_sl, 99.0)
         assert _approx(new_tp1, 105.0)

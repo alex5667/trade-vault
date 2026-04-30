@@ -11,20 +11,20 @@ lines = content.split('\n')
 # Top-20 critical blocks to instrument (line numbers from analysis)
 # Format: (line_num, kind, context)
 targets = [
-    (1346, 'redis_write_failure', 'persist_dn_regime:sadd/expire'),
-    (1348, 'persist_failure', 'persist_dn_regime'),
-    (1631, 'redis_write_failure', 'ensure_book_rate_loaded:sadd/expire'),
-    (1639, 'persist_failure', 'persist_book_rate_regime'),
-    (1657, 'calib_load_failure', 'ensure_book_rate_loaded'),
-    (1714, 'calib_load_failure', 'ensure_book_rate_loaded'),
-    (1721, 'persist_failure', 'persist_book_rate_regime'),
-    (1755, 'persist_failure', 'persist_atr_tf_regime'),
-    (1844, 'persist_failure', 'persist_calibration_regime'),
-    (1917, 'persist_failure', 'persist_calibration_regime'),
-    (1951, 'persist_failure', 'persist_calibration_regime'),
-    (2676, 'persist_failure', 'persist_burst_calibration'),
-    (3120, 'ack_failure', 'consume_books'),
-    (3906, 'ack_failure', 'consume_books'),
+    (1346, 'redis_write_failure', 'persist_dn_regime:sadd/expire')
+    (1348, 'persist_failure', 'persist_dn_regime')
+    (1631, 'redis_write_failure', 'ensure_book_rate_loaded:sadd/expire')
+    (1639, 'persist_failure', 'persist_book_rate_regime')
+    (1657, 'calib_load_failure', 'ensure_book_rate_loaded')
+    (1714, 'calib_load_failure', 'ensure_book_rate_loaded')
+    (1721, 'persist_failure', 'persist_book_rate_regime')
+    (1755, 'persist_failure', 'persist_atr_tf_regime')
+    (1844, 'persist_failure', 'persist_calibration_regime')
+    (1917, 'persist_failure', 'persist_calibration_regime')
+    (1951, 'persist_failure', 'persist_calibration_regime')
+    (2676, 'persist_failure', 'persist_burst_calibration')
+    (3120, 'ack_failure', 'consume_books')
+    (3906, 'ack_failure', 'consume_books')
 ]
 
 # Apply changes (in reverse order to preserve line numbers)

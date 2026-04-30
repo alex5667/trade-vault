@@ -25,20 +25,20 @@ def example_baseline_calculation():
 
     # Пример данных (в реальности читаются из БД)
     sample_signals = [
-        SignalExecRow(signal_id=1, symbol="BTCUSDT", family="volatility_spike",
-                      opened_at=datetime(2024, 1, 1), result_r=0.5),
-        SignalExecRow(signal_id=2, symbol="BTCUSDT", family="volatility_spike",
-                      opened_at=datetime(2024, 1, 2), result_r=-0.3),
-        SignalExecRow(signal_id=3, symbol="BTCUSDT", family="volatility_spike",
-                      opened_at=datetime(2024, 1, 3), result_r=0.8),
-        SignalExecRow(signal_id=4, symbol="BTCUSDT", family="volatility_spike",
-                      opened_at=datetime(2024, 1, 4), result_r=0.2),
-        SignalExecRow(signal_id=5, symbol="BTCUSDT", family="volatility_spike",
-                      opened_at=datetime(2024, 1, 5), result_r=-0.1),
-        SignalExecRow(signal_id=6, symbol="BTCUSDT", family="volatility_spike",
-                      opened_at=datetime(2024, 1, 6), result_r=0.6),
-        SignalExecRow(signal_id=7, symbol="BTCUSDT", family="volatility_spike",
-                      opened_at=datetime(2024, 1, 7), result_r=0.4),
+        SignalExecRow(signal_id=1, symbol="BTCUSDT", family="volatility_spike"
+                      opened_at=datetime(2024, 1, 1), result_r=0.5)
+        SignalExecRow(signal_id=2, symbol="BTCUSDT", family="volatility_spike"
+                      opened_at=datetime(2024, 1, 2), result_r=-0.3)
+        SignalExecRow(signal_id=3, symbol="BTCUSDT", family="volatility_spike"
+                      opened_at=datetime(2024, 1, 3), result_r=0.8)
+        SignalExecRow(signal_id=4, symbol="BTCUSDT", family="volatility_spike"
+                      opened_at=datetime(2024, 1, 4), result_r=0.2)
+        SignalExecRow(signal_id=5, symbol="BTCUSDT", family="volatility_spike"
+                      opened_at=datetime(2024, 1, 5), result_r=-0.1)
+        SignalExecRow(signal_id=6, symbol="BTCUSDT", family="volatility_spike"
+                      opened_at=datetime(2024, 1, 6), result_r=0.6)
+        SignalExecRow(signal_id=7, symbol="BTCUSDT", family="volatility_spike"
+                      opened_at=datetime(2024, 1, 7), result_r=0.4)
     ]
 
     print(f"Сигналы: {len(sample_signals)}")
@@ -74,9 +74,9 @@ def example_job_run():
 
     try:
         job = SignalFamilyBaselineJob(
-            dsn=dsn,
-            window_size=50,
-            horizon_days=180,
+            dsn=dsn
+            window_size=50
+            horizon_days=180
         )
         job.run()
         print("✅ Джоб выполнен успешно")

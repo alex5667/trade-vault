@@ -81,10 +81,10 @@ class CacheService:
     def _build_pivots_bundle(self, *, ts_ms: int, hlc: Dict[str, float]) -> Dict[str, Any]:
         pivots = self._compute_pivots(hlc)
         return {
-            "ts_ms": int(ts_ms),
-            "date": self._utc_date_str(ts_ms),
-            "hlc": hlc,
-            "pivots": pivots,
+            "ts_ms": int(ts_ms)
+            "date": self._utc_date_str(ts_ms)
+            "hlc": hlc
+            "pivots": pivots
         }
 
     def _json_load(self, raw: Any) -> Optional[Dict[str, Any]]:
@@ -177,24 +177,24 @@ class CacheService:
         r2 = pivot + (high - low)
         s2 = pivot - (high - low)
         return {
-            "pivot": pivot,
-            "r1": r1,
-            "s1": s1,
-            "r2": r2,
-            "s2": s2,
+            "pivot": pivot
+            "r1": r1
+            "s1": s1
+            "r2": r2
+            "s2": s2
             # удобство (опционально)
-            "high": high,
-            "low": low,
-            "close": close,
+            "high": high
+            "low": low
+            "close": close
         }
 
     def _load_yesterday_hlc(self) -> Optional[Dict[str, float]]:
         """Load yesterday's HLC from storage."""
         try:
             keys = [
-                f"yesterday_hlc:{self.symbol}",
-                f"daily_hlc:{self.symbol}",
-                f"prev_day:{self.symbol}",
+                f"yesterday_hlc:{self.symbol}"
+                f"daily_hlc:{self.symbol}"
+                f"prev_day:{self.symbol}"
             ]
 
             for key in keys:
@@ -237,18 +237,18 @@ class CacheService:
     def _calculate_hlc_from_ticks(self) -> Dict[str, float]:
         """Расчет HLC из тиков (заглушка - возвращает нулевые значения)."""
         return {
-            'high': 0.0,
-            'low': 0.0,
-            'close': 0.0,
+            'high': 0.0
+            'low': 0.0
+            'close': 0.0
         }
 
     def _get_default_hlc(self) -> Dict[str, float]:
         """Получение дефолтного HLC, когда данных нет."""
         # Заглушечные дефолтные значения
         return {
-            'high': 1.0,
-            'low': 1.0,
-            'close': 1.0,
+            'high': 1.0
+            'low': 1.0
+            'close': 1.0
         }
 
     def _nearest_pivot_key(self, price: float, pivots: Dict[str, float]) -> str:

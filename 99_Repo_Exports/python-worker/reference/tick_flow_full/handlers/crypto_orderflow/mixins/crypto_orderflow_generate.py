@@ -45,7 +45,7 @@ class CryptoOrderFlowGenerateMixin:
         out: list[CandidatePipeline] = []
 
         # Minimal mechanical adapter:
-        # - If your existing code already produces something like (signal_kind, side, raw_score, reasons),
+        # - If your existing code already produces something like (signal_kind, side, raw_score, reasons)
         #   map it here. If not available, keep empty list.
         #
         # You should replace `_legacy_detect_signals(ctx)` with your current detection block.
@@ -110,18 +110,18 @@ class CryptoOrderFlowGenerateMixin:
 
     def _score_candidate(self, ctx: Any, cand: CandidatePipeline) -> ScoredCandidate:
         out = self._score_model.score(
-            ctx=ctx,
-            kind=cand.kind,
-            side=int(cand.side),
-            raw_score=float(cand.raw_score),
-            quality_flags=dict(cand.quality_flags or {}),
+            ctx=ctx
+            kind=cand.kind
+            side=int(cand.side)
+            raw_score=float(cand.raw_score)
+            quality_flags=dict(cand.quality_flags or {})
         )
         return ScoredCandidate(
-            candidate=cand,
-            conf_factor=out.conf_factor,
-            final_score=out.final_score,
-            confidence_pct=out.confidence_pct,
-            score_parts=dict(out.parts),
+            candidate=cand
+            conf_factor=out.conf_factor
+            final_score=out.final_score
+            confidence_pct=out.confidence_pct
+            score_parts=dict(out.parts)
         )
 
     def _generate_signals(self, ctx: Any) -> bool:
@@ -151,10 +151,10 @@ class CryptoOrderFlowGenerateMixin:
         ctx_price = getattr(ctx, "price", None)
 
         # ---- "самый финальный микродожим" ----
-        # Подключаем Top-N veto reporter ОДИН раз, лениво (без правок __init__),
+        # Подключаем Top-N veto reporter ОДИН раз, лениво (без правок __init__)
         # потому что emitter гарантированно существует уже на момент генерации сигналов.
         #
-        # Это пишет 1 агрегированное сообщение в outbox_labels (kind=label_update),
+        # Это пишет 1 агрегированное сообщение в outbox_labels (kind=label_update)
         # downstream TG/WS может отправлять в Telegram без спама.
         try:
             if sigm is not None and getattr(sigm, "_veto_reporter", None) is None:
@@ -204,24 +204,24 @@ class CryptoOrderFlowGenerateMixin:
 
                 if self._cand_log_gate.should_log(now_ms, force=force):
                     log_signal_one_json_unified(
-                        self.logger,
+                        self.logger
                         payload={
-                            "signal_id": None,
-                            "kind": getattr(cand, "kind", None),
-                            "side": getattr(cand, "side", None),
-                            "symbol": getattr(ctx, "symbol", None),
-                            "ts": getattr(ctx, "ts", None),
-                            "level_key": getattr(cand, "level_key", None) or getattr(cand, "level_price", None),
-                            "raw_score": getattr(cand, "raw_score", None),
+                            "signal_id": None
+                            "kind": getattr(cand, "kind", None)
+                            "side": getattr(cand, "side", None)
+                            "symbol": getattr(ctx, "symbol", None)
+                            "ts": getattr(ctx, "ts", None)
+                            "level_key": getattr(cand, "level_key", None) or getattr(cand, "level_price", None)
+                            "raw_score": getattr(cand, "raw_score", None)
                             # Candidate stage: no final_score/confidence yet.
-                            "final_score": None,
-                            "confidence": None,
-                        },
-                        ctx=ctx,
-                        parts={"candidate_reasons": list(getattr(cand, "reasons", None) or [])[:8]},
-                        veto=False,
-                        conf_factor=None,
-                        event="candidate",
+                            "final_score": None
+                            "confidence": None
+                        }
+                        ctx=ctx
+                        parts={"candidate_reasons": list(getattr(cand, "reasons", None) or [])[:8]}
+                        veto=False
+                        conf_factor=None
+                        event="candidate"
                     )
             except Exception:
                 # Fail-open: logging must never break generation.
@@ -233,11 +233,11 @@ class CryptoOrderFlowGenerateMixin:
             level_price = float(lp) if lp is not None else None
 
             res = self._confirmations.validate(
-                k=str(cand.kind),
-                ctx=ctx,
-                side=str(cand.side),
-                level_price=level_price,
-                l2=self._last_l2_snapshot,
+                k=str(cand.kind)
+                ctx=ctx
+                side=str(cand.side)
+                level_price=level_price
+                l2=self._last_l2_snapshot
             )
 
             # -----------------------------
@@ -253,24 +253,24 @@ class CryptoOrderFlowGenerateMixin:
                 # log veto event
                 try:
                     log_signal_one_json_unified(
-                        self.logger,
+                        self.logger
                         payload={
-                            "kind": getattr(cand, "kind", None),
-                            "side": getattr(cand, "side", None),
-                            "symbol": ctx_symbol,
-                            "ts": ctx_ts,
-                            "level_price": getattr(cand, "level_price", None),
-                            "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0),
-                            "final_score": None,
-                            "confidence": None,
-                        },
-                        ctx=ctx,
-                        parts=dict(res.parts),
-                        veto=True,
-                        veto_reason_code=str(getattr(res, "reason_code", "")),
-                        veto_reason_u16=int(getattr(res, "reason_u16", 0)),
-                        conf_factor=None,
-                        event="veto",
+                            "kind": getattr(cand, "kind", None)
+                            "side": getattr(cand, "side", None)
+                            "symbol": ctx_symbol
+                            "ts": ctx_ts
+                            "level_price": getattr(cand, "level_price", None)
+                            "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0)
+                            "final_score": None
+                            "confidence": None
+                        }
+                        ctx=ctx
+                        parts=dict(res.parts)
+                        veto=True
+                        veto_reason_code=str(getattr(res, "reason_code", ""))
+                        veto_reason_u16=int(getattr(res, "reason_u16", 0))
+                        conf_factor=None
+                        event="veto"
                     )
                 except Exception:
                     pass
@@ -308,28 +308,28 @@ class CryptoOrderFlowGenerateMixin:
 
             # PERF: build payload using pre-fetched ctx fields
             payload = {
-                "kind": getattr(cand, "kind", None),
-                "side": getattr(cand, "side", None),
-                "symbol": ctx_symbol,
-                "ts": ctx_ts,
-                "price": ctx_price,
-                "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0),
-                "final_score": finite_or(final_score, 0.0),
+                "kind": getattr(cand, "kind", None)
+                "side": getattr(cand, "side", None)
+                "symbol": ctx_symbol
+                "ts": ctx_ts
+                "price": ctx_price
+                "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0)
+                "final_score": finite_or(final_score, 0.0)
                 "confidence": float(confidence_pct),  # 0..100 (calibrated)
-                "level_price": getattr(cand, "level_price", None),
-                "reasons": getattr(cand, "reasons", None) or [],
-                "parts": parts,
-                "signal_id": str(getattr(cand, "signal_id", "") or ""),
+                "level_price": getattr(cand, "level_price", None)
+                "reasons": getattr(cand, "reasons", None) or []
+                "parts": parts
+                "signal_id": str(getattr(cand, "signal_id", "") or "")
                 "conf_factor": finite_or(conf_factor01, 0.0),  # 0..1, явная шкала (полезно для дебага/дашборда)
-                # outcome axis (always present): OK / SOFT_* for emitted signals,
+                # outcome axis (always present): OK / SOFT_* for emitted signals
                 # and VETO_* for veto events (см. _build_veto_outbox_payload).
-                "decision_code": str(getattr(res, "decision_code", "") or ""),
-                "decision_u16": int(getattr(res, "decision_u16", 0) or 0),
+                "decision_code": str(getattr(res, "decision_code", "") or "")
+                "decision_u16": int(getattr(res, "decision_u16", 0) or 0)
                 # these fields improve dedup semantics + stable id reproducibility
-                "level_key": getattr(cand, "level_key", None) or getattr(cand, "level_price", None),
-                "spread_bps": finite_or(getattr(ctx, "spread_bps", None), -1.0),
-                "taker_rate": finite_or(getattr(ctx, "taker_rate_ema", None), -1.0),
-                "geometry_score": finite_or(getattr(ctx, "geometry_score", None), -1.0),
+                "level_key": getattr(cand, "level_key", None) or getattr(cand, "level_price", None)
+                "spread_bps": finite_or(getattr(ctx, "spread_bps", None), -1.0)
+                "taker_rate": finite_or(getattr(ctx, "taker_rate_ema", None), -1.0)
+                "geometry_score": finite_or(getattr(ctx, "geometry_score", None), -1.0)
             }
 
             # FIX: Inject market regime into payload (same logic as PayloadBuilder.build)
@@ -384,13 +384,13 @@ class CryptoOrderFlowGenerateMixin:
             # LOG: wire format (full payload + parts)
             try:
                 log_signal_one_json_unified(
-                    logger,
-                    payload=payload,
-                    ctx=ctx,
-                    parts=parts,
-                    veto=False,
-                    conf_factor=conf_factor01,
-                    event="emit",
+                    logger
+                    payload=payload
+                    ctx=ctx
+                    parts=parts
+                    veto=False
+                    conf_factor=conf_factor01
+                    event="emit"
                 )
             except Exception:
                 # fail-open: never break signal path

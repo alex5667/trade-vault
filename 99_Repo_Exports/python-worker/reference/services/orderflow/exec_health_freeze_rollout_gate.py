@@ -73,10 +73,10 @@ def _report_failed_cases(report: Mapping[str, Any]) -> List[Dict[str, Any]]:
         if row.get('ok'):
             continue
         out.append({
-            'role': _s(row.get('role')),
-            'service': _s(row.get('service')),
-            'scenario': _s(row.get('scenario')),
-            'check_reason': _s(row.get('check_reason')),
+            'role': _s(row.get('role'))
+            'service': _s(row.get('service'))
+            'scenario': _s(row.get('scenario'))
+            'check_reason': _s(row.get('check_reason'))
         })
     return out
 
@@ -97,26 +97,26 @@ def build_post_run_summary(report: Mapping[str, Any]) -> str:
 
 
 def emit_ops_summary(
-    r: Any,
-    *,
-    report: Mapping[str, Any],
-    summary_text: str,
-    report_path: str = '',
-    event_stream: Optional[str] = None,
+    r: Any
+    *
+    report: Mapping[str, Any]
+    summary_text: str
+    report_path: str = ''
+    event_stream: Optional[str] = None
 ) -> str:
     stream = event_stream or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_EVENT_STREAM', DEFAULT_EVENT_STREAM)
     payload = {
-        'ts_ms': int(report.get('ts_ms') or _now_ms()),
-        'kind': 'exec_health_reconnect_nightly_summary',
-        'source': 'exec_health_freeze_reconnect_nightly_smoke_v1',
-        'host': _s(report.get('host')),
-        'ok': 1 if report.get('ok') else 0,
-        'enabled_case_count': int(report.get('enabled_case_count', 0) or 0),
-        'case_count': int(report.get('case_count', 0) or 0),
-        'duration_seconds': float(report.get('duration_seconds', 0.0) or 0.0),
-        'report_path': _s(report_path),
-        'failed_cases': _report_failed_cases(report),
-        'text': summary_text[:3500],
+        'ts_ms': int(report.get('ts_ms') or _now_ms())
+        'kind': 'exec_health_reconnect_nightly_summary'
+        'source': 'exec_health_freeze_reconnect_nightly_smoke_v1'
+        'host': _s(report.get('host'))
+        'ok': 1 if report.get('ok') else 0
+        'enabled_case_count': int(report.get('enabled_case_count', 0) or 0)
+        'case_count': int(report.get('case_count', 0) or 0)
+        'duration_seconds': float(report.get('duration_seconds', 0.0) or 0.0)
+        'report_path': _s(report_path)
+        'failed_cases': _report_failed_cases(report)
+        'text': summary_text[:3500]
     }
     try:
         return _s(r.xadd(stream, stringify_mapping(payload), maxlen=5000))
@@ -125,11 +125,11 @@ def emit_ops_summary(
 
 
 def maybe_emit_telegram_summary(
-    r: Any,
-    *,
-    report: Mapping[str, Any],
-    summary_text: str,
-    report_path: str = '',
+    r: Any
+    *
+    report: Mapping[str, Any]
+    summary_text: str
+    report_path: str = ''
 ) -> str:
     notify_always = _s(os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_NOTIFY_ALWAYS', '0')).strip().lower() in {'1', 'true', 'yes', 'on'}
     if not notify_always and bool(report.get('ok')):
@@ -151,13 +151,13 @@ def maybe_emit_telegram_summary(
         except Exception:
             pass
         return _s(r.xadd(stream, stringify_mapping({
-            'type': 'report',
-            'ts_ms': now,
-            'text': summary_text[:3500],
-            'report_path': _s(report_path),
-            'kind': 'exec_health_reconnect_nightly_summary',
-            'source': 'exec_health_freeze_reconnect_nightly_smoke_v1',
-            'ok': 1 if report.get('ok') else 0,
+            'type': 'report'
+            'ts_ms': now
+            'text': summary_text[:3500]
+            'report_path': _s(report_path)
+            'kind': 'exec_health_reconnect_nightly_summary'
+            'source': 'exec_health_freeze_reconnect_nightly_smoke_v1'
+            'ok': 1 if report.get('ok') else 0
         }), maxlen=5000))
     except Exception:
         return ''
@@ -178,25 +178,25 @@ def get_rollout_gate_state(r: Any, *, gate_key: Optional[str] = None, state_key:
     manual_ack_ts_ms = int(state.get('manual_ack_ts_ms') or 0)
     active = bool(raw_gate) and manual_ack_ts_ms <= 0
     return {
-        'active': active,
-        'gate_key': gate_key,
-        'state_key': state_key,
-        'gate_meta': gate_meta,
-        'state': dict(state),
-        'manual_ack_ts_ms': manual_ack_ts_ms,
-        'last_fail_ts_ms': int(state.get('last_fail_ts_ms') or gate_meta.get('ts_ms') or 0),
+        'active': active
+        'gate_key': gate_key
+        'state_key': state_key
+        'gate_meta': gate_meta
+        'state': dict(state)
+        'manual_ack_ts_ms': manual_ack_ts_ms
+        'last_fail_ts_ms': int(state.get('last_fail_ts_ms') or gate_meta.get('ts_ms') or 0)
     }
 
 
 def update_rollout_gate_from_report(
-    r: Any,
-    *,
-    report: Mapping[str, Any],
-    report_path: str = '',
-    ops_event_id: str = '',
-    telegram_event_id: str = '',
-    gate_key: Optional[str] = None,
-    state_key: Optional[str] = None,
+    r: Any
+    *
+    report: Mapping[str, Any]
+    report_path: str = ''
+    ops_event_id: str = ''
+    telegram_event_id: str = ''
+    gate_key: Optional[str] = None
+    state_key: Optional[str] = None
 ) -> Dict[str, Any]:
     gate_key = gate_key or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_GATE_KEY', DEFAULT_GATE_KEY)
     state_key = state_key or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_GATE_STATE_KEY', DEFAULT_STATE_KEY)
@@ -205,16 +205,16 @@ def update_rollout_gate_from_report(
     prev = get_rollout_gate_state(r, gate_key=gate_key, state_key=state_key)
     failed_cases = _report_failed_cases(report)
     state_update: Dict[str, Any] = {
-        'schema_ver': 'exec_health_reconnect_rollout_gate_v1',
-        'updated_ts_ms': ts_ms,
-        'last_report_ts_ms': ts_ms,
-        'last_report_ok': 1 if ok else 0,
-        'last_report_path': _s(report_path),
-        'last_failed_cases_json': failed_cases,
-        'last_ops_event_id': _s(ops_event_id),
-        'last_telegram_event_id': _s(telegram_event_id),
-        'host': _s(report.get('host')),
-        'enabled_case_count': int(report.get('enabled_case_count', 0) or 0),
+        'schema_ver': 'exec_health_reconnect_rollout_gate_v1'
+        'updated_ts_ms': ts_ms
+        'last_report_ts_ms': ts_ms
+        'last_report_ok': 1 if ok else 0
+        'last_report_path': _s(report_path)
+        'last_failed_cases_json': failed_cases
+        'last_ops_event_id': _s(ops_event_id)
+        'last_telegram_event_id': _s(telegram_event_id)
+        'host': _s(report.get('host'))
+        'enabled_case_count': int(report.get('enabled_case_count', 0) or 0)
     }
     gate_active = bool(prev.get('active'))
     if ok:
@@ -226,23 +226,23 @@ def update_rollout_gate_from_report(
     else:
         gate_active = True
         state_update.update({
-            'gate_active': 1,
-            'gate_reason': 'manual_ack_required_after_failed_smoke',
-            'last_fail_ts_ms': ts_ms,
-            'failed_case_count': len(failed_cases),
-            'manual_ack_ts_ms': '',
-            'manual_ack_operator': '',
-            'manual_ack_reason': '',
-            'manual_ack_ticket': '',
+            'gate_active': 1
+            'gate_reason': 'manual_ack_required_after_failed_smoke'
+            'last_fail_ts_ms': ts_ms
+            'failed_case_count': len(failed_cases)
+            'manual_ack_ts_ms': ''
+            'manual_ack_operator': ''
+            'manual_ack_reason': ''
+            'manual_ack_ticket': ''
         })
         gate_meta = {
-            'kind': 'exec_health_reconnect_nightly_rollout_block',
-            'ts_ms': ts_ms,
-            'reason': 'nightly_reconnect_smoke_failed',
-            'report_path': _s(report_path),
-            'failed_cases': failed_cases,
-            'ops_event_id': _s(ops_event_id),
-            'telegram_event_id': _s(telegram_event_id),
+            'kind': 'exec_health_reconnect_nightly_rollout_block'
+            'ts_ms': ts_ms
+            'reason': 'nightly_reconnect_smoke_failed'
+            'report_path': _s(report_path)
+            'failed_cases': failed_cases
+            'ops_event_id': _s(ops_event_id)
+            'telegram_event_id': _s(telegram_event_id)
         }
         try:
             r.set(gate_key, json.dumps(gate_meta, ensure_ascii=False, separators=(',', ':')))
@@ -260,14 +260,14 @@ def update_rollout_gate_from_report(
 
 
 def manual_ack_rollout_gate(
-    r: Any,
-    *,
-    operator: str,
-    reason: str,
-    ticket: str = '',
-    gate_key: Optional[str] = None,
-    state_key: Optional[str] = None,
-    event_stream: Optional[str] = None,
+    r: Any
+    *
+    operator: str
+    reason: str
+    ticket: str = ''
+    gate_key: Optional[str] = None
+    state_key: Optional[str] = None
+    event_stream: Optional[str] = None
 ) -> Dict[str, Any]:
     if not _s(operator).strip() or not _s(reason).strip():
         raise ValueError('operator and reason are required')
@@ -281,14 +281,14 @@ def manual_ack_rollout_gate(
     except Exception:
         pass
     payload = {
-        'schema_ver': 'exec_health_reconnect_rollout_gate_v1',
-        'updated_ts_ms': now,
-        'gate_active': 0,
-        'manual_ack_ts_ms': now,
-        'manual_ack_operator': operator,
-        'manual_ack_reason': reason,
-        'manual_ack_ticket': ticket,
-        'manual_ack_required': 0,
+        'schema_ver': 'exec_health_reconnect_rollout_gate_v1'
+        'updated_ts_ms': now
+        'gate_active': 0
+        'manual_ack_ts_ms': now
+        'manual_ack_operator': operator
+        'manual_ack_reason': reason
+        'manual_ack_ticket': ticket
+        'manual_ack_required': 0
     }
     try:
         r.hset(state_key, mapping=stringify_mapping(payload))
@@ -299,14 +299,14 @@ def manual_ack_rollout_gate(
     except Exception:
         pass
     evt = {
-        'ts_ms': now,
-        'kind': 'exec_health_reconnect_nightly_rollout_gate_ack',
-        'source': DEFAULT_ACK_SERVICE,
-        'operator': operator,
-        'reason': reason,
-        'ticket': ticket,
-        'previous_gate_active': 1 if prev.get('active') else 0,
-        'previous_last_fail_ts_ms': int(prev.get('last_fail_ts_ms') or 0),
+        'ts_ms': now
+        'kind': 'exec_health_reconnect_nightly_rollout_gate_ack'
+        'source': DEFAULT_ACK_SERVICE
+        'operator': operator
+        'reason': reason
+        'ticket': ticket
+        'previous_gate_active': 1 if prev.get('active') else 0
+        'previous_last_fail_ts_ms': int(prev.get('last_fail_ts_ms') or 0)
     }
     event_id = ''
     try:
@@ -319,25 +319,25 @@ def manual_ack_rollout_gate(
 
 
 def assert_rollout_gate_open(
-    r: Any,
-    *,
-    purpose: str,
-    exit_code: Optional[int] = None,
-    gate_key: Optional[str] = None,
-    state_key: Optional[str] = None,
+    r: Any
+    *
+    purpose: str
+    exit_code: Optional[int] = None
+    gate_key: Optional[str] = None
+    state_key: Optional[str] = None
 ) -> None:
     st = get_rollout_gate_state(r, gate_key=gate_key, state_key=state_key)
     if not st.get('active'):
         return
     meta = dict(st.get('gate_meta') or {})
     payload = {
-        'blocked': True,
-        'purpose': purpose,
-        'gate_key': st.get('gate_key'),
-        'state_key': st.get('state_key'),
-        'last_fail_ts_ms': int(st.get('last_fail_ts_ms') or 0),
-        'reason': _s(meta.get('reason') or st.get('state', {}).get('gate_reason') or 'nightly_reconnect_smoke_failed'),
-        'failed_cases': meta.get('failed_cases') or _load_json(st.get('state', {}).get('last_failed_cases_json')) or [],
+        'blocked': True
+        'purpose': purpose
+        'gate_key': st.get('gate_key')
+        'state_key': st.get('state_key')
+        'last_fail_ts_ms': int(st.get('last_fail_ts_ms') or 0)
+        'reason': _s(meta.get('reason') or st.get('state', {}).get('gate_reason') or 'nightly_reconnect_smoke_failed')
+        'failed_cases': meta.get('failed_cases') or _load_json(st.get('state', {}).get('last_failed_cases_json')) or []
     }
     msg = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     if exit_code is None:

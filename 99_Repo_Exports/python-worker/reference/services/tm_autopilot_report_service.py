@@ -80,9 +80,9 @@ def send_telegram_report(r: "redis.Redis", *, stream: str, text: str, ts_ms: int
     Keep payload small enough; Telegram HTML supported by your notifier.
     """
     msg = {
-        "type": "report",
-        "ts_ms": str(int(ts_ms)),
-        "text": text,
+        "type": "report"
+        "ts_ms": str(int(ts_ms))
+        "text": text
     }
     r.xadd(stream, msg, maxlen=20000, approximate=True)
 
@@ -105,11 +105,11 @@ def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_d
     n = 0
     with open(nd_path, "w", encoding="utf-8") as f:
         for rec in iter_position_closed(
-            r=r,
-            stream=os.getenv("TRADE_EVENTS_STREAM", "events:trades"),
-            since_ms=since_ms,
-            batch=int(os.getenv("TM_EXPORT_BATCH", "2000")),
-            max_items=int(os.getenv("TM_EXPORT_MAX_ITEMS", "1000000")),
+            r=r
+            stream=os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+            since_ms=since_ms
+            batch=int(os.getenv("TM_EXPORT_BATCH", "2000"))
+            max_items=int(os.getenv("TM_EXPORT_MAX_ITEMS", "1000000"))
         ):
             f.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
             n += 1

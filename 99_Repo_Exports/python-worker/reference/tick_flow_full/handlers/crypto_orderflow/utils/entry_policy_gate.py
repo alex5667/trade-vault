@@ -206,14 +206,14 @@ class EntryPolicyGate:
         burst_flip = _safe_float(
             getattr(ctx, "burst_flip_ratio", None)
             or getattr(ctx, "burst_flip", None)
-            or getattr(ctx, "flip_ratio", None),
-            0.0,
+            or getattr(ctx, "flip_ratio", None)
+            0.0
         )
         c2t = _safe_float(
             getattr(ctx, "cancel_to_trade", None)
             or getattr(ctx, "cancel_to_trade_ratio", None)
-            or getattr(ctx, "c2t_ratio", None),
-            0.0,
+            or getattr(ctx, "c2t_ratio", None)
+            0.0
         )
 
         soft_flags = []
@@ -278,17 +278,17 @@ class EntryPolicyGate:
                 redis_client = getattr(ctx, "redis", None)
                 if redis_client is not None and (soft_flags or drift_hit):
                     ev = {
-                        "ts_ms": get_ny_time_millis(),
-                        "symbol": str(symbol),
-                        "kind": str(kind),
-                        "session": str(sess),
-                        "spread_bps": float(spread_bps),
-                        "burst_flip_ratio": float(burst_flip),
-                        "cancel_to_trade": float(c2t),
-                        "soft_flags": soft_flags,
-                        "drift": int(drift_hit),
-                        "drift_notes": drift_notes[:256],
-                        "profile": profile,
+                        "ts_ms": get_ny_time_millis()
+                        "symbol": str(symbol)
+                        "kind": str(kind)
+                        "session": str(sess)
+                        "spread_bps": float(spread_bps)
+                        "burst_flip_ratio": float(burst_flip)
+                        "cancel_to_trade": float(c2t)
+                        "soft_flags": soft_flags
+                        "drift": int(drift_hit)
+                        "drift_notes": drift_notes[:256]
+                        "profile": profile
                     }
                     redis_client.xadd(self.diag_stream, {"data": json.dumps(ev, ensure_ascii=False)})
             except Exception:

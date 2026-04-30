@@ -39,12 +39,12 @@ class HTFLevelsService:
 
     def _default_config(self) -> Dict[str, Any]:
         return {
-            "max_levels_per_symbol": 100,
-            "level_validity_days": 30,
+            "max_levels_per_symbol": 100
+            "level_validity_days": 30
             "session_definitions": {
-                "asia": {"start_hour": 0, "end_hour": 8},
-                "europe": {"start_hour": 8, "end_hour": 16},
-                "us": {"start_hour": 16, "end_hour": 24},
+                "asia": {"start_hour": 0, "end_hour": 8}
+                "europe": {"start_hour": 8, "end_hour": 16}
+                "us": {"start_hour": 16, "end_hour": 24}
             }
         }
 
@@ -72,7 +72,7 @@ class HTFLevelsService:
 
     def _is_daily_close(self, bar: Any) -> bool:
         """Check if bar closes a daily candle"""
-        # This is a simplified check - in real implementation,
+        # This is a simplified check - in real implementation
         # you'd check against trading sessions or time boundaries
         ts = getattr(bar, 'ts_event_ms', 0)
         dt = datetime.fromtimestamp(ts / 1000)
@@ -90,8 +90,8 @@ class HTFLevelsService:
         ts_valid = ts + (self._cfg["level_validity_days"] * 24 * 60 * 60 * 1000)
 
         levels = [
-            Level(symbol, LevelType.DAILY_HIGH, getattr(bar, 'high', 0), ts, ts_valid, 0.8),
-            Level(symbol, LevelType.DAILY_LOW, getattr(bar, 'low', 0), ts, ts_valid, 0.8),
+            Level(symbol, LevelType.DAILY_HIGH, getattr(bar, 'high', 0), ts, ts_valid, 0.8)
+            Level(symbol, LevelType.DAILY_LOW, getattr(bar, 'low', 0), ts, ts_valid, 0.8)
         ]
 
         self._levels_by_symbol[symbol].extend(levels)
@@ -103,8 +103,8 @@ class HTFLevelsService:
         ts_valid = ts + (self._cfg["level_validity_days"] * 7 * 24 * 60 * 60 * 1000)
 
         levels = [
-            Level(symbol, LevelType.WEEKLY_HIGH, getattr(bar, 'high', 0), ts, ts_valid, 0.9),
-            Level(symbol, LevelType.WEEKLY_LOW, getattr(bar, 'low', 0), ts, ts_valid, 0.9),
+            Level(symbol, LevelType.WEEKLY_HIGH, getattr(bar, 'high', 0), ts, ts_valid, 0.9)
+            Level(symbol, LevelType.WEEKLY_LOW, getattr(bar, 'low', 0), ts, ts_valid, 0.9)
         ]
 
         self._levels_by_symbol[symbol].extend(levels)
@@ -190,7 +190,7 @@ class HTFLevelsService:
             distance_below = ((price - nearest_below.price) / price) * 10000
 
         distance_to_nearest = min(
-            (d for d in [distance_above, distance_below] if d is not None),
+            (d for d in [distance_above, distance_below] if d is not None)
             default=None
         )
 
@@ -201,20 +201,20 @@ class HTFLevelsService:
         session_info = self._session_data.get(session_key, {})
 
         return GeometrySnapshot(
-            symbol=symbol,
-            ts_event_ms=ts_event_ms,
-            levels=levels,
-            nearest_level_above=nearest_above,
-            nearest_level_below=nearest_below,
-            distance_to_nearest_level_bp=distance_to_nearest,
-            nearest_resistance_bp=distance_above,
-            nearest_support_bp=distance_below,
-            levels_above_count=len(above_levels),
-            levels_below_count=len(below_levels),
-            current_session=current_session,
-            session_open_price=session_info.get('open'),
-            session_high_price=session_info.get('high'),
-            session_low_price=session_info.get('low'),
+            symbol=symbol
+            ts_event_ms=ts_event_ms
+            levels=levels
+            nearest_level_above=nearest_above
+            nearest_level_below=nearest_below
+            distance_to_nearest_level_bp=distance_to_nearest
+            nearest_resistance_bp=distance_above
+            nearest_support_bp=distance_below
+            levels_above_count=len(above_levels)
+            levels_below_count=len(below_levels)
+            current_session=current_session
+            session_open_price=session_info.get('open')
+            session_high_price=session_info.get('high')
+            session_low_price=session_info.get('low')
         )
 
     def _convert_htf_levels(self, htf_levels: Any, symbol: str, ts_event_ms: int) -> List[Level]:
@@ -224,21 +224,21 @@ class HTFLevelsService:
         # Daily levels
         ts_valid = ts_event_ms + (self._cfg["level_validity_days"] * 24 * 60 * 60 * 1000)
         levels.extend([
-            Level(symbol, LevelType.DAILY_HIGH, getattr(htf_levels, 'pdh', 0), ts_event_ms, ts_valid, 0.7),
-            Level(symbol, LevelType.DAILY_LOW, getattr(htf_levels, 'pdl', 0), ts_event_ms, ts_valid, 0.7),
+            Level(symbol, LevelType.DAILY_HIGH, getattr(htf_levels, 'pdh', 0), ts_event_ms, ts_valid, 0.7)
+            Level(symbol, LevelType.DAILY_LOW, getattr(htf_levels, 'pdl', 0), ts_event_ms, ts_valid, 0.7)
         ])
 
         # Weekly levels
         ts_valid_weekly = ts_event_ms + (self._cfg["level_validity_days"] * 7 * 24 * 60 * 60 * 1000)
         levels.extend([
-            Level(symbol, LevelType.WEEKLY_HIGH, getattr(htf_levels, 'week_hi', 0), ts_event_ms, ts_valid_weekly, 0.9),
-            Level(symbol, LevelType.WEEKLY_LOW, getattr(htf_levels, 'week_lo', 0), ts_event_ms, ts_valid_weekly, 0.9),
+            Level(symbol, LevelType.WEEKLY_HIGH, getattr(htf_levels, 'week_hi', 0), ts_event_ms, ts_valid_weekly, 0.9)
+            Level(symbol, LevelType.WEEKLY_LOW, getattr(htf_levels, 'week_lo', 0), ts_event_ms, ts_valid_weekly, 0.9)
         ])
 
         # Session opens
         levels.extend([
-            Level(symbol, LevelType.SESSION_HIGH, getattr(htf_levels, 'asia_open', 0), ts_event_ms, ts_valid, 0.5),
-            Level(symbol, LevelType.SESSION_LOW, getattr(htf_levels, 'europe_open', 0), ts_event_ms, ts_valid, 0.6),
+            Level(symbol, LevelType.SESSION_HIGH, getattr(htf_levels, 'asia_open', 0), ts_event_ms, ts_valid, 0.5)
+            Level(symbol, LevelType.SESSION_LOW, getattr(htf_levels, 'europe_open', 0), ts_event_ms, ts_valid, 0.6)
         ])
 
         return levels

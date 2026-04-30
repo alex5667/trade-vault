@@ -61,16 +61,16 @@ class ExperimentManager:
     """
     Runtime-слой для A/B-экспериментов:
 
-    - грузит активные эксперименты из Postgres,
-    - назначает вариант (control/treatment) по детерминированному хэшу,
+    - грузит активные эксперименты из Postgres
+    - назначает вариант (control/treatment) по детерминированному хэшу
     - отдаёт info для логирования и применения фильтров.
     """
 
     def __init__(
-        self,
-        pg_dsn: Optional[str] = None,
-        reload_interval_sec: int = 30,
-        logger=None,
+        self
+        pg_dsn: Optional[str] = None
+        reload_interval_sec: int = 30
+        logger=None
     ) -> None:
         """
         Args:
@@ -92,22 +92,22 @@ class ExperimentManager:
     # ---------- публичный API ----------
 
     def assign_variant(
-        self,
-        *,
-        now_ms: int,
-        symbol: str,
-        signal_family: str,
-        direction: int,
-        signal_id: int,
+        self
+        *
+        now_ms: int
+        symbol: str
+        signal_family: str
+        direction: int
+        signal_id: int
     ) -> Optional[Dict[str, Any]]:
         """
         Назначает вариант эксперимента для сигнала.
 
         Возвращает:
           {
-            "experiment_id": str,
-            "variant": "control"|"treatment",
-            "filter_name": str,
+            "experiment_id": str
+            "variant": "control"|"treatment"
+            "filter_name": str
             "config": {...}
           }
         или None, если для данного семейства нет активного эксперимента.
@@ -124,24 +124,24 @@ class ExperimentManager:
 
         if len(active) > 1 and self.logger:
             self.logger.warning(
-                "Multiple active experiments for family=%s, taking first",
-                signal_family,
+                "Multiple active experiments for family=%s, taking first"
+                signal_family
             )
 
         exp = active[0]
 
         variant = self._choose_variant(
-            experiment_id=exp.experiment_id,
-            symbol=symbol,
-            signal_family=signal_family,
-            signal_id=signal_id,
+            experiment_id=exp.experiment_id
+            symbol=symbol
+            signal_family=signal_family
+            signal_id=signal_id
         )
 
         return {
-            "experiment_id": exp.experiment_id,
-            "variant": variant,
-            "filter_name": exp.filter_name,
-            "config": exp.config or {},
+            "experiment_id": exp.experiment_id
+            "variant": variant
+            "filter_name": exp.filter_name
+            "config": exp.config or {}
         }
 
     def get_active_experiments(self) -> List[ExperimentSpec]:
@@ -154,12 +154,12 @@ class ExperimentManager:
     # ---------- внутренняя кухня ----------
 
     def _choose_variant(
-        self,
-        *,
-        experiment_id: str,
-        symbol: str,
-        signal_family: str,
-        signal_id: int,
+        self
+        *
+        experiment_id: str
+        symbol: str
+        signal_family: str
+        signal_id: int
     ) -> Variant:
         """
         Детерминированный split 50/50 по хэшу.
@@ -200,9 +200,9 @@ class ExperimentManager:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    select experiment_id, filter_name, signal_family, direction,
-                           status, extract(epoch from start_at)*1000 as start_at_ms,
-                           extract(epoch from end_at)*1000 as end_at_ms,
+                    select experiment_id, filter_name, signal_family, direction
+                           status, extract(epoch from start_at)*1000 as start_at_ms
+                           extract(epoch from end_at)*1000 as end_at_ms
                            target_metric, coalesce(config, '{}'::jsonb) as config
                     from signal_experiment
                     where status in ('running', 'draft')
@@ -213,15 +213,15 @@ class ExperimentManager:
             new_map: Dict[str, ExperimentSpec] = {}
             for r in rows:
                 new_map[r["experiment_id"]] = ExperimentSpec(
-                    experiment_id=r["experiment_id"],
-                    filter_name=r["filter_name"],
-                    signal_family=r["signal_family"],
-                    direction=int(r["direction"]),
-                    status=r["status"],
-                    start_at_ms=int(r["start_at_ms"]),
-                    end_at_ms=int(r["end_at_ms"]) if r["end_at_ms"] is not None else None,
-                    target_metric=r["target_metric"],
-                    config=r["config"],
+                    experiment_id=r["experiment_id"]
+                    filter_name=r["filter_name"]
+                    signal_family=r["signal_family"]
+                    direction=int(r["direction"])
+                    status=r["status"]
+                    start_at_ms=int(r["start_at_ms"])
+                    end_at_ms=int(r["end_at_ms"]) if r["end_at_ms"] is not None else None
+                    target_metric=r["target_metric"]
+                    config=r["config"]
                 )
 
             self._experiments = new_map

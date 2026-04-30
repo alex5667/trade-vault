@@ -122,9 +122,9 @@ class GeminiHTTPClient(LLMClient):
 
         # Allowed tag vocabulary (keep in sync with your tags.py)
         self.allowed_tags = {
-            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation",
-            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg",
-            "exchange", "hack", "etf", "liquidation", "macro",
+            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation"
+            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg"
+            "exchange", "hack", "etf", "liquidation", "macro"
         }
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
@@ -147,8 +147,8 @@ class GeminiHTTPClient(LLMClient):
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         body = json.dumps(
             {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": self.temperature, "maxOutputTokens": self.max_tokens},
+                "contents": [{"parts": [{"text": prompt}]}]
+                "generationConfig": {"temperature": self.temperature, "maxOutputTokens": self.max_tokens}
             }
         ).encode("utf-8")
 
@@ -156,10 +156,10 @@ class GeminiHTTPClient(LLMClient):
         for attempt in range(self.max_retries + 1):
             try:
                 req = urllib.request.Request(
-                    url=endpoint,
-                    data=body,
-                    headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
-                    method="POST",
+                    url=endpoint
+                    data=body
+                    headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+                    method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
                     raw = resp.read().decode("utf-8", errors="replace")
@@ -192,12 +192,12 @@ class GeminiHTTPClient(LLMClient):
                     primary_tag = ""
 
                 return {
-                    "risk": _clamp01(risk),
-                    "surprise": _clamp(surprise, -1.0, 1.0),
-                    "confidence": _clamp01(conf),
-                    "tags": tags,
-                    "primary_tag": primary_tag,
-                    "summary": summary,
+                    "risk": _clamp01(risk)
+                    "surprise": _clamp(surprise, -1.0, 1.0)
+                    "confidence": _clamp01(conf)
+                    "tags": tags
+                    "primary_tag": primary_tag
+                    "summary": summary
                 }
 
             except urllib.error.HTTPError as e:
@@ -214,12 +214,12 @@ class GeminiHTTPClient(LLMClient):
                     continue
 
         return {
-            "risk": 0.0,
-            "surprise": 0.0,
-            "confidence": 0.0,
-            "tags": [],
-            "primary_tag": "",
-            "summary": f"llm_error:{last_err}"[:200],
+            "risk": 0.0
+            "surprise": 0.0
+            "confidence": 0.0
+            "tags": []
+            "primary_tag": ""
+            "summary": f"llm_error:{last_err}"[:200]
         }
 
 
@@ -241,9 +241,9 @@ class NvidiaDeepSeekClient(LLMClient):
         self.max_retries = int(os.getenv("GEMINI_RETRIES", "2"))
 
         self.allowed_tags = {
-            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation",
-            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg",
-            "exchange", "hack", "etf", "liquidation", "macro",
+            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation"
+            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg"
+            "exchange", "hack", "etf", "liquidation", "macro"
         }
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
@@ -262,12 +262,12 @@ class NvidiaDeepSeekClient(LLMClient):
         endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
         body = json.dumps(
             {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 512,
-                "temperature": 0.2,
-                "top_p": 0.95,
-                "stream": False,
+                "model": self.model
+                "messages": [{"role": "user", "content": prompt}]
+                "max_tokens": 512
+                "temperature": 0.2
+                "top_p": 0.95
+                "stream": False
             }
         ).encode("utf-8")
 
@@ -275,14 +275,14 @@ class NvidiaDeepSeekClient(LLMClient):
         for attempt in range(self.max_retries + 1):
             try:
                 req = urllib.request.Request(
-                    url=endpoint,
-                    data=body,
+                    url=endpoint
+                    data=body
                     headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Accept": "application/json",
-                    },
-                    method="POST",
+                        "Content-Type": "application/json"
+                        "Authorization": f"Bearer {self.api_key}"
+                        "Accept": "application/json"
+                    }
+                    method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
                     raw = resp.read().decode("utf-8", errors="replace")
@@ -311,12 +311,12 @@ class NvidiaDeepSeekClient(LLMClient):
                     primary_tag = ""
 
                 return {
-                    "risk": _clamp01(risk),
-                    "surprise": _clamp(surprise, -1.0, 1.0),
-                    "confidence": _clamp01(conf),
-                    "tags": tags,
-                    "primary_tag": primary_tag,
-                    "summary": summary_out,
+                    "risk": _clamp01(risk)
+                    "surprise": _clamp(surprise, -1.0, 1.0)
+                    "confidence": _clamp01(conf)
+                    "tags": tags
+                    "primary_tag": primary_tag
+                    "summary": summary_out
                 }
 
             except urllib.error.HTTPError as e:
@@ -331,12 +331,12 @@ class NvidiaDeepSeekClient(LLMClient):
                     continue
 
         return {
-            "risk": 0.0,
-            "surprise": 0.0,
-            "confidence": 0.0,
-            "tags": [],
-            "primary_tag": "",
-            "summary": f"deepseek_error:{last_err}"[:200],
+            "risk": 0.0
+            "surprise": 0.0
+            "confidence": 0.0
+            "tags": []
+            "primary_tag": ""
+            "summary": f"deepseek_error:{last_err}"[:200]
         }
 
 
@@ -350,9 +350,9 @@ class NvidiaQwenClient(LLMClient):
         self.max_retries = int(os.getenv("GEMINI_RETRIES", "1")) # Меньше ретраев для фолбека
 
         self.allowed_tags = {
-            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation",
-            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg",
-            "exchange", "hack", "etf", "liquidation", "macro",
+            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation"
+            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg"
+            "exchange", "hack", "etf", "liquidation", "macro"
         }
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
@@ -371,13 +371,13 @@ class NvidiaQwenClient(LLMClient):
         endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
         body = json.dumps(
             {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 512,
+                "model": self.model
+                "messages": [{"role": "user", "content": prompt}]
+                "max_tokens": 512
                 "temperature": 0.2, # Немного детерминированности
-                "top_p": 0.95,
-                "top_k": 20,
-                "stream": False,
+                "top_p": 0.95
+                "top_k": 20
+                "stream": False
                 # "chat_template_kwargs": {"enable_thinking": True},  # Отключаем thinking для JSON ответа
             }
         ).encode("utf-8")
@@ -386,14 +386,14 @@ class NvidiaQwenClient(LLMClient):
         for attempt in range(self.max_retries + 1):
             try:
                 req = urllib.request.Request(
-                    url=endpoint,
-                    data=body,
+                    url=endpoint
+                    data=body
                     headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                        "Authorization": f"Bearer {self.api_key}"
                         "Accept": "application/json"
-                    },
-                    method="POST",
+                    }
+                    method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
                     raw = resp.read().decode("utf-8", errors="replace")
@@ -422,12 +422,12 @@ class NvidiaQwenClient(LLMClient):
                     primary_tag = ""
 
                 return {
-                    "risk": _clamp01(risk),
-                    "surprise": _clamp(surprise, -1.0, 1.0),
-                    "confidence": _clamp01(conf),
-                    "tags": tags,
-                    "primary_tag": primary_tag,
-                    "summary": summary_out,
+                    "risk": _clamp01(risk)
+                    "surprise": _clamp(surprise, -1.0, 1.0)
+                    "confidence": _clamp01(conf)
+                    "tags": tags
+                    "primary_tag": primary_tag
+                    "summary": summary_out
                 }
 
             except urllib.error.HTTPError as e:
@@ -442,12 +442,12 @@ class NvidiaQwenClient(LLMClient):
                     continue
 
         return {
-            "risk": 0.0,
-            "surprise": 0.0,
-            "confidence": 0.0,
-            "tags": [],
-            "primary_tag": "",
-            "summary": f"nv_qwen_error:{last_err}"[:200],
+            "risk": 0.0
+            "surprise": 0.0
+            "confidence": 0.0
+            "tags": []
+            "primary_tag": ""
+            "summary": f"nv_qwen_error:{last_err}"[:200]
         }
 
 
@@ -464,9 +464,9 @@ class OllamaDeepSeekClient(LLMClient):
         self.max_retries = int(os.getenv("OLLAMA_RETRIES", "1"))
 
         self.allowed_tags = {
-            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation",
-            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg",
-            "exchange", "hack", "etf", "liquidation", "macro",
+            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation"
+            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg"
+            "exchange", "hack", "etf", "liquidation", "macro"
         }
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
@@ -481,9 +481,9 @@ class OllamaDeepSeekClient(LLMClient):
 
         endpoint = f"{self.base_url}/api/chat"
         body = json.dumps({
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
+            "model": self.model
+            "messages": [{"role": "user", "content": prompt}]
+            "stream": False
             "options": {
                 "temperature": 0.2
             }
@@ -493,10 +493,10 @@ class OllamaDeepSeekClient(LLMClient):
         for attempt in range(self.max_retries + 1):
             try:
                 req = urllib.request.Request(
-                    url=endpoint,
-                    data=body,
-                    headers={"Content-Type": "application/json", "Accept": "application/json"},
-                    method="POST",
+                    url=endpoint
+                    data=body
+                    headers={"Content-Type": "application/json", "Accept": "application/json"}
+                    method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
                     raw = resp.read().decode("utf-8", errors="replace")
@@ -525,12 +525,12 @@ class OllamaDeepSeekClient(LLMClient):
                     primary_tag = ""
 
                 return {
-                    "risk": _clamp01(risk),
-                    "surprise": _clamp(surprise, -1.0, 1.0),
-                    "confidence": _clamp01(conf),
-                    "tags": tags,
-                    "primary_tag": primary_tag,
-                    "summary": summary_out,
+                    "risk": _clamp01(risk)
+                    "surprise": _clamp(surprise, -1.0, 1.0)
+                    "confidence": _clamp01(conf)
+                    "tags": tags
+                    "primary_tag": primary_tag
+                    "summary": summary_out
                 }
 
             except urllib.error.HTTPError as e:
@@ -545,12 +545,12 @@ class OllamaDeepSeekClient(LLMClient):
                     continue
 
         return {
-            "risk": 0.0,
-            "surprise": 0.0,
-            "confidence": 0.0,
-            "tags": [],
-            "primary_tag": "",
-            "summary": f"ollama_error:{last_err}"[:200],
+            "risk": 0.0
+            "surprise": 0.0
+            "confidence": 0.0
+            "tags": []
+            "primary_tag": ""
+            "summary": f"ollama_error:{last_err}"[:200]
         }
 
 
@@ -567,9 +567,9 @@ class OllamaMinipcClient(LLMClient):
         self.max_retries = int(os.getenv("OLLAMA_RETRIES", "1"))
 
         self.allowed_tags = {
-            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation",
-            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg",
-            "exchange", "hack", "etf", "liquidation", "macro",
+            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation"
+            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg"
+            "exchange", "hack", "etf", "liquidation", "macro"
         }
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
@@ -584,9 +584,9 @@ class OllamaMinipcClient(LLMClient):
 
         endpoint = f"{self.base_url}/api/chat"
         body = json.dumps({
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
+            "model": self.model
+            "messages": [{"role": "user", "content": prompt}]
+            "stream": False
             "options": {
                 "temperature": 0.2
             }
@@ -596,10 +596,10 @@ class OllamaMinipcClient(LLMClient):
         for attempt in range(self.max_retries + 1):
             try:
                 req = urllib.request.Request(
-                    url=endpoint,
-                    data=body,
-                    headers={"Content-Type": "application/json", "Accept": "application/json"},
-                    method="POST",
+                    url=endpoint
+                    data=body
+                    headers={"Content-Type": "application/json", "Accept": "application/json"}
+                    method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
                     raw = resp.read().decode("utf-8", errors="replace")
@@ -628,12 +628,12 @@ class OllamaMinipcClient(LLMClient):
                     primary_tag = ""
 
                 return {
-                    "risk": _clamp01(risk),
-                    "surprise": _clamp(surprise, -1.0, 1.0),
-                    "confidence": _clamp01(conf),
-                    "tags": tags,
-                    "primary_tag": primary_tag,
-                    "summary": summary_out,
+                    "risk": _clamp01(risk)
+                    "surprise": _clamp(surprise, -1.0, 1.0)
+                    "confidence": _clamp01(conf)
+                    "tags": tags
+                    "primary_tag": primary_tag
+                    "summary": summary_out
                 }
 
             except urllib.error.HTTPError as e:
@@ -648,18 +648,18 @@ class OllamaMinipcClient(LLMClient):
                     continue
 
         return {
-            "risk": 0.0,
-            "surprise": 0.0,
-            "confidence": 0.0,
-            "tags": [],
-            "primary_tag": "",
-            "summary": f"ollama_minipc_error:{last_err}"[:200],
+            "risk": 0.0
+            "surprise": 0.0
+            "confidence": 0.0
+            "tags": []
+            "primary_tag": ""
+            "summary": f"ollama_minipc_error:{last_err}"[:200]
         }
 
 
 class FallbackLLMClient(LLMClient):
     """
-    Класс, принимающий несколько клиентов: сначала пробует primary,
+    Класс, принимающий несколько клиентов: сначала пробует primary
     при ошибке пробует следующий по цепочке.
     """
 
@@ -673,12 +673,12 @@ class FallbackLLMClient(LLMClient):
     def build_default(cls) -> "FallbackLLMClient":
         """Создать цепочку из всех доступных клиентов в том порядке, в котором они пробуются."""
         return cls([
-            GeminiHTTPClient(),
-            NvidiaQwenClient(),
-            NvidiaKimiClient(),
-            NvidiaDeepSeekClient(),
-            OllamaDeepSeekClient(),
-            OllamaMinipcClient(),
+            GeminiHTTPClient()
+            NvidiaQwenClient()
+            NvidiaKimiClient()
+            NvidiaDeepSeekClient()
+            OllamaDeepSeekClient()
+            OllamaMinipcClient()
         ])
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
@@ -700,12 +700,12 @@ class FallbackLLMClient(LLMClient):
 
         logger.error("llm_fallback all_failed title=%s", title[:80])
         return last_res or {
-            "risk": 0.0,
-            "surprise": 0.0,
-            "confidence": 0.0,
-            "tags": [],
-            "primary_tag": "",
-            "summary": "all_llms_failed",
+            "risk": 0.0
+            "surprise": 0.0
+            "confidence": 0.0
+            "tags": []
+            "primary_tag": ""
+            "summary": "all_llms_failed"
         }
 
 
@@ -719,9 +719,9 @@ class NvidiaKimiClient(LLMClient):
         self.max_retries = int(os.getenv("GEMINI_RETRIES", "1"))
 
         self.allowed_tags = {
-            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation",
-            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg",
-            "exchange", "hack", "etf", "liquidation", "macro",
+            "cpi", "ppi", "fomc", "fed_speech", "nfp", "rates", "inflation"
+            "risk_off", "risk_on", "earnings", "geopolitics", "crypto_reg"
+            "exchange", "hack", "etf", "liquidation", "macro"
         }
 
     def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
@@ -740,13 +740,13 @@ class NvidiaKimiClient(LLMClient):
         endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
         body = json.dumps(
             {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 512,
-                "temperature": 1.00,
-                "top_p": 1.00,
-                "stream": False,
-                "chat_template_kwargs": {"thinking": True},
+                "model": self.model
+                "messages": [{"role": "user", "content": prompt}]
+                "max_tokens": 512
+                "temperature": 1.00
+                "top_p": 1.00
+                "stream": False
+                "chat_template_kwargs": {"thinking": True}
             }
         ).encode("utf-8")
 
@@ -754,14 +754,14 @@ class NvidiaKimiClient(LLMClient):
         for attempt in range(self.max_retries + 1):
             try:
                 req = urllib.request.Request(
-                    url=endpoint,
-                    data=body,
+                    url=endpoint
+                    data=body
                     headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                        "Authorization": f"Bearer {self.api_key}"
                         "Accept": "application/json"
-                    },
-                    method="POST",
+                    }
+                    method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout_sec) as resp:
                     raw = resp.read().decode("utf-8", errors="replace")
@@ -790,12 +790,12 @@ class NvidiaKimiClient(LLMClient):
                     primary_tag = ""
 
                 return {
-                    "risk": _clamp01(risk),
-                    "surprise": _clamp(surprise, -1.0, 1.0),
-                    "confidence": _clamp01(conf),
-                    "tags": tags,
-                    "primary_tag": primary_tag,
-                    "summary": summary_out,
+                    "risk": _clamp01(risk)
+                    "surprise": _clamp(surprise, -1.0, 1.0)
+                    "confidence": _clamp01(conf)
+                    "tags": tags
+                    "primary_tag": primary_tag
+                    "summary": summary_out
                 }
 
             except urllib.error.HTTPError as e:
@@ -810,10 +810,10 @@ class NvidiaKimiClient(LLMClient):
                     continue
 
         return {
-            "risk": 0.0,
-            "surprise": 0.0,
-            "confidence": 0.0,
-            "tags": [],
-            "primary_tag": "",
-            "summary": f"nv_kimi_error:{last_err}"[:200],
+            "risk": 0.0
+            "surprise": 0.0
+            "confidence": 0.0
+            "tags": []
+            "primary_tag": ""
+            "summary": f"nv_kimi_error:{last_err}"[:200]
         }

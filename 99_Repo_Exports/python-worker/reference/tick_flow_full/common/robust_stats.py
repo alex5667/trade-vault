@@ -107,10 +107,10 @@ class RobustZscoreMADRolling:
         mad = np.median(np.abs(values_array - median))
 
         return {
-            "count": len(self.values),
-            "median": median,
-            "mad": mad,
-            "window_size": self.window_size,
+            "count": len(self.values)
+            "median": median
+            "mad": mad
+            "window_size": self.window_size
             "threshold": self.threshold
         }
 

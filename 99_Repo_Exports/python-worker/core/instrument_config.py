@@ -80,14 +80,10 @@ def get_default_usd_threshold(symbol: str) -> float:
         return 2000.0
     if "XRP" in s:
         return 500.0
-    if any(x in s for x in ["AVAX", "LINK"]):
+    if any(x in s for x in ["AVAX", ]):
         return 1500.0
-    if any(x in s for x in ["INJ", "TAO"]):
+    if any(x in s for x in ["INJ", ]):
         return 1200.0
-    if any(x in s for x in ["ENA", "JUP", "WLD"]):
-        return 800.0
-    if "VIRTUAL" in s:
-        return 500.0
     # Metals (TradFi perps) bootstrap gates:
     # XAU ~ $2k-3k per oz, so a meaningful min notional should be >= a few oz.
     if s.startswith("XAU"):
@@ -123,14 +119,10 @@ def get_default_obi_settings(symbol: str) -> dict:
         th, dur = 0.30, 1.4
     elif "XRP" in s:
         th, dur = 0.32, 1.5
-    elif any(x in s for x in ["AVAX", "LINK"]):
+    elif any(x in s for x in ["AVAX", ]):
         th, dur = 0.33, 1.5
-    elif any(x in s for x in ["INJ", "TAO"]):
+    elif any(x in s for x in ["INJ", ]):
         th, dur = 0.36, 1.7
-    elif any(x in s for x in ["ENA", "JUP", "WLD"]):
-        th, dur = 0.35, 1.6
-    elif "VIRTUAL" in s:
-        th, dur = 0.39, 1.8
     elif s.startswith("XAG"):
         th, dur = 0.32, 1.8
     elif s.startswith("NATGAS"):
@@ -154,14 +146,10 @@ def get_default_dist_bp_threshold(symbol: str) -> float:
         return 12.0  # Mid of 8-15
     if "SOL" in s or "BNB" in s:
         return 15.0
-    if any(x in s for x in ["AVAX", "LINK"]):
+    if any(x in s for x in ["AVAX", ]):
         return 18.0
-    if any(x in s for x in ["INJ", "TAO"]):
+    if any(x in s for x in ["INJ", ]):
         return 20.0
-    if any(x in s for x in ["ENA", "JUP", "WLD"]):
-        return 20.0
-    if "VIRTUAL" in s:
-        return 22.0
     # Metals: keep tighter proximity than generic "others"
     if s.startswith("XAU"):
         return 12.0
@@ -230,26 +218,18 @@ def get_default_delta_tiers(symbol: str) -> dict:
     # 7. AVAX / LINK - liquid high-beta
     elif "AVAX" in s:
         t0, t1, t2 = 10_000.0, 18_000.0, 45_000.0
-    elif "LINK" in s:
-        t0, t1, t2 = 8_000.0, 15_000.0, 35_000.0
+
 
     # 8. INJ / TAO - higher volatility, slightly thinner
     elif "INJ" in s:
         t0, t1, t2 = 7_000.0, 14_000.0, 35_000.0
-    elif "TAO" in s:
-        t0, t1, t2 = 8_000.0, 16_000.0, 40_000.0
+
 
     # 9. SUI / APT / ARB - Mid-caps
     elif any(x in s for x in ["SUI", "APT", "ARB"]):
         t0, t1, t2 = 3_000.0, 6_000.0, 15_000.0
 
-    # 10. ENA / JUP / WLD - narrative mid/high-beta
-    elif any(x in s for x in ["ENA", "JUP", "WLD"]):
-        t0, t1, t2 = 4_000.0, 8_000.0, 20_000.0
 
-    # 11. VIRTUAL - thinner narrative beta
-    elif "VIRTUAL" in s:
-        t0, t1, t2 = 3_000.0, 6_000.0, 15_000.0
 
     # 12. WIF - Meme (lower tiers)
     elif "WIF" in s:
@@ -288,11 +268,11 @@ def get_default_book_rate_settings(symbol: str) -> dict:
         return {"book_rate_min_hz": 20.0, "book_rate_warn_hz": 10.0}
 
     # 2. Large-cap (BNB, SOL, AVAX, LINK)
-    if any(x in s for x in ["BNB", "SOL", "AVAX", "LINK"]):
+    if any(x in s for x in ["BNB", "SOL", "AVAX", ]):
         return {"book_rate_min_hz": 15.0, "book_rate_warn_hz": 10.0}
 
     # 3. Mid-cap / Others
-    if any(x in s for x in ["XRP", "DOGE", "SUI", "APT", "ARB", "WIF", "INJ", "TAO", "ENA", "JUP", "WLD", "VIRTUAL"]):
+    if any(x in s for x in ["XRP", "DOGE", "SUI", "APT", "ARB", "WIF", "INJ",     ]):
         return {"book_rate_min_hz": 10.0, "book_rate_warn_hz": 5.0}
 
     # 4. Metals (TradFi perps) - bootstrap settings
@@ -418,14 +398,7 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
             "cancel_spike_min_baseline": 5.0,
             "cancel_spike_abs_th": 10.0
         })
-    # LINKUSDT
-    elif "LINK" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 8.0,
-            "cancel_spike_min_baseline": 2.5,
-            "cancel_spike_abs_th": 5.0
-        })
+
     # INJUSDT
     elif "INJ" in s:
         base.update({
@@ -434,46 +407,7 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
             "cancel_spike_min_baseline": 1.0,
             "cancel_spike_abs_th": 2.0
         })
-    # TAOUSDT
-    elif "TAO" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 0.8,
-            "cancel_spike_min_baseline": 0.25,
-            "cancel_spike_abs_th": 0.5
-        })
-    # ENAUSDT
-    elif "ENA" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 60.0,
-            "cancel_spike_min_baseline": 20.0,
-            "cancel_spike_abs_th": 40.0
-        })
-    # JUPUSDT
-    elif "JUP" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 60.0,
-            "cancel_spike_min_baseline": 20.0,
-            "cancel_spike_abs_th": 40.0
-        })
-    # WLDUSDT
-    elif "WLD" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 25.0,
-            "cancel_spike_min_baseline": 8.0,
-            "cancel_spike_abs_th": 16.0
-        })
-    # VIRTUALUSDT
-    elif "VIRTUAL" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 40.0,
-            "cancel_spike_min_baseline": 12.0,
-            "cancel_spike_abs_th": 24.0
-        })
+
     # ARBUSDT
     elif "ARB" in s:
         base.update({
@@ -1949,38 +1883,6 @@ AVAXUSDT_SPECS = SymbolSpecs(
     volume_decimals=0,
 )
 
-LINKUSDT_CONFIG = OrderFlowConfig(
-    symbol="LINKUSDT",
-    delta_window_ticks=130,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.33,
-    obi_min_duration=1.5,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "LINK", "quote_currency": "USDT"},
-)
-
-LINKUSDT_SPECS = SymbolSpecs(
-    symbol="LINKUSDT",
-    contract_size=1.0,
-    min_lot=0.01,
-    price_decimals=3,
-    volume_decimals=2,
-)
-
 INJUSDT_CONFIG = OrderFlowConfig(
     symbol="INJUSDT",
     delta_window_ticks=160,
@@ -2011,198 +1913,6 @@ INJUSDT_SPECS = SymbolSpecs(
     min_lot=0.1,
     price_decimals=3,
     volume_decimals=1,
-)
-
-TAOUSDT_CONFIG = OrderFlowConfig(
-    symbol="TAOUSDT",
-    delta_window_ticks=180,
-    delta_z_threshold=3.1,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.20,
-    obi_threshold=0.37,
-    obi_min_duration=1.8,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.1,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.52,
-    min_signal_interval_sec=28,
-    read_count=140,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.10,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="1.0,1.6,2.3",
-    metadata={"asset_class": "crypto", "base_currency": "TAO", "quote_currency": "USDT"},
-)
-
-TAOUSDT_SPECS = SymbolSpecs(
-    symbol="TAOUSDT",
-    contract_size=1.0,
-    min_lot=0.001,
-    price_decimals=2,
-    volume_decimals=3,
-)
-
-ENAUSDT_CONFIG = OrderFlowConfig(
-    symbol="ENAUSDT",
-    delta_window_ticks=150,
-    delta_z_threshold=2.9,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=22,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "ENA", "quote_currency": "USDT"},
-)
-
-ENAUSDT_SPECS = SymbolSpecs(
-    symbol="ENAUSDT",
-    contract_size=1.0,
-    min_lot=1.0,
-    price_decimals=5,
-    volume_decimals=0,
-)
-
-JUPUSDT_CONFIG = OrderFlowConfig(
-    symbol="JUPUSDT",
-    delta_window_ticks=150,
-    delta_z_threshold=2.9,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=22,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "JUP", "quote_currency": "USDT"},
-)
-
-JUPUSDT_SPECS = SymbolSpecs(
-    symbol="JUPUSDT",
-    contract_size=1.0,
-    min_lot=1.0,
-    price_decimals=4,
-    volume_decimals=0,
-)
-
-WLDUSDT_CONFIG = OrderFlowConfig(
-    symbol="WLDUSDT",
-    delta_window_ticks=160,
-    delta_z_threshold=3.0,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.18,
-    obi_threshold=0.36,
-    obi_min_duration=1.7,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.48,
-    min_signal_interval_sec=24,
-    read_count=130,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "WLD", "quote_currency": "USDT"},
-)
-
-WLDUSDT_SPECS = SymbolSpecs(
-    symbol="WLDUSDT",
-    contract_size=1.0,
-    min_lot=1.0,
-    price_decimals=4,
-    volume_decimals=0,
-)
-
-VIRTUALUSDT_CONFIG = OrderFlowConfig(
-    symbol="VIRTUALUSDT",
-    delta_window_ticks=200,
-    delta_z_threshold=3.1,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.20,
-    obi_threshold=0.39,
-    obi_min_duration=1.8,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.1,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.55,
-    min_signal_interval_sec=30,
-    read_count=140,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.05,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="1.0,1.6,2.3",
-    metadata={"asset_class": "crypto", "base_currency": "VIRTUAL", "quote_currency": "USDT"},
-)
-
-VIRTUALUSDT_SPECS = SymbolSpecs(
-    symbol="VIRTUALUSDT",
-    contract_size=1.0,
-    min_lot=0.1,
-    price_decimals=4,
-    volume_decimals=1,
-)
-
-FETUSDT_CONFIG = OrderFlowConfig(
-    symbol="FETUSDT",
-    delta_window_ticks=145,
-    delta_z_threshold=2.95,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=22,
-    read_count=125,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "FET", "quote_currency": "USDT"},
-)
-
-FETUSDT_SPECS = SymbolSpecs(
-    symbol="FETUSDT",
-    contract_size=1.0,
-    min_lot=1.0,
-    price_decimals=4,
-    volume_decimals=0,
 )
 
 NEARUSDT_CONFIG = OrderFlowConfig(
@@ -2368,40 +2078,6 @@ XAGUSD_SPECS = SymbolSpecs(
 # ═════════════════════════════════════════════════════════════════════
 # REGISTRY - Централизованный реестр конфигураций
 # ═════════════════════════════════════════════════════════════════════
-
-TONUSDT_CONFIG = OrderFlowConfig(
-    symbol="TONUSDT",
-    delta_window_ticks=135,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.33,
-    obi_min_duration=1.5,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "TON", "quote_currency": "USDT"},
-)
-
-
-TONUSDT_SPECS = SymbolSpecs(
-    symbol="TONUSDT",
-    contract_size=1.0,
-    min_lot=0.1,
-    price_decimals=4,
-    volume_decimals=1,
-)
-
 
 ONDOUSDT_CONFIG = OrderFlowConfig(
     symbol="ONDOUSDT",
@@ -2666,14 +2342,7 @@ INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
     "APTUSDT": APTUSDT_CONFIG,
     "ARBUSDT": ARBUSDT_CONFIG,
     "AVAXUSDT": AVAXUSDT_CONFIG,
-    "LINKUSDT": LINKUSDT_CONFIG,
     "INJUSDT": INJUSDT_CONFIG,
-    "TAOUSDT": TAOUSDT_CONFIG,
-    "ENAUSDT": ENAUSDT_CONFIG,
-    "JUPUSDT": JUPUSDT_CONFIG,
-    "WLDUSDT": WLDUSDT_CONFIG,
-    "VIRTUALUSDT": VIRTUALUSDT_CONFIG,
-    "FETUSDT": FETUSDT_CONFIG,
     "TRBUSDT": TRBUSDT_CONFIG,
     "AAVEUSDT": AAVEUSDT_CONFIG,
     "RENDERUSDT": RENDERUSDT_CONFIG,
@@ -2681,7 +2350,6 @@ INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
     "HBARUSDT": HBARUSDT_CONFIG,
     "OPUSDT": OPUSDT_CONFIG,
     "ONDOUSDT": ONDOUSDT_CONFIG,
-    "TONUSDT": TONUSDT_CONFIG,
     "XAGUSDT": XAGUSDT_CONFIG,
     "NATGASUSDT": NATGASUSDT_CONFIG,
     "NEARUSDT": NEARUSDT_CONFIG,
@@ -2712,14 +2380,7 @@ INSTRUMENT_SPECS: Dict[str, SymbolSpecs] = {
     "APTUSDT": APTUSDT_SPECS,
     "ARBUSDT": ARBUSDT_SPECS,
     "AVAXUSDT": AVAXUSDT_SPECS,
-    "LINKUSDT": LINKUSDT_SPECS,
     "INJUSDT": INJUSDT_SPECS,
-    "TAOUSDT": TAOUSDT_SPECS,
-    "ENAUSDT": ENAUSDT_SPECS,
-    "JUPUSDT": JUPUSDT_SPECS,
-    "WLDUSDT": WLDUSDT_SPECS,
-    "VIRTUALUSDT": VIRTUALUSDT_SPECS,
-    "FETUSDT": FETUSDT_SPECS,
     "TRBUSDT": TRBUSDT_SPECS,
     "AAVEUSDT": AAVEUSDT_SPECS,
     "RENDERUSDT": RENDERUSDT_SPECS,
@@ -2727,7 +2388,6 @@ INSTRUMENT_SPECS: Dict[str, SymbolSpecs] = {
     "HBARUSDT": HBARUSDT_SPECS,
     "OPUSDT": OPUSDT_SPECS,
     "ONDOUSDT": ONDOUSDT_SPECS,
-    "TONUSDT": TONUSDT_SPECS,
     "XAGUSDT": XAGUSDT_SPECS,
     "NATGASUSDT": NATGASUSDT_SPECS,
     "NEARUSDT": NEARUSDT_SPECS,

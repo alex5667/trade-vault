@@ -12,7 +12,7 @@ from services.telegram.telegram_client import TelegramClient
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.INFO
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("ATRSanityMonitor")
@@ -126,10 +126,10 @@ class ATRSanityMonitor:
             try:
                 # Read new messages
                 streams = await self.redis.xreadgroup(
-                    self.consumer_group,
-                    self.consumer_name,
-                    {self.stream_key: ">"},
-                    count=10,
+                    self.consumer_group
+                    self.consumer_name
+                    {self.stream_key: ">"}
+                    count=10
                     block=2000
                 )
                 

@@ -6,20 +6,20 @@ logger = logging.getLogger("atr_replay_diff")
 class DiffThresholds:
     # Statically codified threshold rules per change type
     POLICY_SNAPSHOT = {
-        "max_decision_drift_pct": 5.0,
-        "min_delta_pnl_bps": 0.0,
-        "max_delta_slippage_bps": 1.0,
+        "max_decision_drift_pct": 5.0
+        "min_delta_pnl_bps": 0.0
+        "max_delta_slippage_bps": 1.0
         "max_stop_rate_increase": 0.03
     }
     POLICY_ROLLOUT = {
-        "require_cert_status": "passed",
-        "max_decision_drift_pct": 2.0,
-        "min_delta_pnl_bps": 0.0,
+        "require_cert_status": "passed"
+        "max_decision_drift_pct": 2.0
+        "min_delta_pnl_bps": 0.0
         "allow_severe_degrade": False
     }
     ALLOCATOR = {
-        "min_delta_pnl_bps": 0.0,
-        "max_delta_slippage_bps": 0.5,
+        "min_delta_pnl_bps": 0.0
+        "max_delta_slippage_bps": 0.5
         "max_cluster_crowding_breaches": 0
     }
     DEGRADE_PROFILE = {
@@ -48,18 +48,18 @@ def calculate_diff(baseline_results: Dict[str, Any], candidate_results: Dict[str
     decision_drift_pct = (drift_diff / max(1, base_decisions)) * 100.0
     
     diff_report = {
-        "decision_drift_pct": round(decision_drift_pct, 2),
-        "new_denies": candidate_results.get("denies", 0) - baseline_results.get("denies", 0),
-        "new_allows": candidate_results.get("allows", 0) - baseline_results.get("allows", 0),
-        "payload_field_drifts": candidate_results.get("payload_field_drifts", {}),
+        "decision_drift_pct": round(decision_drift_pct, 2)
+        "new_denies": candidate_results.get("denies", 0) - baseline_results.get("denies", 0)
+        "new_allows": candidate_results.get("allows", 0) - baseline_results.get("allows", 0)
+        "payload_field_drifts": candidate_results.get("payload_field_drifts", {})
         "post_trade": {
-            "delta_pnl_bps": round(candidate_pnl - baseline_pnl, 2),
-            "delta_slippage_bps": round(candidate_slippage - baseline_slippage, 2),
+            "delta_pnl_bps": round(candidate_pnl - baseline_pnl, 2)
+            "delta_slippage_bps": round(candidate_slippage - baseline_slippage, 2)
             "delta_stop_rate": round(candidate_stops - baseline_stops, 4)
-        },
-        "cert_status": candidate_results.get("cert_status", "unknown"),
-        "cluster_crowding_breaches": candidate_results.get("cluster_crowding_breaches", 0),
-        "fail_open_on_blind": candidate_results.get("fail_open_on_blind", False),
+        }
+        "cert_status": candidate_results.get("cert_status", "unknown")
+        "cluster_crowding_breaches": candidate_results.get("cluster_crowding_breaches", 0)
+        "fail_open_on_blind": candidate_results.get("fail_open_on_blind", False)
         "severe_degrade_triggers": candidate_results.get("severe_degrade_triggers", 0)
     }
     

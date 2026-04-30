@@ -105,7 +105,7 @@ def register_analytics_commands(dp, bot):
         if png_bytes:
             photo = types.BufferedInputFile(png_bytes, filename=f"{symbol}_obi.png")
             await message.answer_photo(
-                photo=photo,
+                photo=photo
                 caption=f"📊 {symbol} OBI Timeline (last 5 min)"
             )
         else:
@@ -124,7 +124,7 @@ def register_analytics_commands(dp, bot):
         if png_bytes:
             photo = types.BufferedInputFile(png_bytes, filename=f"{symbol}_depth.png")
             await message.answer_photo(
-                photo=photo,
+                photo=photo
                 caption=f"📊 {symbol} Depth Profile (top levels)"
             )
         else:
@@ -179,9 +179,9 @@ async def ask_llm(prompt_text: str) -> Optional[str]:
     try:
         endpoint = f"{OLLAMA_BASE_URL}/api/generate"
         payload = {
-            "model": MODEL,
-            "prompt": prompt_text,
-            "stream": False,
+            "model": MODEL
+            "prompt": prompt_text
+            "stream": False
             "options": {"temperature": 0.1, "num_predict": 400}
         }
         async with aiohttp.ClientSession() as session:
@@ -289,8 +289,8 @@ def create_simple_handlers():
             await send_message_func(chat_id, f"❌ Failed to fetch events for {symbol}")
     
     return {
-        "/obi": handle_obi,
-        "/depth": handle_depth,
+        "/obi": handle_obi
+        "/depth": handle_depth
         "/events": handle_events
     }
 

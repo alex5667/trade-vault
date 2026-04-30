@@ -40,14 +40,14 @@ class OutcomeLabeler:
         if not sym or level_price is None:
             return
         self._pending[signal_id] = Pending(
-            signal_id=signal_id,
-            symbol=sym,
-            kind="breakout",
-            side=int(side),
-            level_price=float(level_price),
-            ts_ms=ts_ms,
-            horizon_ms=self._horizon_ms,
-            min_hold_bps=self._hold_bps,
+            signal_id=signal_id
+            symbol=sym
+            kind="breakout"
+            side=int(side)
+            level_price=float(level_price)
+            ts_ms=ts_ms
+            horizon_ms=self._horizon_ms
+            min_hold_bps=self._hold_bps
         )
 
     def on_ctx(self, ctx: Any) -> list[dict[str, Any]]:
@@ -75,13 +75,13 @@ class OutcomeLabeler:
 
             out.append(
                 {
-                    "kind": "label_update",
-                    "signal_id": p.signal_id,
-                    "symbol": p.symbol,
-                    "ts": now,
-                    "label": "post_breakout_accept",
-                    "value": 1 if accepted else 0,
-                    "meta": {"hold_bps": float(hold_bps), "level_price": float(p.level_price), "side": int(p.side)},
+                    "kind": "label_update"
+                    "signal_id": p.signal_id
+                    "symbol": p.symbol
+                    "ts": now
+                    "label": "post_breakout_accept"
+                    "value": 1 if accepted else 0
+                    "meta": {"hold_bps": float(hold_bps), "level_price": float(p.level_price), "side": int(p.side)}
                 }
             )
             done.append(sid)

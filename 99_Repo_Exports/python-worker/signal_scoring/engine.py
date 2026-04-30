@@ -31,8 +31,8 @@ except ImportError:
 
 try:
     from signal_scoring.weak_progress import (
-        get_weak_progress_config,
-        apply_weak_progress_and_fade_filters,
+        get_weak_progress_config
+        apply_weak_progress_and_fade_filters
         validate_signal_for_weak_progress
     )
     WEAK_PROGRESS_AVAILABLE = True
@@ -66,9 +66,9 @@ class LiquidityPattern(str, Enum):
 
 class SignalScoringEngine:
     def __init__(
-        self,
-        calib_store: LocalCalibrationStore,
-        config: ScoringConfig,
+        self
+        calib_store: LocalCalibrationStore
+        config: ScoringConfig
         quality_estimator: Optional[SignalQualityEstimator] = None
     ):
         self._calib_store = calib_store
@@ -78,10 +78,10 @@ class SignalScoringEngine:
     # ---- локальный квантиль по метрике ----
 
     def _metric_local_q(
-        self,
-        ctx: SignalContext,
-        metric: str,
-        invert: bool = False,
+        self
+        ctx: SignalContext
+        metric: str
+        invert: bool = False
     ) -> float | None:
         # Get raw metric value from ctx attributes
         value = getattr(ctx, metric, None)
@@ -89,10 +89,10 @@ class SignalScoringEngine:
             return None
 
         cfg = self._calib_store.get_metric_cfg(
-            symbol=ctx.symbol,
-            session=ctx.session,
-            regime=ctx.regime,
-            metric=metric,
+            symbol=ctx.symbol
+            session=ctx.session
+            regime=ctx.regime
+            metric=metric
         )
         if cfg is None or not cfg.cdf_points:
             return None
@@ -162,9 +162,9 @@ class SignalScoringEngine:
 
         # Apply weak progress filters and scoring
         final_confidence = apply_weak_progress_and_fade_filters(
-            ctx=ctx,
-            pattern_cfg=wp_cfg,
-            base_conf=base_confidence,
+            ctx=ctx
+            pattern_cfg=wp_cfg
+            base_conf=base_confidence
         )
 
         # Minimum confidence threshold (considers symbol and pattern)
@@ -196,20 +196,20 @@ class SignalScoringEngine:
 
         # Создаем feature bucket для поиска качества
         fb = make_feature_bucket(
-            delta_spike_z=ctx.delta_spike_z,
-            obi=ctx.obi,
-            weak_progress=ctx.weak_progress,
-            atr_quantile=ctx.atr_quantile,
+            delta_spike_z=ctx.delta_spike_z
+            obi=ctx.obi
+            weak_progress=ctx.weak_progress
+            atr_quantile=ctx.atr_quantile
         )
 
         # Оцениваем качество
         q_est = self._quality_estimator.estimate(
-            symbol=ctx.symbol,
-            signal_type=ctx.pattern_name or "generic",
-            side=ctx.side,
-            session=ctx.session,
-            regime=ctx.regime,
-            feature_bucket=fb,
+            symbol=ctx.symbol
+            signal_type=ctx.pattern_name or "generic"
+            side=ctx.side
+            session=ctx.session
+            regime=ctx.regime
+            feature_bucket=fb
         )
 
         if q_est is None:
@@ -229,8 +229,8 @@ class SignalScoringEngine:
 
         # Вычисляем финальный скор как комбинацию confidence и quality
         ctx.final_score = self._combine_conf_and_quality(
-            conf=ctx.confidence or 0,
-            quality=ctx.quality_combined,
+            conf=ctx.confidence or 0
+            quality=ctx.quality_combined
         )
 
         # Проверяем на отключение по качеству
@@ -332,9 +332,9 @@ class SignalScoringEngine:
         # 3) качество через SignalQualityEstimator (работает от базового score)
         quality_res = (
             self._quality_estimator.estimate_quality(
-                ctx=ctx,
-                base_score=base_score,
-                base_confidence=base_confidence,
+                ctx=ctx
+                base_score=base_score
+                base_confidence=base_confidence
             )
             if self._quality_estimator
             else None
@@ -382,24 +382,24 @@ class SignalScoringEngine:
 
         return ScoringResult(
             # score — базовый (без учёта ликвидности), в шкале 0-100
-            score=base_score * 100.0,
+            score=base_score * 100.0
             # final_score — с учётом ликвидности
-            final_score=final_score,
-            confidence=confidence,
-            quality_label=quality_label,
-            reasons=reasons,
-            should_emit=should_emit,
+            final_score=final_score
+            confidence=confidence
+            quality_label=quality_label
+            reasons=reasons
+            should_emit=should_emit
             debug={
-                "min_confidence": min_conf,
-                "allow_conf": allow_conf,
-                "allow_score": allow_score,
-                "allow_quality": allow_quality,
-                "base_score": base_score,
-                "base_confidence": base_confidence,
-                "liquidity_component": liquidity_component,
-                "adjusted_score_0_1": adjusted_score_0_1,
-                "force_reject": force_reject,
-            },
+                "min_confidence": min_conf
+                "allow_conf": allow_conf
+                "allow_score": allow_score
+                "allow_quality": allow_quality
+                "base_score": base_score
+                "base_confidence": base_confidence
+                "liquidity_component": liquidity_component
+                "adjusted_score_0_1": adjusted_score_0_1
+                "force_reject": force_reject
+            }
         )
 
     def _get_min_confidence_for_symbol(self, symbol: str) -> float:

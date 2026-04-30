@@ -103,9 +103,9 @@ def _get_meta_builder(schema_name: str):
 
 
 def _build_xy_from_df(
-    df: pd.DataFrame,
-    schema_name: str,
-    y_col: str,
+    df: pd.DataFrame
+    schema_name: str
+    y_col: str
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str], Dict[str, Any]]:
     """Build X_raw, y, ts_ms, feature_cols, transforms.
 
@@ -137,16 +137,16 @@ def _build_xy_from_df(
         ok_soft = _safe_int(_get_any(row, ["ok_soft", "f_ok_soft"], indicators.get("ok_soft", 0)), 0)
 
         rule_score = _safe_float(
-            _get_any(row, ["rule_score", "score", "f_rule_score", "f_score"], indicators.get("rule_score", 0.0)),
-            0.0,
+            _get_any(row, ["rule_score", "score", "f_rule_score", "f_score"], indicators.get("rule_score", 0.0))
+            0.0
         )
         exec_risk_norm = _safe_float(
-            _get_any(row, ["exec_risk_norm", "f_exec_risk_norm"], indicators.get("exec_risk_norm", 0.0)),
-            0.0,
+            _get_any(row, ["exec_risk_norm", "f_exec_risk_norm"], indicators.get("exec_risk_norm", 0.0))
+            0.0
         )
         exec_risk_bps = _safe_float(
-            _get_any(row, ["exec_risk_bps", "f_exec_risk_bps"], indicators.get("exec_risk_bps", 0.0)),
-            0.0,
+            _get_any(row, ["exec_risk_bps", "f_exec_risk_bps"], indicators.get("exec_risk_bps", 0.0))
+            0.0
         )
 
         ml_scenario = str(_get_any(row, ["scenario_v4", "f_scenario_v4"], indicators.get("scenario_v4", "")))
@@ -158,19 +158,19 @@ def _build_xy_from_df(
         evidence = {"indicators": indicators}
 
         feat_out = build_fn(
-            evidence=evidence,
-            indicators=indicators,
-            indicators_with_v4=indicators,
-            legs={},
-            runtime_snap=None,
-            runtime_prev_snap=None,
-            have=have,
-            need=need,
-            ok_soft=ok_soft,
-            rule_score=rule_score,
-            exec_risk_norm=exec_risk_norm,
-            exec_risk_bps=exec_risk_bps,
-            ml_scenario=ml_scenario,
+            evidence=evidence
+            indicators=indicators
+            indicators_with_v4=indicators
+            legs={}
+            runtime_snap=None
+            runtime_prev_snap=None
+            have=have
+            need=need
+            ok_soft=ok_soft
+            rule_score=rule_score
+            exec_risk_norm=exec_risk_norm
+            exec_risk_bps=exec_risk_bps
+            ml_scenario=ml_scenario
         )
 
         feat = feat_out[0] if isinstance(feat_out, (tuple, list)) and feat_out else feat_out
@@ -197,18 +197,18 @@ def _apply_transforms(X_raw: np.ndarray, feature_cols: List[str], transforms: Di
 
 
 def _fit_lr(
-    X_scaled: np.ndarray,
-    y: np.ndarray,
-    C: float,
-    max_iter: int,
+    X_scaled: np.ndarray
+    y: np.ndarray
+    C: float
+    max_iter: int
 ) -> LogisticRegression:
     lr = LogisticRegression(
-        penalty="l2",
-        C=float(C),
-        class_weight="balanced",
-        solver="lbfgs",
-        max_iter=int(max_iter),
-        n_jobs=1,
+        penalty="l2"
+        C=float(C)
+        class_weight="balanced"
+        solver="lbfgs"
+        max_iter=int(max_iter)
+        n_jobs=1
     )
     lr.fit(X_scaled, y)
     return lr
@@ -220,16 +220,16 @@ def _brier(y_true: np.ndarray, p: np.ndarray) -> float:
 
 
 def train_meta_model_lr_from_df(
-    df: pd.DataFrame,
-    *,
-    schema_name: str,
-    y_col: str,
-    n_splits: int,
-    purge_ms: int,
-    embargo_ms: int,
-    C: float,
-    max_iter: int,
-    threshold: float,
+    df: pd.DataFrame
+    *
+    schema_name: str
+    y_col: str
+    n_splits: int
+    purge_ms: int
+    embargo_ms: int
+    C: float
+    max_iter: int
+    threshold: float
 ) -> Tuple[MetaModelLR, Dict[str, Any]]:
     """Core training routine used by both CLI and tests."""
 
@@ -243,9 +243,9 @@ def train_meta_model_lr_from_df(
     fold_metrics: List[Dict[str, Any]] = []
     if int(n_splits) > 1 and len(y) >= 50:
         splitter = PurgedEmbargoTimeSeriesSplitV2(
-            n_splits=int(n_splits),
-            purge_ms=int(purge_ms),
-            embargo_ms=int(embargo_ms),
+            n_splits=int(n_splits)
+            purge_ms=int(purge_ms)
+            embargo_ms=int(embargo_ms)
         )
 
         for k, (tr_idx, te_idx) in enumerate(splitter.split(ts_ms), 1):
@@ -272,12 +272,12 @@ def train_meta_model_lr_from_df(
 
             fold_metrics.append(
                 {
-                    "fold": int(k),
-                    "train_n": int(len(tr)),
-                    "test_n": int(len(te)),
-                    "auc": auc,
-                    "logloss": ll,
-                    "brier": _brier(y[te], p_te),
+                    "fold": int(k)
+                    "train_n": int(len(tr))
+                    "test_n": int(len(te))
+                    "auc": auc
+                    "logloss": ll
+                    "brier": _brier(y[te], p_te)
                 }
             )
 
@@ -300,31 +300,31 @@ def train_meta_model_lr_from_df(
     cols_hash = MetaModelLR.compute_feature_cols_hash(feature_cols)
 
     model = MetaModelLR(
-        features=list(feature_cols),
-        intercept=float(lr_full.intercept_[0]),
-        coef=[float(x) for x in lr_full.coef_[0].tolist()],
-        threshold=float(threshold),
-        schema_name=str(schema_name),
-        schema_version=int(ver),
-        schema_hash=str(schema_hash),
-        feature_cols_hash=str(cols_hash),
-        transforms=transforms,
-        robust_scaler=rs_full,
+        features=list(feature_cols)
+        intercept=float(lr_full.intercept_[0])
+        coef=[float(x) for x in lr_full.coef_[0].tolist()]
+        threshold=float(threshold)
+        schema_name=str(schema_name)
+        schema_version=int(ver)
+        schema_hash=str(schema_hash)
+        feature_cols_hash=str(cols_hash)
+        transforms=transforms
+        robust_scaler=rs_full
     )
 
     summary: Dict[str, Any] = {
-        "y_col": str(y_col),
-        "n_rows": int(len(df)),
-        "pos_rate": float(pos_rate),
-        "cv": fold_metrics,
+        "y_col": str(y_col)
+        "n_rows": int(len(df))
+        "pos_rate": float(pos_rate)
+        "cv": fold_metrics
         "cv_mean": {
-            "auc": float(np.nanmean([m["auc"] for m in fold_metrics])) if fold_metrics else None,
-            "logloss": float(np.nanmean([m["logloss"] for m in fold_metrics])) if fold_metrics else None,
-            "brier": float(np.nanmean([m["brier"] for m in fold_metrics])) if fold_metrics else None,
-        },
-        "train_full": {"auc": float(auc_full), "logloss": float(ll_full), "brier": _brier(y, p_full)},
-        "splits": {"n_splits": int(n_splits), "purge_ms": int(purge_ms), "embargo_ms": int(embargo_ms)},
-        "lr": {"C": float(C), "max_iter": int(max_iter), "class_weight": "balanced", "solver": "lbfgs"},
+            "auc": float(np.nanmean([m["auc"] for m in fold_metrics])) if fold_metrics else None
+            "logloss": float(np.nanmean([m["logloss"] for m in fold_metrics])) if fold_metrics else None
+            "brier": float(np.nanmean([m["brier"] for m in fold_metrics])) if fold_metrics else None
+        }
+        "train_full": {"auc": float(auc_full), "logloss": float(ll_full), "brier": _brier(y, p_full)}
+        "splits": {"n_splits": int(n_splits), "purge_ms": int(purge_ms), "embargo_ms": int(embargo_ms)}
+        "lr": {"C": float(C), "max_iter": int(max_iter), "class_weight": "balanced", "solver": "lbfgs"}
     }
 
     return model, summary
@@ -364,15 +364,15 @@ def main() -> int:
 
     # Train
     model, summary = train_meta_model_lr_from_df(
-        df,
-        schema_name=str(args.schema),
-        y_col=y_col,
-        n_splits=int(args.n_splits),
-        purge_ms=int(args.purge_ms),
-        embargo_ms=int(args.embargo_ms),
-        C=float(args.C),
-        max_iter=int(args.max_iter),
-        threshold=float(args.threshold),
+        df
+        schema_name=str(args.schema)
+        y_col=y_col
+        n_splits=int(args.n_splits)
+        purge_ms=int(args.purge_ms)
+        embargo_ms=int(args.embargo_ms)
+        C=float(args.C)
+        max_iter=int(args.max_iter)
+        threshold=float(args.threshold)
     )
 
     # Export (signature stable)
@@ -382,9 +382,9 @@ def main() -> int:
     try:
         d = json.loads(open(str(args.out), "r", encoding="utf-8").read())
         d["training_summary"] = {
-            **summary,
-            "parquet": str(args.parquet),
-            "created_ms": get_ny_time_millis(),
+            **summary
+            "parquet": str(args.parquet)
+            "created_ms": get_ny_time_millis()
         }
         with open(str(args.out), "w", encoding="utf-8") as f:
             json.dump(d, f, indent=2, ensure_ascii=False)

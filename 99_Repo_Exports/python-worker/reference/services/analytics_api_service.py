@@ -2,7 +2,7 @@
 """
 Analytics API Service - REST API for scanner_analytics database.
 
-Provides endpoints for trade analytics, baseline vs managed comparisons,
+Provides endpoints for trade analytics, baseline vs managed comparisons
 and entry tag performance metrics.
 
 Features:
@@ -35,8 +35,8 @@ DEFAULT_PORT = int(os.getenv("ANALYTICS_API_PORT", "8091"))
 DEFAULT_HOST = os.getenv("ANALYTICS_API_HOST", "127.0.0.1")
 
 app = FastAPI(
-    title="Scanner Analytics API",
-    description="REST API for trade analytics from scanner_analytics database",
+    title="Scanner Analytics API"
+    description="REST API for trade analytics from scanner_analytics database"
     version="1.0.0"
 )
 
@@ -97,8 +97,8 @@ async def health_check():
 
 @app.get("/metrics/trades", response_model=List[TradeResponse])
 async def get_trades(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
-    source: Optional[str] = Query(None, description="Filter by source"),
+    symbol: Optional[str] = Query(None, description="Filter by symbol")
+    source: Optional[str] = Query(None, description="Filter by source")
     limit: int = Query(100, description="Max number of trades to return", ge=1, le=1000)
 ):
     """
@@ -111,8 +111,8 @@ async def get_trades(
     """
     try:
         rows = analytics_db.fetch_trades_closed(
-            symbol=symbol,
-            source=source,
+            symbol=symbol
+            source=source
             limit=limit
         )
 
@@ -120,13 +120,13 @@ async def get_trades(
         trades = []
         for row in rows:
             trades.append(TradeResponse(
-                order_id=row['order_id'],
-                symbol=row['symbol'],
-                source=row['source'] or '',
-                exit_ts_ms=row['exit_ts_ms'],
-                pnl_net=row['pnl_net'],
-                pnl_if_fixed_exit=row['pnl_if_fixed_exit'],
-                entry_tag=row['entry_tag'] or '',
+                order_id=row['order_id']
+                symbol=row['symbol']
+                source=row['source'] or ''
+                exit_ts_ms=row['exit_ts_ms']
+                pnl_net=row['pnl_net']
+                pnl_if_fixed_exit=row['pnl_if_fixed_exit']
+                entry_tag=row['entry_tag'] or ''
                 close_reason=row['close_reason'] or ''
             ))
 
@@ -138,8 +138,8 @@ async def get_trades(
 
 @app.get("/metrics/daily", response_model=List[DailyMetricsResponse])
 async def get_daily_metrics(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
-    source: Optional[str] = Query(None, description="Filter by source"),
+    symbol: Optional[str] = Query(None, description="Filter by symbol")
+    source: Optional[str] = Query(None, description="Filter by source")
     limit: int = Query(30, description="Max number of days to return", ge=1, le=365)
 ):
     """
@@ -152,8 +152,8 @@ async def get_daily_metrics(
     """
     try:
         rows = analytics_db.fetch_daily_metrics(
-            symbol=symbol,
-            source=source,
+            symbol=symbol
+            source=source
             limit=limit
         )
 
@@ -161,14 +161,14 @@ async def get_daily_metrics(
         metrics = []
         for row in rows:
             metrics.append(DailyMetricsResponse(
-                date=row['date'],
-                source=row['source'] or '',
-                symbol=row['symbol'],
-                trades_count=row['trades_count'],
-                pnl_net_sum=row['pnl_net_sum'],
-                wr_managed=row['wr_managed'],
-                wr_baseline=row['wr_baseline'],
-                expectancy_r=row['expectancy_r'],
+                date=row['date']
+                source=row['source'] or ''
+                symbol=row['symbol']
+                trades_count=row['trades_count']
+                pnl_net_sum=row['pnl_net_sum']
+                wr_managed=row['wr_managed']
+                wr_baseline=row['wr_baseline']
+                expectancy_r=row['expectancy_r']
                 delta_expectancy_r=row['delta_expectancy_r']
             ))
 
@@ -180,9 +180,9 @@ async def get_daily_metrics(
 
 @app.get("/metrics/entry-tags", response_model=List[EntryTagMetricsResponse])
 async def get_entry_tag_metrics(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
-    source: Optional[str] = Query(None, description="Filter by source"),
-    entry_tag: Optional[str] = Query(None, description="Filter by entry tag"),
+    symbol: Optional[str] = Query(None, description="Filter by symbol")
+    source: Optional[str] = Query(None, description="Filter by source")
+    entry_tag: Optional[str] = Query(None, description="Filter by entry tag")
     limit: int = Query(30, description="Max number of entries to return", ge=1, le=365)
 ):
     """
@@ -196,9 +196,9 @@ async def get_entry_tag_metrics(
     """
     try:
         rows = analytics_db.fetch_entry_tag_metrics(
-            symbol=symbol,
-            source=source,
-            entry_tag=entry_tag,
+            symbol=symbol
+            source=source
+            entry_tag=entry_tag
             limit=limit
         )
 
@@ -206,16 +206,16 @@ async def get_entry_tag_metrics(
         metrics = []
         for row in rows:
             metrics.append(EntryTagMetricsResponse(
-                date=row['date'],
-                source=row['source'] or '',
-                symbol=row['symbol'],
-                entry_tag=row['entry_tag'],
-                trades_count=row['trades_count'],
-                pnl_net_sum=row['pnl_net_sum'],
-                wr_managed=row['wr_managed'],
-                expectancy_r=row['expectancy_r'],
-                delta_expectancy_r=row['delta_expectancy_r'],
-                giveback_avg_r=row['giveback_avg_r'],
+                date=row['date']
+                source=row['source'] or ''
+                symbol=row['symbol']
+                entry_tag=row['entry_tag']
+                trades_count=row['trades_count']
+                pnl_net_sum=row['pnl_net_sum']
+                wr_managed=row['wr_managed']
+                expectancy_r=row['expectancy_r']
+                delta_expectancy_r=row['delta_expectancy_r']
+                giveback_avg_r=row['giveback_avg_r']
                 missed_avg_r=row['missed_avg_r']
             ))
 
@@ -227,7 +227,7 @@ async def get_entry_tag_metrics(
 
 @app.get("/metrics/summary")
 async def get_summary_metrics(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
+    symbol: Optional[str] = Query(None, description="Filter by symbol")
     source: Optional[str] = Query(None, description="Filter by source")
 ):
     """
@@ -238,17 +238,17 @@ async def get_summary_metrics(
     try:
         # Get recent trades for summary calculation
         trades = analytics_db.fetch_trades_closed(
-            symbol=symbol,
-            source=source,
+            symbol=symbol
+            source=source
             limit=1000  # Use last 1000 trades for summary
         )
 
         if not trades:
             return {
-                "total_trades": 0,
-                "total_pnl": 0.0,
-                "win_rate": 0.0,
-                "avg_trade_pnl": 0.0,
+                "total_trades": 0
+                "total_pnl": 0.0
+                "win_rate": 0.0
+                "avg_trade_pnl": 0.0
                 "baseline_vs_managed_delta": 0.0
             }
 
@@ -264,10 +264,10 @@ async def get_summary_metrics(
         baseline_vs_managed_delta = managed_pnl - baseline_pnl
 
         return {
-            "total_trades": total_trades,
-            "total_pnl": round(total_pnl, 2),
-            "win_rate": round(win_rate, 2),
-            "avg_trade_pnl": round(avg_trade_pnl, 4),
+            "total_trades": total_trades
+            "total_pnl": round(total_pnl, 2)
+            "win_rate": round(win_rate, 2)
+            "avg_trade_pnl": round(avg_trade_pnl, 4)
             "baseline_vs_managed_delta": round(baseline_vs_managed_delta, 2)
         }
 
@@ -291,8 +291,8 @@ if __name__ == "__main__":
     print(f"  GET /metrics/summary - Summary overview")
 
     uvicorn.run(
-        "services.analytics_api_service:app",
-        host=DEFAULT_HOST,
-        port=DEFAULT_PORT,
+        "services.analytics_api_service:app"
+        host=DEFAULT_HOST
+        port=DEFAULT_PORT
         reload=False
     )

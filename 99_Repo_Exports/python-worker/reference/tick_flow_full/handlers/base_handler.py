@@ -62,9 +62,9 @@ class BaseHandler(ABC):
             level: Уровень логирования (INFO, WARNING, ERROR)
         """
         emoji_map = {
-            "INFO": "ℹ️",
+            "INFO": "ℹ️"
             "WARNING": "⚠️", 
-            "ERROR": "❌",
+            "ERROR": "❌"
             "SUCCESS": "✅"
         }
         emoji = emoji_map.get(level, "📝")

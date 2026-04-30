@@ -187,20 +187,20 @@ class MT5TickStreamer:
                     
                     # Формируем payload
                     payload = {
-                        "ts": tick_ts,
-                        "bid": float(tick.get('bid', 0)),
-                        "ask": float(tick.get('ask', 0)),
-                        "last": float(tick.get('last', 0)),
-                        "volume": float(tick.get('volume', 0)),
+                        "ts": tick_ts
+                        "bid": float(tick.get('bid', 0))
+                        "ask": float(tick.get('ask', 0))
+                        "last": float(tick.get('last', 0))
+                        "volume": float(tick.get('volume', 0))
                         "flags": int(tick.get('flags', 0))  # для направления сделки
                     }
                     
                     # Публикуем в Redis Stream
                     try:
                         self.redis_client.xadd(
-                            self.tick_stream,
-                            {"data": json.dumps(payload)},
-                            maxlen=self.maxlen,
+                            self.tick_stream
+                            {"data": json.dumps(payload)}
+                            maxlen=self.maxlen
                             approximate=True
                         )
                         tick_count += 1

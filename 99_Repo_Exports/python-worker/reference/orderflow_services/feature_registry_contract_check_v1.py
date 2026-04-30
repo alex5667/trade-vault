@@ -126,14 +126,14 @@ def _hset_safe(r, key: str, mapping: Dict[str, Any]) -> None:
         pass
 
 
-def _compute_current(schema_ver: str,
-                     *,
-                     max_numeric: int,
-                     scenario_prefix: str,
-                     include_time_onehot: Optional[bool],
-                     include_direction: bool,
-                     include_scenario: bool,
-                     strict_feature_cols: bool,
+def _compute_current(schema_ver: str
+                     *
+                     max_numeric: int
+                     scenario_prefix: str
+                     include_time_onehot: Optional[bool]
+                     include_direction: bool
+                     include_scenario: bool
+                     strict_feature_cols: bool
                      forbid_scenario_v4_onehot: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     _ensure_import_paths()
 
@@ -141,37 +141,37 @@ def _compute_current(schema_ver: str,
 
     info = fr.get_schema_info(schema_ver)
     spec = fr.get_edge_stack_feature_spec(
-        schema_ver,
-        max_numeric=int(max_numeric),
-        scenario_prefix=str(scenario_prefix),
-        include_time_onehot=include_time_onehot,
-        include_direction=bool(include_direction),
-        include_scenario=bool(include_scenario),
-        strict_feature_cols=bool(strict_feature_cols),
-        forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
+        schema_ver
+        max_numeric=int(max_numeric)
+        scenario_prefix=str(scenario_prefix)
+        include_time_onehot=include_time_onehot
+        include_direction=bool(include_direction)
+        include_scenario=bool(include_scenario)
+        strict_feature_cols=bool(strict_feature_cols)
+        forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot)
     )
 
     current = {
-        "schema_ver": str(info.ver),
-        "schema_hash": str(info.schema_hash),
-        "n_schema_features": int(len(info.feature_names or [])),
-        "feature_cols_hash": str(spec.feature_cols_hash),
-        "n_feature_cols": int(len(spec.feature_cols or [])),
+        "schema_ver": str(info.ver)
+        "schema_hash": str(info.schema_hash)
+        "n_schema_features": int(len(info.feature_names or []))
+        "feature_cols_hash": str(spec.feature_cols_hash)
+        "n_feature_cols": int(len(spec.feature_cols or []))
         "params": {
-            "max_numeric": int(max_numeric),
-            "scenario_prefix": str(scenario_prefix),
-            "include_time_onehot": None if include_time_onehot is None else (1 if include_time_onehot else 0),
-            "include_direction": 1 if include_direction else 0,
-            "include_scenario": 1 if include_scenario else 0,
-            "strict_feature_cols": 1 if strict_feature_cols else 0,
-            "forbid_scenario_v4_onehot": 1 if forbid_scenario_v4_onehot else 0,
-        },
+            "max_numeric": int(max_numeric)
+            "scenario_prefix": str(scenario_prefix)
+            "include_time_onehot": None if include_time_onehot is None else (1 if include_time_onehot else 0)
+            "include_direction": 1 if include_direction else 0
+            "include_scenario": 1 if include_scenario else 0
+            "strict_feature_cols": 1 if strict_feature_cols else 0
+            "forbid_scenario_v4_onehot": 1 if forbid_scenario_v4_onehot else 0
+        }
     }
 
     # Provide also the raw dataclasses payload for debugging (bounded)
     dbg = {
-        "schema_info": asdict(info),
-        "feature_spec": asdict(spec),
+        "schema_info": asdict(info)
+        "feature_spec": asdict(spec)
     }
     return current, dbg
 
@@ -193,12 +193,12 @@ def _compare_pins(pins: Dict[str, str], current: Dict[str, Any]) -> Tuple[bool, 
     ok = (mismatch_ver == 0) and (mismatch_schema == 0) and (mismatch_cols == 0)
 
     details = {
-        "expected_schema_ver": want_ver,
-        "expected_schema_hash": want_schema_hash,
-        "expected_feature_cols_hash": want_cols_hash,
-        "mismatch_schema_ver": mismatch_ver,
-        "mismatch_schema_hash": mismatch_schema,
-        "mismatch_feature_cols_hash": mismatch_cols,
+        "expected_schema_ver": want_ver
+        "expected_schema_hash": want_schema_hash
+        "expected_feature_cols_hash": want_cols_hash
+        "mismatch_schema_ver": mismatch_ver
+        "mismatch_schema_hash": mismatch_schema
+        "mismatch_feature_cols_hash": mismatch_cols
     }
     return ok, details
 
@@ -233,39 +233,39 @@ def main() -> int:
         include_time_onehot = None
 
     out: Dict[str, Any] = {
-        "tool": "feature_registry_contract_check_v1",
-        "ts_ms": _now_ms(),
-        "pin_key": str(args.pin_key),
-        "metrics_key": str(args.metrics_key),
-        "require_pins": int(args.require_pins),
+        "tool": "feature_registry_contract_check_v1"
+        "ts_ms": _now_ms()
+        "pin_key": str(args.pin_key)
+        "metrics_key": str(args.metrics_key)
+        "require_pins": int(args.require_pins)
     }
 
     rc = 0
     try:
         current, dbg = _compute_current(
-            str(args.schema_ver),
-            max_numeric=int(args.max_numeric),
-            scenario_prefix=str(args.scenario_prefix),
-            include_time_onehot=include_time_onehot,
-            include_direction=bool(int(args.include_direction)),
-            include_scenario=bool(int(args.include_scenario)),
-            strict_feature_cols=bool(int(args.strict_feature_cols)),
-            forbid_scenario_v4_onehot=bool(int(args.forbid_scenario_v4_onehot)),
+            str(args.schema_ver)
+            max_numeric=int(args.max_numeric)
+            scenario_prefix=str(args.scenario_prefix)
+            include_time_onehot=include_time_onehot
+            include_direction=bool(int(args.include_direction))
+            include_scenario=bool(int(args.include_scenario))
+            strict_feature_cols=bool(int(args.strict_feature_cols))
+            forbid_scenario_v4_onehot=bool(int(args.forbid_scenario_v4_onehot))
         )
         out.update({"current": current})
         if int(args.emit_debug) == 1:
             # Debug payload may be large; keep it bounded.
             out["debug"] = {
                 "schema_info": {
-                    "ver": dbg.get("schema_info", {}).get("ver"),
-                    "schema_hash": dbg.get("schema_info", {}).get("schema_hash"),
-                    "n": len(dbg.get("schema_info", {}).get("feature_names") or []),
-                },
+                    "ver": dbg.get("schema_info", {}).get("ver")
+                    "schema_hash": dbg.get("schema_info", {}).get("schema_hash")
+                    "n": len(dbg.get("schema_info", {}).get("feature_names") or [])
+                }
                 "feature_spec": {
-                    "ver": dbg.get("feature_spec", {}).get("ver"),
-                    "feature_cols_hash": dbg.get("feature_spec", {}).get("feature_cols_hash"),
-                    "n": len(dbg.get("feature_spec", {}).get("feature_cols") or []),
-                },
+                    "ver": dbg.get("feature_spec", {}).get("ver")
+                    "feature_cols_hash": dbg.get("feature_spec", {}).get("feature_cols_hash")
+                    "n": len(dbg.get("feature_spec", {}).get("feature_cols") or [])
+                }
             }
 
         # Redis I/O (pins + metrics)
@@ -276,10 +276,10 @@ def main() -> int:
             out["pins_present"] = 0
             if int(args.seed_pin) == 1:
                 seed = {
-                    "schema_ver": str(current.get("schema_ver") or ""),
-                    "schema_hash": str(current.get("schema_hash") or ""),
-                    "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
-                    "updated_ts_ms": str(_now_ms()),
+                    "schema_ver": str(current.get("schema_ver") or "")
+                    "schema_hash": str(current.get("schema_hash") or "")
+                    "feature_cols_hash": str(current.get("feature_cols_hash") or "")
+                    "updated_ts_ms": str(_now_ms())
                 }
                 _hset_safe(r, str(args.pin_key), seed)
                 out["seeded_pin"] = 1
@@ -323,20 +323,20 @@ def main() -> int:
 
         # Persist last metrics (best-effort)
         metrics = {
-            "status": out.get("status", ""),
-            "reason": out.get("reason", ""),
-            "success": 1 if rc == 0 else 0,
-            "pins_present": int(out.get("pins_present", 0)),
-            "mismatch_schema_ver": int(out.get("mismatch_schema_ver", 0)),
-            "mismatch_schema_hash": int(out.get("mismatch_schema_hash", 0)),
-            "mismatch_feature_cols_hash": int(out.get("mismatch_feature_cols_hash", 0)),
-            "schema_ver": str(current.get("schema_ver") or ""),
-            "schema_hash": str(current.get("schema_hash") or ""),
-            "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
-            "expected_schema_ver": str(out.get("expected_schema_ver") or ""),
-            "expected_schema_hash": str(out.get("expected_schema_hash") or ""),
-            "expected_feature_cols_hash": str(out.get("expected_feature_cols_hash") or ""),
-            "updated_ts_ms": str(_now_ms()),
+            "status": out.get("status", "")
+            "reason": out.get("reason", "")
+            "success": 1 if rc == 0 else 0
+            "pins_present": int(out.get("pins_present", 0))
+            "mismatch_schema_ver": int(out.get("mismatch_schema_ver", 0))
+            "mismatch_schema_hash": int(out.get("mismatch_schema_hash", 0))
+            "mismatch_feature_cols_hash": int(out.get("mismatch_feature_cols_hash", 0))
+            "schema_ver": str(current.get("schema_ver") or "")
+            "schema_hash": str(current.get("schema_hash") or "")
+            "feature_cols_hash": str(current.get("feature_cols_hash") or "")
+            "expected_schema_ver": str(out.get("expected_schema_ver") or "")
+            "expected_schema_hash": str(out.get("expected_schema_hash") or "")
+            "expected_feature_cols_hash": str(out.get("expected_feature_cols_hash") or "")
+            "updated_ts_ms": str(_now_ms())
         }
         # keep params to help debugging (low-cardinality)
         params = current.get("params") or {}

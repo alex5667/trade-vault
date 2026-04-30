@@ -74,10 +74,10 @@ def _set_model_metrics(blob: Dict[str, Any], model: str) -> None:
 
 def load_cfg() -> Config:
     return Config(
-        status_file=os.environ.get("EDGE_STACK_SHADOW_STATUS_FILE", "/var/lib/trade/of_reports/out/edge_stack/shadow_status.json"),
-        port=int(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_PORT", "8012")),
-        interval_s=float(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_INTERVAL_S", "5")),
-        stale_s=float(os.environ.get("EDGE_STACK_SHADOW_STATUS_STALE_S", "900")),
+        status_file=os.environ.get("EDGE_STACK_SHADOW_STATUS_FILE", "/var/lib/trade/of_reports/out/edge_stack/shadow_status.json")
+        port=int(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_PORT", "8012"))
+        interval_s=float(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_INTERVAL_S", "5"))
+        stale_s=float(os.environ.get("EDGE_STACK_SHADOW_STATUS_STALE_S", "900"))
     )
 
 

@@ -34,8 +34,8 @@ from common.log import setup_logger
 # A3: строгий контракт для POSITION_CLOSED + DLQ-хелпер (fail-open) — V2 API
 try:
     from services.posttrade.trade_events_contract import (
-        normalize_position_closed_event,
-        validate_position_closed_event,
+        normalize_position_closed_event
+        validate_position_closed_event
     )
     from services.posttrade.redis_stream_dlq import publish_dlq
 except Exception:  # pragma: no cover — fallback for direct-run
@@ -93,15 +93,15 @@ from copy import deepcopy
 # Helpers (unit-testable)
 # ------------------------------
 def _merge_close_metadata(
-    *,
-    close_reason: Optional[str],
-    ab_arm: Optional[str] = None,
-    ab_group: Optional[str] = None,
-    ab_key: Optional[str] = None,
-    arm_ver: Optional[int] = None,
-    regime: Optional[str] = None,
-    zone_id: Optional[str] = None,
-    base: Optional[Dict[str, Any]] = None,
+    *
+    close_reason: Optional[str]
+    ab_arm: Optional[str] = None
+    ab_group: Optional[str] = None
+    ab_key: Optional[str] = None
+    arm_ver: Optional[int] = None
+    regime: Optional[str] = None
+    zone_id: Optional[str] = None
+    base: Optional[Dict[str, Any]] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Build metadata for POSITION_CLOSED in a backward-compatible way.
@@ -147,11 +147,11 @@ class TradeEventsLogger:
         # P2: ConnectionPool вместо голого from_url() — ограничиваем количество соединений
         _max_conn = int(os.getenv("TRADE_EVENTS_REDIS_MAX_CONNECTIONS", "20"))
         _pool = redis.ConnectionPool.from_url(
-            self.redis_url,
-            decode_responses=True,
-            max_connections=_max_conn,
-            socket_keepalive=True,
-            health_check_interval=60,
+            self.redis_url
+            decode_responses=True
+            max_connections=_max_conn
+            socket_keepalive=True
+            health_check_interval=60
         )
         self.r = redis.Redis(connection_pool=_pool)
         
@@ -174,19 +174,19 @@ class TradeEventsLogger:
         
         # Статистика
         self.stats = {
-            "events_written": 0,
-            "tp1_hits": 0,
-            "tp2_hits": 0,
-            "tp3_hits": 0,
-            "sl_hits": 0,
-            "trailing_moves": 0,
-            "trailing_started": 0,
-            "position_opened": 0,
+            "events_written": 0
+            "tp1_hits": 0
+            "tp2_hits": 0
+            "tp3_hits": 0
+            "sl_hits": 0
+            "trailing_moves": 0
+            "trailing_started": 0
+            "position_opened": 0
             "position_closed": 0
         }
         
         log.info(
-            "✅ TradeEventsLogger initialized | stream=%s ttl=%ds",
+            "✅ TradeEventsLogger initialized | stream=%s ttl=%ds"
             self.events_stream, self.events_ttl
         )
     
@@ -244,18 +244,18 @@ class TradeEventsLogger:
                 normalized, errs = normalize_position_closed_event(stream_payload)
                 if errs:
                     publish_dlq(
-                        self.r,
-                        dlq_stream=self.dlq_stream,
-                        reason="position_closed_contract_violation",
-                        error=";".join(errs),
-                        src_stream=self.events_stream,
+                        self.r
+                        dlq_stream=self.dlq_stream
+                        reason="position_closed_contract_violation"
+                        error=";".join(errs)
+                        src_stream=self.events_stream
                         src_entry_id="*",  # before xadd — entry_id not yet known
-                        payload=stream_payload,
-                        maxlen=self.dlq_maxlen,
+                        payload=stream_payload
+                        maxlen=self.dlq_maxlen
                     )
                     log.warning(
-                        "⚠️  POSITION_CLOSED rejected by contract, routed to DLQ | sid=%s errs=%s",
-                        event.sid, errs,
+                        "⚠️  POSITION_CLOSED rejected by contract, routed to DLQ | sid=%s errs=%s"
+                        event.sid, errs
                     )
                     try:
                         # Mark bad event so we don't spam DLQ on retry
@@ -285,9 +285,9 @@ class TradeEventsLogger:
             # P2: Strip heavy analytics fields from stream — они раздувают events:trades до 4KB/entry.
             # Полный payload лежит в PostgreSQL через stream-archiver и в trade:events:{sid} Redis list.
             _STREAM_STRIP_FIELDS = frozenset({
-                "config_snapshot", "calibrated_specs", "indicators_snapshot",
-                "trail_profile_config", "evidence", "feature_vector",
-                "trail_profile", "raw_signal", "signal_payload",
+                "config_snapshot", "calibrated_specs", "indicators_snapshot"
+                "trail_profile_config", "evidence", "feature_vector"
+                "trail_profile", "raw_signal", "signal_payload"
             })
             stripped_stream_data = {k: v for k, v in stream_data.items() if k not in _STREAM_STRIP_FIELDS}
 
@@ -321,7 +321,7 @@ class TradeEventsLogger:
 
         except Exception as e:
             log.error(
-                "❌ Failed to log event %s for %s: %s",
+                "❌ Failed to log event %s for %s: %s"
                 getattr(event, "event_type", "?"), getattr(event, "sid", "?"), str(e)
             )
             return ""
@@ -363,33 +363,33 @@ class TradeEventsLogger:
         return self.log_event(event)
 
     def log_position_closed(
-        self,
-        sid: str,
-        symbol: str,
-        close_price: float,
-        pnl: float,
-        position_id: Optional[str] = None,
-        lot: Optional[float] = None,
-        source: str = "mt5",
-        close_reason: Optional[str] = None,
+        self
+        sid: str
+        symbol: str
+        close_price: float
+        pnl: float
+        position_id: Optional[str] = None
+        lot: Optional[float] = None
+        source: str = "mt5"
+        close_reason: Optional[str] = None
         # A3: explicit time + fill join fields
-        ts_ms: Optional[int] = None,
-        exit_ts_ms: Optional[int] = None,
-        order_id: Optional[str] = None,
-        side: Optional[str] = None,
-        venue: Optional[str] = None,
-        qty: Optional[float] = None,
-        fee_bps: Optional[float] = None,
-        bid_at_fill: Optional[float] = None,
-        ask_at_fill: Optional[float] = None,
-        mid_at_fill: Optional[float] = None,
+        ts_ms: Optional[int] = None
+        exit_ts_ms: Optional[int] = None
+        order_id: Optional[str] = None
+        side: Optional[str] = None
+        venue: Optional[str] = None
+        qty: Optional[float] = None
+        fee_bps: Optional[float] = None
+        bid_at_fill: Optional[float] = None
+        ask_at_fill: Optional[float] = None
+        mid_at_fill: Optional[float] = None
         # Existing: structured metadata and extra payload
-        metadata: Optional[Dict[str, Any]] = None,
-        payload: Optional[Dict[str, Any]] = None,
-        extra_payload: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None
+        payload: Optional[Dict[str, Any]] = None
+        extra_payload: Optional[Dict[str, Any]] = None
         # Backward-compatible sink for older callsites that pass ab_arm/regime/etc as kwargs
         # (previously these were explicit positional args that caused TypeError).
-        **legacy_kwargs: Any,
+        **legacy_kwargs: Any
     ) -> str:
         """
         Записать событие POSITION_CLOSED.
@@ -481,17 +481,17 @@ class TradeEventsLogger:
             pl["ts_fill_ms"] = int(ts_final)
 
         event = TradeEvent(
-            event_type="POSITION_CLOSED",
-            sid=sid,
-            symbol=symbol,
+            event_type="POSITION_CLOSED"
+            sid=sid
+            symbol=symbol
             ts=int(ts_final),  # A3: deterministic timestamp
-            price=close_price,
-            pnl=pnl,
-            position_id=position_id,
-            lot=lot,
-            source=source,
-            metadata=(md or None),
-            payload=(pl or None),
+            price=close_price
+            pnl=pnl
+            position_id=position_id
+            lot=lot
+            source=source
+            metadata=(md or None)
+            payload=(pl or None)
         )
         return self.log_event(event)
     
@@ -560,18 +560,18 @@ class TradeEventsLogger:
             return None
         
         outcome = {
-            "sid": sid,
-            "position_opened": False,
-            "tp1_hit": False,
-            "tp2_hit": False,
-            "tp3_hit": False,
-            "sl_hit": False,
-            "trailing_started": False,
-            "trailing_moves": 0,
-            "max_sl": None,
-            "min_sl": None,
-            "final_pnl": None,
-            "lifetime_ms": 0,
+            "sid": sid
+            "position_opened": False
+            "tp1_hit": False
+            "tp2_hit": False
+            "tp3_hit": False
+            "sl_hit": False
+            "trailing_started": False
+            "trailing_moves": 0
+            "max_sl": None
+            "min_sl": None
+            "final_pnl": None
+            "lifetime_ms": 0
             "close_reason": None
         }
         
@@ -643,12 +643,12 @@ class TradeEventsLogger:
     def log_stats(self):
         """Вывести статистику в лог."""
         log.info(
-            "📊 Events Logger Stats: total=%d tp1=%d tp2=%d tp3=%d sl=%d trailing_moves=%d",
-            self.stats["events_written"],
-            self.stats["tp1_hits"],
-            self.stats["tp2_hits"],
-            self.stats["tp3_hits"],
-            self.stats["sl_hits"],
+            "📊 Events Logger Stats: total=%d tp1=%d tp2=%d tp3=%d sl=%d trailing_moves=%d"
+            self.stats["events_written"]
+            self.stats["tp1_hits"]
+            self.stats["tp2_hits"]
+            self.stats["tp3_hits"]
+            self.stats["sl_hits"]
             self.stats["trailing_moves"]
         )
 
@@ -663,30 +663,30 @@ if __name__ == "__main__":
     
     # Симулируем торговый цикл
     logger.log_position_opened(
-        sid=test_sid,
-        symbol="XAUUSD",
-        price=2765.5,
-        lot=0.03,
-        sl=2758.7,
+        sid=test_sid
+        symbol="XAUUSD"
+        price=2765.5
+        lot=0.03
+        sl=2758.7
         tp_levels=[2769.9, 2773.1, 2776.3]
     )
     
     time.sleep(0.1)
     
     logger.log_tp1_hit(
-        sid=test_sid,
-        symbol="XAUUSD",
-        price=2769.9,
+        sid=test_sid
+        symbol="XAUUSD"
+        price=2769.9
         lot=0.015  # 50% от позиции
     )
     
     time.sleep(0.1)
     
     logger.log_trailing_started(
-        sid=test_sid,
-        symbol="XAUUSD",
-        profile="rocket_v1",
-        initial_sl=2758.7,
+        sid=test_sid
+        symbol="XAUUSD"
+        profile="rocket_v1"
+        initial_sl=2758.7
         tp1_price=2769.9
     )
     
@@ -695,30 +695,30 @@ if __name__ == "__main__":
     # Несколько движений трейлинга
     for i, new_sl in enumerate([2762.0, 2764.5, 2767.2, 2769.0]):
         logger.log_trailing_move(
-            sid=test_sid,
-            symbol="XAUUSD",
-            new_sl=new_sl,
-            current_price=new_sl + 5.0,
-            profile="rocket_v1",
+            sid=test_sid
+            symbol="XAUUSD"
+            new_sl=new_sl
+            current_price=new_sl + 5.0
+            profile="rocket_v1"
             distance_from_entry=(new_sl - 2758.7)
         )
         time.sleep(0.05)
     
     logger.log_tp2_hit(
-        sid=test_sid,
-        symbol="XAUUSD",
-        price=2773.1,
+        sid=test_sid
+        symbol="XAUUSD"
+        price=2773.1
         lot=0.01  # 30% от позиции
     )
     
     time.sleep(0.1)
     
     logger.log_position_closed(
-        sid=test_sid,
-        symbol="XAUUSD",
-        close_price=2771.5,
-        pnl=150.25,
-        lot=0.005,
+        sid=test_sid
+        symbol="XAUUSD"
+        close_price=2771.5
+        pnl=150.25
+        lot=0.005
         close_reason="trailing_stop"
     )
     

@@ -13,16 +13,16 @@ from contextlib import contextmanager
 
 DDL_NEWS_ANALYSIS = """
 CREATE TABLE IF NOT EXISTS news_analysis (
-  uid           TEXT NOT NULL,
-  symbol        TEXT NOT NULL,
-  ts_ms         BIGINT NOT NULL,
-  source        TEXT NOT NULL,
-  risk          DOUBLE PRECISION NOT NULL,
-  surprise      DOUBLE PRECISION NOT NULL,
-  tags_mask     BIGINT NOT NULL,
-  primary_tag   INTEGER NOT NULL,
-  payload_json  JSONB NOT NULL,
-  inserted_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  uid           TEXT NOT NULL
+  symbol        TEXT NOT NULL
+  ts_ms         BIGINT NOT NULL
+  source        TEXT NOT NULL
+  risk          DOUBLE PRECISION NOT NULL
+  surprise      DOUBLE PRECISION NOT NULL
+  tags_mask     BIGINT NOT NULL
+  primary_tag   INTEGER NOT NULL
+  payload_json  JSONB NOT NULL
+  inserted_at   TIMESTAMPTZ NOT NULL DEFAULT now()
   PRIMARY KEY(uid, symbol)
 );
 CREATE INDEX IF NOT EXISTS news_analysis_ts_idx ON news_analysis (ts_ms DESC);
@@ -31,14 +31,14 @@ CREATE INDEX IF NOT EXISTS news_analysis_symbol_ts_idx ON news_analysis (symbol,
 
 DDL_NEWS_FEATURES = """
 CREATE TABLE IF NOT EXISTS news_features_symbol (
-  symbol      TEXT NOT NULL,
-  ts_ms       BIGINT NOT NULL,
-  risk        DOUBLE PRECISION NOT NULL,
-  surprise    DOUBLE PRECISION NOT NULL,
-  tags_mask   BIGINT NOT NULL,
-  primary_tag INTEGER NOT NULL,
-  ref         TEXT NOT NULL,
-  inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  symbol      TEXT NOT NULL
+  ts_ms       BIGINT NOT NULL
+  risk        DOUBLE PRECISION NOT NULL
+  surprise    DOUBLE PRECISION NOT NULL
+  tags_mask   BIGINT NOT NULL
+  primary_tag INTEGER NOT NULL
+  ref         TEXT NOT NULL
+  inserted_at TIMESTAMPTZ NOT NULL DEFAULT now()
   PRIMARY KEY(symbol, ts_ms)
 );
 CREATE INDEX IF NOT EXISTS news_features_symbol_ts_idx ON news_features_symbol (ts_ms DESC);
@@ -46,19 +46,19 @@ CREATE INDEX IF NOT EXISTS news_features_symbol_ts_idx ON news_features_symbol (
 
 DDL_CAL_EVENTS = """
 CREATE TABLE IF NOT EXISTS calendar_events (
-  uid            TEXT PRIMARY KEY,
-  event_ts_ms    BIGINT NOT NULL,
-  ingested_ts_ms BIGINT NOT NULL,
-  country        TEXT NOT NULL,
-  currency       TEXT NOT NULL,
-  title          TEXT NOT NULL,
-  importance     INTEGER NOT NULL,
-  grade_id       INTEGER NOT NULL,
-  forecast       TEXT NOT NULL,
-  previous       TEXT NOT NULL,
-  unit           TEXT NOT NULL,
-  source         TEXT NOT NULL,
-  payload_json   JSONB NOT NULL,
+  uid            TEXT PRIMARY KEY
+  event_ts_ms    BIGINT NOT NULL
+  ingested_ts_ms BIGINT NOT NULL
+  country        TEXT NOT NULL
+  currency       TEXT NOT NULL
+  title          TEXT NOT NULL
+  importance     INTEGER NOT NULL
+  grade_id       INTEGER NOT NULL
+  forecast       TEXT NOT NULL
+  previous       TEXT NOT NULL
+  unit           TEXT NOT NULL
+  source         TEXT NOT NULL
+  payload_json   JSONB NOT NULL
   inserted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS calendar_events_event_ts_idx ON calendar_events (event_ts_ms DESC);
@@ -68,13 +68,13 @@ CREATE INDEX IF NOT EXISTS calendar_events_currency_ts_idx ON calendar_events (c
 # Time series of next-event features per scope (asset_class).
 DDL_CALENDAR_FEATURES_SCOPE = """
 CREATE TABLE IF NOT EXISTS calendar_features_scope (
-  scope            TEXT   NOT NULL,
-  ts_ms            BIGINT NOT NULL,
-  next_event_ts_ms BIGINT NOT NULL,
-  event_grade_id   INTEGER NOT NULL,
-  event_ref        TEXT   NOT NULL,
-  event_tminus_sec INTEGER NOT NULL,
-  inserted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  scope            TEXT   NOT NULL
+  ts_ms            BIGINT NOT NULL
+  next_event_ts_ms BIGINT NOT NULL
+  event_grade_id   INTEGER NOT NULL
+  event_ref        TEXT   NOT NULL
+  event_tminus_sec INTEGER NOT NULL
+  inserted_at      TIMESTAMPTZ NOT NULL DEFAULT now()
   PRIMARY KEY(scope, ts_ms)
 );
 CREATE INDEX IF NOT EXISTS calendar_features_scope_ts_idx ON calendar_features_scope (ts_ms DESC);
@@ -139,17 +139,17 @@ class NewsPostgresWriter:
             conn.commit()
 
     def insert_news_analysis(
-        self,
-        *,
-        uid: str,
-        symbol: str,
-        ts_ms: int,
-        source: str,
-        risk: float,
-        surprise: float,
-        tags_mask: int,
-        primary_tag: int,
-        payload_json: str | Dict[str, Any],
+        self
+        *
+        uid: str
+        symbol: str
+        ts_ms: int
+        source: str
+        risk: float
+        surprise: float
+        tags_mask: int
+        primary_tag: int
+        payload_json: str | Dict[str, Any]
     ) -> None:
         obj = payload_json
         if isinstance(payload_json, str):
@@ -162,30 +162,30 @@ class NewsPostgresWriter:
         INSERT INTO news_analysis(uid, symbol, ts_ms, source, risk, surprise, tags_mask, primary_tag, payload_json)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (uid, symbol) DO UPDATE SET
-          risk=EXCLUDED.risk,
-          surprise=EXCLUDED.surprise,
-          tags_mask=EXCLUDED.tags_mask,
-          primary_tag=EXCLUDED.primary_tag,
-          payload_json=EXCLUDED.payload_json,
-          ts_ms=EXCLUDED.ts_ms,
+          risk=EXCLUDED.risk
+          surprise=EXCLUDED.surprise
+          tags_mask=EXCLUDED.tags_mask
+          primary_tag=EXCLUDED.primary_tag
+          payload_json=EXCLUDED.payload_json
+          ts_ms=EXCLUDED.ts_ms
           inserted_at=now();
         """
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(q, (uid, symbol, int(ts_ms), source, float(risk), float(surprise),
+                cur.execute(q, (uid, symbol, int(ts_ms), source, float(risk), float(surprise)
                                 int(tags_mask), int(primary_tag), psycopg2.extras.Json(obj)))
             conn.commit()
 
     def insert_news_features_symbol(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        risk: float,
-        surprise: float,
-        tags_mask: int,
-        primary_tag: int,
-        ref: str,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        risk: float
+        surprise: float
+        tags_mask: int
+        primary_tag: int
+        ref: str
     ) -> None:
         q = """
         INSERT INTO news_features_symbol(symbol, ts_ms, risk, surprise, tags_mask, primary_tag, ref)
@@ -194,26 +194,26 @@ class NewsPostgresWriter:
         """
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(q, (symbol, int(ts_ms), float(risk), float(surprise),
+                cur.execute(q, (symbol, int(ts_ms), float(risk), float(surprise)
                                 int(tags_mask), int(primary_tag), ref))
             conn.commit()
 
     def insert_calendar_event(
-        self,
-        *,
-        uid: str,
-        event_ts_ms: int,
-        ingested_ts_ms: int,
-        country: str,
-        currency: str,
-        title: str,
-        importance: int,
-        grade_id: int,
-        forecast: str,
-        previous: str,
-        unit: str,
-        source: str,
-        payload_json: str | Dict[str, Any],
+        self
+        *
+        uid: str
+        event_ts_ms: int
+        ingested_ts_ms: int
+        country: str
+        currency: str
+        title: str
+        importance: int
+        grade_id: int
+        forecast: str
+        previous: str
+        unit: str
+        source: str
+        payload_json: str | Dict[str, Any]
     ) -> None:
         if isinstance(payload_json, str):
             try:
@@ -224,41 +224,41 @@ class NewsPostgresWriter:
             obj = payload_json or {}
 
         q = """
-        INSERT INTO calendar_events(uid, event_ts_ms, ingested_ts_ms, country, currency, title, importance, grade_id,
+        INSERT INTO calendar_events(uid, event_ts_ms, ingested_ts_ms, country, currency, title, importance, grade_id
                                    forecast, previous, unit, source, payload_json)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (uid) DO UPDATE SET
-          event_ts_ms=EXCLUDED.event_ts_ms,
-          ingested_ts_ms=EXCLUDED.ingested_ts_ms,
-          country=EXCLUDED.country,
-          currency=EXCLUDED.currency,
-          title=EXCLUDED.title,
-          importance=EXCLUDED.importance,
-          grade_id=EXCLUDED.grade_id,
-          forecast=EXCLUDED.forecast,
-          previous=EXCLUDED.previous,
-          unit=EXCLUDED.unit,
-          source=EXCLUDED.source,
-          payload_json=EXCLUDED.payload_json,
+          event_ts_ms=EXCLUDED.event_ts_ms
+          ingested_ts_ms=EXCLUDED.ingested_ts_ms
+          country=EXCLUDED.country
+          currency=EXCLUDED.currency
+          title=EXCLUDED.title
+          importance=EXCLUDED.importance
+          grade_id=EXCLUDED.grade_id
+          forecast=EXCLUDED.forecast
+          previous=EXCLUDED.previous
+          unit=EXCLUDED.unit
+          source=EXCLUDED.source
+          payload_json=EXCLUDED.payload_json
           inserted_at=now();
         """
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(q, (uid, int(event_ts_ms), int(ingested_ts_ms), country, currency,
-                                title[:512], int(importance), int(grade_id),
-                                forecast[:128], previous[:128], unit[:32], source[:64],
+                cur.execute(q, (uid, int(event_ts_ms), int(ingested_ts_ms), country, currency
+                                title[:512], int(importance), int(grade_id)
+                                forecast[:128], previous[:128], unit[:32], source[:64]
                                 psycopg2.extras.Json(obj)))
             conn.commit()
 
     def insert_calendar_feature_scope(
-        self,
-        *,
-        scope: str,
-        ts_ms: int,
-        next_event_ts_ms: int,
-        event_grade_id: int,
-        event_ref: str,
-        event_tminus_sec: int,
+        self
+        *
+        scope: str
+        ts_ms: int
+        next_event_ts_ms: int
+        event_grade_id: int
+        event_ref: str
+        event_tminus_sec: int
     ) -> None:
         sql = """
         INSERT INTO calendar_features_scope

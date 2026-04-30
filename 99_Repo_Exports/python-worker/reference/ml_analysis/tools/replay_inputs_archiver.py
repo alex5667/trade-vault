@@ -152,18 +152,18 @@ def _env_bool(name: str, default: str = "0") -> bool:
 def load_cfg() -> ArchiverCfg:
     consumer = _env_str("REPLAY_ARCHIVER_CONSUMER", f"replay-archiver-{os.getpid()}")
     return ArchiverCfg(
-        redis_url=_env_str("REDIS_URL", "redis://localhost:6379/0"),
-        stream=_env_str("REPLAY_INPUTS_STREAM", "ml_replay_inputs_v1"),
-        group=_env_str("REPLAY_ARCHIVER_GROUP", "ml_replay_archiver_v1"),
-        consumer=consumer,
-        archive_dir=Path(_env_str("ARCHIVE_DIR", "./archives/ml_replay_inputs_v1")).expanduser(),
-        gzip_enabled=_env_bool("ARCHIVE_GZIP", "0"),
-        flush_every=_env_int("ARCHIVE_FLUSH_EVERY", 100),
-        fsync_every=_env_int("ARCHIVE_FSYNC_EVERY", 1000),
-        seen_prefix=_env_str("ARCHIVER_SEEN_PREFIX", "archiver:seen:"),
-        seen_ttl_sec=_env_int("ARCHIVER_SEEN_TTL_SEC", 14 * 24 * 3600),
-        delete_after_ack=_env_bool("REPLAY_ARCHIVER_DELETE_AFTER_ACK", "0"),
-        metrics_hash=_env_str("REPLAY_ARCHIVER_METRICS_HASH", "metrics:replay_inputs_archiver"),
+        redis_url=_env_str("REDIS_URL", "redis://localhost:6379/0")
+        stream=_env_str("REPLAY_INPUTS_STREAM", "ml_replay_inputs_v1")
+        group=_env_str("REPLAY_ARCHIVER_GROUP", "ml_replay_archiver_v1")
+        consumer=consumer
+        archive_dir=Path(_env_str("ARCHIVE_DIR", "./archives/ml_replay_inputs_v1")).expanduser()
+        gzip_enabled=_env_bool("ARCHIVE_GZIP", "0")
+        flush_every=_env_int("ARCHIVE_FLUSH_EVERY", 100)
+        fsync_every=_env_int("ARCHIVE_FSYNC_EVERY", 1000)
+        seen_prefix=_env_str("ARCHIVER_SEEN_PREFIX", "archiver:seen:")
+        seen_ttl_sec=_env_int("ARCHIVER_SEEN_TTL_SEC", 14 * 24 * 3600)
+        delete_after_ack=_env_bool("REPLAY_ARCHIVER_DELETE_AFTER_ACK", "0")
+        metrics_hash=_env_str("REPLAY_ARCHIVER_METRICS_HASH", "metrics:replay_inputs_archiver")
     )
 
 

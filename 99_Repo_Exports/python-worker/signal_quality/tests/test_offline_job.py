@@ -9,10 +9,10 @@ from __future__ import annotations
 import pytest
 
 from signal_quality.offline_job import (
-    ALPHA,
-    MIN_N,
-    LOOKBACK_DAYS,
-    _var_cvar,
+    ALPHA
+    MIN_N
+    LOOKBACK_DAYS
+    _var_cvar
     compute_quality_score,  # re-exported from stdlib statistics
 )
 

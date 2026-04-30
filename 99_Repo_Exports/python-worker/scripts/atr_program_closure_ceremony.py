@@ -50,11 +50,11 @@ def run_ceremony(args):
             handoffs = []
             for domain in service.required_domains:
                 handoffs.append({
-                    "domain": domain,
-                    "primary_owner": args.owner,
-                    "secondary_owner": "oncall_team",
-                    "oncall_route": "pager_duty_trade_ops",
-                    "status": "accepted",
+                    "domain": domain
+                    "primary_owner": args.owner
+                    "secondary_owner": "oncall_team"
+                    "oncall_route": "pager_duty_trade_ops"
+                    "status": "accepted"
                     "handoff_json": {"notes": "Automated handoff via ceremony script"}
                 })
             
@@ -68,11 +68,11 @@ def run_ceremony(args):
             package_id = f"closure_ceremony_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
             
             package = service.build_program_closure_package(
-                package_id=package_id,
-                charter_version=args.charter_version,
-                target_scope="global",
-                criteria_inputs=evidence,
-                handoffs_input=handoffs,
+                package_id=package_id
+                charter_version=args.charter_version
+                target_scope="global"
+                criteria_inputs=evidence
+                handoffs_input=handoffs
                 backlog_input=backlog
             )
             

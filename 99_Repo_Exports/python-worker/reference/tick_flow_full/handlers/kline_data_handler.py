@@ -82,7 +82,7 @@ class KlineDataHandler:
                 self.redis_client.xgroup_create(
                     SUBSCRIBE_STREAM, 
                     KLINE_CONSUMER_GROUP, 
-                    id='$',
+                    id='$'
                     mkstream=True
                 )
                 print(f"✅ Consumer group {KLINE_CONSUMER_GROUP} создана для {SUBSCRIBE_STREAM}")
@@ -148,10 +148,10 @@ class KlineDataHandler:
             try:
                 # Читаем новые сообщения
                 messages = self.redis_client.xreadgroup(
-                    KLINE_CONSUMER_GROUP,
-                    consumer_name,
-                    {SUBSCRIBE_STREAM: '>'},
-                    count=KLINE_READ_COUNT,
+                    KLINE_CONSUMER_GROUP
+                    consumer_name
+                    {SUBSCRIBE_STREAM: '>'}
+                    count=KLINE_READ_COUNT
                     block=KLINE_READ_BLOCK_MS
                 )
                 
@@ -173,10 +173,10 @@ class KlineDataHandler:
                 if "NOGROUP" in str(e).upper():
                     try:
                         self.redis_client.xgroup_create(
-                            SUBSCRIBE_STREAM,
-                            KLINE_CONSUMER_GROUP,
-                            id='$',
-                            mkstream=True,
+                            SUBSCRIBE_STREAM
+                            KLINE_CONSUMER_GROUP
+                            id='$'
+                            mkstream=True
                         )
                         print(f"✅ Consumer group {KLINE_CONSUMER_GROUP} пересоздана для {SUBSCRIBE_STREAM}")
                     except Exception as recreate_err:

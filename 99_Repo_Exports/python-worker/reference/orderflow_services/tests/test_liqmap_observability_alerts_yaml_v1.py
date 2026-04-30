@@ -47,10 +47,10 @@ def test_liqmap_observability_alerts_contains_expected_alerts(tick_flow_full: bo
     rules = doc["groups"][0]["rules"]
     names = [r.get("alert") for r in rules if "alert" in r]
     expected = {
-        "OF_LiqMap_SnapshotAgeHigh_Warn",
-        "OF_LiqMap_SnapshotAgeHigh_Crit",
-        "OF_LiqMap_ParseErrorsHigh_Warn",
-        "OF_LiqMap_ParseErrorsHigh_Crit",
+        "OF_LiqMap_SnapshotAgeHigh_Warn"
+        "OF_LiqMap_SnapshotAgeHigh_Crit"
+        "OF_LiqMap_ParseErrorsHigh_Warn"
+        "OF_LiqMap_ParseErrorsHigh_Crit"
     }
     missing = expected - set(names)
     assert not missing, f"Missing alerts: {sorted(missing)}; found={names}"

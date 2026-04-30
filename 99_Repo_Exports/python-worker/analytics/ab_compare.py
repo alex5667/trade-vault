@@ -76,10 +76,10 @@ def avg(data: List[float]) -> float:
 
 
 def bootstrap_ci(
-    values: List[float],
-    stat_fn: Callable[[List[float]], float],
-    n_boot: int = 2000,
-    alpha: float = 0.05,
+    values: List[float]
+    stat_fn: Callable[[List[float]], float]
+    n_boot: int = 2000
+    alpha: float = 0.05
     use_gpu: bool = False
 ) -> Tuple[float, float, float]:
     """
@@ -120,9 +120,9 @@ def bootstrap_ci(
 
 
 def prob_A_beats_B(
-    a_values: List[float],
-    b_values: List[float],
-    stat_fn: Callable[[List[float]], float],
+    a_values: List[float]
+    b_values: List[float]
+    stat_fn: Callable[[List[float]], float]
     n_boot: int = 2000
 ) -> float:
     """
@@ -163,10 +163,10 @@ def prob_A_beats_B(
 
 
 def load_orders(
-    repo: Repository,
-    symbol: str,
-    strategies: List[str],
-    since: float,
+    repo: Repository
+    symbol: str
+    strategies: List[str]
+    since: float
     until: float
 ) -> Dict[str, List[Order]]:
     """
@@ -218,11 +218,11 @@ def summarize_orders(orders: List[Order]) -> Dict[str, Any]:
     sharpe = (ap / std) if std > 1e-9 else 0.0
 
     return {
-        "n": len(pnls),
-        "winrate": wr,
-        "avg_pnl": ap,
-        "median_pnl": med,
-        "std_pnl": std,
+        "n": len(pnls)
+        "winrate": wr
+        "avg_pnl": ap
+        "median_pnl": med
+        "std_pnl": std
         "sharpe_like": sharpe
     }
 
@@ -232,21 +232,21 @@ def publish_to_redis(r: redis.Redis, symbol: str, summary: Dict[str, Dict]):
     try:
         key = f"analytics:ab:last:{symbol}"
         payload = {
-            "symbol": symbol,
-            "ts": time.time(),
+            "symbol": symbol
+            "ts": time.time()
             "summary": summary
         }
 
         r.set(key, json.dumps(payload))
 
         r.xadd(
-            os.getenv("AB_METRICS_STREAM", "metrics:ab"),
+            os.getenv("AB_METRICS_STREAM", "metrics:ab")
             {
-                "symbol": symbol,
-                "payload": json.dumps(summary),
+                "symbol": symbol
+                "payload": json.dumps(summary)
                 "ts": time.time()
-            },
-            maxlen=50000,
+            }
+            maxlen=50000
             approximate=True
         )
 
@@ -257,8 +257,8 @@ def publish_to_redis(r: redis.Redis, symbol: str, summary: Dict[str, Dict]):
 
 
 def make_telegram_text(
-    symbol: str,
-    summary: Dict[str, Dict],
+    symbol: str
+    summary: Dict[str, Dict]
     pairs: List[Tuple[str, str]]
 ) -> str:
     """Формирование текста для Telegram"""
@@ -311,40 +311,40 @@ def main():
     )
 
     parser.add_argument(
-        "--redis",
-        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
+        "--redis"
+        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         help="Redis URL"
     )
     parser.add_argument(
-        "--symbol",
-        required=True,
+        "--symbol"
+        required=True
         help="Symbol (e.g., XAUUSD)"
     )
     parser.add_argument(
-        "--strategies",
-        required=True,
+        "--strategies"
+        required=True
         help="Comma-separated: aggregated,orderflow,ta"
     )
     parser.add_argument(
-        "--days",
-        type=int,
-        default=7,
+        "--days"
+        type=int
+        default=7
         help="Number of days to analyze"
     )
     parser.add_argument(
-        "--pairs",
-        default="",
+        "--pairs"
+        default=""
         help="Pairs to compare: A:B,A:C (e.g., aggregated:orderflow)"
     )
     parser.add_argument(
-        "--n-boot",
-        type=int,
-        default=2000,
+        "--n-boot"
+        type=int
+        default=2000
         help="Number of bootstrap iterations"
     )
     parser.add_argument(
-        "--use-gpu",
-        action="store_true",
+        "--use-gpu"
+        action="store_true"
         help="Enable GPU quantiles if available"
     )
 
@@ -409,7 +409,7 @@ def main():
         # Базовые метрики
         base = summarize_orders(orders)
         base.update({
-            "wr_ci": [wr_lo, wr_hi],
+            "wr_ci": [wr_lo, wr_hi]
             "ap_ci": [ap_lo, ap_hi]
         })
 
@@ -446,8 +446,8 @@ def main():
     text = make_telegram_text(args.symbol, summary, pairs)
 
     reporter._push_text(
-        group_id=f"ab:{args.symbol}:{int(time.time())}",
-        title="A/B Summary",
+        group_id=f"ab:{args.symbol}:{int(time.time())}"
+        title="A/B Summary"
         lines=text.split("\n")
     )
 

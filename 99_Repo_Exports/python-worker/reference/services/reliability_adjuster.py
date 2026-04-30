@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from services.reliability_curves import (
-    load_bucket_rate,
+    load_bucket_rate
 )
 
 
@@ -18,7 +18,7 @@ from services.reliability_curves import (
 #   - confidence_adjusted
 #   - confidence_adjust_reason/meta
 #
-# This is meant to run at TradeMonitor "entry point" (normalize_signal),
+# This is meant to run at TradeMonitor "entry point" (normalize_signal)
 # i.e. right before create_position, so you can later:
 #   - rank/route signals by adjusted confidence
 #   - optionally tighten gates in a separate profile
@@ -107,13 +107,13 @@ def _pick_profile() -> str:
 
 
 def maybe_apply_confidence_adjustment(
-    redis_client: Any,
-    *,
-    envelope: Dict[str, Any],
-    strategy: str,
-    symbol: str,
-    tf: str,
-    direction: str,
+    redis_client: Any
+    *
+    envelope: Dict[str, Any]
+    strategy: str
+    symbol: str
+    tf: str
+    direction: str
 ) -> None:
     """
     Thin helper used by TradeMonitor (or any other caller).
@@ -133,12 +133,12 @@ def maybe_apply_confidence_adjustment(
     """
     try:
         res = maybe_adjust_confidence(
-            redis_client,
-            envelope=envelope,
-            strategy=strategy,
-            symbol=symbol,
-            tf=tf,
-            direction=direction,
+            redis_client
+            envelope=envelope
+            strategy=strategy
+            symbol=symbol
+            tf=tf
+            direction=direction
         )
         if res is None:
             return
@@ -329,13 +329,13 @@ class ConfidenceAdjustResult:
 
 
 def maybe_adjust_confidence(
-    redis_client: Any,
-    *,
-    envelope: Dict[str, Any],
-    strategy: str,
-    symbol: str,
-    tf: str,
-    direction: str,
+    redis_client: Any
+    *
+    envelope: Dict[str, Any]
+    strategy: str
+    symbol: str
+    tf: str
+    direction: str
 ) -> Optional[ConfidenceAdjustResult]:
     """
     Post-calibration confidence adjuster using reliability curves.
@@ -431,27 +431,27 @@ def maybe_adjust_confidence(
 
     # Read global vs ctx bucket rates (v4 -> v3 -> v2 fallback is inside load_bucket_rate)
     p_g, n_g = load_bucket_rate(
-        redis_client,
-        target=target,
-        strategy=strategy,
-        symbol=symbol,
-        tf=tf,
-        venue=venue,
-        kind=kind, regime=regime,
-        ctx_key="na",
-        bucket=b,
+        redis_client
+        target=target
+        strategy=strategy
+        symbol=symbol
+        tf=tf
+        venue=venue
+        kind=kind, regime=regime
+        ctx_key="na"
+        bucket=b
     )
 
     p_c, n_c = load_bucket_rate(
-        redis_client,
-        target=target,
-        strategy=strategy,
-        symbol=symbol,
-        tf=tf,
-        venue=venue,
-        kind=kind, regime=regime,
-        ctx_key=ctx_key,
-        bucket=b,
+        redis_client
+        target=target
+        strategy=strategy
+        symbol=symbol
+        tf=tf
+        venue=venue
+        kind=kind, regime=regime
+        ctx_key=ctx_key
+        bucket=b
     )
 
     if p_g is None or p_c is None:
@@ -482,17 +482,17 @@ def maybe_adjust_confidence(
         delta = float(alpha) * float(delta_rate)
         adjusted = _clamp01(float(base) + float(delta))
         return ConfidenceAdjustResult(
-            adjusted=float(adjusted),
-            base=float(base),
-            delta=float(delta),
-            ctx_key=ctx_key_final,
-            delta_rate=float(delta_rate),
-            bucket=int(b),
-            n_ctx=n_ci,
-            n_glob=n_gi,
-            target=str(target),
-            profile="soft",
-            notes=f"soft:tgt={target} b={b} ctx={ctx_key_final} pG={p_glob:.3f}(n={n_gi}) pC={p_ctx:.3f}(n={n_ci})",
+            adjusted=float(adjusted)
+            base=float(base)
+            delta=float(delta)
+            ctx_key=ctx_key_final
+            delta_rate=float(delta_rate)
+            bucket=int(b)
+            n_ctx=n_ci
+            n_glob=n_gi
+            target=str(target)
+            profile="soft"
+            notes=f"soft:tgt={target} b={b} ctx={ctx_key_final} pG={p_glob:.3f}(n={n_gi}) pC={p_ctx:.3f}(n={n_ci})"
         )
 
     # hard/hardest: shrink ctx -> global to reduce overfit / sparse noise
@@ -515,15 +515,15 @@ def maybe_adjust_confidence(
 
     adjusted = _clamp01(float(base) + raw_adj)
     return ConfidenceAdjustResult(
-        adjusted=float(adjusted),
-        base=float(base),
-        delta=float(raw_adj),
-        ctx_key=ctx_key_final,
-        delta_rate=float(delta_rate),
-        bucket=int(b),
-        n_ctx=n_ci,
-        n_glob=n_gi,
-        target=str(target),
-        profile=str(profile),
-        notes=f"{profile}:tgt={target} b={b} ctx={ctx_key_final} pG={p_glob:.3f}(n={n_gi}) pC~={p_ctx_shrunk:.3f}(n={n_ci},prior={prior_n}) z={z:.2f}",
+        adjusted=float(adjusted)
+        base=float(base)
+        delta=float(raw_adj)
+        ctx_key=ctx_key_final
+        delta_rate=float(delta_rate)
+        bucket=int(b)
+        n_ctx=n_ci
+        n_glob=n_gi
+        target=str(target)
+        profile=str(profile)
+        notes=f"{profile}:tgt={target} b={b} ctx={ctx_key_final} pG={p_glob:.3f}(n={n_gi}) pC~={p_ctx_shrunk:.3f}(n={n_ci},prior={prior_n}) z={z:.2f}"
     )

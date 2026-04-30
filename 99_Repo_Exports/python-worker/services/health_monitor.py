@@ -47,8 +47,8 @@ class HealthMonitorService:
             Dict containing health status and components.
         """
         health = {
-            "healthy": True,
-            "checks": {},
+            "healthy": True
+            "checks": {}
             "timestamp": time.time()
         }
 
@@ -78,7 +78,7 @@ class HealthMonitorService:
         # 3. Service Initialization Checks
         # Using soft checks on private attributes
         services_to_check = [
-            '_cooldown_service', '_signal_generator', '_signal_processing',
+            '_cooldown_service', '_signal_generator', '_signal_processing'
             '_data_processor', '_cache_service', '_config_manager'
         ]
         
@@ -93,9 +93,9 @@ class HealthMonitorService:
                  
         # 4. Metrics
         health["metrics"] = {
-            "processed_ticks": self._processed_ticks,
-            "processed_books": self._processed_books,
-            "published_signals": self._published_signals,
+            "processed_ticks": self._processed_ticks
+            "processed_books": self._processed_books
+            "published_signals": self._published_signals
             "uptime_seconds": time.time() - self._start_time
         }
         
@@ -116,13 +116,13 @@ class HealthMonitorService:
         metrics = HealthMetricsMapper.extract(symbol, ctx)
         
         safe_call_fail_open(
-            self.logger,
-            key="health_metrics.on_tick",
-            fn=health_metrics_extern.on_tick,
+            self.logger
+            key="health_metrics.on_tick"
+            fn=health_metrics_extern.on_tick
             # We assume on_tick signature matches or accepts these kwargs. 
             # If on_tick signature is strictly (symbol, l2_age_ms, ...), we should unpack.
             # BaseOrderFlowHandler previously called it with kwargs=dict(...).
             # So we pass kwargs=metrics.
-            kwargs=metrics,
-            dq_flag="HEALTH_METRIC_FAIL",
+            kwargs=metrics
+            dq_flag="HEALTH_METRIC_FAIL"
         )

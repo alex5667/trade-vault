@@ -11,8 +11,8 @@ import redis
 
 def _redis() -> redis.Redis:
     return redis.Redis.from_url(
-        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        decode_responses=True,
+        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        decode_responses=True
     )
 
 
@@ -110,9 +110,9 @@ def evaluate_guardrails(
         try:
             from prometheus_client import Counter
             c = Counter(
-                "atr_policy_guardrail_total",
-                "ATR policy guardrail evaluations",
-                ["action", "risk_class", "reason_code"],
+                "atr_policy_guardrail_total"
+                "ATR policy guardrail evaluations"
+                ["action", "risk_class", "reason_code"]
             )
             c.labels(action=action, risk_class=risk_class, reason_code=reason_code).inc()
         except Exception:
@@ -128,11 +128,11 @@ def evaluate_guardrails(
                 remaining = until_ts - now
                 _inc_metric("BLOCK", "ATR_POLICY_COOLDOWN_ACTIVE")
                 return asdict(GuardrailResult(
-                    risk_class="BLOCK",
-                    action=action,
-                    require_confirm=False,
-                    reason_code="ATR_POLICY_COOLDOWN_ACTIVE",
-                    reason_details={"until_ts": until_ts, "cooldown_sec": remaining},
+                    risk_class="BLOCK"
+                    action=action
+                    require_confirm=False
+                    reason_code="ATR_POLICY_COOLDOWN_ACTIVE"
+                    reason_details={"until_ts": until_ts, "cooldown_sec": remaining}
                 ))
         except Exception:
             pass
@@ -141,12 +141,12 @@ def evaluate_guardrails(
     trail = _read_trailing_evidence(obj)
 
     stop_n = min(
-        _safe_int(stop.get("n_canary"), 0),
-        _safe_int(stop.get("n_control"), 0),
+        _safe_int(stop.get("n_canary"), 0)
+        _safe_int(stop.get("n_control"), 0)
     ) if stop else 0
     trail_n = min(
-        _safe_int(trail.get("n_canary"), 0),
-        _safe_int(trail.get("n_control"), 0),
+        _safe_int(trail.get("n_canary"), 0)
+        _safe_int(trail.get("n_control"), 0)
     ) if trail else 0
     pnl_delta_stop = (
         _safe_float(stop.get("pnl_canary"), 0.0) - _safe_float(stop.get("pnl_control"), 0.0)
@@ -161,59 +161,59 @@ def evaluate_guardrails(
         if stop_n > 0 and stop_n < _hard_min_n():
             _inc_metric("BLOCK", "ATR_POLICY_SAMPLE_TOO_LOW_BLOCK")
             return asdict(GuardrailResult(
-                risk_class="BLOCK",
-                action=action,
-                require_confirm=False,
-                reason_code="ATR_POLICY_SAMPLE_TOO_LOW_BLOCK",
-                reason_details={"stop_n": stop_n, "hard_min_n": _hard_min_n()},
+                risk_class="BLOCK"
+                action=action
+                require_confirm=False
+                reason_code="ATR_POLICY_SAMPLE_TOO_LOW_BLOCK"
+                reason_details={"stop_n": stop_n, "hard_min_n": _hard_min_n()}
             ))
         if trail_n > 0 and trail_n < _hard_min_n():
             _inc_metric("BLOCK", "ATR_POLICY_TRAIL_SAMPLE_TOO_LOW_BLOCK")
             return asdict(GuardrailResult(
-                risk_class="BLOCK",
-                action=action,
-                require_confirm=False,
-                reason_code="ATR_POLICY_TRAIL_SAMPLE_TOO_LOW_BLOCK",
-                reason_details={"trail_n": trail_n, "hard_min_n": _hard_min_n()},
+                risk_class="BLOCK"
+                action=action
+                require_confirm=False
+                reason_code="ATR_POLICY_TRAIL_SAMPLE_TOO_LOW_BLOCK"
+                reason_details={"trail_n": trail_n, "hard_min_n": _hard_min_n()}
             ))
 
         # Soft warn: sample below comfortable threshold
         if (0 < stop_n < _soft_min_n()) or (0 < trail_n < _soft_min_n()):
             _inc_metric("WARN", "ATR_POLICY_LOW_SAMPLE_WARN")
             return asdict(GuardrailResult(
-                risk_class="WARN",
-                action=action,
-                require_confirm=True,
-                reason_code="ATR_POLICY_LOW_SAMPLE_WARN",
+                risk_class="WARN"
+                action=action
+                require_confirm=True
+                reason_code="ATR_POLICY_LOW_SAMPLE_WARN"
                 reason_details={
-                    "stop_n": stop_n,
-                    "trail_n": trail_n,
-                    "soft_min_n": _soft_min_n(),
-                },
+                    "stop_n": stop_n
+                    "trail_n": trail_n
+                    "soft_min_n": _soft_min_n()
+                }
             ))
 
         # Soft warn: both deltas are marginal
         if pnl_delta_stop < _marginal_pnl_bps() and pnl_delta_trail < _marginal_pnl_bps():
             _inc_metric("WARN", "ATR_POLICY_MARGINAL_EDGE_WARN")
             return asdict(GuardrailResult(
-                risk_class="WARN",
-                action=action,
-                require_confirm=True,
-                reason_code="ATR_POLICY_MARGINAL_EDGE_WARN",
+                risk_class="WARN"
+                action=action
+                require_confirm=True
+                reason_code="ATR_POLICY_MARGINAL_EDGE_WARN"
                 reason_details={
-                    "pnl_delta_stop": pnl_delta_stop,
-                    "pnl_delta_trail": pnl_delta_trail,
-                    "threshold_bps": _marginal_pnl_bps(),
-                },
+                    "pnl_delta_stop": pnl_delta_stop
+                    "pnl_delta_trail": pnl_delta_trail
+                    "threshold_bps": _marginal_pnl_bps()
+                }
             ))
 
         _inc_metric("SAFE", "ATR_POLICY_APPROVE_SAFE")
         return asdict(GuardrailResult(
-            risk_class="SAFE",
-            action=action,
-            require_confirm=False,
-            reason_code="ATR_POLICY_APPROVE_SAFE",
-            reason_details={},
+            risk_class="SAFE"
+            action=action
+            require_confirm=False
+            reason_code="ATR_POLICY_APPROVE_SAFE"
+            reason_details={}
         ))
 
     # ── 3. REVOKE path ────────────────────────────────────────────────────
@@ -223,48 +223,48 @@ def evaluate_guardrails(
             if flips >= _max_flips_per_day():
                 _inc_metric("BLOCK", "ATR_POLICY_FLIP_LIMIT_BLOCK")
                 return asdict(GuardrailResult(
-                    risk_class="BLOCK",
-                    action=action,
-                    require_confirm=False,
-                    reason_code="ATR_POLICY_FLIP_LIMIT_BLOCK",
-                    reason_details={"flip_count": flips, "max_flips": _max_flips_per_day()},
+                    risk_class="BLOCK"
+                    action=action
+                    require_confirm=False
+                    reason_code="ATR_POLICY_FLIP_LIMIT_BLOCK"
+                    reason_details={"flip_count": flips, "max_flips": _max_flips_per_day()}
                 ))
             _inc_metric("WARN", "ATR_POLICY_REVOKE_CONFIRM_REQUIRED")
             return asdict(GuardrailResult(
-                risk_class="WARN",
-                action=action,
-                require_confirm=True,
-                reason_code="ATR_POLICY_REVOKE_CONFIRM_REQUIRED",
-                reason_details={"is_active": True, "flip_count": flips},
+                risk_class="WARN"
+                action=action
+                require_confirm=True
+                reason_code="ATR_POLICY_REVOKE_CONFIRM_REQUIRED"
+                reason_details={"is_active": True, "flip_count": flips}
             ))
         _inc_metric("SAFE", "ATR_POLICY_REVOKE_SAFE")
         return asdict(GuardrailResult(
-            risk_class="SAFE",
-            action=action,
-            require_confirm=False,
-            reason_code="ATR_POLICY_REVOKE_SAFE",
-            reason_details={"is_active": False},
+            risk_class="SAFE"
+            action=action
+            require_confirm=False
+            reason_code="ATR_POLICY_REVOKE_SAFE"
+            reason_details={"is_active": False}
         ))
 
     # ── 4. REJECT path ────────────────────────────────────────────────────
     if action == "REJECT":
         _inc_metric("SAFE", "ATR_POLICY_REJECT_SAFE")
         return asdict(GuardrailResult(
-            risk_class="SAFE",
-            action=action,
-            require_confirm=False,
-            reason_code="ATR_POLICY_REJECT_SAFE",
-            reason_details={},
+            risk_class="SAFE"
+            action=action
+            require_confirm=False
+            reason_code="ATR_POLICY_REJECT_SAFE"
+            reason_details={}
         ))
 
     # ── 5. Unknown action ─────────────────────────────────────────────────
     _inc_metric("BLOCK", "ATR_POLICY_UNKNOWN_ACTION")
     return asdict(GuardrailResult(
-        risk_class="BLOCK",
-        action=action,
-        require_confirm=False,
-        reason_code="ATR_POLICY_UNKNOWN_ACTION",
-        reason_details={"action": action},
+        risk_class="BLOCK"
+        action=action
+        require_confirm=False
+        reason_code="ATR_POLICY_UNKNOWN_ACTION"
+        reason_details={"action": action}
     ))
 
 
@@ -274,15 +274,15 @@ def arm_cooldown(obj: Dict[str, Any], *, actor: str, action: str) -> None:
     now = int(time.time())
     cd_sec = _cooldown_sec()
     payload = {
-        "actor": actor,
-        "action": action,
-        "ts": now,
-        "until_ts": now + cd_sec,
+        "actor": actor
+        "action": action
+        "ts": now
+        "until_ts": now + cd_sec
     }
     r.set(
-        cooldown_key(obj),
-        json.dumps(payload, ensure_ascii=False, sort_keys=True),
-        ex=cd_sec,
+        cooldown_key(obj)
+        json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        ex=cd_sec
     )
     r.incr(flip_count_key(obj))
     r.expire(flip_count_key(obj), 86400)
@@ -291,12 +291,12 @@ def arm_cooldown(obj: Dict[str, Any], *, actor: str, action: str) -> None:
     try:
         from prometheus_client import Counter
         Counter(
-            "atr_policy_guardrail_cooldown_total",
-            "ATR policy cooldowns armed",
+            "atr_policy_guardrail_cooldown_total"
+            "ATR policy cooldowns armed"
         ).inc()
         Counter(
-            "atr_policy_guardrail_flip_total",
-            "ATR policy cohort flip counter increments",
+            "atr_policy_guardrail_flip_total"
+            "ATR policy cohort flip counter increments"
         ).inc()
     except Exception:
         pass

@@ -37,16 +37,16 @@ class DecisionPolicy:
         return build_feature_row(*args, **kwargs, forbid_scenario_v4_onehot=getattr(self.gate, "_forbid_scenario_v4_onehot", False))
 
     def _decide_ml_scorer(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
-        cfg: Optional[Dict[str, Any]] = None,
-        model: Optional[Any] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
+        cfg: Optional[Dict[str, Any]] = None
+        model: Optional[Any] = None
     ) -> MLConfirmDecision:
         """Decision logic for simple GBDT/LGBM scorers (Scorer V3/V4)."""
         cfg = cfg if cfg is not None else self.gate._cfg
@@ -68,10 +68,10 @@ class DecisionPolicy:
         # Build features via a dict-pack view so optional transforms/scaler/buckets apply.
         view = _DictPackModelView(model) if isinstance(model, dict) else model
         x_row, missing = self._build_feature_row(
-            model=view,
-            indicators=indicators,
-            direction=direction,
-            scenario=scenario,
+            model=view
+            indicators=indicators
+            direction=direction
+            scenario=scenario
             ts_ms=ts_ms
         )
         dec.missing = missing
@@ -109,16 +109,16 @@ class DecisionPolicy:
         return dec
 
     def _decide_util_mh(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
-        cfg: Optional[Dict[str, Any]] = None,
-        model: Optional[Any] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
+        cfg: Optional[Dict[str, Any]] = None
+        model: Optional[Any] = None
     ) -> MLConfirmDecision:
         cfg = cfg if cfg is not None else self.gate._cfg
         model = model if model is not None else self._model
@@ -392,16 +392,16 @@ class DecisionPolicy:
         return dec
 
     def _decide_edge_stack_v1(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
-        cfg: Optional[Dict[str, Any]] = None,
-        model: Optional[Any] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
+        cfg: Optional[Dict[str, Any]] = None
+        model: Optional[Any] = None
     ) -> MLConfirmDecision:
         """
         Решение для edge_stack_v1: OOF stacking (LR + GBDT -> meta LR).
@@ -493,7 +493,7 @@ class DecisionPolicy:
                 dec.allow = self._fail_allow()
                 dec.error = "forbidden_feature_cols"
                 dec.reason = (
-                    f"forbidden_feature_cols(scenario_v4_onehot,"
+                    f"forbidden_feature_cols(scenario_v4_onehot"
                     f"n={len(bad_cols)},ex={bad_cols[0]})"
                 )
                 dec.status = "ERR_FORBIDDEN_FEATURE_COLS"
@@ -510,10 +510,10 @@ class DecisionPolicy:
                     pass
                 return dec
         x_row, missing = self._build_feature_row(
-            model=view,
-            indicators=indicators,
-            direction=direction,
-            scenario=scenario,
+            model=view
+            indicators=indicators
+            direction=direction
+            scenario=scenario
             ts_ms=ts_ms
         )
         dec.missing = missing
@@ -645,7 +645,7 @@ class DecisionPolicy:
         
         # p_min из конфига: приоритет p_min_by_bucket, затем p_min, затем hard_p_min_floor
         # NOTE: Для edge_stack_v1 используется p_min (только на p_cal).
-        # TODO: В будущем можно реализовать edge_floors как score_min (p_cal - unc_k*unc),
+        # TODO: В будущем можно реализовать edge_floors как score_min (p_cal - unc_k*unc)
         #       чтобы учитывать uncertainty в пороге. Это потребует добавления uncertainty
         #       в модель edge_stack_v1 или использования отдельной uncertainty модели.
         p_min_by_bucket = cfg.get("p_min_by_bucket", {})
@@ -677,16 +677,16 @@ class DecisionPolicy:
         return dec
 
     def _decide_edge_stack_mh(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
-        cfg: Optional[Dict[str, Any]] = None,
-        model: Optional[Any] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
+        cfg: Optional[Dict[str, Any]] = None
+        model: Optional[Any] = None
     ) -> MLConfirmDecision:
         """
         Решение для edge_stack_mh_v1: multi-horizon stacking с uncertainty.
@@ -733,14 +733,14 @@ class DecisionPolicy:
             dec.conf = 0.0
             return dec
         
-        # P0 fix: для edge_stack_mh_v1 модель - это объект EdgeStackMHModelV1,
+        # P0 fix: для edge_stack_mh_v1 модель - это объект EdgeStackMHModelV1
         # который уже имеет все нужные атрибуты (feature_cols, feature_transforms, robust_scaler, etc.)
         # поэтому передаём его напрямую (не создаём temp_model)
         x_row, missing = self._build_feature_row(
             model=model,  # НЕ temp_model - используем реальный объект модели
-            indicators=indicators,
-            direction=direction,
-            scenario=scenario,
+            indicators=indicators
+            direction=direction
+            scenario=scenario
             ts_ms=ts_ms
         )
         dec.missing = missing
@@ -878,16 +878,16 @@ class DecisionPolicy:
         return dec
 
     def _decide_meta_lr(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
-        cfg: Optional[Dict[str, Any]] = None,
-        model: Optional[Any] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
+        cfg: Optional[Dict[str, Any]] = None
+        model: Optional[Any] = None
     ) -> MLConfirmDecision:
         """Decision logic for simple MetaModelLR (logistic regression)."""
         cfg = cfg if cfg is not None else self.gate._cfg
@@ -924,7 +924,7 @@ class DecisionPolicy:
             dec.conf = 0.0
             return dec
             
-        # P0 fix: MetaModelLR использует 'features' вместо 'feature_cols',
+        # P0 fix: MetaModelLR использует 'features' вместо 'feature_cols'
         # но имеет transforms и robust_scaler, которые нужно прокинуть в _build_feature_row
         class _MetaModelView:
             def __init__(self, meta_model: MetaModelLR):
@@ -938,10 +938,10 @@ class DecisionPolicy:
         
         view = _MetaModelView(model)
         x_row, missing = self._build_feature_row(
-            model=view,
-            indicators=indicators,
-            direction=direction,
-            scenario=scenario,
+            model=view
+            indicators=indicators
+            direction=direction
+            scenario=scenario
             ts_ms=ts_ms
         )
         dec.missing = missing

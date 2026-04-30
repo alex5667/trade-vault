@@ -52,7 +52,7 @@ def assert_json_safe(obj: Any, *, path: str = "$", max_depth: int = 12) -> None:
 
 def json_bytes(obj: Any) -> int:
     """
-    Размер в байтах в "боевом" компактном JSON (dumps1),
+    Размер в байтах в "боевом" компактном JSON (dumps1)
     чтобы одинаково считать бюджеты в коде и тестах.
     """
     s = dumps1(obj)
@@ -73,11 +73,11 @@ def _truncate_parts_dict(parts: Dict[str, Any], *, max_keys: int) -> Tuple[Dict[
 
 
 def enforce_payload_budgets(
-    payload: Dict[str, Any],
-    payload_meta: Dict[str, Any],
-    *,
-    payload_max_bytes: int,
-    meta_max_bytes: int,
+    payload: Dict[str, Any]
+    payload_meta: Dict[str, Any]
+    *
+    payload_max_bytes: int
+    meta_max_bytes: int
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     "Железный" слой:

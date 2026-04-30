@@ -19,19 +19,19 @@ from services.reporting_service import ReportingService
 
 # Setup basic logging
 logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.INFO,
+    stream=sys.stdout
+    level=logging.INFO
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 log = logging.getLogger("ABWinnerJob")
 
 
 async def _acquire_lock(
-    r: aioredis.Redis,
-    *,
-    key: str,
-    ttl_ms: int,
-    token: str,
+    r: aioredis.Redis
+    *
+    key: str
+    ttl_ms: int
+    token: str
 ) -> bool:
     """
     Safe-lock via Redis SET NX PX.
@@ -81,8 +81,8 @@ async def _run_iteration(r: aioredis.Redis, lock_key: str, lock_ttl_ms: int, rep
 
         if updates and os.getenv("AB_WINNER_TELEGRAM_ENABLED", "0") == "1":
             msg_lines = [
-                "🏆 <b>AB Winner Update</b>",
-                f"Updated {len(updates)} suggestions:",
+                "🏆 <b>AB Winner Update</b>"
+                f"Updated {len(updates)} suggestions:"
                 ""
             ]
             # Limit details if too many
@@ -105,11 +105,11 @@ async def _run_iteration(r: aioredis.Redis, lock_key: str, lock_ttl_ms: int, rep
 async def _main_loop() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     r = aioredis.from_url(
-        redis_url,
-        decode_responses=True,
-        socket_connect_timeout=10,
-        socket_timeout=30,
-        max_connections=50,
+        redis_url
+        decode_responses=True
+        socket_connect_timeout=10
+        socket_timeout=30
+        max_connections=50
     )
     
     # Initialize ReportingService (it uses its own sync redis usually, or we pass valid url)

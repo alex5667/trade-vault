@@ -106,8 +106,8 @@ class RiskGateCfg:
 
     risk_engine_v2_enable: bool = field(
         default_factory=lambda: _env_bool(
-            "TRADE_RISK_ENGINE_V2_ENABLE",
-            os.getenv("RISK_ENGINE_V2_ENABLE", "1"),
+            "TRADE_RISK_ENGINE_V2_ENABLE"
+            os.getenv("RISK_ENGINE_V2_ENABLE", "1")
         ))
 
     risk_hard_veto: bool = field(
@@ -176,14 +176,14 @@ class StreamCfg:
     def from_env(cls) -> "StreamCfg":
         from core.redis_keys import RedisStreams as RS
         return cls(
-            notify_stream=os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM),
-            raw_signal_stream=os.getenv("CRYPTO_RAW_STREAM", RS.CRYPTO_RAW),
-            orders_queue_mt5=os.getenv("ORDERS_QUEUE_MT5", RS.ORDERS_QUEUE_MT5),
-            orders_queue_binance=os.getenv("ORDERS_QUEUE_BINANCE", RS.ORDERS_QUEUE_BINANCE),
+            notify_stream=os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
+            raw_signal_stream=os.getenv("CRYPTO_RAW_STREAM", RS.CRYPTO_RAW)
+            orders_queue_mt5=os.getenv("ORDERS_QUEUE_MT5", RS.ORDERS_QUEUE_MT5)
+            orders_queue_binance=os.getenv("ORDERS_QUEUE_BINANCE", RS.ORDERS_QUEUE_BINANCE)
             signal_stream_template=os.getenv(
-                "CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}"),
-            burst_audit_stream=os.getenv("BURST_AUDIT_STREAM", "stream:of:burst_audit"),
-            quarantine_stream=os.getenv("SIGNAL_QUARANTINE_STREAM", "stream:of:quarantine"),
+                "CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}")
+            burst_audit_stream=os.getenv("BURST_AUDIT_STREAM", "stream:of:burst_audit")
+            quarantine_stream=os.getenv("SIGNAL_QUARANTINE_STREAM", "stream:of:quarantine")
         )
 
     notify_stream: str = ""

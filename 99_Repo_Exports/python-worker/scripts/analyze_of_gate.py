@@ -23,8 +23,8 @@ def analyze_metrics():
         ts_ms = int(data.get('ts_ms', 0))
         symbol = data.get('symbol', 'unknown')
         parsed_events.append({
-            'ts_ms': ts_ms,
-            'symbol': symbol,
+            'ts_ms': ts_ms
+            'symbol': symbol
             'id': entry_id
         })
         

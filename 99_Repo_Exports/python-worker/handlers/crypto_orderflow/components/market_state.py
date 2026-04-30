@@ -49,10 +49,10 @@ class CryptoMarketState:
         hist.append(bar)
 
     def is_new_local_extreme(
-        self,
-        symbol: str,
-        bar: BarSample,
-        atr_intraday: float,
+        self
+        symbol: str
+        bar: BarSample
+        atr_intraday: float
         k_atr: float = 0.25,     # 0.25 ATR top/bottom
         vol_z_thr: float = 1.5,  # z-score volume
     ) -> bool:

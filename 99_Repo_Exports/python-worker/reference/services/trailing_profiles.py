@@ -84,45 +84,45 @@ class TrailingProfilesRegistry:
         
         # Базовый — «не отдаём TP1»
         self._profiles["lock_and_trail"] = TrailingProfile(
-            name="lock_and_trail",
-            mode="ATR",
+            name="lock_and_trail"
+            mode="ATR"
             atr_mult=0.8,       # SL = mid - 0.8*ATR
-            hard_min_lock=0.0,
+            hard_min_lock=0.0
             comment="lock profit and trail with ATR 0.8"
         )
 
         # Ракетный — для сильных ходов по XAUUSD и крипте
         self._profiles["rocket_v1"] = TrailingProfile(
-            name="rocket_v1",
-            mode="ATR",
+            name="rocket_v1"
+            mode="ATR"
             atr_mult=0.6,       # SL = entry ± 0.6*ATR (для трейлинга после TP1)
-            hard_min_lock=0.0,
+            hard_min_lock=0.0
             comment="ATR 0.6 trailing, TP1=0.78 ATR (default for crypto and XAUUSD)"
         )
 
         # Более безопасный — если рынок шумный
         self._profiles["wide_swing"] = TrailingProfile(
-            name="wide_swing",
-            mode="ATR",
-            atr_mult=1.2,
-            hard_min_lock=0.0,
+            name="wide_swing"
+            mode="ATR"
+            atr_mult=1.2
+            hard_min_lock=0.0
             comment="wider ATR trail for choppy regime"
         )
 
         # Фиксированный по пунктам — на случай если ATR нет в MT5
         self._profiles["points_200"] = TrailingProfile(
-            name="points_200",
-            mode="POINTS",
-            points=200.0,
+            name="points_200"
+            mode="POINTS"
+            points=200.0
             comment="200 pts trailing"
         )
         
         # Агрессивный для криптовалют
         self._profiles["crypto_tight"] = TrailingProfile(
-            name="crypto_tight",
-            mode="ATR",
-            atr_mult=0.5,
-            hard_min_lock=0.0,
+            name="crypto_tight"
+            mode="ATR"
+            atr_mult=0.5
+            hard_min_lock=0.0
             comment="very tight ATR trail for crypto volatility"
         )
         

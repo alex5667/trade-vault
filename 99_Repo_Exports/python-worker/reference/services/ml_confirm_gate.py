@@ -39,15 +39,15 @@ except Exception:
 # Import centralized metrics from registry (fail-open if not available)
 try:
     from services.observability.metrics_registry import (
-        ml_confirm_events_total,
-        ml_confirm_errors_total,
-        ml_confirm_cfg_present,
-        ml_confirm_cfg_valid,
-        ml_confirm_enforce_share,
-        ml_confirm_model_loaded,
-        ml_confirm_model_load_seconds,
-        ml_confirm_latency_seconds,
-        ml_missing_critical_total,
+        ml_confirm_events_total
+        ml_confirm_errors_total
+        ml_confirm_cfg_present
+        ml_confirm_cfg_valid
+        ml_confirm_enforce_share
+        ml_confirm_model_loaded
+        ml_confirm_model_load_seconds
+        ml_confirm_latency_seconds
+        ml_missing_critical_total
     )
     METRICS_REGISTRY_AVAILABLE = True
 except Exception:
@@ -403,9 +403,9 @@ def _bucket_from_scenario(s: str) -> str:
 
 
 def _find_forbidden_feature_cols(
-    feature_cols: List[str],
-    *,
-    forbid_scenario_v4_onehot: bool,
+    feature_cols: List[str]
+    *
+    forbid_scenario_v4_onehot: bool
 ) -> List[str]:
     """Return list of forbidden feature columns under strict schema rules.
 
@@ -520,17 +520,17 @@ def _canonical_sid(indicators: Dict[str, Any], symbol: str, ts_ms: int) -> str:
 
 
 def cache_ml_decision(
-    r: redis.Redis,
-    *,
-    sid: str,
-    symbol: str,
-    bucket: str,
-    p_edge: float,
-    enforce: int,
-    ok_rule: int,
-    missing: int,
-    model_ver: str,
-    ttl_sec: int = 7 * 24 * 3600,
+    r: redis.Redis
+    *
+    sid: str
+    symbol: str
+    bucket: str
+    p_edge: float
+    enforce: int
+    ok_rule: int
+    missing: int
+    model_ver: str
+    ttl_sec: int = 7 * 24 * 3600
 ) -> None:
     """
     Cache ML decision for outcome emitter join.
@@ -552,15 +552,15 @@ def cache_ml_decision(
     """
     key = f"ml:dec:{sid}"
     payload = {
-        "sid": sid,
-        "symbol": str(symbol).upper(),
-        "bucket": str(bucket).lower(),
-        "p_edge": float(p_edge),
-        "enforce": int(enforce),
-        "ok_rule": int(ok_rule),
-        "missing": int(missing),
-        "model_ver": str(model_ver),
-        "ts_ms": int(_now_ms()),
+        "sid": sid
+        "symbol": str(symbol).upper()
+        "bucket": str(bucket).lower()
+        "p_edge": float(p_edge)
+        "enforce": int(enforce)
+        "ok_rule": int(ok_rule)
+        "missing": int(missing)
+        "model_ver": str(model_ver)
+        "ts_ms": int(_now_ms())
     }
     try:
         r.set(key, json.dumps(payload, separators=(",", ":")), ex=ttl_sec)
@@ -584,8 +584,8 @@ def _get_floor(util_floors: Dict[str, Any], bucket: str) -> float:
     """
     champion JSON (v10.4) -> util_floors:
       {
-        "global": { "floor": ... },
-        "by_bucket": { "range": { "floor": ... }, ... },
+        "global": { "floor": ... }
+        "by_bucket": { "range": { "floor": ... }, ... }
         "unc_k": 0.5
       }
     """
@@ -655,42 +655,42 @@ class MLConfirmDecision:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "mode": self.mode,
-            "kind": self.kind,
-            "allow": bool(self.allow),
-            "p_edge": float(self.p_edge),
-            "p_min": float(self.p_min),
-            "best_h_ms": int(self.best_h_ms),
-            "score": float(self.score),
-            "floor": float(self.floor),
-            "bucket": str(self.bucket),
-            "util_pred": self.util_pred or {},
-            "unc": self.unc or {},
-            "missing": self.missing or [],
-            "model_run_id": self.model_run_id,
-            "model_path": self.model_path,
-            "reason": self.reason,
-            "error": self.error,
-            "latency_us": int(self.latency_us),
-            "abstain": int(bool(self.abstain)),
-            "conf": float(self.conf),
-            "p_margin": float(self.p_margin),
-            "status": str(self.status),
-            "p_edge_raw": float(self.p_edge_raw),
-            "p_edge_cal": float(self.p_edge_cal),
-            "calib_type": str(self.calib_type or ""),
-            "cfg_key_used": str(self.cfg_key_used or ""),
-            "cfg_source": str(self.cfg_source or ""),
-            "cfg_raw_len": int(self.cfg_raw_len),
-            "cfg_parse_err": str(self.cfg_parse_err or ""),
+            "mode": self.mode
+            "kind": self.kind
+            "allow": bool(self.allow)
+            "p_edge": float(self.p_edge)
+            "p_min": float(self.p_min)
+            "best_h_ms": int(self.best_h_ms)
+            "score": float(self.score)
+            "floor": float(self.floor)
+            "bucket": str(self.bucket)
+            "util_pred": self.util_pred or {}
+            "unc": self.unc or {}
+            "missing": self.missing or []
+            "model_run_id": self.model_run_id
+            "model_path": self.model_path
+            "reason": self.reason
+            "error": self.error
+            "latency_us": int(self.latency_us)
+            "abstain": int(bool(self.abstain))
+            "conf": float(self.conf)
+            "p_margin": float(self.p_margin)
+            "status": str(self.status)
+            "p_edge_raw": float(self.p_edge_raw)
+            "p_edge_cal": float(self.p_edge_cal)
+            "calib_type": str(self.calib_type or "")
+            "cfg_key_used": str(self.cfg_key_used or "")
+            "cfg_source": str(self.cfg_source or "")
+            "cfg_raw_len": int(self.cfg_raw_len)
+            "cfg_parse_err": str(self.cfg_parse_err or "")
 
             # P74+
-            "exec_risk_ref_bps": float(self.exec_risk_ref_bps),
-            "exec_risk_bps": float(self.exec_risk_bps),
-            "exec_risk_norm": float(self.exec_risk_norm),
-            "exec_pen": float(self.exec_pen),
-            "score_breakdown_small": self.score_breakdown_small or {},
-            "score_breakdown_json": str(self.score_breakdown_json or ""),
+            "exec_risk_ref_bps": float(self.exec_risk_ref_bps)
+            "exec_risk_bps": float(self.exec_risk_bps)
+            "exec_risk_norm": float(self.exec_risk_norm)
+            "exec_pen": float(self.exec_pen)
+            "score_breakdown_small": self.score_breakdown_small or {}
+            "score_breakdown_json": str(self.score_breakdown_json or "")
         }
 
 
@@ -729,13 +729,13 @@ class MLConfirmGate:
     """
 
     def __init__(
-        self,
-        *,
-        r: redis.Redis,
-        mode: str,
-        fail_policy: str,
-        champion_key: str,
-        challenger_key: str,
+        self
+        *
+        r: redis.Redis
+        mode: str
+        fail_policy: str
+        champion_key: str
+        challenger_key: str
     ) -> None:
         self.r = r
         self.mode = (mode or "OFF").upper()
@@ -824,8 +824,8 @@ class MLConfirmGate:
             if PROMETHEUS_AVAILABLE:
                 try:
                     self._metrics_last_successful_load_ts = Gauge(
-                        "ml_confirm_last_successful_load_ts_seconds",
-                        "Timestamp of last successful model load",
+                        "ml_confirm_last_successful_load_ts_seconds"
+                        "Timestamp of last successful model load"
                         ["kind"]
                     )
                 except ValueError:
@@ -883,11 +883,11 @@ class MLConfirmGate:
         challenger_key = os.getenv("ML_CFG_CHALLENGER_KEY", "cfg:ml_confirm:challenger")
 
         return MLConfirmGate(
-            r=r,
-            mode=mode,
-            fail_policy=fail_policy,
-            champion_key=champion_key,
-            challenger_key=challenger_key,
+            r=r
+            mode=mode
+            fail_policy=fail_policy
+            champion_key=champion_key
+            challenger_key=challenger_key
         )
 
     def _fail_allow(self) -> bool:
@@ -1111,7 +1111,7 @@ class MLConfirmGate:
                 None, 
                 self._parse_and_load_from_payload, 
                 raw_payload, 
-                id(redis_async),
+                id(redis_async)
                 logger
             )
             self._cfg = cfg or {}
@@ -1264,13 +1264,13 @@ class MLConfirmGate:
         indicators["exec_risk_norm"] = max(0.0, min(1.0, exec_bps / ref))
 
     def _build_feature_row(
-        self,
-        *,
-        model: Any,
-        indicators: Dict[str, Any],
-        direction: str,
-        scenario: str,
-        ts_ms: int,
+        self
+        *
+        model: Any
+        indicators: Dict[str, Any]
+        direction: str
+        scenario: str
+        ts_ms: int
     ) -> Tuple[List[float], List[str]]:
         feature_cols: List[str] = list(getattr(model, "feature_cols", []) or [])
         missing: List[str] = []
@@ -1414,7 +1414,7 @@ class MLConfirmGate:
                     dd = -1
                 row.append(1.0 if dd == int(utc_dow) else 0.0)
             elif col.startswith("session_"):
-                # NOTE: session one-hots are derived from ts_ms, not from indicators,
+                # NOTE: session one-hots are derived from ts_ms, not from indicators
                 # to keep train==serve deterministic even if upstream did not export them.
                 val = col[len("session_"):].lower()
                 row.append(1.0 if val == str(session_label) else 0.0)
@@ -1469,13 +1469,13 @@ class MLConfirmGate:
             dec.reason = f"ml_abstain_lowconf(conf={dec.conf:.6f},min={cmin:.6f})"
 
     def _cache_ml_decision(
-        self,
-        dec: MLConfirmDecision,
-        *,
-        sid: str,
-        symbol: str,
-        scenario: str,
-        ok_rule: int,
+        self
+        dec: MLConfirmDecision
+        *
+        sid: str
+        symbol: str
+        scenario: str
+        ok_rule: int
     ) -> None:
         """
         Cache ML decision for outcome emitter join.
@@ -1501,19 +1501,19 @@ class MLConfirmGate:
         
         # Cache decision
         cache_ml_decision(
-            self.r,
-            sid=sid,
-            symbol=symbol,
-            bucket=bucket,
-            p_edge=float(dec.p_edge or 0.0),
-            enforce=enforce,
-            ok_rule=ok_rule,
-            missing=missing,
-            model_ver=model_ver,
+            self.r
+            sid=sid
+            symbol=symbol
+            bucket=bucket
+            p_edge=float(dec.p_edge or 0.0)
+            enforce=enforce
+            ok_rule=ok_rule
+            missing=missing
+            model_ver=model_ver
         )
 
-    def _emit_metrics(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str,
-                     rule_score: float, rule_have: int, rule_need: int, cancel_spike_veto: int, ok_rule: int,
+    def _emit_metrics(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str
+                     rule_score: float, rule_have: int, rule_need: int, cancel_spike_veto: int, ok_rule: int
                      sid: Optional[str] = None, indicators: Optional[Dict[str, Any]] = None) -> None:
         if not self._metrics_enable:
             return
@@ -1543,50 +1543,50 @@ class MLConfirmGate:
                 sb = indicators.get("score_breakdown") or {}
             
             payload: Dict[str, Any] = {
-                "ts_ms": ts_ms,
-                "sid": sid,
-                "symbol": symbol,
-                "mode": self.mode,
-                "kind": dec.kind or "",
-                "model_run_id": str(dec.model_run_id or ""),
-                "bucket": bucket,
-                "cfg_source": getattr(self, "_cfg_source", "none"),
-                "direction": str(direction),
-                "scenario_v4": str(scenario),
-                "rule_score": f"{float(rule_score):.6f}",
+                "ts_ms": ts_ms
+                "sid": sid
+                "symbol": symbol
+                "mode": self.mode
+                "kind": dec.kind or ""
+                "model_run_id": str(dec.model_run_id or "")
+                "bucket": bucket
+                "cfg_source": getattr(self, "_cfg_source", "none")
+                "direction": str(direction)
+                "scenario_v4": str(scenario)
+                "rule_score": f"{float(rule_score):.6f}"
                 
                 # Extended score breakdown metrics (Step 1)
-                "rule_base_score": f"{float(sb.get('base_score', rule_score)):.6f}",
-                "rule_score_raw": f"{float(sb.get('final_score_raw', rule_score)):.6f}",
-                "rule_exec_pen": f"{float(sb.get('exec_pen', 0.0)):.6f}",
-                "score_raw_sum": f"{float(sb.get('raw_sum', 0.0)):.6f}",
-                "score_w_sum": f"{float(sb.get('w_sum', 0.0)):.6f}",
-                "score_agg": str(sb.get('agg', 'unknown')),
+                "rule_base_score": f"{float(sb.get('base_score', rule_score)):.6f}"
+                "rule_score_raw": f"{float(sb.get('final_score_raw', rule_score)):.6f}"
+                "rule_exec_pen": f"{float(sb.get('exec_pen', 0.0)):.6f}"
+                "score_raw_sum": f"{float(sb.get('raw_sum', 0.0)):.6f}"
+                "score_w_sum": f"{float(sb.get('w_sum', 0.0)):.6f}"
+                "score_agg": str(sb.get('agg', 'unknown'))
 
-                "rule_have": str(int(rule_have)),
-                "rule_need": str(int(rule_need)),
-                "have_need_ratio": f"{(float(rule_have) / max(1.0, float(rule_need))):.3f}",
-                "ok_rule": str(int(ok_rule)),
-                "cancel_spike_veto": str(int(cancel_spike_veto)),
-                "p_edge": float(dec.p_edge or 0.0),
-                "p_edge_cal": float(dec.p_edge_cal or 0.0),
-                "p_edge_raw": float(dec.p_edge_raw or 0.0),
-                "lat_ms": f"{float(dec.latency_us or 0) / 1000.0:.3f}",
-                "latency_us": str(int(dec.latency_us or 0)),
+                "rule_have": str(int(rule_have))
+                "rule_need": str(int(rule_need))
+                "have_need_ratio": f"{(float(rule_have) / max(1.0, float(rule_need))):.3f}"
+                "ok_rule": str(int(ok_rule))
+                "cancel_spike_veto": str(int(cancel_spike_veto))
+                "p_edge": float(dec.p_edge or 0.0)
+                "p_edge_cal": float(dec.p_edge_cal or 0.0)
+                "p_edge_raw": float(dec.p_edge_raw or 0.0)
+                "lat_ms": f"{float(dec.latency_us or 0) / 1000.0:.3f}"
+                "latency_us": str(int(dec.latency_us or 0))
 
                 # P74+ Executive Summary
-                "exec_risk_ref_bps": f"{float(dec.exec_risk_ref_bps):.2f}",
-                "exec_risk_bps": f"{float(dec.exec_risk_bps):.2f}",
-                "exec_risk_norm": f"{float(dec.exec_risk_norm):.4f}",
-                "exec_pen": f"{float(dec.exec_pen):.4f}",
-                "score_breakdown_small": json.dumps(dec.score_breakdown_small or {}, separators=(",", ":")),
-                "latency_ms": f"{float(dec.latency_us or 0) / 1000.0:.3f}",
-                "status": str(dec.status or ""),
-                "allow": str(int(bool(dec.allow))),
-                "err": str(dec.error or ""),
-                "abstain": str(int(bool(dec.abstain))),
-                "conf": f"{float(dec.conf or 0.0):.6f}",
-                "missing_n": str(len(dec.missing or [])),
+                "exec_risk_ref_bps": f"{float(dec.exec_risk_ref_bps):.2f}"
+                "exec_risk_bps": f"{float(dec.exec_risk_bps):.2f}"
+                "exec_risk_norm": f"{float(dec.exec_risk_norm):.4f}"
+                "exec_pen": f"{float(dec.exec_pen):.4f}"
+                "score_breakdown_small": json.dumps(dec.score_breakdown_small or {}, separators=(",", ":"))
+                "latency_ms": f"{float(dec.latency_us or 0) / 1000.0:.3f}"
+                "status": str(dec.status or "")
+                "allow": str(int(bool(dec.allow)))
+                "err": str(dec.error or "")
+                "abstain": str(int(bool(dec.abstain)))
+                "conf": f"{float(dec.conf or 0.0):.6f}"
+                "missing_n": str(len(dec.missing or []))
             }
             # Attach rule score breakdown (if present) for drift/debug
             if indicators and isinstance(indicators.get("score_breakdown"), dict):
@@ -1685,8 +1685,8 @@ class MLConfirmGate:
                 logger.warning(f"ML gate: _emit_metrics error: {type(e).__name__}: {str(e)[:200]}")
                 self._last_emit_metrics_error_log_ts = now_ms
 
-    def _capture_replay_input(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str,
-                              indicators: Dict[str, Any], rule_score: float, rule_have: int, rule_need: int,
+    def _capture_replay_input(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str
+                              indicators: Dict[str, Any], rule_score: float, rule_have: int, rule_need: int
                               cancel_spike_veto: int, ok_rule: int) -> None:
         if not self._replay_capture:
             return
@@ -1702,51 +1702,51 @@ class MLConfirmGate:
                 return
             cfg = self._cfg or {}
             cfg_small = {
-                "kind": cfg.get("kind", ""),
-                "run_id": cfg.get("run_id", ""),
-                "model_path": cfg.get("model_path", ""),
-                "util_floors": cfg.get("util_floors", {}),
-                "abstain_band": cfg.get("abstain_band", None),
-                "conf_min": cfg.get("conf_min", None),
-                "abstain_on_missing": cfg.get("abstain_on_missing", None),
-                "p_min_hard_floor": cfg.get("p_min_hard_floor", None),
+                "kind": cfg.get("kind", "")
+                "run_id": cfg.get("run_id", "")
+                "model_path": cfg.get("model_path", "")
+                "util_floors": cfg.get("util_floors", {})
+                "abstain_band": cfg.get("abstain_band", None)
+                "conf_min": cfg.get("conf_min", None)
+                "abstain_on_missing": cfg.get("abstain_on_missing", None)
+                "p_min_hard_floor": cfg.get("p_min_hard_floor", None)
             }
             payload = {
-                "ts_ms": int(ts_ms),
-                "symbol": str(symbol).upper(),
-                "direction": str(direction),
-                "scenario_v4": str(scenario),
+                "ts_ms": int(ts_ms)
+                "symbol": str(symbol).upper()
+                "direction": str(direction)
+                "scenario_v4": str(scenario)
                 "sid": str(sid),  # Added for deterministic replay
-                "indicators": _json_safe(indicators),
-                "rule_score": float(rule_score),
-                "rule_have": int(rule_have),
-                "rule_need": int(rule_need),
-                "cancel_spike_veto": int(cancel_spike_veto),
-                "ok_rule": int(ok_rule),
-                "cfg": _json_safe(cfg_small),
+                "indicators": _json_safe(indicators)
+                "rule_score": float(rule_score)
+                "rule_have": int(rule_have)
+                "rule_need": int(rule_need)
+                "cancel_spike_veto": int(cancel_spike_veto)
+                "ok_rule": int(ok_rule)
+                "cfg": _json_safe(cfg_small)
             }
             # Add a compact decision summary for offline audits (does not affect feature vector).
             payload["dec_summary"] = _json_safe({
-                "kind": str(dec.kind or ""),
-                "mode": str(dec.mode or ""),
-                "allow": int(bool(dec.allow)),
-                "abstain": int(bool(dec.abstain)),
-                "status": str(dec.status or ""),
-                "reason": str(dec.reason or ""),
-                "bucket": str(dec.bucket or ""),
-                "p_edge": float(dec.p_edge or 0.0),
-                "p_min": float(dec.p_min or 0.0),
-                "p_margin": float(dec.p_margin or 0.0),
-                "conf": float(dec.conf or 0.0),
-                "missing_n": int(len(dec.missing or [])),
+                "kind": str(dec.kind or "")
+                "mode": str(dec.mode or "")
+                "allow": int(bool(dec.allow))
+                "abstain": int(bool(dec.abstain))
+                "status": str(dec.status or "")
+                "reason": str(dec.reason or "")
+                "bucket": str(dec.bucket or "")
+                "p_edge": float(dec.p_edge or 0.0)
+                "p_min": float(dec.p_min or 0.0)
+                "p_margin": float(dec.p_margin or 0.0)
+                "conf": float(dec.conf or 0.0)
+                "missing_n": int(len(dec.missing or []))
             })
             self.r.xadd(self._replay_stream, {
-                "ts_ms": str(int(ts_ms)),
-                "symbol": str(symbol).upper(),
-                "scenario_v4": str(scenario),
+                "ts_ms": str(int(ts_ms))
+                "symbol": str(symbol).upper()
+                "scenario_v4": str(scenario)
                 "sid": str(sid),  # Added for deterministic replay
-                "model_run_id": str(dec.model_run_id or ""),
-                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                "model_run_id": str(dec.model_run_id or "")
+                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             }, maxlen=self._replay_maxlen, approximate=True)
         except Exception as e:
             # Increment error metric and rate-limited log
@@ -1763,14 +1763,14 @@ class MLConfirmGate:
                 self._last_replay_capture_error_log_ts = now_ms
 
     def _decide_util_mh(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
     ) -> MLConfirmDecision:
         cfg = self._cfg
         model = self._model
@@ -2036,14 +2036,14 @@ class MLConfirmGate:
         return dec
 
     def _decide_edge_stack_v1(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
     ) -> MLConfirmDecision:
         """
         Решение для edge_stack_v1: OOF stacking (LR + GBDT -> meta LR).
@@ -2135,7 +2135,7 @@ class MLConfirmGate:
                 dec.allow = self._fail_allow()
                 dec.error = "forbidden_feature_cols"
                 dec.reason = (
-                    f"forbidden_feature_cols(scenario_v4_onehot,"
+                    f"forbidden_feature_cols(scenario_v4_onehot"
                     f"n={len(bad_cols)},ex={bad_cols[0]})"
                 )
                 dec.status = "ERR_FORBIDDEN_FEATURE_COLS"
@@ -2152,10 +2152,10 @@ class MLConfirmGate:
                     pass
                 return dec
         x_row, missing = self._build_feature_row(
-            model=view,
-            indicators=indicators,
-            direction=direction,
-            scenario=scenario,
+            model=view
+            indicators=indicators
+            direction=direction
+            scenario=scenario
             ts_ms=ts_ms
         )
         dec.missing = missing
@@ -2277,7 +2277,7 @@ class MLConfirmGate:
         
         # p_min из конфига: приоритет p_min_by_bucket, затем p_min, затем hard_p_min_floor
         # NOTE: Для edge_stack_v1 используется p_min (только на p_cal).
-        # TODO: В будущем можно реализовать edge_floors как score_min (p_cal - unc_k*unc),
+        # TODO: В будущем можно реализовать edge_floors как score_min (p_cal - unc_k*unc)
         #       чтобы учитывать uncertainty в пороге. Это потребует добавления uncertainty
         #       в модель edge_stack_v1 или использования отдельной uncertainty модели.
         p_min_by_bucket = cfg.get("p_min_by_bucket", {})
@@ -2309,14 +2309,14 @@ class MLConfirmGate:
         return dec
 
     def _decide_edge_stack_mh(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
     ) -> MLConfirmDecision:
         """
         Решение для edge_stack_mh_v1: multi-horizon stacking с uncertainty.
@@ -2363,14 +2363,14 @@ class MLConfirmGate:
             dec.conf = 0.0
             return dec
         
-        # P0 fix: для edge_stack_mh_v1 модель - это объект EdgeStackMHModelV1,
+        # P0 fix: для edge_stack_mh_v1 модель - это объект EdgeStackMHModelV1
         # который уже имеет все нужные атрибуты (feature_cols, feature_transforms, robust_scaler, etc.)
         # поэтому передаём его напрямую (не создаём temp_model)
         x_row, missing = self._build_feature_row(
             model=model,  # НЕ temp_model - используем реальный объект модели
-            indicators=indicators,
-            direction=direction,
-            scenario=scenario,
+            indicators=indicators
+            direction=direction
+            scenario=scenario
             ts_ms=ts_ms
         )
         dec.missing = missing
@@ -2509,14 +2509,14 @@ class MLConfirmGate:
         return dec
 
     def _decide_meta_lr(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        effective_mode: Optional[str] = None
     ) -> MLConfirmDecision:
         """Decision logic for simple MetaModelLR (logistic regression)."""
         cfg = self._cfg
@@ -2553,7 +2553,7 @@ class MLConfirmGate:
             dec.conf = 0.0
             return dec
             
-        # P0 fix: MetaModelLR использует 'features' вместо 'feature_cols',
+        # P0 fix: MetaModelLR использует 'features' вместо 'feature_cols'
         # но имеет transforms и robust_scaler, которые нужно прокинуть в _build_feature_row
         class _MetaModelView:
             def __init__(self, meta_model: MetaModelLR):
@@ -2567,10 +2567,10 @@ class MLConfirmGate:
         
         view = _MetaModelView(model)
         x_row, missing = self._build_feature_row(
-            model=view,
-            indicators=indicators,
-            direction=direction,
-            scenario=scenario,
+            model=view
+            indicators=indicators
+            direction=direction
+            scenario=scenario
             ts_ms=ts_ms
         )
         dec.missing = missing
@@ -2686,18 +2686,18 @@ class MLConfirmGate:
         return dec
 
     def check(
-        self,
-        *,
-        symbol: str,
-        ts_ms: int,
-        direction: str,
-        scenario: str,
-        indicators: Dict[str, Any],
-        rule_score: float,
-        rule_have: int,
-        rule_need: int,
-        cancel_spike_veto: int,
-        ok_rule: int,
+        self
+        *
+        symbol: str
+        ts_ms: int
+        direction: str
+        scenario: str
+        indicators: Dict[str, Any]
+        rule_score: float
+        rule_have: int
+        rule_need: int
+        cancel_spike_veto: int
+        ok_rule: int
     ) -> MLConfirmDecision:
         self._check_call_count += 1
         t0_ns = time.perf_counter_ns()
@@ -2714,8 +2714,8 @@ class MLConfirmGate:
                 self._metrics_latency_seconds.labels(kind="none").observe(latency_sec)
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
-            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
                                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid, indicators=indicators)
             self._cache_ml_decision(dec, sid=sid, symbol=symbol, scenario=scenario, ok_rule=ok_rule)
             return dec
@@ -2743,8 +2743,8 @@ class MLConfirmGate:
                 self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
-            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
                                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid, indicators=indicators)
             return dec
 
@@ -2800,12 +2800,12 @@ class MLConfirmGate:
             
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
-            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
                                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid, indicators=indicators)
             self._cache_ml_decision(dec, sid=sid, symbol=symbol, scenario=scenario, ok_rule=ok_rule)
-            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have,
+            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
             return dec
 
@@ -2838,12 +2838,12 @@ class MLConfirmGate:
             
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
-            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
                                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid, indicators=indicators)
             self._cache_ml_decision(dec, sid=sid, symbol=symbol, scenario=scenario, ok_rule=ok_rule)
-            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have,
+            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
             return dec
 
@@ -2872,12 +2872,12 @@ class MLConfirmGate:
                 self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
             
             sid = _canonical_sid(indicators, symbol, ts_ms)
-            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
                                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid, indicators=indicators)
             self._cache_ml_decision(dec, sid=sid, symbol=symbol, scenario=scenario, ok_rule=ok_rule)
-            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have,
+            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
             return dec
 
@@ -2910,12 +2910,12 @@ class MLConfirmGate:
             
             # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
             sid = _canonical_sid(indicators, symbol, ts_ms)
-            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+            self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                               rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
                                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid, indicators=indicators)
             self._cache_ml_decision(dec, sid=sid, symbol=symbol, scenario=scenario, ok_rule=ok_rule)
-            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have,
+            self._capture_replay_input(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                                       indicators=indicators, rule_score=rule_score, rule_have=rule_have
                                        rule_need=rule_need, cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule)
             return dec
 
@@ -2936,7 +2936,7 @@ class MLConfirmGate:
             self._metrics_latency_seconds.labels(kind=kind_for_metrics).observe(latency_sec)
         # Extract sid from indicators or generate in format crypto-of:{symbol}:{ts_ms}
         sid = _canonical_sid(indicators, symbol, ts_ms)
-        self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
-                           rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+        self._emit_metrics(dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
+                           rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
                            cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid, indicators=indicators)
         return dec

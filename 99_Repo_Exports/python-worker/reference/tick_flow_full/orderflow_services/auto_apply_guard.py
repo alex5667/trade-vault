@@ -61,9 +61,9 @@ def _load_json(s: Optional[str]) -> Dict[str, Any]:
 
 
 def get_block_state(
-    redis_url: Optional[str] = None,
-    prefix: Optional[str] = None,
-    max_meta_age_ms: int = 15 * 60 * 1000,
+    redis_url: Optional[str] = None
+    prefix: Optional[str] = None
+    max_meta_age_ms: int = 15 * 60 * 1000
 ) -> Tuple[bool, Dict[str, Any]]:
     """Return (blocked, meta).
 
@@ -97,10 +97,10 @@ def get_block_state(
         v3_global = f"{of_global}:{rsn}"
         keys.extend([legacy_block, legacy_meta, legacy_ts, v3_global])
         idx[rsn] = {
-            "legacy_block": len(keys) - 4,
-            "legacy_meta": len(keys) - 3,
-            "legacy_ts": len(keys) - 2,
-            "v3_global": len(keys) - 1,
+            "legacy_block": len(keys) - 4
+            "legacy_meta": len(keys) - 3
+            "legacy_ts": len(keys) - 2
+            "v3_global": len(keys) - 1
         }
         if symbol:
             v3_sym = f"{of_sym_pfx}:{symbol}:{rsn}"
@@ -170,10 +170,10 @@ def get_block_state(
 
 
 def assert_auto_apply_not_blocked(
-    redis_url: Optional[str] = None,
-    prefix: Optional[str] = None,
-    max_meta_age_ms: int = 15 * 60 * 1000,
-    exit_code: int = 20,
+    redis_url: Optional[str] = None
+    prefix: Optional[str] = None
+    max_meta_age_ms: int = 15 * 60 * 1000
+    exit_code: int = 20
 ) -> None:
     """Exit the process if auto-apply is blocked by any guard."""
     blocked, meta = get_block_state(redis_url=redis_url, prefix=prefix, max_meta_age_ms=max_meta_age_ms)
@@ -181,9 +181,9 @@ def assert_auto_apply_not_blocked(
         return
 
     payload = {
-        "blocked": True,
-        "exit_code": exit_code,
-        "meta": meta,
+        "blocked": True
+        "exit_code": exit_code
+        "meta": meta
         "ts_ms": _now_ms()
     }
     sys.stderr.write(json.dumps(payload, ensure_ascii=False) + "\n")

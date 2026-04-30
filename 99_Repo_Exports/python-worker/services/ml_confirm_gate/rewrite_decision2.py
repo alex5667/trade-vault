@@ -4,14 +4,14 @@ with open("python-worker/services/ml_confirm_gate/decision_policy.py", "r") as f
     text = f.read()
 
 replacements = {
-    r'self\._cfg': 'self.gate._cfg',
-    r'self\._models': 'self.gate._models',
-    r'self\.mode': 'self.gate.mode',
-    r'self\._calib_type': 'self.gate._calib_type',
-    r'self\._calibrator': 'self.gate._calibrator',
-    r'self\._p_min_hard_floor': 'self.gate._p_min_hard_floor',
-    r'self\._enforce_share_by_symbol': 'self.gate._enforce_share_by_symbol',
-    r'self\._enforce_share_by_sym_by_kind': 'self.gate._enforce_share_by_sym_by_kind',
+    r'self\._cfg': 'self.gate._cfg'
+    r'self\._models': 'self.gate._models'
+    r'self\.mode': 'self.gate.mode'
+    r'self\._calib_type': 'self.gate._calib_type'
+    r'self\._calibrator': 'self.gate._calibrator'
+    r'self\._p_min_hard_floor': 'self.gate._p_min_hard_floor'
+    r'self\._enforce_share_by_symbol': 'self.gate._enforce_share_by_symbol'
+    r'self\._enforce_share_by_sym_by_kind': 'self.gate._enforce_share_by_sym_by_kind'
     # But leave self._build_feature_row, self._conf_from_margin, self._apply_selective alone
 }
 

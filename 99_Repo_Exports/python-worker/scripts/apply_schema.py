@@ -17,30 +17,30 @@ def apply_schema():
         ddls = [
             """
             CREATE TABLE IF NOT EXISTS calibration_state (
-                symbol          TEXT NOT NULL,
-                regime          TEXT NOT NULL,
+                symbol          TEXT NOT NULL
+                regime          TEXT NOT NULL
                 kind            TEXT NOT NULL, -- 'effq', 'atr', 'dn', 'bookrate'
-                ts_ms           BIGINT NOT NULL,
-                state_json      JSONB NOT NULL,
-                updated_at      TIMESTAMPTZ DEFAULT now(),
+                ts_ms           BIGINT NOT NULL
+                state_json      JSONB NOT NULL
+                updated_at      TIMESTAMPTZ DEFAULT now()
                 PRIMARY KEY(symbol, regime, kind)
             );
-            """,
-            "CREATE INDEX IF NOT EXISTS idx_calibration_state_ts ON calibration_state (ts_ms DESC);",
+            """
+            "CREATE INDEX IF NOT EXISTS idx_calibration_state_ts ON calibration_state (ts_ms DESC);"
             """
             CREATE TABLE IF NOT EXISTS microbars (
-                symbol          TEXT NOT NULL,
-                ts_ms           BIGINT NOT NULL,
-                o               DOUBLE PRECISION NOT NULL,
-                h               DOUBLE PRECISION NOT NULL,
-                l               DOUBLE PRECISION NOT NULL,
-                c               DOUBLE PRECISION NOT NULL,
-                v               DOUBLE PRECISION NOT NULL,
-                cvd             DOUBLE PRECISION NOT NULL,
-                inserted_at     TIMESTAMPTZ DEFAULT now(),
+                symbol          TEXT NOT NULL
+                ts_ms           BIGINT NOT NULL
+                o               DOUBLE PRECISION NOT NULL
+                h               DOUBLE PRECISION NOT NULL
+                l               DOUBLE PRECISION NOT NULL
+                c               DOUBLE PRECISION NOT NULL
+                v               DOUBLE PRECISION NOT NULL
+                cvd             DOUBLE PRECISION NOT NULL
+                inserted_at     TIMESTAMPTZ DEFAULT now()
                 PRIMARY KEY(symbol, ts_ms)
             );
-            """,
+            """
             "CREATE INDEX IF NOT EXISTS idx_microbars_ts ON microbars (ts_ms DESC);"
         ]
         

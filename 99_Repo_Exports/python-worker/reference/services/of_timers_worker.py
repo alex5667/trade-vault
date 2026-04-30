@@ -42,9 +42,9 @@ from datetime import datetime
 from typing import List, Any, Tuple, Dict
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger(__name__)
 
@@ -179,10 +179,10 @@ def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: s
         return
 
     payload = {
-        "message": text,
-        "source": source,
-        "ts_ms": str(get_ny_time_millis()),
-        "severity": severity,
+        "message": text
+        "source": source
+        "ts_ms": str(get_ny_time_millis())
+        "severity": severity
     }
     if sid:
         payload["sid"] = sid
@@ -247,8 +247,8 @@ def run_of_gate_contract_smoke_check() -> bool:
     script = os.getenv("OF_GATE_CONTRACT_SMOKE_SCRIPT")
     if not script:
         candidates = [
-            "/app/orderflow_services/of_gate_metrics_contract_check_v1.py",
-            "/app/tick_flow_full/orderflow_services/of_gate_metrics_contract_check_v1.py",
+            "/app/orderflow_services/of_gate_metrics_contract_check_v1.py"
+            "/app/tick_flow_full/orderflow_services/of_gate_metrics_contract_check_v1.py"
         ]
         for c in candidates:
             if os.path.exists(c):
@@ -270,12 +270,12 @@ def run_of_gate_contract_smoke_check() -> bool:
         else:
             cmd = [sys.executable, "-m", module] + args
         result = subprocess.run(
-            cmd,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=os.environ.copy(),
+            cmd
+            cwd="/app"
+            capture_output=True
+            text=True
+            timeout=timeout_s
+            env=os.environ.copy()
         )
     except subprocess.TimeoutExpired:
         target = script or module
@@ -357,13 +357,13 @@ def run_prom_rules_bundle_smoke_check() -> bool:
 
     # Use configurable module (default: orderflow_services version, works in both trees)
     module = os.getenv(
-        "PROM_RULES_BUNDLE_SMOKE_MODULE",
-        "orderflow_services.prom_rules_bundle_health_check_v1",
+        "PROM_RULES_BUNDLE_SMOKE_MODULE"
+        "orderflow_services.prom_rules_bundle_health_check_v1"
     )
     rc, stdout, stderr = run_tool_rc(
-        module,
-        args=["--promtool", promtool_mode],
-        timeout=timeout_s,
+        module
+        args=["--promtool", promtool_mode]
+        timeout=timeout_s
     )
     block_reason = (os.getenv("PROM_RULES_BUNDLE_SMOKE_BLOCK_REASON", "prom_rules_bundle_smoke") or "prom_rules_bundle_smoke").strip()
     block_ttl_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_BLOCK_TTL_S", str(6 * 3600)))
@@ -387,16 +387,16 @@ def run_prom_rules_bundle_smoke_check() -> bool:
 
     # Fail-closed: invalid rules bundle => block auto-apply until fixed
     _set_auto_apply_block(
-        block_reason,
+        block_reason
         meta={
-            "blocked": True,
-            "owner": "prom_rules_bundle_smoke",
-            "reason": "rules_bundle_invalid",
-            "rc": int(rc),
-            "promtool": promtool_mode,
-            "head": head,
-        },
-        ttl_s=block_ttl_s,
+            "blocked": True
+            "owner": "prom_rules_bundle_smoke"
+            "reason": "rules_bundle_invalid"
+            "rc": int(rc)
+            "promtool": promtool_mode
+            "head": head
+        }
+        ttl_s=block_ttl_s
     )
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
@@ -434,14 +434,14 @@ def run_prom_rules_loaded_probe() -> bool:
     dedup_prefix = os.getenv("PROM_RULES_LOADED_PROBE_DEDUP_PREFIX", "dedup:prom_rules_loaded:")
 
     module = os.getenv(
-        "PROM_RULES_LOADED_PROBE_MODULE",
-        "orderflow_services.prom_rules_loaded_probe_v1",
+        "PROM_RULES_LOADED_PROBE_MODULE"
+        "orderflow_services.prom_rules_loaded_probe_v1"
     )
 
     rc, stdout, stderr = run_tool_rc(
-        module,
-        args=["--timeout", str(timeout_s)],
-        timeout=timeout_s + 15,
+        module
+        args=["--timeout", str(timeout_s)]
+        timeout=timeout_s + 15
     )
 
     block_reason = (os.getenv("PROM_RULES_LOADED_PROBE_BLOCK_REASON", "prom_rules_loaded_probe") or "prom_rules_loaded_probe").strip()
@@ -464,15 +464,15 @@ def run_prom_rules_loaded_probe() -> bool:
     signature = f"rc={rc}|{head}"
 
     _set_auto_apply_block(
-        block_reason,
+        block_reason
         meta={
-            "blocked": True,
-            "owner": "prom_rules_loaded_probe",
-            "reason": "rules_files_missing_or_probe_error",
-            "rc": int(rc),
-            "head": head,
-        },
-        ttl_s=block_ttl_s,
+            "blocked": True
+            "owner": "prom_rules_loaded_probe"
+            "reason": "rules_files_missing_or_probe_error"
+            "rc": int(rc)
+            "head": head
+        }
+        ttl_s=block_ttl_s
     )
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
@@ -524,8 +524,8 @@ def run_world_practice_smoke_check() -> bool:
         return True
 
     module = os.getenv(
-        "WORLD_PRACTICE_SMOKE_MODULE",
-        "orderflow_services.world_practice_gauges_smoke_check_v1",
+        "WORLD_PRACTICE_SMOKE_MODULE"
+        "orderflow_services.world_practice_gauges_smoke_check_v1"
     )
     timeout_s = int(os.getenv("WORLD_PRACTICE_SMOKE_TIMEOUT_S", "120"))
 
@@ -621,8 +621,8 @@ def run_lob_pressure_smoke_check() -> bool:
         return True
 
     module = os.getenv(
-        "LOB_PRESSURE_SMOKE_MODULE",
-        "orderflow_services.lob_pressure_smoke_check_v1",
+        "LOB_PRESSURE_SMOKE_MODULE"
+        "orderflow_services.lob_pressure_smoke_check_v1"
     )
     timeout_s = int(os.getenv("LOB_PRESSURE_SMOKE_TIMEOUT_S", "120"))
 
@@ -714,8 +714,8 @@ def run_new_features_smoke_check_a8() -> bool:
         return True
 
     module = os.getenv(
-        "A8_NEW_FEATURES_SMOKE_MODULE",
-        "orderflow_services.new_features_gauges_smoke_check_v1",
+        "A8_NEW_FEATURES_SMOKE_MODULE"
+        "orderflow_services.new_features_gauges_smoke_check_v1"
     )
     timeout_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_TIMEOUT_S", "120"))
 
@@ -796,8 +796,8 @@ def run_of_gate_exporters_smoke_p111() -> bool:
     block_ttl_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_TTL_S", str(max(3600, cooldown_s))))
 
     module = os.getenv(
-        "OF_GATE_EXPORTERS_SMOKE_MODULE",
-        "orderflow_services.of_gate_exporters_smoke_p111",
+        "OF_GATE_EXPORTERS_SMOKE_MODULE"
+        "orderflow_services.of_gate_exporters_smoke_p111"
     )
 
     rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)
@@ -831,15 +831,15 @@ def run_of_gate_exporters_smoke_p111() -> bool:
 
     if block_auto_apply:
         _set_auto_apply_block(
-            block_reason,
+            block_reason
             meta={
-                "owner": "of_gate_exporters_smoke",
-                "rc": int(rc),
-                "failed": list(failed_names),
-                "sig": signature,
-                "module": str(module),
-            },
-            ttl_s=block_ttl_s,
+                "owner": "of_gate_exporters_smoke"
+                "rc": int(rc)
+                "failed": list(failed_names)
+                "sig": signature
+                "module": str(module)
+            }
+            ttl_s=block_ttl_s
         )
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
@@ -891,8 +891,8 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
     block_ttl_s = int(os.getenv("OF_INPUTS_EXPORTERS_SMOKE_BLOCK_TTL_S", str(max(3600, cooldown_s))))
 
     module = os.getenv(
-        "OF_INPUTS_EXPORTERS_SMOKE_MODULE",
-        "orderflow_services.of_inputs_exporters_smoke_p107",
+        "OF_INPUTS_EXPORTERS_SMOKE_MODULE"
+        "orderflow_services.of_inputs_exporters_smoke_p107"
     )
 
     rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)
@@ -922,15 +922,15 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
 
     if block_auto_apply:
         _set_auto_apply_block(
-            block_reason,
+            block_reason
             meta={
-                "owner": "of_inputs_exporters_smoke",
-                "rc": int(rc),
-                "failed": list(failed_names),
-                "sig": signature,
-                "module": str(module),
-            },
-            ttl_s=block_ttl_s,
+                "owner": "of_inputs_exporters_smoke"
+                "rc": int(rc)
+                "failed": list(failed_names)
+                "sig": signature
+                "module": str(module)
+            }
+            ttl_s=block_ttl_s
         )
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
@@ -981,8 +981,8 @@ def run_feature_registry_contract_smoke_check() -> bool:
     script = os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_SCRIPT")
     if not script:
         candidates = [
-            "/app/orderflow_services/feature_registry_contract_check_v1.py",
-            "/app/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py",
+            "/app/orderflow_services/feature_registry_contract_check_v1.py"
+            "/app/tick_flow_full/orderflow_services/feature_registry_contract_check_v1.py"
         ]
         for c in candidates:
             if os.path.exists(c):
@@ -993,8 +993,8 @@ def run_feature_registry_contract_smoke_check() -> bool:
         cmd = [py, script]
     else:
         module = os.getenv(
-            "FEATURE_REGISTRY_CONTRACT_SMOKE_MODULE",
-            "orderflow_services.feature_registry_contract_check_v1",
+            "FEATURE_REGISTRY_CONTRACT_SMOKE_MODULE"
+            "orderflow_services.feature_registry_contract_check_v1"
         )
         cmd = [py, "-m", module]
 
@@ -1003,12 +1003,12 @@ def run_feature_registry_contract_smoke_check() -> bool:
 
     try:
         p = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout_s,
-            env=os.environ.copy(),
+            cmd
+            stdout=subprocess.PIPE
+            stderr=subprocess.PIPE
+            text=True
+            timeout=timeout_s
+            env=os.environ.copy()
         )
         d = _parse_smoke_output(p.stdout, p.stderr) or {}
         rc = int(p.returncode)
@@ -1088,8 +1088,8 @@ def run_of_inputs_dlq_auto_replay() -> bool:
     script = os.getenv("OF_INPUTS_DLQ_AUTO_REPLAY_SCRIPT")
     if not script:
         candidates = [
-            "/app/orderflow_services/of_inputs_dlq_fixed_replay_p97.py",
-            "/app/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py",
+            "/app/orderflow_services/of_inputs_dlq_fixed_replay_p97.py"
+            "/app/tick_flow_full/orderflow_services/of_inputs_dlq_fixed_replay_p97.py"
         ]
         for c in candidates:
             if os.path.exists(c):
@@ -1104,12 +1104,12 @@ def run_of_inputs_dlq_auto_replay() -> bool:
         else:
             cmd = [sys.executable, "-m", module]
         result = subprocess.run(
-            cmd,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=env,
+            cmd
+            cwd="/app"
+            capture_output=True
+            text=True
+            timeout=timeout_s
+            env=env
         )
     except subprocess.TimeoutExpired:
         text = f"OF_INPUTS_DLQ_REPLAY timeout after {timeout_s}s"
@@ -1150,8 +1150,8 @@ def run_of_inputs_dlq_auto_replay() -> bool:
 def run_of_inputs_dlq_db_archive_p98() -> bool:
     """Run OFInputs DLQ+quarantine → Postgres/Timescale archiver (P98).
 
-    Reads streams stream:dlq:of_inputs and quarantine:signals:of:inputs,
-    inserts rows into of_inputs_dlq_events (idempotent, ON CONFLICT DO NOTHING),
+    Reads streams stream:dlq:of_inputs and quarantine:signals:of:inputs
+    inserts rows into of_inputs_dlq_events (idempotent, ON CONFLICT DO NOTHING)
     advances checkpoint in Redis, writes metrics hash for exporter.
 
     Guarded by ENABLE_OF_INPUTS_DLQ_DB_ARCHIVE_P98=1.
@@ -1175,8 +1175,8 @@ def run_of_inputs_dlq_db_archive_p98() -> bool:
     script = os.getenv("OF_INPUTS_DLQ_DB_ARCHIVE_SCRIPT")
     if not script:
         candidates = [
-            "/app/orderflow_services/of_inputs_dlq_archive_to_db_p98.py",
-            "/app/tick_flow_full/orderflow_services/of_inputs_dlq_archive_to_db_p98.py",
+            "/app/orderflow_services/of_inputs_dlq_archive_to_db_p98.py"
+            "/app/tick_flow_full/orderflow_services/of_inputs_dlq_archive_to_db_p98.py"
         ]
         for c in candidates:
             if os.path.exists(c):
@@ -1191,12 +1191,12 @@ def run_of_inputs_dlq_db_archive_p98() -> bool:
         else:
             cmd = [sys.executable, "-m", module] + extra_args
         result = subprocess.run(
-            cmd,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=os.environ.copy(),
+            cmd
+            cwd="/app"
+            capture_output=True
+            text=True
+            timeout=timeout_s
+            env=os.environ.copy()
         )
     except subprocess.TimeoutExpired:
         text = f"OF_INPUTS_DLQ_DB_ARCHIVE timeout after {timeout_s}s (P98)"
@@ -1260,8 +1260,8 @@ def run_of_inputs_dlq_db_drilldown_p99() -> bool:
     timeout_s = int(os.getenv("OF_INPUTS_DLQ_DB_DRILLDOWN_TIMEOUT_S", "90"))
 
     module = os.getenv(
-        "OF_INPUTS_DLQ_DB_DRILLDOWN_MODULE",
-        "orderflow_services.of_inputs_dlq_db_drilldown_p99",
+        "OF_INPUTS_DLQ_DB_DRILLDOWN_MODULE"
+        "orderflow_services.of_inputs_dlq_db_drilldown_p99"
     )
     args = ["--lookback-h", str(lookback_h), "--top", str(top_n)]
     if notify:
@@ -1270,12 +1270,12 @@ def run_of_inputs_dlq_db_drilldown_p99() -> bool:
     try:
         cmd = [sys.executable, "-m", module] + args
         result = subprocess.run(
-            cmd,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=os.environ.copy(),
+            cmd
+            cwd="/app"
+            capture_output=True
+            text=True
+            timeout=timeout_s
+            env=os.environ.copy()
         )
         if result.returncode == 0:
             if result.stdout:
@@ -1316,8 +1316,8 @@ def run_feature_denylist_proposal_exporter() -> bool:
         return True
 
     module = os.getenv(
-        "FEATURE_DENYLIST_EXPORTER_MODULE",
-        "ml_analysis.tools.feature_denylist_proposal_exporter_v1",
+        "FEATURE_DENYLIST_EXPORTER_MODULE"
+        "ml_analysis.tools.feature_denylist_proposal_exporter_v1"
     )
     timeout_s = int(os.getenv("FEATURE_DENYLIST_EXPORTER_TIMEOUT_S", "30"))
 
@@ -1333,12 +1333,12 @@ def run_feature_denylist_proposal_exporter() -> bool:
     try:
         cmd = [sys.executable, "-m", module]
         result = subprocess.run(
-            cmd,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=env,
+            cmd
+            cwd="/app"
+            capture_output=True
+            text=True
+            timeout=timeout_s
+            env=env
         )
     except subprocess.TimeoutExpired:
         logger.warning(f"feature_denylist_exporter: timeout after {timeout_s}s (module={module})")
@@ -1395,11 +1395,11 @@ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, en
             
         logger.info(f"Running {module} {' '.join(args or [])}...")
         result = subprocess.run(
-            cmd,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            cmd
+            cwd="/app"
+            capture_output=True
+            text=True
+            timeout=timeout
             env=env
         )
         if result.returncode == 0:
@@ -1419,11 +1419,11 @@ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, en
 
 
 def run_tool_rc(
-    module: str = None,
-    args: List[str] = None,
-    timeout: int = 3600,
-    env_override: dict = None,
-    **kwargs,
+    module: str = None
+    args: List[str] = None
+    timeout: int = 3600
+    env_override: dict = None
+    **kwargs
 ) -> Tuple[int, str, str]:
     """Run python module in a subprocess and return (returncode, stdout, stderr).
 
@@ -1451,12 +1451,12 @@ def run_tool_rc(
 
         logger.info(f"Running {module} {' '.join(args or [])}...")
         result = subprocess.run(
-            cmd,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
+            cmd
+            cwd="/app"
+            capture_output=True
+            text=True
+            timeout=timeout
+            env=env
         )
         if result.stdout:
             logger.debug(f"Output: {result.stdout.strip()}")
@@ -1563,8 +1563,8 @@ def run_nightly_regress_safe() -> bool:
 def run_code_audit() -> bool:
     """Run code integrity audit."""
     return run_tool(
-        "tools.audit_code_integrity",
-        ["--root", ".", "--out", "/var/lib/trade/of_reports/out/code_audit.json", "--fail-on-dup", "1"],
+        "tools.audit_code_integrity"
+        ["--root", ".", "--out", "/var/lib/trade/of_reports/out/code_audit.json", "--fail-on-dup", "1"]
         timeout=600
     )
 
@@ -1725,9 +1725,9 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
 
     try:
         return run_tool(
-            'orderflow_services.of_gate_history_migration_v1',
-            ['refresh', '--days', days],
-            timeout=timeout_s,
+            'orderflow_services.of_gate_history_migration_v1'
+            ['refresh', '--days', days]
+            timeout=timeout_s
         )
     finally:
         _release_rollups_lock()
@@ -1809,11 +1809,11 @@ def run_feature_selection_loop_v1() -> bool:
     max_val_rows = os.getenv("FEATURE_SELECTION_LOOP_MAX_VAL_ROWS", "250000")
     
     args = [
-        "--data_path", dataset,
-        "--schema_ver", schema_ver,
-        "--out_dir", out_dir,
-        "--model", model,
-        "--regime_col", "scenario",
+        "--data_path", dataset
+        "--schema_ver", schema_ver
+        "--out_dir", out_dir
+        "--model", model
+        "--regime_col", "scenario"
         "--max_val_rows", max_val_rows
     ]
     return run_tool("ml_analysis.tools.feature_selection_loop_v1", args, timeout=7200)
@@ -1909,15 +1909,15 @@ def run_exec_slippage_eval_rowcount_probe() -> bool:
         return True
     try:
         rc, out, err = run_tool_rc(
-            "orderflow_services.exec_slippage_eval_rowcount_probe_p77_v1",
-            timeout=int(os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_TIMEOUT_S", "120")),
+            "orderflow_services.exec_slippage_eval_rowcount_probe_p77_v1"
+            timeout=int(os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_TIMEOUT_S", "120"))
         )
     except Exception as e:
         _notify_stream(
-            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE exception: {e}",
-            severity="crit",
-            sid="exec_slip_eval_rowcount_probe:exc",
-            source="exec_slip_eval_rowcount_probe",
+            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE exception: {e}"
+            severity="crit"
+            sid="exec_slip_eval_rowcount_probe:exc"
+            source="exec_slip_eval_rowcount_probe"
         )
         return False
 
@@ -1930,10 +1930,10 @@ def run_exec_slippage_eval_rowcount_probe() -> bool:
     if _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
         sev = "warning" if int(rc) == 2 else "crit"
         _notify_stream(
-            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE rc={rc} :: {signature}",
-            severity=sev,
-            sid="exec_slip_eval_rowcount_probe",
-            source="exec_slip_eval_rowcount_probe",
+            f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE rc={rc} :: {signature}"
+            severity=sev
+            sid="exec_slip_eval_rowcount_probe"
+            source="exec_slip_eval_rowcount_probe"
         )
     return False
 
@@ -1999,17 +1999,17 @@ def run_nightly_confidence_calibrator_v2() -> bool:
     """Run nightly confidence calibration V2 (Platt/Iso/Beta)."""
     try:
         ok = run_tool(
-            module="ml_analysis.tools.nightly_confidence_calibrator_v2",
-            args=os.getenv("NIGHTLY_CONF_CALIBRATOR_V2_ARGS", "").split(),
-            timeout=int(os.getenv("NIGHTLY_CONF_CALIBRATOR_V2_TIMEOUT_S", "3600")),
+            module="ml_analysis.tools.nightly_confidence_calibrator_v2"
+            args=os.getenv("NIGHTLY_CONF_CALIBRATOR_V2_ARGS", "").split()
+            timeout=int(os.getenv("NIGHTLY_CONF_CALIBRATOR_V2_TIMEOUT_S", "3600"))
         )
 
         # Optional Phase 2: learn confirmation bonus weights from closed trades.
         if ok and os.getenv("RUN_CONF_BONUS_WEIGHT_FIT", "0").lower() in ("1", "true", "yes", "on"):
             ok2 = run_tool(
-                module="ml_analysis.tools.fit_confidence_bonus_weights_v1",
-                args=os.getenv("CONF_BONUS_WEIGHT_FIT_ARGS", "").split(),
-                timeout=int(os.getenv("CONF_BONUS_WEIGHT_FIT_TIMEOUT_S", "1800")),
+                module="ml_analysis.tools.fit_confidence_bonus_weights_v1"
+                args=os.getenv("CONF_BONUS_WEIGHT_FIT_ARGS", "").split()
+                timeout=int(os.getenv("CONF_BONUS_WEIGHT_FIT_TIMEOUT_S", "1800"))
             )
             ok = ok and ok2
 
@@ -2022,10 +2022,10 @@ def run_nightly_meta_enforce_ramp() -> bool:
     """Run nightly meta enforce ramp with tick quality gate."""
     # Wrapper for tick quality gated command
     args = [
-        "--metrics-url", os.getenv("TICK_GATE_METRICS_SOURCE_URL", "http://python-worker:8000/metrics"),
-        "--window-s", "60",
-        "--fail-mode", "fail_closed",
-        "--",
+        "--metrics-url", os.getenv("TICK_GATE_METRICS_SOURCE_URL", "http://python-worker:8000/metrics")
+        "--window-s", "60"
+        "--fail-mode", "fail_closed"
+        "--"
         sys.executable, "-m", "tools.nightly_meta_enforce_ramp_or_freeze_bundle"
     ]
     return run_tool("tools.run_tick_quality_gated_command", args, timeout=1200)
@@ -2078,9 +2078,9 @@ def run_nightly_feature_denylist_proposal_autogen() -> bool:
         return True
 
     return run_tool(
-        "ml_analysis.tools.autogen_feature_denylist_proposal_v1",
-        ["--fs-run-dir", fs_dir],
-        timeout=180,
+        "ml_analysis.tools.autogen_feature_denylist_proposal_v1"
+        ["--fs-run-dir", fs_dir]
+        timeout=180
     )
 
 def run_close_backfill() -> bool:
@@ -2125,9 +2125,9 @@ def run_archive_maintenance() -> bool:
     max_gb = float(os.getenv("ARCHIVE_MAX_TOTAL_GB", "100"))
     
     args = [
-        "--dir", archive_dir,
-        "--retention-days", str(retention_days),
-        "--keep-last-days", str(keep_last),
+        "--dir", archive_dir
+        "--retention-days", str(retention_days)
+        "--keep-last-days", str(keep_last)
         "--max-gb", str(max_gb)
     ]
     return run_tool("ml_analysis.tools.archive_inventory_prune_v1", args, timeout=600)
@@ -2191,9 +2191,9 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
 
     now_utc = datetime.utcnow()
     if not _in_utc_window(
-        now_utc,
-        os.getenv("OF_GATE_ROLLUPS_REFRESH_SAFE_START_UTC", "02:30"),
-        os.getenv("OF_GATE_ROLLUPS_REFRESH_SAFE_END_UTC", "05:30"),
+        now_utc
+        os.getenv("OF_GATE_ROLLUPS_REFRESH_SAFE_START_UTC", "02:30")
+        os.getenv("OF_GATE_ROLLUPS_REFRESH_SAFE_END_UTC", "05:30")
     ):
         logger.info("of_gate rollups refresh: outside safe window, skipping")
         return True
@@ -2206,9 +2206,9 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
     days = os.getenv("OF_GATE_ROLLUPS_REFRESH_DAYS", "30")
     timeout_s = int(os.getenv("OF_GATE_ROLLUPS_REFRESH_TIMEOUT_S", "1800"))
     return run_tool(
-        "orderflow_services.of_gate_history_migration_v1",
-        ["refresh", "--days", str(days)],
-        timeout=timeout_s,
+        "orderflow_services.of_gate_history_migration_v1"
+        ["refresh", "--days", str(days)]
+        timeout=timeout_s
     )
 
 
@@ -2221,9 +2221,9 @@ def run_confidence_calibrator() -> bool:
         os.makedirs(reports_dir, exist_ok=True)
 
         args = [
-            "--redis_url", os.getenv("REDIS_URL", "redis://localhost:6379/0"),
-            "--out_dir", out_dir,
-            "--reports_dir", reports_dir,
+            "--redis_url", os.getenv("REDIS_URL", "redis://localhost:6379/0")
+            "--out_dir", out_dir
+            "--reports_dir", reports_dir
         ]
         return run_tool("ml_analysis.tools.nightly_confidence_calibrator_v1", args, timeout=3600)
     except Exception as e:
@@ -2242,12 +2242,12 @@ def run_ofc_bench() -> bool:
     if not os.path.exists(golden):
         return False
     args = [
-        "--input", golden,
-        "--warmup", os.getenv("OFC_BENCH_WARMUP", "200"),
-        "--iters", os.getenv("OFC_BENCH_ITERS", "2000"),
-        "--mode", os.getenv("OFC_BENCH_MODE", "restore_each"),
-        "--budget-p95-us", os.getenv("OFC_BUDGET_P95_US", "350"),
-        "--budget-p99-us", os.getenv("OFC_BUDGET_P99_US", "900"),
+        "--input", golden
+        "--warmup", os.getenv("OFC_BENCH_WARMUP", "200")
+        "--iters", os.getenv("OFC_BENCH_ITERS", "2000")
+        "--mode", os.getenv("OFC_BENCH_MODE", "restore_each")
+        "--budget-p95-us", os.getenv("OFC_BUDGET_P95_US", "350")
+        "--budget-p99-us", os.getenv("OFC_BUDGET_P99_US", "900")
     ]
     return run_tool("tools.bench_ofc_build", args, timeout=1200)
 
@@ -2274,9 +2274,9 @@ def run_ofc_golden_pipeline() -> bool:
 def run_of_gate_missing_leg_report() -> bool:
     """Run OF gate missing leg report (Hourly)."""
     args = [
-        "--redis-url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        "--stream", os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"),
-        "--limit", os.getenv("OF_GATE_MISS_LIMIT", "8000"),
+        "--redis-url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        "--stream", os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+        "--limit", os.getenv("OF_GATE_MISS_LIMIT", "8000")
         "--only-veto"
     ]
     return run_tool("tools.of_gate_missing_leg_report", args, timeout=600)
@@ -2292,12 +2292,12 @@ def run_of_gate_sre_monitor() -> bool:
     if os.getenv("ENABLE_OF_GATE_SRE_MONITOR_TIMER", "0") != "1":
         return True  # disabled by env: no-op, not a failure
     args = [
-        "--redis-url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        "--metrics-stream", os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"),
-        "--notify-stream", os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"),
-        "--window-min", os.getenv("SRE_OF_GATE_WINDOW_MIN", "15"),
-        "--min-n", os.getenv("SRE_OF_GATE_MIN_N", "200"),
-        "--always", os.getenv("SRE_OF_GATE_ALWAYS", "0"),
+        "--redis-url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        "--metrics-stream", os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
+        "--notify-stream", os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+        "--window-min", os.getenv("SRE_OF_GATE_WINDOW_MIN", "15")
+        "--min-n", os.getenv("SRE_OF_GATE_MIN_N", "200")
+        "--always", os.getenv("SRE_OF_GATE_ALWAYS", "0")
     ]
     # Note: the monitor has its own Redis-based cooldown for duplicate alerts
     return run_tool("tools.of_gate_sre_monitor", args, timeout=int(os.getenv("SRE_OF_GATE_TIMEOUT_S", "180")))
@@ -2358,8 +2358,8 @@ def run_of_gate_dlq_db_archive_nightly() -> bool:
 
     timeout_s = int(os.getenv("OF_GATE_DLQ_DB_ARCHIVE_TIMEOUT_S", "1800"))
     streams = os.getenv(
-        "OF_GATE_DLQ_DB_ARCHIVE_STREAMS",
-        os.getenv("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine"),
+        "OF_GATE_DLQ_DB_ARCHIVE_STREAMS"
+        os.getenv("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")
     )
     batch = os.getenv("OF_GATE_DLQ_DB_ARCHIVE_BATCH", "5000")
     args = ["--streams", streams, "--batch", batch, "--once"]
@@ -2384,7 +2384,7 @@ def run_ml_drift_monitor_v1() -> bool:
 def run_tick_time_lag_report() -> bool:
     """Run tick time lag report (Every 2h)."""
     args = [
-        "--n", os.getenv("TICK_TIME_LAG_REPORT_N", "50000"),
+        "--n", os.getenv("TICK_TIME_LAG_REPORT_N", "50000")
         "--stream-key", os.getenv("TICK_TIME_STREAM_KEY", "metrics:tick_time")
     ]
     return run_tool("tools.tick_time_lag_report", args, timeout=600)
@@ -2393,8 +2393,8 @@ def run_tick_time_lag_report() -> bool:
 def run_tick_time_autotune() -> bool:
     """Run tick time autotune (Every 4h)."""
     args = [
-        "--redis", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        "--stream", os.getenv("TICK_TIME_STREAM_KEY", "metrics:tick_time"),
+        "--redis", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        "--stream", os.getenv("TICK_TIME_STREAM_KEY", "metrics:tick_time")
         "--count", os.getenv("TICK_TIME_AUTOTUNE_COUNT", "50000")
     ]
     return run_tool("tools.tick_time_autotune", args, timeout=600)
@@ -2411,9 +2411,9 @@ def run_ofc_replay_capture() -> bool:
     if not os.path.exists(cap):
         return False
     args = [
-        "--in", cap,
-        "--out", os.getenv("OFC_REPLAY_OUTPUT", "/tmp/ofc_replayed.ndjson"),
-        "--limit", os.getenv("OFC_REPLAY_LIMIT", "0"),
+        "--in", cap
+        "--out", os.getenv("OFC_REPLAY_OUTPUT", "/tmp/ofc_replayed.ndjson")
+        "--limit", os.getenv("OFC_REPLAY_LIMIT", "0")
     ]
     if os.getenv("OFC_REPLAY_STRICT") == "1":
         args.append("--strict")
@@ -2440,13 +2440,13 @@ def run_ml_train_edge_stack_mh_v1() -> bool:
         return False
     out_dir = os.path.join(os.getenv("ML_EDGE_STACK_MH_MODELS_ROOT", "/var/lib/trade/ml_models"), "edge_stack_mh_v1", datetime.now().strftime("%Y%m%d_%H%M%S"))
     args = [
-        "--dataset", dataset,
-        "--out-dir", out_dir,
-        "--horizons", os.getenv("ML_EDGE_STACK_MH_HORIZONS", "60000,180000,300000"),
-        "--n-splits", os.getenv("ML_EDGE_STACK_MH_N_SPLITS", "5"),
-        "--unc-k", os.getenv("ML_EDGE_STACK_MH_UNC_K", "0.10"),
-        "--time-col", os.getenv("ML_EDGE_STACK_MH_TIME_COL", "ts_ms"),
-        "--scenario-col", os.getenv("ML_EDGE_STACK_MH_SCENARIO_COL", "scenario_v4"),
+        "--dataset", dataset
+        "--out-dir", out_dir
+        "--horizons", os.getenv("ML_EDGE_STACK_MH_HORIZONS", "60000,180000,300000")
+        "--n-splits", os.getenv("ML_EDGE_STACK_MH_N_SPLITS", "5")
+        "--unc-k", os.getenv("ML_EDGE_STACK_MH_UNC_K", "0.10")
+        "--time-col", os.getenv("ML_EDGE_STACK_MH_TIME_COL", "ts_ms")
+        "--scenario-col", os.getenv("ML_EDGE_STACK_MH_SCENARIO_COL", "scenario_v4")
     ]
     return run_tool("tools.train_edge_stack_mh_v1", args, timeout=3600)
 
@@ -2458,12 +2458,12 @@ def run_ml_train_edge_stack_v1() -> bool:
         return False
     out_dir = os.path.join(os.getenv("ML_EDGE_STACK_MODELS_ROOT", "/var/lib/trade/ml_models"), "edge_stack_v1", datetime.now().strftime("%Y%m%d_%H%M%S"))
     args = [
-        "--in", dataset,
-        "--out", out_dir,
-        "--label-col", os.getenv("ML_EDGE_STACK_LABEL_COL", "y_edge"),
-        "--time-col", os.getenv("ML_EDGE_STACK_TIME_COL", "ts_ms"),
-        "--n-splits", os.getenv("ML_EDGE_STACK_N_SPLITS", "5"),
-        "--seed", os.getenv("ML_EDGE_STACK_SEED", "42"),
+        "--in", dataset
+        "--out", out_dir
+        "--label-col", os.getenv("ML_EDGE_STACK_LABEL_COL", "y_edge")
+        "--time-col", os.getenv("ML_EDGE_STACK_TIME_COL", "ts_ms")
+        "--n-splits", os.getenv("ML_EDGE_STACK_N_SPLITS", "5")
+        "--seed", os.getenv("ML_EDGE_STACK_SEED", "42")
     ]
     return run_tool("tools.train_edge_stack_v1", args, timeout=3600)
 
@@ -2478,13 +2478,13 @@ def run_edge_stack_v1_dataset_build_fallback() -> bool:
         # P59 bundle is enabled; avoid duplicate dataset/train steps.
         return False
     args = [
-        "--redis_url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        "--signal_stream", os.getenv("ML_REPLAY_STREAM", "signals:of:inputs"),
-        "--closed_stream", os.getenv("TRADES_CLOSED_STREAM", "trades:closed"),
-        "--archive_dir", os.getenv("ARCHIVE_DIR", "/var/lib/trade/of_inputs_archive"),
-        "--signals_count", os.getenv("SIGNALS_COUNT", "200000"),
-        "--closes_count", os.getenv("CLOSES_COUNT", "200000"),
-        "--out", os.getenv("EDGE_STACK_DATASET_OUT", "/var/lib/trade/ml_models/edge_stack_v1_oof/edge_train.jsonl"),
+        "--redis_url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        "--signal_stream", os.getenv("ML_REPLAY_STREAM", "signals:of:inputs")
+        "--closed_stream", os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
+        "--archive_dir", os.getenv("ARCHIVE_DIR", "/var/lib/trade/of_inputs_archive")
+        "--signals_count", os.getenv("SIGNALS_COUNT", "200000")
+        "--closes_count", os.getenv("CLOSES_COUNT", "200000")
+        "--out", os.getenv("EDGE_STACK_DATASET_OUT", "/var/lib/trade/ml_models/edge_stack_v1_oof/edge_train.jsonl")
     ]
     return run_tool("ml_analysis.tools.build_edge_stack_dataset_fallback_v1", args, timeout=3600)
 
@@ -2510,8 +2510,8 @@ def run_ml_train_edge_stack_v1_oof() -> bool:
 
     # Читаем schema_ver (приоритет: специфичный → общий ML_FEATURE_SCHEMA_VER)
     schema_ver = os.getenv(
-        "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER",
-        os.getenv("FEATURE_SCHEMA_VER", os.getenv("ML_FEATURE_SCHEMA_VER", "")),
+        "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER"
+        os.getenv("FEATURE_SCHEMA_VER", os.getenv("ML_FEATURE_SCHEMA_VER", ""))
     )
     schema_ver = (schema_ver or "").strip()
 
@@ -2527,31 +2527,31 @@ def run_ml_train_edge_stack_v1_oof() -> bool:
         report_json = ""
 
     out_model = os.path.join(
-        os.getenv("ML_EDGE_STACK_OOF_MODELS_ROOT", "/var/lib/trade/ml_models"),
-        "edge_stack_v1_oof",
-        f"edge_stack_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib",
+        os.getenv("ML_EDGE_STACK_OOF_MODELS_ROOT", "/var/lib/trade/ml_models")
+        "edge_stack_v1_oof"
+        f"edge_stack_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
     )
     args = [
-        "--data_jsonl", dataset,
-        "--out_model", out_model,
-        "--n_splits", os.getenv("ML_EDGE_STACK_OOF_N_SPLITS", "5"),
-        "--purge_ms", os.getenv("ML_EDGE_STACK_OOF_PURGE_MS", "300000"),
-        "--embargo_ms", os.getenv("ML_EDGE_STACK_OOF_EMBARGO_MS", "300000"),
-        "--min_train", os.getenv("ML_EDGE_STACK_OOF_MIN_TRAIN", "500"),
-        "--lr_C", os.getenv("ML_EDGE_STACK_OOF_LR_C", "1.0"),
-        "--gbdt_max_depth", os.getenv("ML_EDGE_STACK_OOF_GBDT_MAX_DEPTH", "3"),
-        "--gbdt_learning_rate", os.getenv("ML_EDGE_STACK_OOF_GBDT_LR", "0.05"),
-        "--gbdt_max_iter", os.getenv("ML_EDGE_STACK_OOF_GBDT_MAX_ITER", "400"),
-        "--calibrate", os.getenv("ML_EDGE_STACK_OOF_CALIBRATE", "1"),
+        "--data_jsonl", dataset
+        "--out_model", out_model
+        "--n_splits", os.getenv("ML_EDGE_STACK_OOF_N_SPLITS", "5")
+        "--purge_ms", os.getenv("ML_EDGE_STACK_OOF_PURGE_MS", "300000")
+        "--embargo_ms", os.getenv("ML_EDGE_STACK_OOF_EMBARGO_MS", "300000")
+        "--min_train", os.getenv("ML_EDGE_STACK_OOF_MIN_TRAIN", "500")
+        "--lr_C", os.getenv("ML_EDGE_STACK_OOF_LR_C", "1.0")
+        "--gbdt_max_depth", os.getenv("ML_EDGE_STACK_OOF_GBDT_MAX_DEPTH", "3")
+        "--gbdt_learning_rate", os.getenv("ML_EDGE_STACK_OOF_GBDT_LR", "0.05")
+        "--gbdt_max_iter", os.getenv("ML_EDGE_STACK_OOF_GBDT_MAX_ITER", "400")
+        "--calibrate", os.getenv("ML_EDGE_STACK_OOF_CALIBRATE", "1")
     ]
 
     if schema_ver:
         # Registry-режим: передаём schema_ver и связанные параметры
         args += [
-            "--feature_schema_ver", schema_ver,
-            "--scenario_prefix", os.getenv("ML_EDGE_STACK_OOF_SCENARIO_PREFIX", "bucket:"),
-            "--include_time_onehot", os.getenv("ML_EDGE_STACK_OOF_INCLUDE_TIME_ONEHOT", "1"),
-            "--require_feature_registry", os.getenv("ML_EDGE_STACK_OOF_REQUIRE_REGISTRY", "1"),
+            "--feature_schema_ver", schema_ver
+            "--scenario_prefix", os.getenv("ML_EDGE_STACK_OOF_SCENARIO_PREFIX", "bucket:")
+            "--include_time_onehot", os.getenv("ML_EDGE_STACK_OOF_INCLUDE_TIME_ONEHOT", "1")
+            "--require_feature_registry", os.getenv("ML_EDGE_STACK_OOF_REQUIRE_REGISTRY", "1")
         ]
         if report_json:
             args += ["--dataset_report_json", report_json]
@@ -2581,8 +2581,8 @@ def run_of_gate_dlq_triage() -> bool:
         return True
     
     args = [
-        "triage",
-        "--limit", os.getenv("OF_GATE_DLQ_TRIAGE_LIMIT", "5000"),
+        "triage"
+        "--limit", os.getenv("OF_GATE_DLQ_TRIAGE_LIMIT", "5000")
         "--notify"
     ]
     return run_tool("orderflow_services.of_gate_dlq_fixed_replay_p84", args, timeout=600)
@@ -2647,12 +2647,12 @@ def run_of_gate_dlq_auto_replay() -> bool:
         return True
 
     args = [
-        "auto",
-        "--max-per-stream", os.getenv("OF_GATE_DLQ_AUTO_MAX_PER_STREAM", "2000"),
+        "auto"
+        "--max-per-stream", os.getenv("OF_GATE_DLQ_AUTO_MAX_PER_STREAM", "2000")
         "--allow-fixes", os.getenv(
-            "OF_GATE_DLQ_AUTO_ALLOW_FIXES",
-            "add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs",
-        ),
+            "OF_GATE_DLQ_AUTO_ALLOW_FIXES"
+            "add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs"
+        )
     ]
 
     streams = os.getenv("OF_GATE_DLQ_STREAMS", "")
@@ -2950,42 +2950,42 @@ def main() -> None:
 
             # Daily Nightly
             tasks = [
-                ("of_gate_dlq_db_archive", 2, 55, run_of_gate_dlq_db_archive_nightly),
-                ("archive_signals", 3, 10, run_archive_signals_of_inputs),
-                ("archive_trades_closed", 3, 12, run_archive_trades_closed),
-                ("archive_decisions", 3, 14, run_decisions_archive),
-                ("ofc_golden", 3, 15, run_ofc_golden_pipeline),
-                ("archive_prune", 3, 40, run_archive_inventory_prune),
-                ("of_gate_rollups_refresh", 3, 46, run_of_gate_rollups_refresh_nightly),
-                ("edge_dataset_build", 3, 50, run_edge_stack_dataset_build),
-                ("side_sign_audit", 4, 0, run_side_sign_audit),
-                ("feature_selection_loop", 4, 2, run_feature_selection_loop_bundle_v1),
-                ("edge_stack_v1_train", 4, 10, run_ml_train_edge_stack_v1),
-                ("edge_stack_shadow", 4, 12, run_edge_stack_shadow_eval),
-                ("feature_selection_loop", 4, 15, run_feature_selection_loop_v1),
-                ("edge_stack_mh_train", 4, 20, run_ml_train_edge_stack_mh_v1),
-                ("regress_safe", 4, 20, run_nightly_regress_safe),
+                ("of_gate_dlq_db_archive", 2, 55, run_of_gate_dlq_db_archive_nightly)
+                ("archive_signals", 3, 10, run_archive_signals_of_inputs)
+                ("archive_trades_closed", 3, 12, run_archive_trades_closed)
+                ("archive_decisions", 3, 14, run_decisions_archive)
+                ("ofc_golden", 3, 15, run_ofc_golden_pipeline)
+                ("archive_prune", 3, 40, run_archive_inventory_prune)
+                ("of_gate_rollups_refresh", 3, 46, run_of_gate_rollups_refresh_nightly)
+                ("edge_dataset_build", 3, 50, run_edge_stack_dataset_build)
+                ("side_sign_audit", 4, 0, run_side_sign_audit)
+                ("feature_selection_loop", 4, 2, run_feature_selection_loop_bundle_v1)
+                ("edge_stack_v1_train", 4, 10, run_ml_train_edge_stack_v1)
+                ("edge_stack_shadow", 4, 12, run_edge_stack_shadow_eval)
+                ("feature_selection_loop", 4, 15, run_feature_selection_loop_v1)
+                ("edge_stack_mh_train", 4, 20, run_ml_train_edge_stack_mh_v1)
+                ("regress_safe", 4, 20, run_nightly_regress_safe)
                 # P59 bundle: dataset+validate+train+promote in one step (05:10)
                 # When EDGE_STACK_BUNDLE_ENABLED=1 (default), old 05:00/05:10 steps are no-ops.
-                ("edge_stack_v1_bundle_p59", 5, 10, run_nightly_edge_stack_train),
-                ("edge_stack_v1_dataset", 5, 0, run_edge_stack_v1_dataset_build_fallback),
-                ("edge_stack_v1_oof_train", 5, 10, run_ml_train_edge_stack_v1_oof),
-                ("code_audit", 4, 50, run_code_audit),
-                ("meta_train", 5, 10, run_nightly_meta_train),
-                ("ml_calib_health", 5, 20, run_ml_calibration_health),
-                ("conf_cal", 5, 25, run_confidence_calibrator),
-                ("nightly_calib", 5, 30, run_nightly_calibration),
-                ("slippage_calib", 5, 32, run_nightly_slippage_calibrator),
-                ("conf_cal_v2", 5, 35, run_nightly_confidence_calibrator_v2),
-                ("archive_maint", 5, 40, run_archive_maintenance),
-                ("meta_ab_v2", 5, 55, run_meta_ab_v2_nightly_job_v1),
-                ("confirmations_coverage", 6, 5, run_confirmations_coverage_nightly),
-                ("enforce_bucket_promoter", 6, 10, run_nightly_enforce_bucket_promoter),
-            ("feature_denylist_proposal_autogen", 6, 25, run_nightly_feature_denylist_proposal_autogen),
-                ("meta_ramp", 6, 20, run_nightly_meta_enforce_ramp),
-                ("meta_self_heal", 7, 10, run_nightly_meta_self_heal),
-                ("meta_stage2_opt", 7, 25, run_nightly_meta_stage2_opt),
-                ("close_backfill", 7, 40, run_close_backfill),
+                ("edge_stack_v1_bundle_p59", 5, 10, run_nightly_edge_stack_train)
+                ("edge_stack_v1_dataset", 5, 0, run_edge_stack_v1_dataset_build_fallback)
+                ("edge_stack_v1_oof_train", 5, 10, run_ml_train_edge_stack_v1_oof)
+                ("code_audit", 4, 50, run_code_audit)
+                ("meta_train", 5, 10, run_nightly_meta_train)
+                ("ml_calib_health", 5, 20, run_ml_calibration_health)
+                ("conf_cal", 5, 25, run_confidence_calibrator)
+                ("nightly_calib", 5, 30, run_nightly_calibration)
+                ("slippage_calib", 5, 32, run_nightly_slippage_calibrator)
+                ("conf_cal_v2", 5, 35, run_nightly_confidence_calibrator_v2)
+                ("archive_maint", 5, 40, run_archive_maintenance)
+                ("meta_ab_v2", 5, 55, run_meta_ab_v2_nightly_job_v1)
+                ("confirmations_coverage", 6, 5, run_confirmations_coverage_nightly)
+                ("enforce_bucket_promoter", 6, 10, run_nightly_enforce_bucket_promoter)
+            ("feature_denylist_proposal_autogen", 6, 25, run_nightly_feature_denylist_proposal_autogen)
+                ("meta_ramp", 6, 20, run_nightly_meta_enforce_ramp)
+                ("meta_self_heal", 7, 10, run_nightly_meta_self_heal)
+                ("meta_stage2_opt", 7, 25, run_nightly_meta_stage2_opt)
+                ("close_backfill", 7, 40, run_close_backfill)
             ]
             
             for name, h, m, func in tasks:

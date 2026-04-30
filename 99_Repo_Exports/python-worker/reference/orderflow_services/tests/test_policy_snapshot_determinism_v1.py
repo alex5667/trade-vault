@@ -3,27 +3,27 @@ from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot
 
 def test_policy_snapshot_hash_is_order_invariant_v1() -> None:
     cfg_a = {
-        "dq_mode": "safe",
-        "dq_gate_mode": "enforce",
-        "dq_gap_soft_ms": 3000,
-        "dq_gap_hard_ms": 10000,
-        "BOOK_STREAM_INTERVAL_MS": 100,
-        "dq_book_veto_enabled": False,
-        "dq_observe_only_sec": 86400,
+        "dq_mode": "safe"
+        "dq_gate_mode": "enforce"
+        "dq_gap_soft_ms": 3000
+        "dq_gap_hard_ms": 10000
+        "BOOK_STREAM_INTERVAL_MS": 100
+        "dq_book_veto_enabled": False
+        "dq_observe_only_sec": 86400
         # noise keys (must not affect hash)
-        "irrelevant": "x",
-        "another": 123,
+        "irrelevant": "x"
+        "another": 123
     }
     cfg_b = {
-        "another": 123,
-        "irrelevant": "x",
-        "dq_observe_only_sec": 86400,
-        "dq_book_veto_enabled": False,
-        "BOOK_STREAM_INTERVAL_MS": 100,
-        "dq_gap_hard_ms": 10000,
-        "dq_gap_soft_ms": 3000,
-        "dq_gate_mode": "enforce",
-        "dq_mode": "safe",
+        "another": 123
+        "irrelevant": "x"
+        "dq_observe_only_sec": 86400
+        "dq_book_veto_enabled": False
+        "BOOK_STREAM_INTERVAL_MS": 100
+        "dq_gap_hard_ms": 10000
+        "dq_gap_soft_ms": 3000
+        "dq_gate_mode": "enforce"
+        "dq_mode": "safe"
     }
 
     snap_a, h_a = build_dq_policy_snapshot(cfg_a)

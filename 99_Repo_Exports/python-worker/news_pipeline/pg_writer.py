@@ -67,12 +67,12 @@ class NewsPgWriter:
         VALUES
           (%(uid)s, %(symbol)s, %(ts_ms)s, %(source)s, %(risk)s, %(surprise)s, %(confidence)s, %(tags_mask)s, %(primary_tag)s, %(payload_json)s)
         ON CONFLICT (uid, symbol) DO UPDATE SET
-          risk=EXCLUDED.risk,
-          surprise=EXCLUDED.surprise,
-          confidence=EXCLUDED.confidence,
-          tags_mask=EXCLUDED.tags_mask,
-          primary_tag=EXCLUDED.primary_tag,
-          payload_json=EXCLUDED.payload_json,
+          risk=EXCLUDED.risk
+          surprise=EXCLUDED.surprise
+          confidence=EXCLUDED.confidence
+          tags_mask=EXCLUDED.tags_mask
+          primary_tag=EXCLUDED.primary_tag
+          payload_json=EXCLUDED.payload_json
           inserted_at=now()
         """
         with psycopg.connect(self.dsn, autocommit=True) as conn:
@@ -88,14 +88,14 @@ class NewsPgWriter:
         VALUES
           (%(symbol)s, %(ts_ms)s, %(risk)s, %(surprise)s, %(tags_mask)s, %(primary_tag)s, %(ref)s, %(confidence)s, %(grade_id)s, %(horizon_sec)s)
         ON CONFLICT (symbol, ts_ms) DO UPDATE SET
-          risk=EXCLUDED.risk,
-          surprise=EXCLUDED.surprise,
-          tags_mask=EXCLUDED.tags_mask,
-          primary_tag=EXCLUDED.primary_tag,
-          ref=EXCLUDED.ref,
-          confidence=EXCLUDED.confidence,
-          grade_id=EXCLUDED.grade_id,
-          horizon_sec=EXCLUDED.horizon_sec,
+          risk=EXCLUDED.risk
+          surprise=EXCLUDED.surprise
+          tags_mask=EXCLUDED.tags_mask
+          primary_tag=EXCLUDED.primary_tag
+          ref=EXCLUDED.ref
+          confidence=EXCLUDED.confidence
+          grade_id=EXCLUDED.grade_id
+          horizon_sec=EXCLUDED.horizon_sec
           inserted_at=now()
         """
         with psycopg.connect(self.dsn, autocommit=True) as conn:
@@ -113,19 +113,19 @@ class NewsPgWriter:
           (uid, symbol, ts_ms, source, risk, surprise, confidence, tags_mask, primary_tag, payload_json)
         VALUES %s
         ON CONFLICT (uid, symbol) DO UPDATE SET
-          risk=EXCLUDED.risk,
-          surprise=EXCLUDED.surprise,
-          confidence=EXCLUDED.confidence,
-          tags_mask=EXCLUDED.tags_mask,
-          primary_tag=EXCLUDED.primary_tag,
-          payload_json=EXCLUDED.payload_json,
+          risk=EXCLUDED.risk
+          surprise=EXCLUDED.surprise
+          confidence=EXCLUDED.confidence
+          tags_mask=EXCLUDED.tags_mask
+          primary_tag=EXCLUDED.primary_tag
+          payload_json=EXCLUDED.payload_json
           inserted_at=now()
         """
         values = [
             (
-                r["uid"], r["symbol"], r["ts_ms"], r["source"],
-                r["risk"], r["surprise"], r["confidence"],
-                r["tags_mask"], r["primary_tag"], json.dumps(r["payload_json"]) if isinstance(r["payload_json"], dict) else r["payload_json"],
+                r["uid"], r["symbol"], r["ts_ms"], r["source"]
+                r["risk"], r["surprise"], r["confidence"]
+                r["tags_mask"], r["primary_tag"], json.dumps(r["payload_json"]) if isinstance(r["payload_json"], dict) else r["payload_json"]
             )
             for r in rows
         ]
@@ -143,21 +143,21 @@ class NewsPgWriter:
           (symbol, ts_ms, risk, surprise, tags_mask, primary_tag, ref, confidence, grade_id, horizon_sec)
         VALUES %s
         ON CONFLICT (symbol, ts_ms) DO UPDATE SET
-          risk=EXCLUDED.risk,
-          surprise=EXCLUDED.surprise,
-          tags_mask=EXCLUDED.tags_mask,
-          primary_tag=EXCLUDED.primary_tag,
-          ref=EXCLUDED.ref,
-          confidence=EXCLUDED.confidence,
-          grade_id=EXCLUDED.grade_id,
-          horizon_sec=EXCLUDED.horizon_sec,
+          risk=EXCLUDED.risk
+          surprise=EXCLUDED.surprise
+          tags_mask=EXCLUDED.tags_mask
+          primary_tag=EXCLUDED.primary_tag
+          ref=EXCLUDED.ref
+          confidence=EXCLUDED.confidence
+          grade_id=EXCLUDED.grade_id
+          horizon_sec=EXCLUDED.horizon_sec
           inserted_at=now()
         """
         values = [
             (
-                r["symbol"], r["ts_ms"], r["risk"], r["surprise"],
-                r["tags_mask"], r["primary_tag"], r["ref"],
-                r["confidence"], r["grade_id"], r["horizon_sec"],
+                r["symbol"], r["ts_ms"], r["risk"], r["surprise"]
+                r["tags_mask"], r["primary_tag"], r["ref"]
+                r["confidence"], r["grade_id"], r["horizon_sec"]
             )
             for r in rows
         ]

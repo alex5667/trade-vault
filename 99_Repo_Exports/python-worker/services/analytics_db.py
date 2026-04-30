@@ -19,6 +19,30 @@ import logging
 logger = logging.getLogger("analytics_db")
 
 try:
+    from prometheus_client import Counter as _PCounter, REGISTRY as _PREG
+
+    def _pcounter(name, doc, labels=()):
+        try:
+            return _PCounter(name, doc, list(labels))
+        except ValueError:
+            return (_PREG._names_to_collectors or {}).get(name)
+
+    _TRADES_CLOSED_MAIN_INSERT = _pcounter(
+        "trades_closed_main_insert_total",
+        "Successful main INSERT into trades_closed",
+    )
+    _TRADES_CLOSED_P0_UPSERT_FAIL = _pcounter(
+        "trades_closed_p0_upsert_fail_total",
+        "Failed optional upsert into trades_closed_p0 (savepoint rolled back)",
+    )
+except Exception:
+    class _NullCounter:
+        def inc(self): pass
+        def labels(self, **_): return self
+    _TRADES_CLOSED_MAIN_INSERT = _NullCounter()  # type: ignore[assignment]
+    _TRADES_CLOSED_P0_UPSERT_FAIL = _NullCounter()  # type: ignore[assignment]
+
+try:
     from domain.models import TradeClosed
 except ImportError:
     TradeClosed = None
@@ -408,7 +432,29 @@ def save_trade_closed(closed: TradeClosed) -> None:
             %s, %s, %s,
             %s
         )
-        ON CONFLICT (order_id) DO NOTHING
+        ON CONFLICT (order_id) DO UPDATE SET
+            exit_ts_ms = CASE
+                WHEN EXCLUDED.is_final_close THEN EXCLUDED.exit_ts_ms
+                ELSE trades_closed.exit_ts_ms
+            END,
+            exit_price = CASE
+                WHEN EXCLUDED.is_final_close THEN EXCLUDED.exit_price
+                ELSE trades_closed.exit_price
+            END,
+            pnl_net = CASE
+                WHEN EXCLUDED.is_final_close THEN EXCLUDED.pnl_net
+                ELSE trades_closed.pnl_net
+            END,
+            pnl_gross = CASE
+                WHEN EXCLUDED.is_final_close THEN EXCLUDED.pnl_gross
+                ELSE trades_closed.pnl_gross
+            END,
+            fees = EXCLUDED.fees,
+            status = EXCLUDED.status,
+            remaining_qty = EXCLUDED.remaining_qty,
+            is_final_close = trades_closed.is_final_close OR EXCLUDED.is_final_close,
+            config_json = COALESCE(EXCLUDED.config_json, trades_closed.config_json)
+        WHERE EXCLUDED.is_final_close OR trades_closed.is_final_close = false
     """
 
     sql_p0 = """
@@ -635,17 +681,20 @@ def save_trade_closed(closed: TradeClosed) -> None:
 
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
+        _TRADES_CLOSED_MAIN_INSERT.inc()
 
         if ANALYTICS_P0_ENABLED:
+            cur.execute("SAVEPOINT trades_closed_p0_upsert")
             try:
                 cur.execute(sql_p0, params_p0)
+                cur.execute("RELEASE SAVEPOINT trades_closed_p0_upsert")
             except Exception:
-                # минимальный риск: не роняем основной insert
+                cur.execute("ROLLBACK TO SAVEPOINT trades_closed_p0_upsert")
+                cur.execute("RELEASE SAVEPOINT trades_closed_p0_upsert")
+                _TRADES_CLOSED_P0_UPSERT_FAIL.inc()
                 if ANALYTICS_P0_HARD_FAIL:
                     raise
-                # Log optional here? User showed empty catch. I will stick to minimal risk.
-                import logging
-                logging.getLogger("analytics_db").warning("P0 upsert failed silently", exc_info=True)
+                logger.warning("trades_closed_p0 upsert failed", exc_info=True)
 
         conn.commit()
 

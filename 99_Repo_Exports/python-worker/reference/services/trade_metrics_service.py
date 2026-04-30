@@ -131,83 +131,83 @@ class TradeMetricsService:
     def new_metrics(self) -> Dict[str, Any]:
         m: Dict[str, Any] = {
             # --- existing (как у вас) ---
-            "total_trades": 0,
-            "wins": 0, "losses": 0, "breakeven": 0,
-            "wins_strict": 0, "losses_strict": 0, "breakeven_strict": 0,
-            "total_pnl": 0.0, "total_pnl_pct": 0.0, "total_fees": 0.0,
-            "total_pnl_gross": 0.0,
-            "total_notional_usd": 0.0,
-            "gross_profit": 0.0, "gross_loss": 0.0,
-            "tp1_hits": 0, "tp2_hits": 0, "tp3_hits": 0,
-            "tp1_then_sl": 0, "tp2_then_sl": 0, "tp3_then_sl": 0,
-            "trailing_started": 0, "trailing_stop_hits": 0,
+            "total_trades": 0
+            "wins": 0, "losses": 0, "breakeven": 0
+            "wins_strict": 0, "losses_strict": 0, "breakeven_strict": 0
+            "total_pnl": 0.0, "total_pnl_pct": 0.0, "total_fees": 0.0
+            "total_pnl_gross": 0.0
+            "total_notional_usd": 0.0
+            "gross_profit": 0.0, "gross_loss": 0.0
+            "tp1_hits": 0, "tp2_hits": 0, "tp3_hits": 0
+            "tp1_then_sl": 0, "tp2_then_sl": 0, "tp3_then_sl": 0
+            "trailing_started": 0, "trailing_stop_hits": 0
             "closed_by_trail": 0,  # requested: 1 ⇔ close_bucket == TRAIL_SL
-            "sum_duration_ms": 0.0,
-            "reasons": {},
-            "neg_pnl_count": 0, "min_pnl": float("inf"), "max_pnl": float("-inf"),
-            "missing_fees_count": 0, "missing_duration_count": 0,
+            "sum_duration_ms": 0.0
+            "reasons": {}
+            "neg_pnl_count": 0, "min_pnl": float("inf"), "max_pnl": float("-inf")
+            "missing_fees_count": 0, "missing_duration_count": 0
 
             # --- edge / returns accumulators ---
-            "sum_win_net": 0.0, "cnt_win_net": 0,
+            "sum_win_net": 0.0, "cnt_win_net": 0
             "sum_loss_net": 0.0, "cnt_loss_net": 0,  # loss хранится отрицательной
-            "sum_r": 0.0, "sum_r2": 0.0, "cnt_r": 0,
-            "sum_win_r": 0.0, "cnt_win_r": 0,
+            "sum_r": 0.0, "sum_r2": 0.0, "cnt_r": 0
+            "sum_win_r": 0.0, "cnt_win_r": 0
             "sum_loss_r": 0.0, "cnt_loss_r": 0,      # loss_r хранится отрицательной
-            "sum_ret": 0.0, "sum_ret2": 0.0, "cnt_ret": 0,
+            "sum_ret": 0.0, "sum_ret2": 0.0, "cnt_ret": 0
             "sum_down_ret2": 0.0, "cnt_down_ret": 0,  # downside (ret<0) квадраты
 
             # --- NEW: PF(net) ---
-            "profit_factor_net": 0.0,
+            "profit_factor_net": 0.0
 
             # --- NEW: robust center/dispersion ---
-            "median_r": 0.0,
-            "trimmed_mean_r": 0.0,
+            "median_r": 0.0
+            "trimmed_mean_r": 0.0
 
             # --- NEW: baseline (pnl_if_fixed_exit) metrics ---
-            "total_pnl_if_fixed_exit": 0.0,
-            "sum_r_fixed": 0.0, "sum_r_fixed2": 0.0, "cnt_r_fixed": 0,
-            "sum_win_r_fixed": 0.0, "cnt_win_r_fixed": 0,
-            "sum_loss_r_fixed": 0.0, "cnt_loss_r_fixed": 0,
+            "total_pnl_if_fixed_exit": 0.0
+            "sum_r_fixed": 0.0, "sum_r_fixed2": 0.0, "cnt_r_fixed": 0
+            "sum_win_r_fixed": 0.0, "cnt_win_r_fixed": 0
+            "sum_loss_r_fixed": 0.0, "cnt_loss_r_fixed": 0
 
             # --- execution / exits ---
-            "sum_exit_eff_win": 0.0, "cnt_exit_eff_win": 0,
-            "sum_giveback_ratio_win": 0.0, "cnt_giveback_ratio_win": 0,
-            "sum_missed_profit_ratio": 0.0, "cnt_missed_profit_ratio": 0,
+            "sum_exit_eff_win": 0.0, "cnt_exit_eff_win": 0
+            "sum_giveback_ratio_win": 0.0, "cnt_giveback_ratio_win": 0
+            "sum_missed_profit_ratio": 0.0, "cnt_missed_profit_ratio": 0
 
             # --- risk / path dependent ---
-            "max_drawdown_usd": 0.0,
-            "max_consecutive_wins": 0,
-            "max_consecutive_losses": 0,
+            "max_drawdown_usd": 0.0
+            "max_consecutive_wins": 0
+            "max_consecutive_losses": 0
 
             # --- NEW: tail risk (VaR / CVaR) ---
-            "var_ret": 0.0,
-            "cvar_ret": 0.0,
-            "var_r": 0.0,
-            "cvar_r": 0.0,
-            "var_pnl": 0.0,
-            "cvar_pnl": 0.0,
+            "var_ret": 0.0
+            "cvar_ret": 0.0
+            "var_r": 0.0
+            "cvar_r": 0.0
+            "var_pnl": 0.0
+            "cvar_pnl": 0.0
 
             # --- data quality ---
-            "bad_ts_sec": 0,
-            "bad_ts_us": 0,
+            "bad_ts_sec": 0
+            "bad_ts_us": 0
             "bad_time": 0,  # CRITICAL: exit < entry
-            "negative_duration_count": 0,
-            "tp_hit_but_zero_pnl": 0,
-            "close_reason_inconsistent_with_pnl_sign": 0,
-            "fees_huge_count": 0,
-            "count_clamped_risk": 0,
-            "invariant_gross_net_fail": 0,
-            "invariant_reason_pnl_fail": 0,
-            "invariant_tp_sl_fail": 0,
+            "negative_duration_count": 0
+            "tp_hit_but_zero_pnl": 0
+            "close_reason_inconsistent_with_pnl_sign": 0
+            "fees_huge_count": 0
+            "count_clamped_risk": 0
+            "invariant_gross_net_fail": 0
+            "invariant_reason_pnl_fail": 0
+            "invariant_tp_sl_fail": 0
 
 
             # trailing profiles aggregation
             "trailing_profiles": {},  # dict[str, int] — распределение профилей трейлинга
 
             # cross-product: pnl_sign x reason
-            "wins_by_reason": {},
-            "losses_by_reason": {},
-            "breakeven_by_reason": {},
+            "wins_by_reason": {}
+            "losses_by_reason": {}
+            "breakeven_by_reason": {}
 
             # internal for finalize
             "_series": [],  # list[tuple(ts_ms, pnl_net)]
@@ -216,31 +216,31 @@ class TradeMetricsService:
             "_pnl_values": [],  # list[float] for VaR/CVaR calculations
 
             # --- NEW: Setup Stats (ATR) ---
-            "sum_sl_atr": 0.0, "cnt_sl_atr": 0,
-            "sum_tp_atr": 0.0, "cnt_tp_atr": 0,
+            "sum_sl_atr": 0.0, "cnt_sl_atr": 0
+            "sum_tp_atr": 0.0, "cnt_tp_atr": 0
 
             # --- NEW: Scenarios & Gate Stats ---
-            "cnt_scenario_reversal": 0, "sum_pnl_scenario_reversal": 0.0,
-            "cnt_scenario_continuation": 0, "sum_pnl_scenario_continuation": 0.0,
-            "cnt_scenario_none": 0,
+            "cnt_scenario_reversal": 0, "sum_pnl_scenario_reversal": 0.0
+            "cnt_scenario_continuation": 0, "sum_pnl_scenario_continuation": 0.0
+            "cnt_scenario_none": 0
             
-            "cnt_gate_enforce": 0,
-            "cnt_gate_shadow": 0,
-            "cnt_gate_shadow_veto": 0,
-            "sum_pnl_shadow_veto": 0.0,
+            "cnt_gate_enforce": 0
+            "cnt_gate_shadow": 0
+            "cnt_gate_shadow_veto": 0
+            "sum_pnl_shadow_veto": 0.0
 
             # --- NEW: Strong vs Weak Stats ---
-            "cnt_strong_ok": 0, "sum_pnl_strong_ok": 0.0,
-            "cnt_strong_fail": 0, "sum_pnl_strong_fail": 0.0,
+            "cnt_strong_ok": 0, "sum_pnl_strong_ok": 0.0
+            "cnt_strong_fail": 0, "sum_pnl_strong_fail": 0.0
 
             # --- NEW: OF Confirm Stats ---
-            "of_confirm_stats": {},
+            "of_confirm_stats": {}
 
             # --- NEW: ML Performance Stats ---
             "ml_stats": {
                 "pass": {"count": 0, "wins": 0, "pnl": 0.0}, # Model allowed
                 "veto": {"count": 0, "wins": 0, "pnl": 0.0}, # Model would have vetoed
-            },
+            }
 
             # --- NEW: ML Condition Breakdown ---
             "ml_condition_stats": {
@@ -251,11 +251,11 @@ class TradeMetricsService:
                 # Distribution buckets
                 "p_edge_distribution": {},  # {"0.0-0.3": {"count": 0, "wins": 0, "pnl": 0.0}, ...}
                 # Summary stats
-                "total_evaluated": 0,
-                "avg_p_edge": 0.0,
-                "median_p_edge": 0.0,
+                "total_evaluated": 0
+                "avg_p_edge": 0.0
+                "median_p_edge": 0.0
                 "_p_edge_values": [],  # internal for median calculation
-            },
+            }
 
             # --- NEW: Strong (High Conf) Stats ---
             "strong_high_conf_stats": {},  # {"70": {"count": 0, "wins": 0, "pnl": 0.0}, ...}
@@ -557,7 +557,7 @@ class TradeMetricsService:
             if missed_profit < -eps and calc_diff > eps:
                 missed_profit = calc_diff
 
-        # DEBUG: Log MFE data every 10 000th accumulate_trade call (global counter,
+        # DEBUG: Log MFE data every 10 000th accumulate_trade call (global counter
         # not per-window, to avoid spam when same trade goes through multiple windows).
         if next(_DEBUG_TRADE_CALL_COUNTER) % 10_000 == 0:
             logger.info(
@@ -736,10 +736,10 @@ class TradeMetricsService:
                 if isinstance(rule, dict):
                     # Construct minimal of_confirm dict from rule
                     of_confirm = {
-                        "scenario": rule.get("scenario"),
-                        "have": rule.get("have"),
-                        "need": rule.get("need"),
-                        "ok": rule.get("ok"),
+                        "scenario": rule.get("scenario")
+                        "have": rule.get("have")
+                        "need": rule.get("need")
+                        "ok": rule.get("ok")
                         "evidence": {} # Will be filled below if possible
                     }
                     if "ml" in sp and isinstance(sp["ml"], dict):

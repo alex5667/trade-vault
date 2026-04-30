@@ -68,12 +68,12 @@ class DummyTelegram:
 def test_scan_once_detects_naked_position_and_orphan_algos(monkeypatch):
     monkeypatch.setenv('BINANCE_PROTECTION_AUDITOR_MODE', 'alert')
     auditor = mod.BinanceProtectionAuditor(
-        redis_client=FakeRedis(),
+        redis_client=FakeRedis()
         prod_client=DummyClient(
-            positions=[{'symbol': 'BTCUSDT', 'positionAmt': '0.5'}],
-            algos=[{'symbol': 'ETHUSDT', 'algoId': 10, 'clientAlgoId': 'sig-abcd1234-tp1', 'type': 'TAKE_PROFIT_MARKET'}],
-        ),
-        telegram_client=DummyTelegram(),
+            positions=[{'symbol': 'BTCUSDT', 'positionAmt': '0.5'}]
+            algos=[{'symbol': 'ETHUSDT', 'algoId': 10, 'clientAlgoId': 'sig-abcd1234-tp1', 'type': 'TAKE_PROFIT_MARKET'}]
+        )
+        telegram_client=DummyTelegram()
     )
     findings = auditor.scan_once()
     names = {(f['symbol'], f['finding']) for f in findings}

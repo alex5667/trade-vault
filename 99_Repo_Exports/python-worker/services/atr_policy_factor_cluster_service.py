@@ -9,7 +9,7 @@ logger = setup_logger("factor_cluster_service")
 
 MAJORS = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
 MEMES = {"DOGEUSDT", "SHIBUSDT", "PEPEUSDT", "FLOKIUSDT", "BONKUSDT", "WIFUSDT"}
-AI = {"FETUSDT", "AGIXUSDT", "RNDRUSDT", "OCEANUSDT", "TAOUSDT"}
+AI = {"AGIXUSDT", "RNDRUSDT", "OCEANUSDT"}
 
 def _dsn():
     return (

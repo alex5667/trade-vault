@@ -80,14 +80,14 @@ class RollbackGuardV2:
 
         # Per-regime thresholds
         self.cfg = {
-            "THIN":  {"min_trades": 30, "k": 1.3, "d_mean": -0.06, "d_lcb": -0.10, "cat_lcb": -0.25,
-                      "max_spread_bp": 25.0, "max_book_age_ms": 2500, "max_obi_age_ms": 2500},
-            "TREND": {"min_trades": 18, "k": 1.1, "d_mean": -0.04, "d_lcb": -0.07, "cat_lcb": -0.18,
-                      "max_spread_bp": 18.0, "max_book_age_ms": 1500, "max_obi_age_ms": 1500},
-            "RANGE": {"min_trades": 22, "k": 1.2, "d_mean": -0.05, "d_lcb": -0.08, "cat_lcb": -0.20,
-                      "max_spread_bp": 20.0, "max_book_age_ms": 2000, "max_obi_age_ms": 2000},
-            "MIXED": {"min_trades": 20, "k": 1.2, "d_mean": -0.05, "d_lcb": -0.08, "cat_lcb": -0.20,
-                      "max_spread_bp": 22.0, "max_book_age_ms": 2200, "max_obi_age_ms": 2200},
+            "THIN":  {"min_trades": 30, "k": 1.3, "d_mean": -0.06, "d_lcb": -0.10, "cat_lcb": -0.25
+                      "max_spread_bp": 25.0, "max_book_age_ms": 2500, "max_obi_age_ms": 2500}
+            "TREND": {"min_trades": 18, "k": 1.1, "d_mean": -0.04, "d_lcb": -0.07, "cat_lcb": -0.18
+                      "max_spread_bp": 18.0, "max_book_age_ms": 1500, "max_obi_age_ms": 1500}
+            "RANGE": {"min_trades": 22, "k": 1.2, "d_mean": -0.05, "d_lcb": -0.08, "cat_lcb": -0.20
+                      "max_spread_bp": 20.0, "max_book_age_ms": 2000, "max_obi_age_ms": 2000}
+            "MIXED": {"min_trades": 20, "k": 1.2, "d_mean": -0.05, "d_lcb": -0.08, "cat_lcb": -0.20
+                      "max_spread_bp": 22.0, "max_book_age_ms": 2200, "max_obi_age_ms": 2200}
         }
 
     def _k_last(self, sym: str, rg: str, grp: str) -> str:
@@ -201,20 +201,20 @@ class RollbackGuardV2:
         if not prev or prev == winner:
             return
         meta = {
-            "type": "rollback_suggestion",
-            "sid": sid,
-            "ts_ms": _now_ms(),
-            "symbol": _sym(sym),
-            "regime": _rg(rg),
-            "group": _grp(grp),
-            "from_arm": winner,
-            "to_arm": prev,
-            "applied_sid": str(last.get("sid") or ""),
-            "reason": dec.reason,
-            "post_n": dec.n,
-            "post_mean_r": dec.mean_r,
-            "post_lcb_r": dec.lcb_r,
-            "baseline": last.get("baseline") or {},
+            "type": "rollback_suggestion"
+            "sid": sid
+            "ts_ms": _now_ms()
+            "symbol": _sym(sym)
+            "regime": _rg(rg)
+            "group": _grp(grp)
+            "from_arm": winner
+            "to_arm": prev
+            "applied_sid": str(last.get("sid") or "")
+            "reason": dec.reason
+            "post_n": dec.n
+            "post_mean_r": dec.mean_r
+            "post_lcb_r": dec.lcb_r
+            "baseline": last.get("baseline") or {}
         }
         try:
             # store meta
@@ -308,10 +308,10 @@ class RollbackGuardV2:
         dec = self._decide(rg, xs, (last.get("baseline") or {}))
 
         await self._audit({
-            "event": "eval",
-            "symbol": sym, "regime": rg, "group": grp,
-            "n": dec.n, "mean_r": dec.mean_r, "lcb_r": dec.lcb_r,
-            "do": int(dec.do_rb), "cat": int(dec.catastrophic),
+            "event": "eval"
+            "symbol": sym, "regime": rg, "group": grp
+            "n": dec.n, "mean_r": dec.mean_r, "lcb_r": dec.lcb_r
+            "do": int(dec.do_rb), "cat": int(dec.catastrophic)
         })
 
         if not dec.do_rb:

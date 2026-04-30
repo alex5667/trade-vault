@@ -34,12 +34,12 @@ def _cert_mult(status: str) -> float:
 
 def _rollout_mult(stage: str) -> float:
     return {
-        "shadow": 0.0,
-        "canary_5": 0.35,
-        "canary_25": 0.70,
-        "live_100": 1.00,
-        "frozen": 0.0,
-        "rolled_back": 0.0,
+        "shadow": 0.0
+        "canary_5": 0.35
+        "canary_25": 0.70
+        "live_100": 1.00
+        "frozen": 0.0
+        "rolled_back": 0.0
     }.get(stage, 0.0)
 
 def _scope_key(row: dict, layer: str) -> str:
@@ -53,19 +53,19 @@ def run_once() -> int:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT
-                  symbol,
-                  source,
-                  scenario,
-                  regime,
-                  risk_horizon_bucket,
-                  atr_policy_ver,
-                  atr_restore_cert_status,
-                  avg_pnl_bps,
-                  avg_slippage_bps,
-                  avg_mae_pct,
-                  win_rate,
-                  stop_rate,
-                  tp1_rate,
+                  symbol
+                  source
+                  scenario
+                  regime
+                  risk_horizon_bucket
+                  atr_policy_ver
+                  atr_restore_cert_status
+                  avg_pnl_bps
+                  avg_slippage_bps
+                  avg_mae_pct
+                  win_rate
+                  stop_rate
+                  tp1_rate
                   n_trades
                 FROM v_atr_policy_allocator_inputs
             """)
@@ -118,10 +118,10 @@ def run_once() -> int:
                     * regime_mult
 
                 enriched.append({
-                    **row,
-                    "layer": layer,
-                    "rollout_stage": rollout_stage,
-                    "alloc_score": float(score),
+                    **row
+                    "layer": layer
+                    "rollout_stage": rollout_stage
+                    "alloc_score": float(score)
                 })
 
         total_score = sum(x["alloc_score"] for x in enriched if x["alloc_score"] > 0.0)
@@ -150,34 +150,34 @@ def run_once() -> int:
                 target_daily_trades = int(round(global_daily_trades_budget * weight))
 
                 state = {
-                    "rollout_stage": x["rollout_stage"],
-                    "alloc_score": x["alloc_score"],
-                    "alloc_weight": weight,
-                    "risk_pct_mult": risk_mult,
-                    "target_max_open_risk_pct": target_open_risk,
-                    "target_max_daily_trades": target_daily_trades,
-                    "restore_cert_status": x.get("atr_restore_cert_status"),
-                    "n_trades": int(x.get("n_trades") or 0),
+                    "rollout_stage": x["rollout_stage"]
+                    "alloc_score": x["alloc_score"]
+                    "alloc_weight": weight
+                    "risk_pct_mult": risk_mult
+                    "target_max_open_risk_pct": target_open_risk
+                    "target_max_daily_trades": target_daily_trades
+                    "restore_cert_status": x.get("atr_restore_cert_status")
+                    "n_trades": int(x.get("n_trades") or 0)
                 }
 
                 cur.execute("""
                     INSERT INTO atr_policy_allocator_states (
-                      source, venue, symbol, scenario, regime, risk_horizon_bucket,
-                      layer, policy_ver, rollout_stage, restore_cert_status,
-                      alloc_score, alloc_weight, risk_pct_mult,
-                      target_max_open_risk_pct, target_max_daily_trades,
+                      source, venue, symbol, scenario, regime, risk_horizon_bucket
+                      layer, policy_ver, rollout_stage, restore_cert_status
+                      alloc_score, alloc_weight, risk_pct_mult
+                      target_max_open_risk_pct, target_max_daily_trades
                       state_json, is_current, created_at_ms, updated_at_ms
                     ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,true,%s,%s)
                 """, (
-                    x.get("source") or "CryptoOrderFlow",
-                    "default",
-                    x["symbol"], x["scenario"], x["regime"], x["risk_horizon_bucket"],
-                    x["layer"], int(x["atr_policy_ver"] or 0),
-                    x["rollout_stage"], x.get("atr_restore_cert_status") or "",
-                    float(x["alloc_score"]), float(weight), float(risk_mult),
-                    float(target_open_risk), int(target_daily_trades),
-                    json.dumps(state, ensure_ascii=False, sort_keys=True),
-                    int(time.time() * 1000), int(time.time() * 1000),
+                    x.get("source") or "CryptoOrderFlow"
+                    "default"
+                    x["symbol"], x["scenario"], x["regime"], x["risk_horizon_bucket"]
+                    x["layer"], int(x["atr_policy_ver"] or 0)
+                    x["rollout_stage"], x.get("atr_restore_cert_status") or ""
+                    float(x["alloc_score"]), float(weight), float(risk_mult)
+                    float(target_open_risk), int(target_daily_trades)
+                    json.dumps(state, ensure_ascii=False, sort_keys=True)
+                    int(time.time() * 1000), int(time.time() * 1000)
                 ))
 
                 scope = _scope_key(x, x["layer"])
@@ -191,16 +191,16 @@ def run_once() -> int:
 
                 cur.execute("""
                     INSERT INTO atr_policy_allocator_events (
-                      source, venue, symbol, scenario, regime, risk_horizon_bucket,
+                      source, venue, symbol, scenario, regime, risk_horizon_bucket
                       layer, policy_ver, action, reason_code, event_json
                     ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 """, (
-                    x.get("source") or "CryptoOrderFlow",
-                    "default",
-                    x["symbol"], x["scenario"], x["regime"], x["risk_horizon_bucket"],
-                    x["layer"], int(x["atr_policy_ver"] or 0),
-                    "rebalance", "ATR_POLICY_ALLOC_REBALANCE",
-                    json.dumps(state, ensure_ascii=False, sort_keys=True),
+                    x.get("source") or "CryptoOrderFlow"
+                    "default"
+                    x["symbol"], x["scenario"], x["regime"], x["risk_horizon_bucket"]
+                    x["layer"], int(x["atr_policy_ver"] or 0)
+                    "rebalance", "ATR_POLICY_ALLOC_REBALANCE"
+                    json.dumps(state, ensure_ascii=False, sort_keys=True)
                 ))
                 written += 1
                 

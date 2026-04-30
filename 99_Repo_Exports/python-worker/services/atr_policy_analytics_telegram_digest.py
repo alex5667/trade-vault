@@ -27,11 +27,11 @@ def publish_digest() -> bool:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT
-                  symbol,
-                  atr_policy_ver,
-                  atr_restore_cert_status,
-                  sum(n_trades) AS n_trades,
-                  sum(avg_pnl_bps * n_trades) / nullif(sum(n_trades), 0) AS avg_pnl_bps,
+                  symbol
+                  atr_policy_ver
+                  atr_restore_cert_status
+                  sum(n_trades) AS n_trades
+                  sum(avg_pnl_bps * n_trades) / nullif(sum(n_trades), 0) AS avg_pnl_bps
                   sum(avg_slippage_bps * n_trades) / nullif(sum(n_trades), 0) AS avg_slippage_bps
                 FROM atr_policy_analytics_daily
                 WHERE day >= CURRENT_DATE - 3
@@ -43,11 +43,11 @@ def publish_digest() -> bool:
 
             cur.execute("""
                 SELECT
-                  symbol,
-                  atr_policy_ver,
-                  atr_restore_cert_status,
-                  sum(n_trades) AS n_trades,
-                  sum(avg_pnl_bps * n_trades) / nullif(sum(n_trades), 0) AS avg_pnl_bps,
+                  symbol
+                  atr_policy_ver
+                  atr_restore_cert_status
+                  sum(n_trades) AS n_trades
+                  sum(avg_pnl_bps * n_trades) / nullif(sum(n_trades), 0) AS avg_pnl_bps
                   sum(avg_slippage_bps * n_trades) / nullif(sum(n_trades), 0) AS avg_slippage_bps
                 FROM atr_policy_analytics_daily
                 WHERE day >= CURRENT_DATE - 3

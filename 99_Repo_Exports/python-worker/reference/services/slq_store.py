@@ -36,10 +36,10 @@ def fetch_slq(redis: Any, *, key: str) -> Optional[SlqSnapshot]:
         if n <= 0:
             return None
         return SlqSnapshot(
-            n=n,
-            sl_buffer_atr_q90=_sf(obj.get("sl_buffer_atr_q90"), 0.0),
-            post_sl_tp1_hit_rate=_sf(obj.get("post_sl_tp1_hit_rate"), 0.0),
-            ts_ms=int(obj.get("ts_ms", 0) or 0),
+            n=n
+            sl_buffer_atr_q90=_sf(obj.get("sl_buffer_atr_q90"), 0.0)
+            post_sl_tp1_hit_rate=_sf(obj.get("post_sl_tp1_hit_rate"), 0.0)
+            ts_ms=int(obj.get("ts_ms", 0) or 0)
         )
     except Exception:
         return None

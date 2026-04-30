@@ -5,11 +5,11 @@ import unittest
 from unittest import mock
 
 from services.orderflow.exec_health_rollups import (
-    ExecHealthThresholds,
-    aread_exec_health_rollups,
-    build_rollup_keys,
-    decide_exec_health_from_env,
-    read_exec_health_rollups_sync,
+    ExecHealthThresholds
+    aread_exec_health_rollups
+    build_rollup_keys
+    decide_exec_health_from_env
+    read_exec_health_rollups_sync
 )
 
 
@@ -42,13 +42,13 @@ class _SyncRedisStub:
 class ExecHealthRollupsV1Test(unittest.TestCase):
     def test_bounded_keyspace_one_metric(self):
         keys = build_rollup_keys(
-            metric="is_p95_bps",
-            sym="BTCUSDT",
-            venue="binance",
-            session="eu",
-            tf="1m",
-            kind="breakout",
-            side="LONG",
+            metric="is_p95_bps"
+            sym="BTCUSDT"
+            venue="binance"
+            session="eu"
+            tf="1m"
+            kind="breakout"
+            side="LONG"
         )
         self.assertEqual(len(keys), 16)
         self.assertEqual(keys[0], "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG")
@@ -56,22 +56,22 @@ class ExecHealthRollupsV1Test(unittest.TestCase):
 
     def test_sync_reader_aggregates_worst_by_delta(self):
         store = {
-            "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG": "4.0",
-            "tca:perm_impact_p95_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "1.5",
-            "tca:perm_impact_p95_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "3.8",
-            "tca:realized_spread_p50_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "-0.5",
-            "tca:realized_spread_p50_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "-2.2",
+            "tca:is_p95_bps:BTCUSDT:binance:eu:1m:breakout:LONG": "4.0"
+            "tca:perm_impact_p95_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "1.5"
+            "tca:perm_impact_p95_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "3.8"
+            "tca:realized_spread_p50_bps:1:BTCUSDT:binance:eu:1m:breakout:LONG": "-0.5"
+            "tca:realized_spread_p50_bps:5:BTCUSDT:binance:eu:1m:breakout:LONG": "-2.2"
         }
         redis = _SyncRedisStub(store)
         roll = read_exec_health_rollups_sync(
-            redis=redis,
-            sym="BTCUSDT",
-            venue="binance",
-            session="eu",
-            tf="1m",
-            kind="breakout",
-            side="LONG",
-            delta_sec_list=(1, 5),
+            redis=redis
+            sym="BTCUSDT"
+            venue="binance"
+            session="eu"
+            tf="1m"
+            kind="breakout"
+            side="LONG"
+            delta_sec_list=(1, 5)
         )
         self.assertEqual(roll["perm_impact_p95_bps"], 3.8)
         self.assertEqual(int(roll["perm_impact_p95_bps_delta_sec"]), 5)
@@ -97,21 +97,21 @@ class ExecHealthRollupsV1Test(unittest.TestCase):
 
     def test_async_reader_works(self):
         store = {
-            "tca:is_p95_bps:ETHUSDT:binance:eu:5m:continuation:SHORT": "2.0",
-            "tca:perm_impact_p95_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "1.0",
-            "tca:realized_spread_p50_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "-0.1",
+            "tca:is_p95_bps:ETHUSDT:binance:eu:5m:continuation:SHORT": "2.0"
+            "tca:perm_impact_p95_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "1.0"
+            "tca:realized_spread_p50_bps:1:ETHUSDT:binance:eu:5m:continuation:SHORT": "-0.1"
         }
         redis = _AsyncRedisStub(store)
         import asyncio
         roll = asyncio.run(aread_exec_health_rollups(
-            redis=redis,
-            sym="ETHUSDT",
-            venue="binance",
-            session="eu",
-            tf="5m",
-            kind="continuation",
-            side="SHORT",
-            delta_sec_list=(1,),
+            redis=redis
+            sym="ETHUSDT"
+            venue="binance"
+            session="eu"
+            tf="5m"
+            kind="continuation"
+            side="SHORT"
+            delta_sec_list=(1,)
         ))
         self.assertEqual(roll["is_p95_bps"], 2.0)
         self.assertEqual(len(redis.calls[0]), 16 * 3)
@@ -119,13 +119,13 @@ class ExecHealthRollupsV1Test(unittest.TestCase):
     def test_fail_open_empty_redis(self):
         redis = _SyncRedisStub({})
         roll = read_exec_health_rollups_sync(
-            redis=redis,
-            sym="BTCUSDT",
-            venue="binance",
-            session="eu",
-            tf="1m",
-            kind="breakout",
-            side="LONG",
+            redis=redis
+            sym="BTCUSDT"
+            venue="binance"
+            session="eu"
+            tf="1m"
+            kind="breakout"
+            side="LONG"
         )
         self.assertEqual(roll, {})
         dec = decide_exec_health_from_env(profile="hard", rollups=roll, scope="edge")
@@ -134,11 +134,11 @@ class ExecHealthRollupsV1Test(unittest.TestCase):
     def test_scope_aware_mode_override(self):
         roll = {"is_p95_bps": 6.0, "perm_impact_p95_bps": 4.0}
         with mock.patch.dict(os.environ, {
-            "EXEC_HEALTH_MODE": "auto",
-            "GATE_PROFILE": "hard",
-            "PIPELINE_EXEC_HEALTH_MODE": "monitor",
-            "EXEC_MAX_IS_P95_BPS": "5",
-            "EXEC_MAX_PERM_IMPACT_P95_BPS": "3",
+            "EXEC_HEALTH_MODE": "auto"
+            "GATE_PROFILE": "hard"
+            "PIPELINE_EXEC_HEALTH_MODE": "monitor"
+            "EXEC_MAX_IS_P95_BPS": "5"
+            "EXEC_MAX_PERM_IMPACT_P95_BPS": "3"
         }, clear=False):
             # Entry: still uses global auto->hard=veto
             dec_entry = decide_exec_health_from_env(profile="hard", rollups=roll, scope="entry_policy")
@@ -151,9 +151,9 @@ class ExecHealthRollupsV1Test(unittest.TestCase):
     def test_off_mode_never_vetoes(self):
         roll = {"is_p95_bps": 100.0, "perm_impact_p95_bps": 100.0}
         with mock.patch.dict(os.environ, {
-            "EXEC_HEALTH_MODE": "off",
-            "EXEC_MAX_IS_P95_BPS": "1",
-            "EXEC_MAX_PERM_IMPACT_P95_BPS": "1",
+            "EXEC_HEALTH_MODE": "off"
+            "EXEC_MAX_IS_P95_BPS": "1"
+            "EXEC_MAX_PERM_IMPACT_P95_BPS": "1"
         }, clear=False):
             dec = decide_exec_health_from_env(profile="hard", rollups=roll, scope="edge")
             self.assertFalse(dec.apply)

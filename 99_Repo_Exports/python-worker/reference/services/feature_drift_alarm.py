@@ -9,10 +9,10 @@ from typing import Any, Dict, Optional
 from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 from domain.gate_profile import strict_enabled
 from handlers.crypto_orderflow.utils.drift_reader import (
-    drift_active_key_v1,
-    drift_active_key_v2,
-    drift_state_key_v1,
-    drift_state_key_v2,
+    drift_active_key_v1
+    drift_active_key_v2
+    drift_state_key_v1
+    drift_state_key_v2
 )
 
 
@@ -104,15 +104,15 @@ class DriftConfig:
         d_min_n      = "12"   if strict else "30"
         d_ttl        = "600000" if strict else "120000"
         return cls(
-            enabled=_env_bool("FEATURE_DRIFT_ENABLED", True),
-            include_kind=_env_bool("FEATURE_DRIFT_INCLUDE_KIND", False),
-            base_alpha=_safe_float(os.getenv("FEATURE_DRIFT_BASE_ALPHA", d_base_alpha), float(d_base_alpha)),
-            fast_alpha=_safe_float(os.getenv("FEATURE_DRIFT_FAST_ALPHA", d_fast_alpha), float(d_fast_alpha)),
-            z_threshold=_safe_float(os.getenv("FEATURE_DRIFT_Z_THRESHOLD", d_z_thr), float(d_z_thr)),
-            tighten_mult=_safe_float(os.getenv("FEATURE_DRIFT_TIGHTEN_MULT", d_mult), float(d_mult)),
-            min_samples=int(_safe_float(os.getenv("FEATURE_DRIFT_MIN_SAMPLES", d_min_n), int(d_min_n))),
-            active_ttl_ms=int(_safe_float(os.getenv("FEATURE_DRIFT_ACTIVE_TTL_MS", d_ttl), int(d_ttl))),
-            diag_stream=str(os.getenv("FEATURE_DRIFT_DIAG_STREAM", "") or "").strip(),
+            enabled=_env_bool("FEATURE_DRIFT_ENABLED", True)
+            include_kind=_env_bool("FEATURE_DRIFT_INCLUDE_KIND", False)
+            base_alpha=_safe_float(os.getenv("FEATURE_DRIFT_BASE_ALPHA", d_base_alpha), float(d_base_alpha))
+            fast_alpha=_safe_float(os.getenv("FEATURE_DRIFT_FAST_ALPHA", d_fast_alpha), float(d_fast_alpha))
+            z_threshold=_safe_float(os.getenv("FEATURE_DRIFT_Z_THRESHOLD", d_z_thr), float(d_z_thr))
+            tighten_mult=_safe_float(os.getenv("FEATURE_DRIFT_TIGHTEN_MULT", d_mult), float(d_mult))
+            min_samples=int(_safe_float(os.getenv("FEATURE_DRIFT_MIN_SAMPLES", d_min_n), int(d_min_n)))
+            active_ttl_ms=int(_safe_float(os.getenv("FEATURE_DRIFT_ACTIVE_TTL_MS", d_ttl), int(d_ttl)))
+            diag_stream=str(os.getenv("FEATURE_DRIFT_DIAG_STREAM", "") or "").strip()
         )
 
 
@@ -251,10 +251,10 @@ class FeatureDriftAlarm:
         try:
             if active:
                 _hset_map(redis_client, active_key, {
-                    "factor": f"{factor:.6g}",
-                    "score": f"{best_score:.6g}",
-                    "feature": best_feat,
-                    "last_ts_ms": str(int(tsm)),
+                    "factor": f"{factor:.6g}"
+                    "score": f"{best_score:.6g}"
+                    "feature": best_feat
+                    "last_ts_ms": str(int(tsm))
                 })
                 # TTL
                 try:
@@ -272,17 +272,17 @@ class FeatureDriftAlarm:
         if cfg.diag_stream:
             try:
                 payload = {
-                    "ts_ms": int(tsm),
-                    "symbol": sym,
-                    "venue": ven,
-                    "session": sess,
-                    "tf": tfv,
-                    "kind": knd if cfg.include_kind else "na",
-                    "score": float(best_score),
-                    "feature": best_feat,
-                    "active": int(active),
-                    "factor": float(factor),
-                    "features": feats,
+                    "ts_ms": int(tsm)
+                    "symbol": sym
+                    "venue": ven
+                    "session": sess
+                    "tf": tfv
+                    "kind": knd if cfg.include_kind else "na"
+                    "score": float(best_score)
+                    "feature": best_feat
+                    "active": int(active)
+                    "factor": float(factor)
+                    "features": feats
                 }
                 redis_client.xadd(cfg.diag_stream, {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))})
             except Exception:

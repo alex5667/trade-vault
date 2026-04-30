@@ -18,15 +18,15 @@ import pytest
 
 # Import helpers without triggering redis connection
 from orderflow_services.decision_coverage_kpi_worker_v1 import (
-    Cfg,
-    _advance_window,
-    _decision_ts_ms,
-    _minute,
-    _parse_json_maybe,
-    _process_one,
-    _regime_from_states,
-    _state_norm,
-    load_cfg,
+    Cfg
+    _advance_window
+    _decision_ts_ms
+    _minute
+    _parse_json_maybe
+    _process_one
+    _regime_from_states
+    _state_norm
+    load_cfg
 )
 
 
@@ -37,19 +37,19 @@ from orderflow_services.decision_coverage_kpi_worker_v1 import (
 def _make_cfg(**overrides) -> Cfg:
     """Build a Cfg with test-friendly defaults."""
     defaults = dict(
-        redis_url="redis://localhost:6379/0",
-        stream="decisions:final",
-        group="decision_coverage_kpi_v1",
-        consumer="test-consumer",
-        block_ms=100,
-        count=10,
-        window_minutes=1440,
-        bucket_prefix="kpi:decision_coverage:bucket:",
-        bucket_ttl_s=259200,
-        state_key="metrics:decision_coverage:state",
-        claim_idle_ms=60000,
-        sleep_on_idle_s=0.1,
-        rebuild_gap_minutes=10,
+        redis_url="redis://localhost:6379/0"
+        stream="decisions:final"
+        group="decision_coverage_kpi_v1"
+        consumer="test-consumer"
+        block_ms=100
+        count=10
+        window_minutes=1440
+        bucket_prefix="kpi:decision_coverage:bucket:"
+        bucket_ttl_s=259200
+        state_key="metrics:decision_coverage:state"
+        claim_idle_ms=60000
+        sleep_on_idle_s=0.1
+        rebuild_gap_minutes=10
     )
     defaults.update(overrides)
     return Cfg(**defaults)
@@ -182,8 +182,8 @@ class TestAdvanceWindow:
         r.hgetall.return_value = {}
         rolling = {"ok": 0, "warn": 0, "block": 0, "unknown": 0, "total": 0}
         with patch(
-            "orderflow_services.decision_coverage_kpi_worker_v1._bootstrap_state",
-            return_value=(2000, {"ok": 5, "warn": 0, "block": 0, "unknown": 0, "total": 5}, 0),
+            "orderflow_services.decision_coverage_kpi_worker_v1._bootstrap_state"
+            return_value=(2000, {"ok": 5, "warn": 0, "block": 0, "unknown": 0, "total": 5}, 0)
         ) as mock_bs:
             cur = _advance_window(r, cfg, 1000, 1010, rolling)  # gap=10 >= rebuild_gap_minutes=5
             mock_bs.assert_called_once()
@@ -239,9 +239,9 @@ class TestProcessOne:
         rolling = {"ok": 0, "warn": 0, "block": 0, "unknown": 0, "total": 0}
 
         fields = {
-            "dq_state": json.dumps({"state": "warn"}),
-            "drift_state": "ok",
-            "ts_ms": str(ts_ms),
+            "dq_state": json.dumps({"state": "warn"})
+            "drift_state": "ok"
+            "ts_ms": str(ts_ms)
         }
         _process_one(r, cfg, f"{ts_ms}-0", fields, cur_min, rolling, 0)
         assert rolling["warn"] == 1

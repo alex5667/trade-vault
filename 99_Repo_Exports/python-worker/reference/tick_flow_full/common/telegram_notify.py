@@ -12,13 +12,13 @@ def _tg_api_url(token: str, method: str) -> str:
 
 
 def send_telegram(
-    text: str,
-    *,
-    token: Optional[str] = None,
-    chat_id: Optional[str] = None,
-    parse_mode: str = "HTML",
-    disable_web_page_preview: bool = True,
-    timeout_sec: float = 10.0,
+    text: str
+    *
+    token: Optional[str] = None
+    chat_id: Optional[str] = None
+    parse_mode: str = "HTML"
+    disable_web_page_preview: bool = True
+    timeout_sec: float = 10.0
 ) -> bool:
     """
     Minimal Telegram sender with stdlib only.
@@ -30,17 +30,17 @@ def send_telegram(
         return False
 
     payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": parse_mode,
-        "disable_web_page_preview": disable_web_page_preview,
+        "chat_id": chat_id
+        "text": text
+        "parse_mode": parse_mode
+        "disable_web_page_preview": disable_web_page_preview
     }
     data = urllib.parse.urlencode(payload).encode("utf-8")
     req = urllib.request.Request(
-        _tg_api_url(token, "sendMessage"),
-        data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        method="POST",
+        _tg_api_url(token, "sendMessage")
+        data=data
+        headers={"Content-Type": "application/x-www-form-urlencoded"}
+        method="POST"
     )
     try:
         # Use verified team 20+ years experience: robust timeout and error handling

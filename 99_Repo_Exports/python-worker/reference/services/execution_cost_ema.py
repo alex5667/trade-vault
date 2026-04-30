@@ -54,13 +54,13 @@ class ExecCostEmaConfig:
         ttl_sec = _safe_int(os.getenv("EXEC_COST_EMA_TTL_SEC", str(60 * 60 * 24 * 30)), 60 * 60 * 24 * 30)
         prefix = str(os.getenv("EXEC_COST_EMA_PREFIX", "execost:") or "execost:")
         return cls(
-            enabled=enabled,
-            alpha=alpha,
-            min_samples=min_samples,
-            ttl_sec=ttl_sec,
-            prefix=prefix,
-            min_samples_to_trust=min_samples,
-            key_prefix=prefix,
+            enabled=enabled
+            alpha=alpha
+            min_samples=min_samples
+            ttl_sec=ttl_sec
+            prefix=prefix
+            min_samples_to_trust=min_samples
+            key_prefix=prefix
         )
 
 
@@ -71,13 +71,13 @@ def _ema_update(old: Optional[float], x: float, alpha: float) -> float:
 
 
 def update_exec_cost_ema(
-    redis_client: Any,
-    *,
-    cfg: ExecCostEmaConfig,
-    key: str,
-    realized_slippage_bps: float,
-    realized_spread_bps: float,
-    now_ms: Optional[int] = None,
+    redis_client: Any
+    *
+    cfg: ExecCostEmaConfig
+    key: str
+    realized_slippage_bps: float
+    realized_spread_bps: float
+    now_ms: Optional[int] = None
 ) -> None:
     if not cfg.enabled or redis_client is None:
         return
@@ -98,10 +98,10 @@ def update_exec_cost_ema(
         new_sprd = _ema_update(old_sprd, sprd, cfg.alpha)
 
         redis_client.hset(key, mapping={
-            "samples": str(new_samples),
-            "ema_slip_bps": str(new_slip),
-            "ema_spread_bps": str(new_sprd),
-            "last_ts_ms": str(now),
+            "samples": str(new_samples)
+            "ema_slip_bps": str(new_slip)
+            "ema_spread_bps": str(new_sprd)
+            "last_ts_ms": str(now)
         })
         if cfg.ttl_sec > 0:
             redis_client.expire(key, int(cfg.ttl_sec))
@@ -110,10 +110,10 @@ def update_exec_cost_ema(
 
 
 def read_exec_cost_ema_bps(
-    redis_client: Any,
-    *,
-    cfg: ExecCostEmaConfig,
-    key: str,
+    redis_client: Any
+    *
+    cfg: ExecCostEmaConfig
+    key: str
 ) -> Optional[float]:
     if not cfg.enabled or redis_client is None:
         return None
@@ -147,11 +147,11 @@ def build_exec_cost_ema_key(cfg: ExecCostEmaConfig, symbol, venue, session, tf, 
 
 # Expose session_from_ts_ms for tests
 __all__ = [
-    "ExecCostEmaConfig",
-    "update_exec_cost_ema",
-    "read_exec_cost_ema_bps",
-    "build_exec_cost_ema_key",
-    "session_from_ts_ms",
-    "maybe_update_exec_cost_ema_from_closed",
-    "update_exec_cost_ema_from_closed",
+    "ExecCostEmaConfig"
+    "update_exec_cost_ema"
+    "read_exec_cost_ema_bps"
+    "build_exec_cost_ema_key"
+    "session_from_ts_ms"
+    "maybe_update_exec_cost_ema_from_closed"
+    "update_exec_cost_ema_from_closed"
 ]

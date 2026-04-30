@@ -82,22 +82,22 @@ def from_dict(payload: Dict[str, Any]) -> Optional[ProviderContextSnapshot]:
         if not symbol:
             return None
         return ProviderContextSnapshot(
-            schema_version=_i(payload.get("schema_version"), SCHEMA_VERSION),
-            symbol=symbol,
-            ts_ms=_i(payload.get("ts_ms"), 0),
-            provider_global_mcap=_f(payload.get("provider_global_mcap")),
-            provider_total_volume=_f(payload.get("provider_total_volume")),
-            provider_btc_dominance=_f(payload.get("provider_btc_dominance")),
-            provider_eth_dominance=_f(payload.get("provider_eth_dominance")),
-            mcap_disagreement_bps=_f(payload.get("mcap_disagreement_bps")),
-            volume_disagreement_bps=_f(payload.get("volume_disagreement_bps")),
-            btc_dom_disagreement_bps=_f(payload.get("btc_dom_disagreement_bps")),
-            provider_quality=_s(payload.get("provider_quality"), "unknown"),
-            provider_top_gainer=_i(payload.get("provider_top_gainer"), 0),
-            provider_top_loser=_i(payload.get("provider_top_loser"), 0),
-            provider_rel_strength_24h=_f(payload.get("provider_rel_strength_24h")),
-            provider_volume_mcap_ratio=_f(payload.get("provider_volume_mcap_ratio")),
-            quality_status=_s(payload.get("quality_status"), "UNKNOWN"),
+            schema_version=_i(payload.get("schema_version"), SCHEMA_VERSION)
+            symbol=symbol
+            ts_ms=_i(payload.get("ts_ms"), 0)
+            provider_global_mcap=_f(payload.get("provider_global_mcap"))
+            provider_total_volume=_f(payload.get("provider_total_volume"))
+            provider_btc_dominance=_f(payload.get("provider_btc_dominance"))
+            provider_eth_dominance=_f(payload.get("provider_eth_dominance"))
+            mcap_disagreement_bps=_f(payload.get("mcap_disagreement_bps"))
+            volume_disagreement_bps=_f(payload.get("volume_disagreement_bps"))
+            btc_dom_disagreement_bps=_f(payload.get("btc_dom_disagreement_bps"))
+            provider_quality=_s(payload.get("provider_quality"), "unknown")
+            provider_top_gainer=_i(payload.get("provider_top_gainer"), 0)
+            provider_top_loser=_i(payload.get("provider_top_loser"), 0)
+            provider_rel_strength_24h=_f(payload.get("provider_rel_strength_24h"))
+            provider_volume_mcap_ratio=_f(payload.get("provider_volume_mcap_ratio"))
+            quality_status=_s(payload.get("quality_status"), "UNKNOWN")
         )
     except Exception:
         return None
@@ -128,10 +128,10 @@ def _now_ms() -> int:
 
 
 async def aread_provider_context(
-    redis,
-    *,
-    symbol: str,
-    prefix: str = DEFAULT_CTX_PREFIX,
+    redis
+    *
+    symbol: str
+    prefix: str = DEFAULT_CTX_PREFIX
 ) -> Optional[ProviderContextSnapshot]:
     """Read provider context from Redis with 5-second local cache.
 

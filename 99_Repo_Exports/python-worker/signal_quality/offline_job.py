@@ -53,11 +53,11 @@ def _var_cvar(xs: list[float], alpha: float) -> tuple[float, float]:
 
 
 def compute_quality_score(
-    expectancy_r: float,
-    win_rate: float,
-    var_r: float,
-    cvar_r: float,
-    n: int,
+    expectancy_r: float
+    win_rate: float
+    var_r: float
+    cvar_r: float
+    n: int
 ) -> float:
     """
     Compute quality score (0-100) from statistical metrics.
@@ -114,15 +114,15 @@ def load_signals(conn: psycopg2.extensions.connection, lookback_days: int = LOOK
     # interpolate into the SQL literal (not user-supplied data).
     sql = f"""
         SELECT
-            symbol,
-            signal_type,
-            side,
-            COALESCE(session, 'mixed') AS session,
-            COALESCE(regime, 'mixed') AS regime,
-            pnl_r,
-            delta_spike_z,
-            obi,
-            weak_progress,
+            symbol
+            signal_type
+            side
+            COALESCE(session, 'mixed') AS session
+            COALESCE(regime, 'mixed') AS regime
+            pnl_r
+            delta_spike_z
+            obi
+            weak_progress
             atr_quantile
         FROM signals
         WHERE ts >= NOW() - INTERVAL '{lookback_days} days'
@@ -139,11 +139,11 @@ def load_signals(conn: psycopg2.extensions.connection, lookback_days: int = LOOK
 
 
 def run_offline_quality_job(
-    pg_dsn: str,
-    horizon: str = "R_main",
-    lookback_days: int = LOOKBACK_DAYS,
-    min_n: int = MIN_N,
-    alpha: float = ALPHA,
+    pg_dsn: str
+    horizon: str = "R_main"
+    lookback_days: int = LOOKBACK_DAYS
+    min_n: int = MIN_N
+    alpha: float = ALPHA
 ) -> None:
     """
     Run offline quality computation job.
@@ -159,11 +159,11 @@ def run_offline_quality_job(
         alpha: VaR/CVaR quantile
     """
     logger.info(
-        "Starting offline quality computation (horizon=%s, lookback=%dd, min_n=%d, alpha=%.2f)",
-        horizon,
-        lookback_days,
-        min_n,
-        alpha,
+        "Starting offline quality computation (horizon=%s, lookback=%dd, min_n=%d, alpha=%.2f)"
+        horizon
+        lookback_days
+        min_n
+        alpha
     )
 
     conn = psycopg2.connect(pg_dsn)
@@ -177,19 +177,19 @@ def run_offline_quality_job(
             total_signals += 1
 
             fb = make_feature_bucket(
-                delta_spike_z=row["delta_spike_z"],
-                obi=row["obi"],
-                weak_progress=row["weak_progress"],
-                atr_quantile=row["atr_quantile"],
+                delta_spike_z=row["delta_spike_z"]
+                obi=row["obi"]
+                weak_progress=row["weak_progress"]
+                atr_quantile=row["atr_quantile"]
             )
 
             key = (
-                row["symbol"],
-                row["signal_type"],
-                row["side"],
-                row["session"],
-                row["regime"],
-                fb,
+                row["symbol"]
+                row["signal_type"]
+                row["side"]
+                row["session"]
+                row["regime"]
+                fb
             )
             buckets.setdefault(key, []).append(row["pnl_r"])
 
@@ -215,37 +215,37 @@ def run_offline_quality_job(
             )
 
         logger.info(
-            "Computed metrics: %d buckets to insert, %d skipped (n < %d)",
-            len(insert_rows),
-            skipped,
-            min_n,
+            "Computed metrics: %d buckets to insert, %d skipped (n < %d)"
+            len(insert_rows)
+            skipped
+            min_n
         )
 
         # Batch upsert — far fewer round-trips than per-row execute()
         if insert_rows:
             with conn.cursor() as cur:
                 execute_values(
-                    cur,
+                    cur
                     """
                     INSERT INTO signal_quality_offline
-                        (symbol, signal_type, side, session, regime,
-                         feature_bucket, horizon,
-                         n_signals, win_rate, expectancy_r, var_r, cvar_r,
+                        (symbol, signal_type, side, session, regime
+                         feature_bucket, horizon
+                         n_signals, win_rate, expectancy_r, var_r, cvar_r
                          quality_score, updated_at)
                     VALUES %s
                     ON CONFLICT (symbol, signal_type, side, session, regime, feature_bucket, horizon)
                     DO UPDATE SET
-                        n_signals      = EXCLUDED.n_signals,
-                        win_rate       = EXCLUDED.win_rate,
-                        expectancy_r   = EXCLUDED.expectancy_r,
-                        var_r          = EXCLUDED.var_r,
-                        cvar_r         = EXCLUDED.cvar_r,
-                        quality_score  = EXCLUDED.quality_score,
+                        n_signals      = EXCLUDED.n_signals
+                        win_rate       = EXCLUDED.win_rate
+                        expectancy_r   = EXCLUDED.expectancy_r
+                        var_r          = EXCLUDED.var_r
+                        cvar_r         = EXCLUDED.cvar_r
+                        quality_score  = EXCLUDED.quality_score
                         updated_at     = now()
-                    """,
+                    """
                     # Append now() for updated_at via template
-                    [(r + (psycopg2.extensions.AsIs("now()"),)) for r in insert_rows],
-                    template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    [(r + (psycopg2.extensions.AsIs("now()"),)) for r in insert_rows]
+                    template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
                 )
             conn.commit()
 
@@ -263,8 +263,8 @@ if __name__ == "__main__":
     import sys
 
     logging.basicConfig(
-        level="INFO",
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level="INFO"
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
 
     if len(sys.argv) < 2:

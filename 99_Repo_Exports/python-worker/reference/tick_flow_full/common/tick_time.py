@@ -11,13 +11,13 @@ from typing import Callable, Optional, List, Any, Dict
 try:
     from prometheus_client import Counter, Histogram
     tick_time_replay_mismatch_total = Counter(
-        "tick_time_replay_mismatch_total",
-        "Total count of replay timestamp mismatches",
+        "tick_time_replay_mismatch_total"
+        "Total count of replay timestamp mismatches"
         ["severity", "reason"]
     )
     tick_time_replay_diff_ms = Histogram(
-        "tick_time_replay_diff_ms",
-        "Histogram of replay timestamp differences in ms",
+        "tick_time_replay_diff_ms"
+        "Histogram of replay timestamp differences in ms"
         buckets=(1, 5, 10, 20, 50, 100, 250, 500, 1000, 5000)
     )
 except ImportError:
@@ -38,7 +38,7 @@ class TickTimePolicy:
       hard-drop если now - тик > max_past_ms
     max_reorder_ms:
       если тик < watermark, но (watermark - тик) <= max_reorder_ms:
-        reorder_soft (кламп к watermark) если allow_soft_reorder=True,
+        reorder_soft (кламп к watermark) если allow_soft_reorder=True
         иначе hard-drop.
       если (watermark - тик) > max_reorder_ms => reorder_hard hard-drop.
     """
@@ -68,8 +68,8 @@ class SanitizeResult:
 
     def to_meta(self) -> Dict[str, Any]:
         return {
-            "ts_ms": self.ts_ms,
-            "drop_reason": self.drop_reason,
+            "ts_ms": self.ts_ms
+            "drop_reason": self.drop_reason
             "flags": self.flags or []
         }
 
@@ -83,11 +83,11 @@ class TsVerifyResult:
 
 
 def verify_bucketed_ts(
-    actual_ts_ms: int,
-    expected_ts_ms: int,
-    bucket_ms: int,
-    tol_ms: Optional[int] = None,
-    hard_ms: Optional[int] = None,
+    actual_ts_ms: int
+    expected_ts_ms: int
+    bucket_ms: int
+    tol_ms: Optional[int] = None
+    hard_ms: Optional[int] = None
 ) -> TsVerifyResult:
     """
     Верификация меток времени с учетом квантования (бакетизации).
@@ -105,14 +105,14 @@ def verify_bucketed_ts(
     hard = int(hard_ms) if hard_ms is not None else 3 * tol
 
     meta = {
-        "actual_ts_ms": int(actual_ts_ms),
-        "expected_ts_ms": int(expected_ts_ms),
-        "actual_bucket_ms": int(a0),
-        "expected_bucket_ms": int(e0),
-        "bucket_ms": int(bucket_ms),
-        "diff_ms": int(diff),
-        "tol_ms": int(tol),
-        "hard_ms": int(hard),
+        "actual_ts_ms": int(actual_ts_ms)
+        "expected_ts_ms": int(expected_ts_ms)
+        "actual_bucket_ms": int(a0)
+        "expected_bucket_ms": int(e0)
+        "bucket_ms": int(bucket_ms)
+        "diff_ms": int(diff)
+        "tol_ms": int(tol)
+        "hard_ms": int(hard)
     }
 
     # IMPORTANT: use strict ">" to avoid boundary false positives

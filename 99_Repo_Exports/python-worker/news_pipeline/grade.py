@@ -177,11 +177,11 @@ MASK_GEO = _bit("geopolitics")
 
 
 def compute_news_grade_id(
-    *,
-    news_risk: float,
-    confidence: float,
-    primary_tag_id: int,
-    tags_mask: int = 0,
+    *
+    news_risk: float
+    confidence: float
+    primary_tag_id: int
+    tags_mask: int = 0
 ) -> int:
     """
     news_grade_id: 0..4

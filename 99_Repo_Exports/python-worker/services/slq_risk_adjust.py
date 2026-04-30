@@ -70,12 +70,12 @@ def _tp1_prob_from_ctx(ctx: Any) -> float:
 
 
 def maybe_apply_slq_to_risk_cfg(
-    *,
-    redis: Any,
-    ctx: Any,
-    symbol: str,
-    side: Any,
-    cfg: Dict[str, Any],
+    *
+    redis: Any
+    ctx: Any
+    symbol: str
+    side: Any
+    cfg: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     Returns effective cfg (may be same as input).

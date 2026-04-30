@@ -4,7 +4,7 @@ from utils.time_utils import get_ny_time_millis
 
 """Periodic execution healthcheck for systemd timer / cron.
 
-Runs the SQL/Redis consistency checker and a small set of freshness checks,
+Runs the SQL/Redis consistency checker and a small set of freshness checks
 writes a stable JSON document consumed by the runbook server, optionally exports
 Prometheus textfile metrics, and exits with a severity-driven code suitable for
 timer monitoring.
@@ -62,15 +62,15 @@ def build_autonomy_recommendations(report: Dict[str, Any]) -> Dict[str, Any]:
     )
     trigger_retention_quarantine = bool(int(retention.get('breached_checkpoints') or 0) > 0)
     return {
-        'trigger_checkpoint_scrubber': trigger_scrubber,
-        'trigger_retention_guard_quarantine': trigger_retention_quarantine,
+        'trigger_checkpoint_scrubber': trigger_scrubber
+        'trigger_retention_guard_quarantine': trigger_retention_quarantine
         'reasons': [
             reason for reason, flag in {
-                'overall_not_ok': overall in {'warning', 'critical'},
-                'retention_guard_breached': int(retention.get('breached_checkpoints') or 0) > 0,
-                'critical_mismatches': int(consistency_doc.get('critical_mismatches') or 0) > 0,
+                'overall_not_ok': overall in {'warning', 'critical'}
+                'retention_guard_breached': int(retention.get('breached_checkpoints') or 0) > 0
+                'critical_mismatches': int(consistency_doc.get('critical_mismatches') or 0) > 0
             }.items() if flag
-        ],
+        ]
     }
 
 
@@ -86,30 +86,30 @@ def render_prometheus_textfile(report: Dict[str, Any]) -> str:
     status = str(report.get('overall_status') or 'unknown')
     code_map = {'ok': 0, 'warning': 1, 'critical': 2}
     lines = [
-        '# HELP trade_execution_health_status_code Overall health status as a numeric code (ok=0, warning=1, critical=2).',
-        '# TYPE trade_execution_health_status_code gauge',
-        f'trade_execution_health_status_code {code_map.get(status, 3)}',
-        '# HELP trade_execution_health_status Status flags labelled by level.',
-        '# TYPE trade_execution_health_status gauge',
+        '# HELP trade_execution_health_status_code Overall health status as a numeric code (ok=0, warning=1, critical=2).'
+        '# TYPE trade_execution_health_status_code gauge'
+        f'trade_execution_health_status_code {code_map.get(status, 3)}'
+        '# HELP trade_execution_health_status Status flags labelled by level.'
+        '# TYPE trade_execution_health_status gauge'
     ]
     for level in ('ok', 'warning', 'critical'):
         lines.append(f'trade_execution_health_status{{level="{level}"}} {1 if level == status else 0}')
     metric_pairs = {
-        'trade_execution_consistency_redis_state_count': int(consistency_doc.get('redis_state_count') or 0),
-        'trade_execution_consistency_stream_sid_count': int(consistency_doc.get('stream_sid_count') or 0),
-        'trade_execution_consistency_sql_order_count': int(consistency_doc.get('sql_order_count') or 0),
-        'trade_execution_consistency_mismatches_total': int(consistency_doc.get('mismatches_total') or 0),
-        'trade_execution_consistency_critical_mismatches': int(consistency_doc.get('critical_mismatches') or 0),
-        'trade_execution_consistency_warning_mismatches': int(consistency_doc.get('warning_mismatches') or 0),
-        'trade_execution_user_stream_age_ms': int(user_stream.get('age_ms') or 0),
-        'trade_execution_user_stream_keys_checked': int(user_stream.get('keys_checked') or 0),
-        'trade_execution_user_stream_stale': 1 if user_stream.get('is_stale') else 0,
+        'trade_execution_consistency_redis_state_count': int(consistency_doc.get('redis_state_count') or 0)
+        'trade_execution_consistency_stream_sid_count': int(consistency_doc.get('stream_sid_count') or 0)
+        'trade_execution_consistency_sql_order_count': int(consistency_doc.get('sql_order_count') or 0)
+        'trade_execution_consistency_mismatches_total': int(consistency_doc.get('mismatches_total') or 0)
+        'trade_execution_consistency_critical_mismatches': int(consistency_doc.get('critical_mismatches') or 0)
+        'trade_execution_consistency_warning_mismatches': int(consistency_doc.get('warning_mismatches') or 0)
+        'trade_execution_user_stream_age_ms': int(user_stream.get('age_ms') or 0)
+        'trade_execution_user_stream_keys_checked': int(user_stream.get('keys_checked') or 0)
+        'trade_execution_user_stream_stale': 1 if user_stream.get('is_stale') else 0
         # P3.3-ops-complete: retention guard breach gauge
-        'trade_execution_replay_retention_guard_breached': int((report.get('retention_guard') or {}).get('breached_checkpoints') or 0),
+        'trade_execution_replay_retention_guard_breached': int((report.get('retention_guard') or {}).get('breached_checkpoints') or 0)
         # P3.3-autonomy: autonomy trigger gauges
-        'trade_execution_autonomy_trigger_checkpoint_scrubber': 1 if autonomy.get('trigger_checkpoint_scrubber') else 0,
-        'trade_execution_autonomy_trigger_retention_quarantine': 1 if autonomy.get('trigger_retention_guard_quarantine') else 0,
-        'trade_execution_health_checked_at_ms': int(report.get('checked_at_ms') or 0),
+        'trade_execution_autonomy_trigger_checkpoint_scrubber': 1 if autonomy.get('trigger_checkpoint_scrubber') else 0
+        'trade_execution_autonomy_trigger_retention_quarantine': 1 if autonomy.get('trigger_retention_guard_quarantine') else 0
+        'trade_execution_health_checked_at_ms': int(report.get('checked_at_ms') or 0)
     }
     for name, value in metric_pairs.items():
         lines.append(f'# TYPE {name} gauge')
@@ -129,10 +129,10 @@ def _write_atomic(path: Path, payload: str) -> None:
 
 
 def _check_user_stream_freshness(
-    redis_client: Any,
-    *,
-    cache_prefix: str,
-    stale_ms: int,
+    redis_client: Any
+    *
+    cache_prefix: str
+    stale_ms: int
 ) -> Dict[str, Any]:
     """Scan user-stream cache keys and determine if the latest event is stale.
 
@@ -171,10 +171,10 @@ def _check_user_stream_freshness(
     # If no keys found: treat age as effectively infinite
     age_ms = max(0, now_ms - newest) if newest else 10 ** 12
     return {
-        'keys_checked': keys_checked,
-        'newest_event_time_ms': newest,
-        'age_ms': age_ms,
-        'is_stale': bool(age_ms > stale_ms),
+        'keys_checked': keys_checked
+        'newest_event_time_ms': newest
+        'age_ms': age_ms
+        'is_stale': bool(age_ms > stale_ms)
     }
 
 
@@ -202,12 +202,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             _raw_prefix = os.getenv('EXEC_CONSISTENCY_SID_PREFIX_ALLOWLIST', '')
             _sid_prefix_allowlist = consistency._parse_prefix_allowlist(_raw_prefix)
             summary = consistency.run_check(
-                redis_url=args.redis_url,
-                journal_dsn=args.journal_dsn,
-                state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
-                exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
-                stream_count=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')),
-                sid_prefix_allowlist=_sid_prefix_allowlist,
+                redis_url=args.redis_url
+                journal_dsn=args.journal_dsn
+                state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:')
+                exec_stream=os.getenv('EXEC_STREAM', 'orders:exec')
+                stream_count=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000'))
+                sid_prefix_allowlist=_sid_prefix_allowlist
             )
         except Exception as exc:
             consistency_error = str(exc)
@@ -216,17 +216,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # --- user-stream freshness ---
     freshness = _check_user_stream_freshness(
-        r,
-        cache_prefix=args.user_stream_cache_prefix,
-        stale_ms=args.user_stream_stale_ms,
+        r
+        cache_prefix=args.user_stream_cache_prefix
+        stale_ms=args.user_stream_stale_ms
     )
 
     # --- P3.3-ops-complete: stream retention guard ---
     retention_guard = stream_retention_guard_report(
-        r,
-        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
-        checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
-        sample_limit=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000')),
+        r
+        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec')
+        checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:')
+        sample_limit=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000'))
     )
 
     # --- derive overall status ---
@@ -246,13 +246,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         overall = 'unknown'
 
     report: Dict[str, Any] = {
-        'checked_at_ms': get_ny_time_millis(),
-        'consistency': consistency.asdict(summary) if summary is not None else None,
-        'consistency_error': consistency_error,
-        'user_stream': freshness,
+        'checked_at_ms': get_ny_time_millis()
+        'consistency': consistency.asdict(summary) if summary is not None else None
+        'consistency_error': consistency_error
+        'user_stream': freshness
         # P3.3-ops-complete: retention guard report included in health snapshot
-        'retention_guard': retention_guard,
-        'overall_status': overall,
+        'retention_guard': retention_guard
+        'overall_status': overall
     }
     # P3.3-autonomy: derive autonomy recommendations and embed in report
     report['autonomy_recommendations'] = build_autonomy_recommendations(report)
@@ -275,10 +275,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         other_mm = [m for m in raw_mm if m.get('category') != 'presence']
         if len(presence_mm) > 0:
             other_mm.append({
-                'category': 'presence',
-                'detail': f'{len(presence_mm)} sid(s) missing from at least two mirrors (suppressed)',
-                'severity': 'warning',
-                'sid': '__summary__',
+                'category': 'presence'
+                'detail': f'{len(presence_mm)} sid(s) missing from at least two mirrors (suppressed)'
+                'severity': 'warning'
+                'sid': '__summary__'
             })
         compact_report = dict(compact_report)
         compact_report['consistency'] = dict(compact_report['consistency'])

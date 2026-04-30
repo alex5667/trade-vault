@@ -30,12 +30,12 @@ class TcaKeyDims:
 
     def norm(self) -> "TcaKeyDims":
         return TcaKeyDims(
-            sym=str(self.sym).upper(),
-            venue=str(self.venue).lower(),
-            session=str(self.session),
-            tf=str(self.tf),
-            kind=str(self.kind),
-            side=str(self.side).upper(),
+            sym=str(self.sym).upper()
+            venue=str(self.venue).lower()
+            session=str(self.session)
+            tf=str(self.tf)
+            kind=str(self.kind)
+            side=str(self.side).upper()
         )
 
 
@@ -47,12 +47,12 @@ def make_key(metric: str, stat: str, dims: TcaKeyDims, *, delta_sec: Optional[in
 
 
 async def write_rollups(
-    *,
-    redis: Any,
-    dims: TcaKeyDims,
-    rollups: Dict[str, float],
-    ttl_sec: int,
-    delta_sec: Optional[int] = None,
+    *
+    redis: Any
+    dims: TcaKeyDims
+    rollups: Dict[str, float]
+    ttl_sec: int
+    delta_sec: Optional[int] = None
 ) -> None:
     """Write a small set of rollups into Redis.
 

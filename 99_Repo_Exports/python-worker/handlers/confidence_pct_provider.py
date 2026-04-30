@@ -52,9 +52,9 @@ def _fallback_pct_from_final_score(final_score: float, *, cap_pct: float) -> flo
 
 
 def build_confidence_pct_fn(
-    calibrator: Optional[Any],
-    *,
-    cap_pct: float = 95.0,
+    calibrator: Optional[Any]
+    *
+    cap_pct: float = 95.0
 ) -> Callable[[str, str, float, int], float]:
     """
     Returns a single callable for the hot path:

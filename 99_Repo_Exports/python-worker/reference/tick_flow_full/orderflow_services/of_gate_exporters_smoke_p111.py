@@ -33,8 +33,8 @@ class TargetSpec:
 
 
 DEFAULT_TARGETS: List[TargetSpec] = [
-    TargetSpec("archiver", "of-gate-archiver-exporter:9152", "of_gate_archiver_last_run_ts_ms"),
-    TargetSpec("dlq", "of-gate-dlq-exporter:9154", "of_gate_dlq_len"),
+    TargetSpec("archiver", "of-gate-archiver-exporter:9152", "of_gate_archiver_last_run_ts_ms")
+    TargetSpec("dlq", "of-gate-dlq-exporter:9154", "of_gate_dlq_len")
 ]
 
 
@@ -109,10 +109,10 @@ def main() -> int:
             if spec.must_contain and (spec.must_contain not in body):
                 failures.append(
                     {
-                        "name": spec.name,
-                        "target": spec.endpoint,
-                        "url": url,
-                        "err": f"missing_metric:{spec.must_contain}",
+                        "name": spec.name
+                        "target": spec.endpoint
+                        "url": url
+                        "err": f"missing_metric:{spec.must_contain}"
                     }
                 )
         except HTTPError as e:

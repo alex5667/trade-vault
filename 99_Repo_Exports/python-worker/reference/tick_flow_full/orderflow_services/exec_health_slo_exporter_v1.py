@@ -13,9 +13,9 @@ from prometheus_client import Gauge, start_http_server
 
 SCOPES = ("edge", "pipeline", "entry_policy")
 THR_METRICS = (
-    "threshold_is_p95_bps",
-    "threshold_perm_impact_p95_bps",
-    "threshold_realized_spread_p50_bps",
+    "threshold_is_p95_bps"
+    "threshold_perm_impact_p95_bps"
+    "threshold_realized_spread_p50_bps"
 )
 OUTCOMES = ("apply", "veto", "pass")
 

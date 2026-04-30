@@ -256,37 +256,37 @@ def _compute_thresholds_for_metric(values: List[float], *, preset: Preset, kind:
     hard = max(p_hard, med + preset.k_hard * mad, soft)
 
     out: Dict[str, Any] = {
-        "n": n,
-        "min": float(xs[0]),
-        "max": float(xs[-1]),
-        "median": float(med),
-        "mad": float(mad),
-        "p95": float(_quantile_sorted(xs, 0.95)),
-        "p99": float(_quantile_sorted(xs, 0.99)),
-        "p999": float(_quantile_sorted(xs, 0.999)),
-        "p9999": float(_quantile_sorted(xs, 0.9999)),
+        "n": n
+        "min": float(xs[0])
+        "max": float(xs[-1])
+        "median": float(med)
+        "mad": float(mad)
+        "p95": float(_quantile_sorted(xs, 0.95))
+        "p99": float(_quantile_sorted(xs, 0.99))
+        "p999": float(_quantile_sorted(xs, 0.999))
+        "p9999": float(_quantile_sorted(xs, 0.9999))
     }
 
     if kind == "ema":
         soft = _cap01(soft)
         hard = _cap01(hard)
         out.update({
-            "soft": float(soft),
-            "hard": float(hard),
-            "share_above_soft": float(sum(1 for x in xs if x > soft) / n),
-            "share_above_hard": float(sum(1 for x in xs if x > hard) / n),
+            "soft": float(soft)
+            "hard": float(hard)
+            "share_above_soft": float(sum(1 for x in xs if x > soft) / n)
+            "share_above_hard": float(sum(1 for x in xs if x > hard) / n)
         })
         return out
 
     # ms-like
     ext = max(p_ext, med + preset.k_ext * mad, hard)
     out.update({
-        "soft": float(soft),
-        "hard": float(hard),
-        "extreme": float(ext),
-        "share_above_soft": float(sum(1 for x in xs if x > soft) / n),
-        "share_above_hard": float(sum(1 for x in xs if x > hard) / n),
-        "share_above_extreme": float(sum(1 for x in xs if x > ext) / n),
+        "soft": float(soft)
+        "hard": float(hard)
+        "extreme": float(ext)
+        "share_above_soft": float(sum(1 for x in xs if x > soft) / n)
+        "share_above_hard": float(sum(1 for x in xs if x > hard) / n)
+        "share_above_extreme": float(sum(1 for x in xs if x > ext) / n)
     })
     return out
 
@@ -311,34 +311,34 @@ def _write_out(path: str, obj: Dict[str, Any]) -> None:
 def main(argv: Optional[Iterable[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Estimate DQ thresholds from NDJSON archives")
     ap.add_argument(
-        "--in",
-        dest="inp",
-        required=True,
-        nargs="+",
-        help="NDJSON file(s) or directory(ies). Supports .gz.",
+        "--in"
+        dest="inp"
+        required=True
+        nargs="+"
+        help="NDJSON file(s) or directory(ies). Supports .gz."
     )
     ap.add_argument("--out", required=True, help="Output path (.json/.yml)")
     ap.add_argument(
-        "--by-hour",
-        action="store_true",
-        help="Also compute per UTC hour-of-day buckets (0..23).",
+        "--by-hour"
+        action="store_true"
+        help="Also compute per UTC hour-of-day buckets (0..23)."
     )
     ap.add_argument(
-        "--min-n",
-        type=int,
-        default=200,
-        help="Minimum sample size per group to emit recommendations.",
+        "--min-n"
+        type=int
+        default=200
+        help="Minimum sample size per group to emit recommendations."
     )
     ap.add_argument(
-        "--max-records",
-        type=int,
-        default=0,
-        help="Optional cap (0=unlimited).",
+        "--max-records"
+        type=int
+        default=0
+        help="Optional cap (0=unlimited)."
     )
     ap.add_argument(
-        "--metrics",
-        default="tick_gap_p95_ms,tick_missing_seq_ema,book_missing_seq_ema",
-        help="Comma-separated metric keys to extract.",
+        "--metrics"
+        default="tick_gap_p95_ms,tick_missing_seq_ema,book_missing_seq_ema"
+        help="Comma-separated metric keys to extract."
     )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
@@ -404,24 +404,24 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 out[m] = {"n": len(vs), "skipped": "min_n"}
                 continue
             out[m] = {
-                "safe": _compute_thresholds_for_metric(vs, preset=SAFE, kind=metric_kind[m]),
-                "strict": _compute_thresholds_for_metric(vs, preset=STRICT, kind=metric_kind[m]),
+                "safe": _compute_thresholds_for_metric(vs, preset=SAFE, kind=metric_kind[m])
+                "strict": _compute_thresholds_for_metric(vs, preset=STRICT, kind=metric_kind[m])
             }
         return out
 
     out: Dict[str, Any] = {
-        "version": "eval_dq_thresholds_from_decision_records_v1",
-        "generated_at_ms": _now_ms(),
+        "version": "eval_dq_thresholds_from_decision_records_v1"
+        "generated_at_ms": _now_ms()
         "inputs": {
-            "paths": [str(p) for p in paths],
-            "scanned": scanned,
-            "used": used,
-            "missing_all_metrics": missing_all,
-            "metrics": metrics,
-            "min_n": int(args.min_n),
-            "by_hour": bool(args.by_hour),
-        },
-        "by_symbol": {},
+            "paths": [str(p) for p in paths]
+            "scanned": scanned
+            "used": used
+            "missing_all_metrics": missing_all
+            "metrics": metrics
+            "min_n": int(args.min_n)
+            "by_hour": bool(args.by_hour)
+        }
+        "by_symbol": {}
     }
 
     # Per symbol

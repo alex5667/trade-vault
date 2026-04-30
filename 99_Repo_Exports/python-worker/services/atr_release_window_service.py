@@ -23,20 +23,20 @@ ATR_RELEASE_WINDOW_POLICY_ENABLE = os.getenv("ATR_RELEASE_WINDOW_POLICY_ENABLE",
 ATR_RELEASE_WINDOW_POLICY_ENFORCE = os.getenv("ATR_RELEASE_WINDOW_POLICY_ENFORCE", "0") == "1"
 
 CHANGE_CLASSES = [
-    "LOW_RISK_CONFIG",
-    "LOW_RISK_OBSERVABILITY",
-    "MEDIUM_POLICY",
-    "HIGH_GOVERNANCE",
-    "CRITICAL_RUNTIME_GATING",
-    "CRITICAL_EXECUTION_TOUCHING",
+    "LOW_RISK_CONFIG"
+    "LOW_RISK_OBSERVABILITY"
+    "MEDIUM_POLICY"
+    "HIGH_GOVERNANCE"
+    "CRITICAL_RUNTIME_GATING"
+    "CRITICAL_EXECUTION_TOUCHING"
     "PROTECTIVE_PATH_TOUCHING"
 ]
 
 WINDOW_KINDS = [
-    "standard",
-    "governance",
-    "runtime_critical",
-    "execution_critical",
+    "standard"
+    "governance"
+    "runtime_critical"
+    "execution_critical"
     "protective_isolated"
 ]
 
@@ -78,31 +78,31 @@ def build_pre_release_checklist(change_id: str, change_class: str, target_scope:
     
     checks = {
         "control_plane": {
-            "graph_consistency_cert": "passed",
-            "projection_consistency_cert": "passed",
+            "graph_consistency_cert": "passed"
+            "projection_consistency_cert": "passed"
             "open_critical_drifts": 0
-        },
+        }
         "signal_gates": {
-            "book_stale_spike": False,
-            "atr_unavailable_spike": False,
+            "book_stale_spike": False
+            "atr_unavailable_spike": False
             "negative_ev_shift": False
-        },
+        }
         "execution": {
-            "mt5_connection_burst": False,
-            "requote_burst": False,
+            "mt5_connection_burst": False
+            "requote_burst": False
             "slippage_shift": False
-        },
+        }
         "protective": {
             "open_protective_critical_drift": 0
-        },
+        }
         "rollback_ready": {
-            "rollback_bundle_prepared": True,
+            "rollback_bundle_prepared": True
             "rollback_owner_present": True
         }
     }
     
     summary = {
-        "window_kind": find_eligible_window(change_class),
+        "window_kind": find_eligible_window(change_class)
         "decision": "eligible_for_release_window"
     }
 
@@ -119,12 +119,12 @@ def build_pre_release_checklist(change_id: str, change_class: str, target_scope:
 
     PRE_RELEASE_CHECKLISTS_TOTAL.labels(change_class=change_class, status="ready").inc()
     return {
-        "checklist_id": checklist_id,
-        "change_id": change_id,
-        "change_class": change_class,
-        "target_scope": target_scope,
-        "status": "ready",
-        "checks": checks,
+        "checklist_id": checklist_id
+        "change_id": change_id
+        "change_class": change_class
+        "target_scope": target_scope
+        "status": "ready"
+        "checks": checks
         "summary": summary
     }
 
@@ -181,12 +181,12 @@ def evaluate_release_blockers(checklist_id: str) -> List[str]:
 
 def get_required_signoffs(change_class: str) -> List[str]:
     matrix = {
-        "LOW_RISK_CONFIG": ["owner"],
-        "LOW_RISK_OBSERVABILITY": ["owner"],
-        "MEDIUM_POLICY": ["owner", "oncall"],
-        "HIGH_GOVERNANCE": ["owner", "control_plane_owner", "oncall"],
-        "CRITICAL_RUNTIME_GATING": ["owner", "control_plane_owner", "oncall"],
-        "CRITICAL_EXECUTION_TOUCHING": ["owner", "execution_owner", "oncall"],
+        "LOW_RISK_CONFIG": ["owner"]
+        "LOW_RISK_OBSERVABILITY": ["owner"]
+        "MEDIUM_POLICY": ["owner", "oncall"]
+        "HIGH_GOVERNANCE": ["owner", "control_plane_owner", "oncall"]
+        "CRITICAL_RUNTIME_GATING": ["owner", "control_plane_owner", "oncall"]
+        "CRITICAL_EXECUTION_TOUCHING": ["owner", "execution_owner", "oncall"]
         "PROTECTIVE_PATH_TOUCHING": ["owner", "protective_owner", "oncall"]
     }
     return matrix.get(change_class, ["owner"])

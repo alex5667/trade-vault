@@ -75,21 +75,21 @@ end
 -- XADD to the main signal stream
 local xadd_ok, entry_id
 if maxlen > 0 then
-  xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*',
-    'signal_id', ARGV[3],
-    'kind',      ARGV[4],
-    'symbol',    ARGV[5],
-    'ts',        ARGV[6],
-    'payload',   ARGV[7],
+  xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*'
+    'signal_id', ARGV[3]
+    'kind',      ARGV[4]
+    'symbol',    ARGV[5]
+    'ts',        ARGV[6]
+    'payload',   ARGV[7]
     'data',      ARGV[7]
   )
 else
-  xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], '*',
-    'signal_id', ARGV[3],
-    'kind',      ARGV[4],
-    'symbol',    ARGV[5],
-    'ts',        ARGV[6],
-    'payload',   ARGV[7],
+  xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], '*'
+    'signal_id', ARGV[3]
+    'kind',      ARGV[4]
+    'symbol',    ARGV[5]
+    'ts',        ARGV[6]
+    'payload',   ARGV[7]
     'data',      ARGV[7]
   )
 end
@@ -113,14 +113,14 @@ end
 -- P3: Atomically mirror INTENT_PUBLISHED fact into orders:exec (source-of-truth event log)
 local event_json = ARGV[13]
 if KEYS[5] ~= '__none__' and event_json ~= nil and event_json ~= '' then
-  redis.call('XADD', KEYS[5], '*',
-    'signal_id',     ARGV[3],
-    'kind',          ARGV[4],
-    'symbol',        ARGV[5],
-    'ts',            ARGV[6],
-    'event_type',    'INTENT_PUBLISHED',
-    'main_entry_id', entry_id,
-    'payload',       event_json,
+  redis.call('XADD', KEYS[5], '*'
+    'signal_id',     ARGV[3]
+    'kind',          ARGV[4]
+    'symbol',        ARGV[5]
+    'ts',            ARGV[6]
+    'event_type',    'INTENT_PUBLISHED'
+    'main_entry_id', entry_id
+    'payload',       event_json
     'data',          event_json
   )
 end
@@ -164,23 +164,23 @@ def _defaults() -> Dict[str, int]:
     maxlen = int(os.getenv("OUTBOX_STREAM_MAXLEN", "100000"))
     meta_ttl_sec = int(os.getenv("OUTBOX_META_TTL_SEC", str(dedup_ttl_sec)) or dedup_ttl_sec)
     return {
-        "dedup_ttl_sec": int(dedup_ttl_sec),
-        "pending_ttl_sec": int(pending_ttl_sec),
-        "maxlen": int(maxlen),
-        "meta_ttl_sec": int(meta_ttl_sec),
+        "dedup_ttl_sec": int(dedup_ttl_sec)
+        "pending_ttl_sec": int(pending_ttl_sec)
+        "maxlen": int(maxlen)
+        "meta_ttl_sec": int(meta_ttl_sec)
     }
 
 
 def _prepare_contract_payload(
-    signal_id: str,
-    kind: str,
-    symbol: str,
-    payload_obj: Dict[str, Any],
-    meta_obj: Optional[Dict[str, Any]],
+    signal_id: str
+    kind: str
+    symbol: str
+    payload_obj: Dict[str, Any]
+    meta_obj: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """Normalize payload into a concrete execution intent before XADD.
 
-    Stamps missing contract fields (schema_ver, decision_id, execution_policy,
+    Stamps missing contract fields (schema_ver, decision_id, execution_policy
     risk_snapshot, working_type_policy, exit_policy, ts_event_ms, ts_publish_ms)
     using setdefault so caller-provided values are never overwritten.
     """
@@ -191,34 +191,34 @@ def _prepare_contract_payload(
     payload.setdefault("kind", str(kind or payload.get("kind") or ""))
     payload.setdefault("symbol", str(symbol or payload.get("symbol") or ""))
     payload.setdefault(
-        "schema_ver",
-        str(payload.get("schema_ver") or meta.get("schema_ver") or os.getenv("OUTBOX_SCHEMA_VER", "execution_intent:v1")),
+        "schema_ver"
+        str(payload.get("schema_ver") or meta.get("schema_ver") or os.getenv("OUTBOX_SCHEMA_VER", "execution_intent:v1"))
     )
     payload.setdefault("decision_id", str(payload.get("decision_id") or meta.get("decision_id") or signal_id))
     payload.setdefault(
-        "execution_policy",
-        str(payload.get("execution_policy") or meta.get("execution_policy") or os.getenv("EXECUTION_POLICY_DEFAULT", "SAFETY_FIRST")).upper(),
+        "execution_policy"
+        str(payload.get("execution_policy") or meta.get("execution_policy") or os.getenv("EXECUTION_POLICY_DEFAULT", "SAFETY_FIRST")).upper()
     )
     payload.setdefault("producer_instance_id", str(payload.get("producer_instance_id") or meta.get("producer_instance_id") or _producer_instance_id()))
     payload.setdefault("ts_event_ms", utc_epoch_ms(payload.get("ts_event_ms") or meta.get("ts_event_ms")))
     payload["ts_publish_ms"] = now_ms   # always overwrite with real publish time
     payload.setdefault("mono_ms", monotonic_ms())
     payload.setdefault(
-        "working_type_policy",
+        "working_type_policy"
         meta.get("working_type_policy") or payload.get("working_type_policy") or {
-            "sl": os.getenv("SL_WORKING_TYPE", "MARK_PRICE"),
-            "tp_market": os.getenv("TP_MARKET_WORKING_TYPE", "MARK_PRICE"),
-            "tp_limit_trigger": os.getenv("TP_LIMIT_TRIGGER_WORKING_TYPE", "MARK_PRICE"),
-            "trail": os.getenv("TRAIL_WORKING_TYPE", "MARK_PRICE"),
-        },
+            "sl": os.getenv("SL_WORKING_TYPE", "MARK_PRICE")
+            "tp_market": os.getenv("TP_MARKET_WORKING_TYPE", "MARK_PRICE")
+            "tp_limit_trigger": os.getenv("TP_LIMIT_TRIGGER_WORKING_TYPE", "MARK_PRICE")
+            "trail": os.getenv("TRAIL_WORKING_TYPE", "MARK_PRICE")
+        }
     )
     payload.setdefault(
-        "exit_policy",
+        "exit_policy"
         meta.get("exit_policy") or payload.get("exit_policy") or {
-            "mode": str(os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST")).upper(),
-            "watchdog_timeout_ms": int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000")),
-            "market_fallback": str(os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1")).strip().lower() in {"1", "true", "yes", "on"},
-        },
+            "mode": str(os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST")).upper()
+            "watchdog_timeout_ms": int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000"))
+            "market_fallback": str(os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1")).strip().lower() in {"1", "true", "yes", "on"}
+        }
     )
     payload.setdefault("risk_snapshot", meta.get("risk_snapshot") or payload.get("risk_snapshot") or {})
     return payload
@@ -227,33 +227,33 @@ def _prepare_contract_payload(
 def _build_exec_event(signal_id: str, stream_key: str, payload_obj: Dict[str, Any]) -> Dict[str, Any]:
     """Build the INTENT_PUBLISHED fact for the orders:exec SoT event log."""
     return {
-        "event_type": "INTENT_PUBLISHED",
-        "sid": str(payload_obj.get("sid") or signal_id),
-        "decision_id": str(payload_obj.get("decision_id") or signal_id),
-        "schema_ver": str(payload_obj.get("schema_ver") or "execution_intent:v1"),
-        "kind": str(payload_obj.get("kind") or ""),
-        "symbol": str(payload_obj.get("symbol") or ""),
-        "execution_policy": str(payload_obj.get("execution_policy") or "SAFETY_FIRST"),
-        "stream_key": str(stream_key),
-        "ts_event_ms": int(payload_obj.get("ts_event_ms") or utc_epoch_ms()),
-        "ts_publish_ms": int(payload_obj.get("ts_publish_ms") or utc_epoch_ms()),
-        "producer_instance_id": str(payload_obj.get("producer_instance_id") or _producer_instance_id()),
-        "risk_snapshot": payload_obj.get("risk_snapshot") or {},
-        "working_type_policy": payload_obj.get("working_type_policy") or {},
-        "exit_policy": payload_obj.get("exit_policy") or {},
+        "event_type": "INTENT_PUBLISHED"
+        "sid": str(payload_obj.get("sid") or signal_id)
+        "decision_id": str(payload_obj.get("decision_id") or signal_id)
+        "schema_ver": str(payload_obj.get("schema_ver") or "execution_intent:v1")
+        "kind": str(payload_obj.get("kind") or "")
+        "symbol": str(payload_obj.get("symbol") or "")
+        "execution_policy": str(payload_obj.get("execution_policy") or "SAFETY_FIRST")
+        "stream_key": str(stream_key)
+        "ts_event_ms": int(payload_obj.get("ts_event_ms") or utc_epoch_ms())
+        "ts_publish_ms": int(payload_obj.get("ts_publish_ms") or utc_epoch_ms())
+        "producer_instance_id": str(payload_obj.get("producer_instance_id") or _producer_instance_id())
+        "risk_snapshot": payload_obj.get("risk_snapshot") or {}
+        "working_type_policy": payload_obj.get("working_type_policy") or {}
+        "exit_policy": payload_obj.get("exit_policy") or {}
     }
 
 
 def atomic_xadd_sync(
-    redis: Any,
-    *,
-    stream_key: str,
-    signal_id: str,
-    payload_obj: Dict[str, Any],
-    kind: str = "",
-    symbol: str = "",
-    ts: str = "",
-    meta_obj: Optional[Dict[str, Any]] = None,
+    redis: Any
+    *
+    stream_key: str
+    signal_id: str
+    payload_obj: Dict[str, Any]
+    kind: str = ""
+    symbol: str = ""
+    ts: str = ""
+    meta_obj: Optional[Dict[str, Any]] = None
 ) -> Optional[str]:
     """Sync atomic XADD with P3 execution-intent contract normalization.
 
@@ -269,25 +269,25 @@ def atomic_xadd_sync(
     event_stream_key = _event_stream_key()
     event_json = _dumps(_build_exec_event(signal_id, stream_key, payload_obj)) if event_stream_key != "__none__" else ""
     res = redis.eval(
-        _LUA_ATOMIC_XADD,
+        _LUA_ATOMIC_XADD
         5,                          # KEYS count (P3: added KEYS[5] = event_stream_key)
-        _dedup_key(signal_id),
+        _dedup_key(signal_id)
         "__none__",                 # semantic dedup disabled (can be added later)
-        stream_key,
-        meta_key,
+        stream_key
+        meta_key
         event_stream_key,           # KEYS[5]: orders:exec or __none__
-        int(d["dedup_ttl_sec"]),
-        int(d["pending_ttl_sec"]),
-        str(signal_id),
-        str(kind or payload_obj.get("kind") or ""),
-        str(symbol or payload_obj.get("symbol") or ""),
-        str(ts or payload_obj.get("ts_event_ms") or ""),
-        payload_json,
-        int(d["maxlen"]),
-        1,
-        1,
-        meta_json,
-        int(d["meta_ttl_sec"] if meta_json else 0),
+        int(d["dedup_ttl_sec"])
+        int(d["pending_ttl_sec"])
+        str(signal_id)
+        str(kind or payload_obj.get("kind") or "")
+        str(symbol or payload_obj.get("symbol") or "")
+        str(ts or payload_obj.get("ts_event_ms") or "")
+        payload_json
+        int(d["maxlen"])
+        1
+        1
+        meta_json
+        int(d["meta_ttl_sec"] if meta_json else 0)
         event_json,                 # ARGV[13]: INTENT_PUBLISHED fact
     )
     if isinstance(res, (list, tuple)) and res:
@@ -305,15 +305,15 @@ def atomic_xadd_sync(
 
 
 async def atomic_xadd_async(
-    redis: Any,
-    *,
-    stream_key: str,
-    signal_id: str,
-    payload_obj: Dict[str, Any],
-    kind: str = "",
-    symbol: str = "",
-    ts: str = "",
-    meta_obj: Optional[Dict[str, Any]] = None,
+    redis: Any
+    *
+    stream_key: str
+    signal_id: str
+    payload_obj: Dict[str, Any]
+    kind: str = ""
+    symbol: str = ""
+    ts: str = ""
+    meta_obj: Optional[Dict[str, Any]] = None
 ) -> Optional[str]:
     """Async version (redis.asyncio.Redis) with P3 execution-intent contract normalization.
 
@@ -329,25 +329,25 @@ async def atomic_xadd_async(
     event_stream_key = _event_stream_key()
     event_json = _dumps(_build_exec_event(signal_id, stream_key, payload_obj)) if event_stream_key != "__none__" else ""
     res = await redis.eval(
-        _LUA_ATOMIC_XADD,
+        _LUA_ATOMIC_XADD
         5,                          # KEYS count (P3: added KEYS[5] = event_stream_key)
-        _dedup_key(signal_id),
+        _dedup_key(signal_id)
         "__none__",                 # semantic dedup disabled (can be added later)
-        stream_key,
-        meta_key,
+        stream_key
+        meta_key
         event_stream_key,           # KEYS[5]: orders:exec or __none__
-        int(d["dedup_ttl_sec"]),
-        int(d["pending_ttl_sec"]),
-        str(signal_id),
-        str(kind or payload_obj.get("kind") or ""),
-        str(symbol or payload_obj.get("symbol") or ""),
-        str(ts or payload_obj.get("ts_event_ms") or ""),
-        payload_json,
-        int(d["maxlen"]),
-        1,
-        1,
-        meta_json,
-        int(d["meta_ttl_sec"] if meta_json else 0),
+        int(d["dedup_ttl_sec"])
+        int(d["pending_ttl_sec"])
+        str(signal_id)
+        str(kind or payload_obj.get("kind") or "")
+        str(symbol or payload_obj.get("symbol") or "")
+        str(ts or payload_obj.get("ts_event_ms") or "")
+        payload_json
+        int(d["maxlen"])
+        1
+        1
+        meta_json
+        int(d["meta_ttl_sec"] if meta_json else 0)
         event_json,                 # ARGV[13]: INTENT_PUBLISHED fact
     )
     if isinstance(res, (list, tuple)) and res:

@@ -29,14 +29,14 @@ V2 изменения:
     from services.posttrade.redis_stream_dlq import publish_dlq
 
     publish_dlq(
-        redis_client=self.r,
-        dlq_stream="events:trades:dlq",
-        reason="position_closed_contract_violation",
-        error="; ".join(errs),
-        src_stream="events:trades",
-        src_entry_id="*",
-        payload=stream_payload,
-        maxlen=200_000,
+        redis_client=self.r
+        dlq_stream="events:trades:dlq"
+        reason="position_closed_contract_violation"
+        error="; ".join(errs)
+        src_stream="events:trades"
+        src_entry_id="*"
+        payload=stream_payload
+        maxlen=200_000
     )
 """
 
@@ -53,20 +53,20 @@ log = logging.getLogger("redis_stream_dlq")
 
 
 async def publish_dlq(
-    redis_client: Any,
-    *,
-    dlq_stream: str,
-    reason: str,
-    error: str,
-    src_stream: Optional[str] = None,
-    src_entry_id: str = "*",
-    payload: Optional[Dict[str, Any]] = None,
-    maxlen: int = 200_000,
-    approximate: bool = True,
-    payload_max_bytes: int = 8192,
+    redis_client: Any
+    *
+    dlq_stream: str
+    reason: str
+    error: str
+    src_stream: Optional[str] = None
+    src_entry_id: str = "*"
+    payload: Optional[Dict[str, Any]] = None
+    maxlen: int = 200_000
+    approximate: bool = True
+    payload_max_bytes: int = 8192
     stream: Optional[str] = None,    # Alias for src_stream (V1 compat)
     entry_id: Optional[str] = "*",   # Alias for src_entry_id (V1 compat)
-    **kwargs: Any,
+    **kwargs: Any
 ) -> Optional[str]:
     """Опубликовать ошибочное событие в DLQ-stream (V2 Async API).
 
@@ -94,11 +94,11 @@ async def publish_dlq(
 
     try:
         dlq_entry: Dict[str, str] = {
-            "ts_ms":        str(get_ny_time_millis()),
-            "reason":       str(reason or "unknown"),
-            "error":        str(error or "")[:4000],
-            "src_stream":   str(s_stream or ""),
-            "src_entry_id": str(s_entry_id or "*"),
+            "ts_ms":        str(get_ny_time_millis())
+            "reason":       str(reason or "unknown")
+            "error":        str(error or "")[:4000]
+            "src_stream":   str(s_stream or "")
+            "src_entry_id": str(s_entry_id or "*")
         }
 
         if payload is not None:
@@ -112,46 +112,46 @@ async def publish_dlq(
                 dlq_entry["payload"] = "{}"
 
         result = await redis_client.xadd(
-            dlq_stream,
-            dlq_entry,
-            maxlen=int(maxlen),
-            approximate=bool(approximate),
+            dlq_stream
+            dlq_entry
+            maxlen=int(maxlen)
+            approximate=bool(approximate)
         )
 
         log.warning(
-            "⚠️  DLQ publish (async) | stream=%s reason=%s entry=%s | %s",
-            dlq_stream,
-            reason,
-            result,
-            str(error)[:200],
+            "⚠️  DLQ publish (async) | stream=%s reason=%s entry=%s | %s"
+            dlq_stream
+            reason
+            result
+            str(error)[:200]
         )
         return result
 
     except Exception as exc:
         log.error(
-            "❌ Failed to publish DLQ entry (async) | stream=%s reason=%s: %s",
-            dlq_stream,
-            reason,
-            exc,
+            "❌ Failed to publish DLQ entry (async) | stream=%s reason=%s: %s"
+            dlq_stream
+            reason
+            exc
         )
         return None
 
 
 def publish_dlq_sync(
-    redis_client: Any,
-    *,
-    dlq_stream: str,
-    reason: str,
-    error: str,
-    src_stream: Optional[str] = None,
-    src_entry_id: str = "*",
-    payload: Optional[Dict[str, Any]] = None,
-    maxlen: int = 200_000,
-    approximate: bool = True,
-    payload_max_bytes: int = 8192,
+    redis_client: Any
+    *
+    dlq_stream: str
+    reason: str
+    error: str
+    src_stream: Optional[str] = None
+    src_entry_id: str = "*"
+    payload: Optional[Dict[str, Any]] = None
+    maxlen: int = 200_000
+    approximate: bool = True
+    payload_max_bytes: int = 8192
     stream: Optional[str] = None,    # Alias for src_stream (V1 compat)
     entry_id: Optional[str] = "*",   # Alias for src_entry_id (V1 compat)
-    **kwargs: Any,
+    **kwargs: Any
 ) -> Optional[str]:
     """Синхронная версия publish_dlq для рабочих процессов без asyncio."""
     # Backward compatibility logic
@@ -160,11 +160,11 @@ def publish_dlq_sync(
 
     try:
         dlq_entry: Dict[str, str] = {
-            "ts_ms":        str(get_ny_time_millis()),
-            "reason":       str(reason or "unknown"),
-            "error":        str(error or "")[:4000],
-            "src_stream":   str(s_stream or ""),
-            "src_entry_id": str(s_entry_id or "*"),
+            "ts_ms":        str(get_ny_time_millis())
+            "reason":       str(reason or "unknown")
+            "error":        str(error or "")[:4000]
+            "src_stream":   str(s_stream or "")
+            "src_entry_id": str(s_entry_id or "*")
         }
 
         if payload is not None:
@@ -178,27 +178,27 @@ def publish_dlq_sync(
                 dlq_entry["payload"] = "{}"
 
         result = redis_client.xadd(
-            dlq_stream,
-            dlq_entry,
-            maxlen=int(maxlen),
-            approximate=bool(approximate),
+            dlq_stream
+            dlq_entry
+            maxlen=int(maxlen)
+            approximate=bool(approximate)
         )
 
         log.warning(
-            "⚠️  DLQ publish (sync) | stream=%s reason=%s entry=%s | %s",
-            dlq_stream,
-            reason,
-            result,
-            str(error)[:200],
+            "⚠️  DLQ publish (sync) | stream=%s reason=%s entry=%s | %s"
+            dlq_stream
+            reason
+            result
+            str(error)[:200]
         )
         return result
 
     except Exception as exc:
         log.error(
-            "❌ Failed to publish DLQ entry (sync) | stream=%s reason=%s: %s",
-            dlq_stream,
-            reason,
-            exc,
+            "❌ Failed to publish DLQ entry (sync) | stream=%s reason=%s: %s"
+            dlq_stream
+            reason
+            exc
         )
         return None
 

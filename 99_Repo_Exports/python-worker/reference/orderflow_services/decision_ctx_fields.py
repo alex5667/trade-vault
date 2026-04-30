@@ -134,11 +134,11 @@ def _extract_top5_book(ctx: Dict[str, Any], runtime: Any = None) -> Tuple[Option
 
 
 def ensure_decision_ctx_fields(
-    ctx: Dict[str, Any],
-    *,
-    indicators: Optional[Dict[str, Any]] = None,
-    runtime: Any = None,
-    now_ms: Optional[int] = None,
+    ctx: Dict[str, Any]
+    *
+    indicators: Optional[Dict[str, Any]] = None
+    runtime: Any = None
+    now_ms: Optional[int] = None
 ) -> None:
     """Enrich ctx in-place with decision_* fields (best-effort, fail-open)."""
     try:

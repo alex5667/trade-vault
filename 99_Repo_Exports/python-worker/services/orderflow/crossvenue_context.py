@@ -81,21 +81,21 @@ def from_dict(payload: Dict[str, Any]) -> Optional[CrossVenueContextSnapshot]:
         if not symbol:
             return None
         return CrossVenueContextSnapshot(
-            schema_version=int(payload.get("schema_version") or SCHEMA_VERSION),
-            symbol=symbol,
-            ts_ms=int(payload.get("ts_ms") or 0),
-            primary_venue=_s(payload.get("primary_venue"), "binance_usdm"),
+            schema_version=int(payload.get("schema_version") or SCHEMA_VERSION)
+            symbol=symbol
+            ts_ms=int(payload.get("ts_ms") or 0)
+            primary_venue=_s(payload.get("primary_venue"), "binance_usdm")
 
-            cross_venue_mid_spread_bps=_f(payload.get("cross_venue_mid_spread_bps")),
-            binance_vs_coinbase_mid_bps=_f(payload.get("binance_vs_coinbase_mid_bps")),
-            binance_vs_kraken_mid_bps=_f(payload.get("binance_vs_kraken_mid_bps")),
-            binance_vs_okx_mid_bps=_f(payload.get("binance_vs_okx_mid_bps")),
+            cross_venue_mid_spread_bps=_f(payload.get("cross_venue_mid_spread_bps"))
+            binance_vs_coinbase_mid_bps=_f(payload.get("binance_vs_coinbase_mid_bps"))
+            binance_vs_kraken_mid_bps=_f(payload.get("binance_vs_kraken_mid_bps"))
+            binance_vs_okx_mid_bps=_f(payload.get("binance_vs_okx_mid_bps"))
 
-            cross_venue_direction_agree=_f(payload.get("cross_venue_direction_agree")),
-            cross_venue_trade_imbalance=_f(payload.get("cross_venue_trade_imbalance")),
-            venue_dislocation_z=_f(payload.get("venue_dislocation_z")),
-            venue_stale_count=int(payload.get("venue_stale_count") or 0),
-            quality_status=_s(payload.get("quality_status"), "UNKNOWN") or "UNKNOWN",
+            cross_venue_direction_agree=_f(payload.get("cross_venue_direction_agree"))
+            cross_venue_trade_imbalance=_f(payload.get("cross_venue_trade_imbalance"))
+            venue_dislocation_z=_f(payload.get("venue_dislocation_z"))
+            venue_stale_count=int(payload.get("venue_stale_count") or 0)
+            quality_status=_s(payload.get("quality_status"), "UNKNOWN") or "UNKNOWN"
         )
     except Exception:
         return None
@@ -130,10 +130,10 @@ def _now_ms() -> int:
 
 
 async def aread_crossvenue_context(
-    redis,
-    *,
-    symbol: str,
-    prefix: str = DEFAULT_CTX_PREFIX,
+    redis
+    *
+    symbol: str
+    prefix: str = DEFAULT_CTX_PREFIX
 ) -> Optional[CrossVenueContextSnapshot]:
     """Read cross-venue context from Redis, with 2-second local cache.
 

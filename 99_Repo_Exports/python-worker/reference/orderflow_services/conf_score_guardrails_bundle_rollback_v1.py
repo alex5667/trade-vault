@@ -113,12 +113,12 @@ def update_pointer(bundle_dir: str, current_file_path: str, ts: int) -> None:
     # We are promoting an old bundle to be 'current'.
     # The 'prev' becomes what was just current.
     new_pointer = {
-        "current_file": fname,
-        "current_ts": ts,
-        "current_sha": "rollback_promote",
-        "updated_at_iso": datetime.now(timezone.utc).isoformat(),
-        "prev_file": prev_info.get("current_file"),
-        "prev_ts": prev_info.get("current_ts"),
+        "current_file": fname
+        "current_ts": ts
+        "current_sha": "rollback_promote"
+        "updated_at_iso": datetime.now(timezone.utc).isoformat()
+        "prev_file": prev_info.get("current_file")
+        "prev_ts": prev_info.get("current_ts")
         "note": f"Rolled back to {fname}"
     }
     

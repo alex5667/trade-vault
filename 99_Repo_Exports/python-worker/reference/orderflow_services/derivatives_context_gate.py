@@ -42,18 +42,18 @@ def _map_profile(profile: str) -> str:
 
 
 def evaluate_derivatives_context(
-    *,
-    profile: str,
-    funding_rate_z: float,
-    basis_bps: float,
-    funding_extreme: int,
-    basis_extreme: int,
-    oi_accel: int,
-    thr_funding_z: float,
-    thr_basis_bps: float,
-    require_oi_for_veto: bool,
-    tighten_mult: float,
-    tighten_cap_bps: float,
+    *
+    profile: str
+    funding_rate_z: float
+    basis_bps: float
+    funding_extreme: int
+    basis_extreme: int
+    oi_accel: int
+    thr_funding_z: float
+    thr_basis_bps: float
+    require_oi_for_veto: bool
+    tighten_mult: float
+    tighten_cap_bps: float
 ) -> DerivativesContextDecision:
     mode = _map_profile(profile)
 
@@ -98,12 +98,12 @@ def evaluate_derivatives_context(
             veto_reason = "deriv_ctx:" + ",".join(flags)
 
     return DerivativesContextDecision(
-        hit=hit,
-        mode=mode,
-        flags=flags,
-        crowding_score=float(score),
-        tighten_add_bps=float(tighten_add),
-        veto=bool(veto),
-        veto_reason=str(veto_reason),
-        caution=bool(caution),
+        hit=hit
+        mode=mode
+        flags=flags
+        crowding_score=float(score)
+        tighten_add_bps=float(tighten_add)
+        veto=bool(veto)
+        veto_reason=str(veto_reason)
+        caution=bool(caution)
     )

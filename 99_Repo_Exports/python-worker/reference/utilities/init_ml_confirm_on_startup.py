@@ -25,14 +25,14 @@ from typing import Optional
 def find_latest_model() -> Optional[str]:
     """Находит последнюю модель в стандартных местах."""
     search_paths = [
-        "/var/lib/trade/ml_models/tb_v10_4_*/model.joblib",
-        "/var/lib/trade/ml_models/*/model.joblib",
-        "/var/lib/trade/of_reports/models/meta_lr_*.json",
-        "/var/lib/trade/of_reports/models/model.joblib",
-        "/var/lib/trade/ml_models/model.joblib",
+        "/var/lib/trade/ml_models/tb_v10_4_*/model.joblib"
+        "/var/lib/trade/ml_models/*/model.joblib"
+        "/var/lib/trade/of_reports/models/meta_lr_*.json"
+        "/var/lib/trade/of_reports/models/model.joblib"
+        "/var/lib/trade/ml_models/model.joblib"
         # edge_stack_v1 champion/run paths (higher priority — listed last, sorted by mtime)
-        "/var/lib/trade/ml_models/edge_stack_v1/champions/*.joblib",
-        "/var/lib/trade/ml_models/edge_stack_v1/runs/*/*.joblib",
+        "/var/lib/trade/ml_models/edge_stack_v1/champions/*.joblib"
+        "/var/lib/trade/ml_models/edge_stack_v1/runs/*/*.joblib"
     ]
     
     all_models = []
@@ -52,8 +52,8 @@ def find_latest_model() -> Optional[str]:
     if not all_models:
         # Log diagnostic info about what directories exist
         checked_dirs = [
-            "/var/lib/trade/ml_models",
-            "/var/lib/trade/of_reports/models",
+            "/var/lib/trade/ml_models"
+            "/var/lib/trade/of_reports/models"
         ]
         for dir_path in checked_dirs:
             if os.path.exists(dir_path):
@@ -120,9 +120,9 @@ def ensure_ml_confirm_config() -> bool:
         try:
             with open(dummy_path, "w") as f:
                 json.dump({
-                    "kind": "util_mh_fastlinear_v1",
-                    "feature_cols": ["f_spread_bps"],
-                    "horizons_ms": [60000],
+                    "kind": "util_mh_fastlinear_v1"
+                    "feature_cols": ["f_spread_bps"]
+                    "horizons_ms": [60000]
                     "weights": {
                         "60000": {"intercept": 0.0, "coef": [0.0], "unc": 0.0}
                     }
@@ -135,9 +135,9 @@ def ensure_ml_confirm_config() -> bool:
             try:
                 with open(dummy_path, "w") as f:
                     json.dump({
-                        "kind": "util_mh_fastlinear_v1",
-                        "feature_cols": ["f_spread_bps"],
-                        "horizons_ms": [60000],
+                        "kind": "util_mh_fastlinear_v1"
+                        "feature_cols": ["f_spread_bps"]
+                        "horizons_ms": [60000]
                         "weights": {
                             "60000": {"intercept": 0.0, "coef": [0.0], "unc": 0.0}
                         }
@@ -176,58 +176,58 @@ def ensure_ml_confirm_config() -> bool:
     # edge_stack_v1 uses p_min / p_min_by_bucket schema — different from util_mh util_floors schema
     if kind == 'edge_stack_v1':
         cfg = {
-            'kind': 'edge_stack_v1',
-            'run_id': f'auto_init_{int(time.time())}',
-            'created_ms': get_ny_time_millis(),
-            'model_path': model_path,
-            'schema_version': 1,
-            'mode': 'SHADOW',
-            'enforce_share': 0.0,
-            'p_min': float(os.getenv('EDGE_STACK_P_MIN_DEFAULT', '0.55') or 0.55),
-            'p_min_by_bucket': {},
-            'hard_p_min_floor': float(os.getenv('EDGE_STACK_HARD_P_MIN_FLOOR', '0.0') or 0.0),
+            'kind': 'edge_stack_v1'
+            'run_id': f'auto_init_{int(time.time())}'
+            'created_ms': get_ny_time_millis()
+            'model_path': model_path
+            'schema_version': 1
+            'mode': 'SHADOW'
+            'enforce_share': 0.0
+            'p_min': float(os.getenv('EDGE_STACK_P_MIN_DEFAULT', '0.55') or 0.55)
+            'p_min_by_bucket': {}
+            'hard_p_min_floor': float(os.getenv('EDGE_STACK_HARD_P_MIN_FLOOR', '0.0') or 0.0)
         }
     else:
         cfg = {
-            "kind": kind,
-            "run_id": f"auto_init_{int(time.time())}",
-            "created_ms": get_ny_time_millis(),
-            "model_path": model_path,
-            "schema_version": 1,
-            "mode": "SHADOW",
-            "enforce_share": 0.0,
+            "kind": kind
+            "run_id": f"auto_init_{int(time.time())}"
+            "created_ms": get_ny_time_millis()
+            "model_path": model_path
+            "schema_version": 1
+            "mode": "SHADOW"
+            "enforce_share": 0.0
             "util_floors": {
                 "global": {
-                    "floor": -0.05 if kind == "util_mh_v1" else 0.55,
-                    "n_take": 0,
-                    "take_rate": 1.0,
-                    "mean_util": 0.0,
+                    "floor": -0.05 if kind == "util_mh_v1" else 0.55
+                    "n_take": 0
+                    "take_rate": 1.0
+                    "mean_util": 0.0
                     "sum_util": 0.0
-                },
+                }
                 "by_bucket": {
                     "trend": {
-                        "floor": -0.05 if kind == "util_mh_v1" else 0.55,
-                        "n_take": 0,
-                        "take_rate": 1.0,
-                        "mean_util": 0.0,
-                        "sum_util": 0.0
-                    },
-                    "range": {
-                        "floor": -0.05 if kind == "util_mh_v1" else 0.55,
-                        "n_take": 0,
-                        "take_rate": 1.0,
-                        "mean_util": 0.0,
-                        "sum_util": 0.0
-                    },
-                    "other": {
-                        "floor": -0.05 if kind == "util_mh_v1" else 0.55,
-                        "n_take": 0,
-                        "take_rate": 1.0,
-                        "mean_util": 0.0,
+                        "floor": -0.05 if kind == "util_mh_v1" else 0.55
+                        "n_take": 0
+                        "take_rate": 1.0
+                        "mean_util": 0.0
                         "sum_util": 0.0
                     }
-                },
-                "horizons": [60000, 180000, 300000],
+                    "range": {
+                        "floor": -0.05 if kind == "util_mh_v1" else 0.55
+                        "n_take": 0
+                        "take_rate": 1.0
+                        "mean_util": 0.0
+                        "sum_util": 0.0
+                    }
+                    "other": {
+                        "floor": -0.05 if kind == "util_mh_v1" else 0.55
+                        "n_take": 0
+                        "take_rate": 1.0
+                        "mean_util": 0.0
+                        "sum_util": 0.0
+                    }
+                }
+                "horizons": [60000, 180000, 300000]
                 "unc_k": 0.5
             }
         }

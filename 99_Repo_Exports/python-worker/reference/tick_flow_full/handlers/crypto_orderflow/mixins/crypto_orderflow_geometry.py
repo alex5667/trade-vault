@@ -64,11 +64,11 @@ class CryptoOrderFlowGeometryMixin:
                 dist_bps = abs(price - level) / price * 10_000.0
                 dist_rel_atr = (abs(price - level) / atr) if atr > 0 else None
                 return {
-                    "zone_type": zone_type,
-                    "zone_strength": strength,
-                    "level_price": level,
-                    "dist_bps": dist_bps,
-                    "dist_rel_atr": dist_rel_atr,
+                    "zone_type": zone_type
+                    "zone_strength": strength
+                    "level_price": level
+                    "dist_bps": dist_bps
+                    "dist_rel_atr": dist_rel_atr
                 }
             except Exception:
                 return None

@@ -38,12 +38,12 @@ for msg_id, fields in entries:
             exit_dt = datetime.fromtimestamp(exit_ts / 1000)
             
             recent_trades.append({
-                'exit_time': exit_dt,
-                'symbol': symbol,
-                'direction': direction,
-                'pnl_net': pnl_net,
-                'r_multiple': r_multiple,
-                'close_reason': close_reason,
+                'exit_time': exit_dt
+                'symbol': symbol
+                'direction': direction
+                'pnl_net': pnl_net
+                'r_multiple': r_multiple
+                'close_reason': close_reason
                 'sid': fields.get('sid', 'N/A')
             })
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 """Refresh trade execution replay/rehydrate SLO materialized summary.
 
 P3.3-autonomy: calls REFRESH MATERIALIZED VIEW on
-``execution_replay_slo_summary_mv`` (created by the 20260306_07 migration),
+``execution_replay_slo_summary_mv`` (created by the 20260306_07 migration)
 then fetches the rows and writes them to
 ``{RUNBOOK_REPORT_DIR}/latest_replay_slo_summary.json``.
 
@@ -45,21 +45,21 @@ def _connect_with_retry(dsn: str, *, max_retries: int = _MAX_RETRIES) -> "psycop
             if attempt < max_retries:
                 delay = _BACKOFF_SECONDS[min(attempt, len(_BACKOFF_SECONDS) - 1)]
                 log.warning(
-                    'PG connect attempt %d/%d failed (%s), retrying in %ds …',
-                    attempt + 1, max_retries + 1, exc, delay,
+                    'PG connect attempt %d/%d failed (%s), retrying in %ds …'
+                    attempt + 1, max_retries + 1, exc, delay
                 )
                 time.sleep(delay)
             else:
                 log.error(
-                    'PG connect failed after %d attempts: %s', max_retries + 1, exc,
+                    'PG connect failed after %d attempts: %s', max_retries + 1, exc
                 )
     raise last_exc  # type: ignore[misc]
 
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+        level=logging.INFO
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s'
     )
 
     parser = argparse.ArgumentParser(
@@ -85,15 +85,15 @@ def main() -> int:
             )
             for row in cur.fetchall() or []:
                 rows.append({
-                    'window_name': row[0],
-                    'rehydrate_total': int(row[1] or 0),
-                    'rehydrate_stream_total': int(row[2] or 0),
-                    'rehydrate_sql_total': int(row[3] or 0),
-                    'replay_truncated_total': int(row[4] or 0),
-                    'retention_guard_total': int(row[5] or 0),
-                    'replay_mismatch_quarantine_total': int(row[6] or 0),
-                    'retention_guard_quarantine_total': int(row[7] or 0),
-                    'replay_latency_p95_ms': float(row[8] or 0.0),
+                    'window_name': row[0]
+                    'rehydrate_total': int(row[1] or 0)
+                    'rehydrate_stream_total': int(row[2] or 0)
+                    'rehydrate_sql_total': int(row[3] or 0)
+                    'replay_truncated_total': int(row[4] or 0)
+                    'retention_guard_total': int(row[5] or 0)
+                    'replay_mismatch_quarantine_total': int(row[6] or 0)
+                    'retention_guard_quarantine_total': int(row[7] or 0)
+                    'replay_latency_p95_ms': float(row[8] or 0.0)
                 })
         conn.commit()
 

@@ -18,42 +18,42 @@ from typing import List
 
 
 # Keep this list append-only.
-# If you add a new schema in tick_flow_full/core/feature_registry.py,
+# If you add a new schema in tick_flow_full/core/feature_registry.py
 # extend this list in the same commit.
 _SCHEMA_VERSIONS: List[str] = [
     # legacy
-    "v2",
-    "v3",
-    "v4",
-    "v4_of",
-    "v5",
-    "v5_of",
-    "v5_of_stable",
-    "v5_stable",
-    "v6",
-    "v6_of",
-    "v6_of_stable",
-    "v6_stable",
+    "v2"
+    "v3"
+    "v4"
+    "v4_of"
+    "v5"
+    "v5_of"
+    "v5_of_stable"
+    "v5_stable"
+    "v6"
+    "v6_of"
+    "v6_of_stable"
+    "v6_stable"
     # v7
-    "v7",
-    "v7_of",
-    "v7_of_stable",
-    "v7_stable",
+    "v7"
+    "v7_of"
+    "v7_of_stable"
+    "v7_stable"
     # v9_of — pinned snapshot from infer_feature_cols() 2026-03-03 (128 numeric keys)
-    "v9",
-    "v9_of",
+    "v9"
+    "v9_of"
     # v10_of — v9_of + Group1 stream-proven + Group2A-E new indicators (165 numeric keys)
-    "v10",
-    "v10_of",
+    "v10"
+    "v10_of"
     # v11_of — v10_of + 28 new regression keys (Groups A-F)
-    "v11",
-    "v11_of",
+    "v11"
+    "v11_of"
     # v12_of (214 keys)
-    "v12",
-    "v12_of",
+    "v12"
+    "v12_of"
     # v13_of — v12_of (214) + GroupNA-NX (28) = 242 numeric keys
-    "v13",
-    "v13_of",
+    "v13"
+    "v13_of"
 ]
 
 

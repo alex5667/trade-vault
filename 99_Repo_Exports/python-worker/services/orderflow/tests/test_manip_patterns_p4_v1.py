@@ -15,18 +15,18 @@ def _make_tracker():
     return ManipulationTracker()
 
 
-def _book_call(tracker, *, ts_ms, bid_depth_usd=50_000.0, ask_depth_usd=50_000.0,
-               book_update_rate_z=0.0, cancel_rate_z=0.0, trade_msg_rate_hz=5.0,
+def _book_call(tracker, *, ts_ms, bid_depth_usd=50_000.0, ask_depth_usd=50_000.0
+               book_update_rate_z=0.0, cancel_rate_z=0.0, trade_msg_rate_hz=5.0
                mid_px=50_000.0):
     """Helper for calling update_from_book with defaults."""
     tracker.update_from_book(
-        ts_ms=ts_ms,
-        bid_depth_usd=bid_depth_usd,
-        ask_depth_usd=ask_depth_usd,
-        book_update_rate_z=book_update_rate_z,
-        cancel_rate_z=cancel_rate_z,
-        trade_msg_rate_hz=trade_msg_rate_hz,
-        mid_px=mid_px,
+        ts_ms=ts_ms
+        bid_depth_usd=bid_depth_usd
+        ask_depth_usd=ask_depth_usd
+        book_update_rate_z=book_update_rate_z
+        cancel_rate_z=cancel_rate_z
+        trade_msg_rate_hz=trade_msg_rate_hz
+        mid_px=mid_px
     )
 
 
@@ -124,8 +124,8 @@ class TestLayering:
         t = _make_tracker()
         # High trade rate → no layering
         for i in range(20):
-            _book_call(t, ts_ms=1_000_000 + i * 100,
-                       bid_depth_usd=50_000, ask_depth_usd=50_000,
+            _book_call(t, ts_ms=1_000_000 + i * 100
+                       bid_depth_usd=50_000, ask_depth_usd=50_000
                        trade_msg_rate_hz=10.0)
         assert t.layering_score == 0.0 or "LAYERING" not in t.manip_flags
 
@@ -141,19 +141,19 @@ class TestLayering:
 
         # Warm up baseline (low trade rate = 1.0 Hz)
         for i in range(30):
-            _book_call(t, ts_ms=1_000_000 + i * 1000,
-                       bid_depth_usd=10_000, ask_depth_usd=10_000,
+            _book_call(t, ts_ms=1_000_000 + i * 1000
+                       bid_depth_usd=10_000, ask_depth_usd=10_000
                        trade_msg_rate_hz=1.0)
 
         # Build phase: depth spikes on ask side (big enough to trigger)
         build_ts = 1_030_000
-        _book_call(t, ts_ms=build_ts,
+        _book_call(t, ts_ms=build_ts
                    bid_depth_usd=10_000, ask_depth_usd=25_000,  # 2.5x spike
                    trade_msg_rate_hz=1.0)
 
         # Revert quickly (within 900ms)
         revert_ts = build_ts + 400
-        _book_call(t, ts_ms=revert_ts,
+        _book_call(t, ts_ms=revert_ts
                    bid_depth_usd=10_000, ask_depth_usd=8_000,  # snap back below peak
                    trade_msg_rate_hz=1.0)
 
@@ -171,20 +171,20 @@ class TestLayering:
 
         # Warm up
         for i in range(20):
-            _book_call(t, ts_ms=1_000_000 + i * 1000,
-                       bid_depth_usd=10_000, ask_depth_usd=10_000,
+            _book_call(t, ts_ms=1_000_000 + i * 1000
+                       bid_depth_usd=10_000, ask_depth_usd=10_000
                        trade_msg_rate_hz=1.0)
 
         # Build phase
         build_ts = 1_020_000
-        _book_call(t, ts_ms=build_ts,
-                   bid_depth_usd=10_000, ask_depth_usd=25_000,
+        _book_call(t, ts_ms=build_ts
+                   bid_depth_usd=10_000, ask_depth_usd=25_000
                    trade_msg_rate_hz=1.0)
 
         # Slow revert (> 900ms) → past window
         revert_ts = build_ts + 1500
-        _book_call(t, ts_ms=revert_ts,
-                   bid_depth_usd=10_000, ask_depth_usd=8_000,
+        _book_call(t, ts_ms=revert_ts
+                   bid_depth_usd=10_000, ask_depth_usd=8_000
                    trade_msg_rate_hz=1.0)
 
         # No layering because revert was too slow
@@ -203,11 +203,11 @@ class TestLayering:
 
         # Trigger massive build
         for i in range(5):
-            _book_call(t, ts_ms=1_000_000 + i * 100,
+            _book_call(t, ts_ms=1_000_000 + i * 100
                        bid_depth_usd=100, ask_depth_usd=100, trade_msg_rate_hz=0.1)
-        _book_call(t, ts_ms=1_001_000, bid_depth_usd=100, ask_depth_usd=100_000_000.0,
+        _book_call(t, ts_ms=1_001_000, bid_depth_usd=100, ask_depth_usd=100_000_000.0
                    trade_msg_rate_hz=0.1)
-        _book_call(t, ts_ms=1_001_500, bid_depth_usd=100, ask_depth_usd=100.0,
+        _book_call(t, ts_ms=1_001_500, bid_depth_usd=100, ask_depth_usd=100.0
                    trade_msg_rate_hz=0.1)
 
         assert t.layering_score <= 1.0
@@ -242,12 +242,12 @@ class TestFailOpen:
         t = _make_tracker()
         t.update_from_book(
             ts_ms=None,  # type: ignore
-            bid_depth_usd=1000.0,
-            ask_depth_usd=1000.0,
-            book_update_rate_z=0.0,
-            cancel_rate_z=0.0,
-            trade_msg_rate_hz=5.0,
-            mid_px=50_000.0,
+            bid_depth_usd=1000.0
+            ask_depth_usd=1000.0
+            book_update_rate_z=0.0
+            cancel_rate_z=0.0
+            trade_msg_rate_hz=5.0
+            mid_px=50_000.0
         )
         # Should not raise
         assert t.quote_stuffing_score == 0.0
@@ -255,13 +255,13 @@ class TestFailOpen:
     def test_negative_depth(self):
         t = _make_tracker()
         t.update_from_book(
-            ts_ms=1_000_000,
-            bid_depth_usd=-100.0,
-            ask_depth_usd=-200.0,
-            book_update_rate_z=0.0,
-            cancel_rate_z=0.0,
-            trade_msg_rate_hz=5.0,
-            mid_px=50_000.0,
+            ts_ms=1_000_000
+            bid_depth_usd=-100.0
+            ask_depth_usd=-200.0
+            book_update_rate_z=0.0
+            cancel_rate_z=0.0
+            trade_msg_rate_hz=5.0
+            mid_px=50_000.0
         )
         assert t.layering_score == 0.0
 

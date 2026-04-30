@@ -29,18 +29,18 @@ class Metrics:
 
 def build_metrics() -> Metrics:
     return Metrics(
-        processed_total=Counter("ml_predictions_processed_total", "Total ML predictions processed"),
-        written_total=Counter("ml_predictions_write_total", "Total ML predictions written to DB"),
-        dlq_total=Counter("ml_predictions_dlq_total", "Predictions sent to DLQ", ["reason"]),
-        db_fail_total=Counter("ml_predictions_db_fail_total", "Database write failures"),
+        processed_total=Counter("ml_predictions_processed_total", "Total ML predictions processed")
+        written_total=Counter("ml_predictions_write_total", "Total ML predictions written to DB")
+        dlq_total=Counter("ml_predictions_dlq_total", "Predictions sent to DLQ", ["reason"])
+        db_fail_total=Counter("ml_predictions_db_fail_total", "Database write failures")
         redis_lag_ms=Histogram(
-            "ml_predictions_pg_lag_ms",
-            "Lag between prediction ts_ms and DB write",
-            buckets=[10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000],
-        ),
-        pending_count=Gauge("ml_predictions_pending_count", "Pending messages in consumer group"),
-        last_ok=Gauge("ml_predictions_last_ok", "1 if last run was successful, 0 otherwise"),
-        last_batch_rows=Gauge("ml_predictions_last_batch_rows", "Number of rows in last batch"),
+            "ml_predictions_pg_lag_ms"
+            "Lag between prediction ts_ms and DB write"
+            buckets=[10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000]
+        )
+        pending_count=Gauge("ml_predictions_pending_count", "Pending messages in consumer group")
+        last_ok=Gauge("ml_predictions_last_ok", "1 if last run was successful, 0 otherwise")
+        last_batch_rows=Gauge("ml_predictions_last_batch_rows", "Number of rows in last batch")
     )
 
 def _env(name: str, default: str) -> str:
@@ -139,18 +139,18 @@ def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "bad:ts_ms"
 
     row = {
-        "ts_ms": ts_ms,
-        "sid": sid,
-        "symbol": symbol,
-        "model_ver": str(evt.get("model_ver") or evt.get("model_version") or ""),
-        "mode": str(evt.get("mode") or ""),
-        "p_edge": _to_float(evt.get("p_edge")),
-        "p_min": _to_float(evt.get("p_min")),
-        "p_margin": _to_float(evt.get("p_margin")),
-        "allow": _to_bool(evt.get("allow")),
-        "bucket": str(evt.get("bucket") or ""),
-        "missing": _to_bool(evt.get("missing"), False),
-        "latency_us": _to_int(evt.get("latency_us")),
+        "ts_ms": ts_ms
+        "sid": sid
+        "symbol": symbol
+        "model_ver": str(evt.get("model_ver") or evt.get("model_version") or "")
+        "mode": str(evt.get("mode") or "")
+        "p_edge": _to_float(evt.get("p_edge"))
+        "p_min": _to_float(evt.get("p_min"))
+        "p_margin": _to_float(evt.get("p_margin"))
+        "allow": _to_bool(evt.get("allow"))
+        "bucket": str(evt.get("bucket") or "")
+        "missing": _to_bool(evt.get("missing"), False)
+        "latency_us": _to_int(evt.get("latency_us"))
     }
     return row, ""
 
@@ -174,9 +174,9 @@ class PgWriter:
             cur = conn.cursor()
             sql = (
                 "INSERT INTO ml_predictions ("
-                "ts_ms,sid,symbol,model_ver,mode,p_edge,p_min,p_margin,"
+                "ts_ms,sid,symbol,model_ver,mode,p_edge,p_min,p_margin"
                 "allow,bucket,missing,latency_us) "
-                "VALUES (%(ts_ms)s,%(sid)s,%(symbol)s,%(model_ver)s,%(mode)s,%(p_edge)s,%(p_min)s,%(p_margin)s,"
+                "VALUES (%(ts_ms)s,%(sid)s,%(symbol)s,%(model_ver)s,%(mode)s,%(p_edge)s,%(p_min)s,%(p_margin)s"
                 "%(allow)s,%(bucket)s,%(missing)s,%(latency_us)s) "
                 "ON CONFLICT (ts_ms, sid) DO NOTHING"
             )
@@ -204,17 +204,17 @@ class Cfg:
     def from_env() -> "Cfg":
         host = socket.gethostname()
         return Cfg(
-            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("ML_PREDICTIONS_STREAM", "metrics:ml_confirm"),
-            group=_env("ML_PREDICTIONS_CG", "ml_persistence_cg"),
-            consumer=_env("ML_PREDICTIONS_CONSUMER", f"{host}:{os.getpid()}"),
-            block_ms=_env_int("ML_PREDICTIONS_BLOCK_MS", 5000),
-            count=_env_int("ML_PREDICTIONS_COUNT", 500),
-            dlq_stream=_env("ML_PREDICTIONS_DLQ_STREAM", "events:ml_predictions:dlq"),
-            dlq_maxlen=_env_int("ML_PREDICTIONS_DLQ_MAXLEN", 200000),
-            batch_size=_env_int("ML_PREDICTIONS_BATCH_SIZE", 500),
-            metrics_port=_env_int("ML_PREDICTIONS_METRICS_PORT", 9842),
-            fail_sleep_sec=_env_float("ML_PREDICTIONS_FAIL_SLEEP_SEC", 1.0),
+            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+            stream=_env("ML_PREDICTIONS_STREAM", "metrics:ml_confirm")
+            group=_env("ML_PREDICTIONS_CG", "ml_persistence_cg")
+            consumer=_env("ML_PREDICTIONS_CONSUMER", f"{host}:{os.getpid()}")
+            block_ms=_env_int("ML_PREDICTIONS_BLOCK_MS", 5000)
+            count=_env_int("ML_PREDICTIONS_COUNT", 500)
+            dlq_stream=_env("ML_PREDICTIONS_DLQ_STREAM", "events:ml_predictions:dlq")
+            dlq_maxlen=_env_int("ML_PREDICTIONS_DLQ_MAXLEN", 200000)
+            batch_size=_env_int("ML_PREDICTIONS_BATCH_SIZE", 500)
+            metrics_port=_env_int("ML_PREDICTIONS_METRICS_PORT", 9842)
+            fail_sleep_sec=_env_float("ML_PREDICTIONS_FAIL_SLEEP_SEC", 1.0)
         )
 
 async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
@@ -249,11 +249,11 @@ async def main() -> None:
     while True:
         try:
             res = await r.xreadgroup(
-                groupname=cfg.group,
-                consumername=cfg.consumer,
-                streams={cfg.stream: ">"},
-                count=cfg.count,
-                block=cfg.block_ms,
+                groupname=cfg.group
+                consumername=cfg.consumer
+                streams={cfg.stream: ">"}
+                count=cfg.count
+                block=cfg.block_ms
             )
             if not res:
                 try:
@@ -313,7 +313,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level=os.getenv("LOG_LEVEL", "INFO").upper()
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     raise SystemExit(asyncio.run(main()))

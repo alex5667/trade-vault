@@ -37,10 +37,10 @@ class FakeRedis:
 class DummyDiag:
     def snapshot(self):
         return {
-            'guards': [{'symbol': 'BTCUSDT', 'classification': 'pending_release'}],
-            'cas_conflict_hot_symbols': [],
-            'resurrection_hot_symbols': [],
-            'heatmap': {'top_hot_symbols': {'5m': [{'symbol': 'BTCUSDT', 'count': 3}], '1h': []}},
+            'guards': [{'symbol': 'BTCUSDT', 'classification': 'pending_release'}]
+            'cas_conflict_hot_symbols': []
+            'resurrection_hot_symbols': []
+            'heatmap': {'top_hot_symbols': {'5m': [{'symbol': 'BTCUSDT', 'count': 3}], '1h': []}}
         }
 
     def operator_dashboard(self, limit=100):
@@ -49,21 +49,21 @@ class DummyDiag:
     def incident_bundle_symbol(self, symbol, include_exchange=False):
         return {
             'summary': {
-                'symbol': str(symbol).upper(),
-                'sid': 'sid-btc',
-                'classification': 'pending_release',
-                'severity': 'warning',
-                'hotness': {'5m': 3, '1h': 5},
-                'race_chain_count': 1,
-            },
+                'symbol': str(symbol).upper()
+                'sid': 'sid-btc'
+                'classification': 'pending_release'
+                'severity': 'warning'
+                'hotness': {'5m': 3, '1h': 5}
+                'race_chain_count': 1
+            }
             'exchange_truth': {
-                'has_live_position': True,
-                'has_open_orders': False,
-                'is_reliable': True,
-                'is_flat': False,
-            },
-            'suspicious_writer_race_chains': [{'chain_type': 'conflict_then_other_writer_refresh'}],
-            'telegram_text': 'btc incident',
+                'has_live_position': True
+                'has_open_orders': False
+                'is_reliable': True
+                'is_flat': False
+            }
+            'suspicious_writer_race_chains': [{'chain_type': 'conflict_then_other_writer_refresh'}]
+            'telegram_text': 'btc incident'
         }
 
 

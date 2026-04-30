@@ -76,13 +76,13 @@ def _guard_ok(rep: Dict[str, Any], *, min_ece_abs: float, min_brier_abs: float) 
         cal_brier = float(cal.get("brier", 0.0) or 0.0)
         ok = (cal_ece <= (raw_ece - float(min_ece_abs))) and (cal_brier <= (raw_brier - float(min_brier_abs)))
         return ok, {
-            "raw_ece": raw_ece,
-            "raw_brier": raw_brier,
-            "cal_ece": cal_ece,
-            "cal_brier": cal_brier,
-            "min_ece_abs": float(min_ece_abs),
-            "min_brier_abs": float(min_brier_abs),
-            "passed": bool(ok),
+            "raw_ece": raw_ece
+            "raw_brier": raw_brier
+            "cal_ece": cal_ece
+            "cal_brier": cal_brier
+            "min_ece_abs": float(min_ece_abs)
+            "min_brier_abs": float(min_brier_abs)
+            "passed": bool(ok)
         }
     except Exception:
         return False, {"passed": False}
@@ -125,34 +125,34 @@ def main(argv: Optional[list[str]] = None) -> None:
     status_json = os.path.join(str(args.reports_dir), "confidence_calibration_status.json")
 
     status: Dict[str, Any] = {
-        "ts_ms": int(now_ms),
-        "stamp": stamp,
-        "ok": False,
-        "deployed": False,
+        "ts_ms": int(now_ms)
+        "stamp": stamp
+        "ok": False
+        "deployed": False
         "paths": {
-            "dataset_jsonl": dataset_jsonl,
-            "cal_tmp": cal_tmp,
-            "cal_latest": cal_latest,
-            "cal_version": cal_ver,
-            "calib_report_json": calib_report_json,
-        },
+            "dataset_jsonl": dataset_jsonl
+            "cal_tmp": cal_tmp
+            "cal_latest": cal_latest
+            "cal_version": cal_ver
+            "calib_report_json": calib_report_json
+        }
     }
 
     # 1) Build dataset
     ok, out, err = _run(
-        "ml_analysis.tools.build_edge_stack_dataset_from_redis",
+        "ml_analysis.tools.build_edge_stack_dataset_from_redis"
         [
-            "--redis_url", str(args.redis_url),
-            "--out_jsonl", dataset_jsonl,
-            "--out_quarantine_jsonl", quarantine_jsonl,
-            "--out_report_json", dataset_report,
-            "--signals_count", str(int(args.signals_count)),
-            "--closes_count", str(int(args.closes_count)),
-            "--since_ms", str(int(since_ms)),
-            "--until_ms", str(int(now_ms)),
-            "--y_min_r", str(float(args.y_min_r)),
-        ],
-        timeout=3600,
+            "--redis_url", str(args.redis_url)
+            "--out_jsonl", dataset_jsonl
+            "--out_quarantine_jsonl", quarantine_jsonl
+            "--out_report_json", dataset_report
+            "--signals_count", str(int(args.signals_count))
+            "--closes_count", str(int(args.closes_count))
+            "--since_ms", str(int(since_ms))
+            "--until_ms", str(int(now_ms))
+            "--y_min_r", str(float(args.y_min_r))
+        ]
+        timeout=3600
     )
     status["build_ok"] = bool(ok)
     if not ok:
@@ -169,16 +169,16 @@ def main(argv: Optional[list[str]] = None) -> None:
         method_arg = "auto"
 
     ok, out, err = _run(
-        "ml_analysis.tools.train_confidence_calibrator_v2",
+        "ml_analysis.tools.train_confidence_calibrator_v2"
         [
-            "--in_jsonl", dataset_jsonl,
-            "--out_bundle", cal_tmp,
-            "--key", str(args.key),
-            "--method", method_arg,
-            "--min_rows", str(int(args.min_rows)),
+            "--in_jsonl", dataset_jsonl
+            "--out_bundle", cal_tmp
+            "--key", str(args.key)
+            "--method", method_arg
+            "--min_rows", str(int(args.min_rows))
             "--hierarchical", "1"
-        ],
-        timeout=3600,
+        ]
+        timeout=3600
     )
     status["train_ok"] = bool(ok)
     if not ok:
@@ -193,12 +193,12 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     # 3) Calibration report (raw vs calibrated)
     ok, out, err = _run(
-        "ml_analysis.tools.calibration_report",
+        "ml_analysis.tools.calibration_report"
         [
-            "--in_jsonl", dataset_jsonl,
-            "--out_json", calib_report_json,
-        ],
-        timeout=1200,
+            "--in_jsonl", dataset_jsonl
+            "--out_json", calib_report_json
+        ]
+        timeout=1200
     )
     status["report_ok"] = bool(ok)
     if not ok:

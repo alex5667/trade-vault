@@ -25,12 +25,12 @@ class ObiSpikeRule:
         raw = max(self.min_raw, abs(obi) / max(self.obi_spike_min, 1e-9))
         return [
             Candidate(
-                kind="obi_spike",
-                side=side,
-                raw_score=float(raw),
-                level_price=None,
-                level_key=None,
-                reasons=["obi_spike"],
-                meta={"obi": float(obi), "obi_sustained": bool(sust)},
+                kind="obi_spike"
+                side=side
+                raw_score=float(raw)
+                level_price=None
+                level_key=None
+                reasons=["obi_spike"]
+                meta={"obi": float(obi), "obi_sustained": bool(sust)}
             )
         ]

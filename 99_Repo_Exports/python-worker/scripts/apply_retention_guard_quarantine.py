@@ -57,17 +57,17 @@ except Exception:  # pragma: no cover
 
 
 def run_policy(
-    redis_client: Any,
-    *,
-    exec_stream: str,
-    checkpoint_prefix: str,
-    state_prefix: str,
-    journal_dsn: str,
-    quarantine_prefix: str,
-    ledger_dsn: str,
-    sample_limit: int,
-    scan_count: int,
-    dry_run: bool,
+    redis_client: Any
+    *
+    exec_stream: str
+    checkpoint_prefix: str
+    state_prefix: str
+    journal_dsn: str
+    quarantine_prefix: str
+    ledger_dsn: str
+    sample_limit: int
+    scan_count: int
+    dry_run: bool
 ) -> Dict[str, Any]:
     """Apply quarantine policy for breached retention guards.
 
@@ -82,10 +82,10 @@ def run_policy(
     ledger = QuarantineLedgerSink(dsn=ledger_dsn) if ledger_dsn else None
 
     guard = stream_retention_guard_report(
-        redis_client,
-        exec_stream=exec_stream,
-        checkpoint_prefix=cprefix,
-        sample_limit=sample_limit,
+        redis_client
+        exec_stream=exec_stream
+        checkpoint_prefix=cprefix
+        sample_limit=sample_limit
     )
 
     items: List[Dict[str, Any]] = []
@@ -97,12 +97,12 @@ def run_policy(
 
         # Attempt stream-only rebuild; if it succeeds the SID is still recoverable
         result = rebuild_state_with_fallback(
-            redis_client,
-            exec_stream=exec_stream,
-            sid=sid,
-            scan_count=scan_count,
-            checkpoint_id=checkpoint_id,
-            sql_dsn=journal_dsn,
+            redis_client
+            exec_stream=exec_stream
+            sid=sid
+            scan_count=scan_count
+            checkpoint_id=checkpoint_id
+            sql_dsn=journal_dsn
         )
         if result.source == 'stream' and result.state_doc:
             items.append({'sid': sid, 'action': 'skip_stream_recovered'})
@@ -112,10 +112,10 @@ def run_policy(
         state_doc = dict(result.state_doc or {})
         payload = dict(state_doc)
         payload.update({
-            'sid': sid,
-            'quarantine_reason': 'retention_guard_breach',
-            'retention_guard': ex,
-            'rehydrate_source': result.source,
+            'sid': sid
+            'quarantine_reason': 'retention_guard_breach'
+            'retention_guard': ex
+            'rehydrate_source': result.source
         })
 
         items.append({'sid': sid, 'action': 'quarantine', 'source': result.source})
@@ -126,33 +126,33 @@ def run_policy(
             redis_client.sadd(f'{qprefix}sids', sid)
             # Append to the quarantine audit stream (RETENTION_GUARD_QUARANTINED)
             redis_client.xadd(
-                f'{qprefix}events',
-                {'sid': sid, 'event': 'RETENTION_GUARD_QUARANTINED', 'ts_ms': str(get_ny_time_millis())},
-                maxlen=10000,
-                approximate=True,
+                f'{qprefix}events'
+                {'sid': sid, 'event': 'RETENTION_GUARD_QUARANTINED', 'ts_ms': str(get_ny_time_millis())}
+                maxlen=10000
+                approximate=True
             )
             # Record in SQL ledger if available
             if ledger is not None:
                 try:
                     ledger.record_quarantine_event({
-                        'sid': sid,
-                        'symbol': str(payload.get('symbol') or ''),
-                        'action': 'RETENTION_GUARD_QUARANTINED',
-                        'severity': 'critical',
-                        'reason': 'retention_guard_breach',
-                        'source': 'retention_guard_policy',
-                        'quarantine_key': f'{qprefix}{sid}',
-                        'state': payload,
+                        'sid': sid
+                        'symbol': str(payload.get('symbol') or '')
+                        'action': 'RETENTION_GUARD_QUARANTINED'
+                        'severity': 'critical'
+                        'reason': 'retention_guard_breach'
+                        'source': 'retention_guard_policy'
+                        'quarantine_key': f'{qprefix}{sid}'
+                        'state': payload
                     })
                 except Exception:
                     pass  # ledger failure is non-fatal; Redis event is the primary record
             quarantined += 1
 
     return {
-        'checked': int(guard.get('checked_checkpoint_keys') or 0),
-        'breached': int(guard.get('breached_checkpoints') or 0),
-        'quarantined': quarantined,
-        'items': items,
+        'checked': int(guard.get('checked_checkpoint_keys') or 0)
+        'breached': int(guard.get('breached_checkpoints') or 0)
+        'quarantined': quarantined
+        'items': items
     }
 
 
@@ -175,16 +175,16 @@ def main() -> int:
         raise RuntimeError('redis package required')
     r = redis.from_url(args.redis_url, decode_responses=True)
     report = run_policy(
-        r,
-        exec_stream=args.exec_stream,
-        checkpoint_prefix=args.checkpoint_prefix,
-        state_prefix=args.state_prefix,
-        journal_dsn=args.journal_dsn,
-        quarantine_prefix=args.quarantine_prefix,
-        ledger_dsn=args.ledger_dsn,
-        sample_limit=args.sample_limit,
-        scan_count=args.scan_count,
-        dry_run=bool(args.dry_run),
+        r
+        exec_stream=args.exec_stream
+        checkpoint_prefix=args.checkpoint_prefix
+        state_prefix=args.state_prefix
+        journal_dsn=args.journal_dsn
+        quarantine_prefix=args.quarantine_prefix
+        ledger_dsn=args.ledger_dsn
+        sample_limit=args.sample_limit
+        scan_count=args.scan_count
+        dry_run=bool(args.dry_run)
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

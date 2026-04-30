@@ -6,27 +6,27 @@ from typing import Any, Dict, Optional
 from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
 from services.orderflow.configuration import _safe_int, _safe_float
 from services.orderflow.metrics import (
-    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge,
-    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
-    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
-    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
-    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
-    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge,
-    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge
+    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge
+    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge
+    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge
+    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge
+    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge
+    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge
 )
 
 # P112: minimal DQ/book-seq metrics live in a dedicated module to avoid
 # duplicate metric registration across SoT/mirror import paths.
 from services.orderflow.metrics_bookseq_dq_p112 import (
-    book_missing_seq_ema_gauge,
-    book_seq_last_gap_gauge,
+    book_missing_seq_ema_gauge
+    book_seq_last_gap_gauge
 )
 
 # P112: minimal DQ/book-seq metrics live in a dedicated module to avoid
 # duplicate metric registration across SoT/mirror import paths.
 from services.orderflow.metrics_bookseq_dq_p112 import (
-    book_missing_seq_ema_gauge,
-    book_seq_last_gap_gauge,
+    book_missing_seq_ema_gauge
+    book_seq_last_gap_gauge
 )
 from services.orderflow.utils import _fields_to_dict
 from services.orderflow.components.parsing import OrderFlowParsing
@@ -87,7 +87,7 @@ class BookProcessor:
         # Local import to reduce patch conflict risk between SoT/mirror trees.
         try:
             from services.orderflow.components.book_seq_tracker_uu import (
-                decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha,
+                decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha
             )
         except Exception:
             from .book_seq_tracker_uu import decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha
@@ -275,12 +275,12 @@ class BookProcessor:
             # Atomic Snapshot
             try:
                 runtime.book_state = BookState(
-                    raw=book_raw,
-                    snap=snap,
-                    prev_snap=prev_snap,
-                    ts_ms=_safe_int(book_ts_ms),
-                    prev_ts_ms=_safe_int(prev_ts_ms),
-                    ingest_ts_ms=_safe_int(ingest_ts_ms),
+                    raw=book_raw
+                    snap=snap
+                    prev_snap=prev_snap
+                    ts_ms=_safe_int(book_ts_ms)
+                    prev_ts_ms=_safe_int(prev_ts_ms)
+                    ingest_ts_ms=_safe_int(ingest_ts_ms)
                 )
             except Exception as exc:
                 log_silent_error(exc, 'book_state_failure', runtime.symbol, 'BookProcessor:book_state')
@@ -294,11 +294,11 @@ class BookProcessor:
             # Fail-open: any exception here must NOT stop the book processing pipeline.
             try:
                 lp = compute_lob_pressure(
-                    bids=list(snap.top5_bids or []),
-                    asks=list(snap.top5_asks or []),
-                    prev_bids=list(prev_snap.top5_bids) if prev_snap else None,
-                    prev_asks=list(prev_snap.top5_asks) if prev_snap else None,
-                    depth=int(runtime.config.get("lob_depth", 5) or 5),
+                    bids=list(snap.top5_bids or [])
+                    asks=list(snap.top5_asks or [])
+                    prev_bids=list(prev_snap.top5_bids) if prev_snap else None
+                    prev_asks=list(prev_snap.top5_asks) if prev_snap else None
+                    depth=int(runtime.config.get("lob_depth", 5) or 5)
                 )
 
                 # Store aggregates on runtime for tick_processor to read
@@ -343,12 +343,12 @@ class BookProcessor:
 
                 # Atomic snapshot dict (consumed by tick_processor indicators)
                 runtime.last_lob_event = {
-                    "ts_ms": int(book_ts_ms),
-                    **{k: float(v) for k, v in lp.items() if isinstance(v, (int, float))},
-                    "dw_obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0),
-                    "dw_obi_stability_score": float(getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0),
-                    "dw_obi_stable_secs": float(getattr(runtime, "dw_obi_stable_secs", 0.0) or 0.0),
-                    "dw_obi_stable": 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0,
+                    "ts_ms": int(book_ts_ms)
+                    **{k: float(v) for k, v in lp.items() if isinstance(v, (int, float))}
+                    "dw_obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0)
+                    "dw_obi_stability_score": float(getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0)
+                    "dw_obi_stable_secs": float(getattr(runtime, "dw_obi_stable_secs", 0.0) or 0.0)
+                    "dw_obi_stable": 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0
                 }
 
                 # Prometheus gauges (best-effort, never break book pipeline)
@@ -460,14 +460,14 @@ class BookProcessor:
                 except Exception:
                     pass
                 runtime.last_obi_event = {
-                    "direction": obi_event.get("direction"),
-                    "obi": obi_event.get("obi"),
-                    "ts_ms": book_ts_ms,
-                    "stable_secs": float(getattr(runtime, "obi_stable_secs", 0.0) or 0.0),
-                    "stability_score": float(getattr(runtime, "obi_stability_score", 0.0) or 0.0),
-                    "obi_z": float(obi_event.get("obi_z", 0.0) or 0.0),
-                    "stacking": float(obi_event.get("stacking", 0.0) or 0.0),
-                    "concentration": float(obi_event.get("concentration", 0.0) or 0.0),
+                    "direction": obi_event.get("direction")
+                    "obi": obi_event.get("obi")
+                    "ts_ms": book_ts_ms
+                    "stable_secs": float(getattr(runtime, "obi_stable_secs", 0.0) or 0.0)
+                    "stability_score": float(getattr(runtime, "obi_stability_score", 0.0) or 0.0)
+                    "obi_z": float(obi_event.get("obi_z", 0.0) or 0.0)
+                    "stacking": float(obi_event.get("stacking", 0.0) or 0.0)
+                    "concentration": float(obi_event.get("concentration", 0.0) or 0.0)
                 }
 
             # OBI fallback: feed obi_tracker unconditionally from raw BBO imbalance.
@@ -494,14 +494,14 @@ class BookProcessor:
                             if runtime.obi_stable:
                                 direction = "LONG" if raw_obi > 0 else "SHORT"
                                 runtime.last_obi_event = {
-                                    "direction": direction,
-                                    "obi": float(raw_obi),
-                                    "ts_ms": book_ts_ms,
-                                    "stable_secs": float(secs),
-                                    "stability_score": float(q),
-                                    "obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0),
-                                    "stacking": 0.0,
-                                    "concentration": 0.0,
+                                    "direction": direction
+                                    "obi": float(raw_obi)
+                                    "ts_ms": book_ts_ms
+                                    "stable_secs": float(secs)
+                                    "stability_score": float(q)
+                                    "obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0)
+                                    "stacking": 0.0
+                                    "concentration": 0.0
                                 }
                 except Exception:
                     pass
@@ -522,12 +522,12 @@ class BookProcessor:
                 
                 if pass_ice:
                     runtime.last_iceberg_event = {
-                        "side": iceberg_event.get("side"),
-                        "refresh": iceberg_event.get("refresh"),
-                        "duration": iceberg_event.get("duration"),
-                        "price": iceberg_event.get("price"),
-                        "ts_ms": book_ts_ms,
-                        "total_refresh_qty": iceberg_event.get("total_refresh_qty", 0.0),
+                        "side": iceberg_event.get("side")
+                        "refresh": iceberg_event.get("refresh")
+                        "duration": iceberg_event.get("duration")
+                        "price": iceberg_event.get("price")
+                        "ts_ms": book_ts_ms
+                        "total_refresh_qty": iceberg_event.get("total_refresh_qty", 0.0)
                     }
             
             # OFI (requires prev_snap)
@@ -580,13 +580,13 @@ class BookProcessor:
                     bid_d = float(getattr(runtime, "last_depth_bid_5", 0.0) or 0.0) * max(mid, 1.0)
                     ask_d = float(getattr(runtime, "last_depth_ask_5", 0.0) or 0.0) * max(mid, 1.0)
                     runtime.manip.update_from_book(
-                        ts_ms=int(book_ts_ms),
-                        bid_depth_usd=bid_d,
-                        ask_depth_usd=ask_d,
-                        book_update_rate_z=float(getattr(runtime, "book_update_rate_z", 0.0)),
-                        cancel_rate_z=float(getattr(runtime, "cancel_rate_z", 0.0)),
-                        trade_msg_rate_hz=float(getattr(runtime, "trade_msg_rate_hz", 0.0)),
-                        mid_px=mid,
+                        ts_ms=int(book_ts_ms)
+                        bid_depth_usd=bid_d
+                        ask_depth_usd=ask_d
+                        book_update_rate_z=float(getattr(runtime, "book_update_rate_z", 0.0))
+                        cancel_rate_z=float(getattr(runtime, "cancel_rate_z", 0.0))
+                        trade_msg_rate_hz=float(getattr(runtime, "trade_msg_rate_hz", 0.0))
+                        mid_px=mid
                     )
                     runtime.quote_stuffing_score = float(runtime.manip.quote_stuffing_score)
                     runtime.layering_score = float(runtime.manip.layering_score)
@@ -697,9 +697,9 @@ class BookProcessor:
                      try:
                          if getattr(runtime, "resilience", None) is not None:
                              runtime.resilience.on_book(
-                                 book_ts_ms,
-                                 bid_depth_usd=float(db) * float(mid),
-                                 ask_depth_usd=float(da) * float(mid),
+                                 book_ts_ms
+                                 bid_depth_usd=float(db) * float(mid)
+                                 ask_depth_usd=float(da) * float(mid)
                              )
                      except Exception:
                          pass
@@ -768,9 +768,9 @@ class BookProcessor:
 
                      try:
                          ev = runtime.ofi_tracker.update(
-                             ts_ms=book_ts_ms,
-                             bid_px=bb_px, bid_qty=bb_q,
-                             ask_px=ba_px, ask_qty=ba_q,
+                             ts_ms=book_ts_ms
+                             bid_px=bb_px, bid_qty=bb_q
+                             ask_px=ba_px, ask_qty=ba_q
                          )
                          if ev is not None:
                              # Reclaim Bonus Logic
@@ -786,13 +786,13 @@ class BookProcessor:
                                  pass
                              
                              runtime.last_ofi_event = {
-                                 "ts_ms": _safe_int(ev.ts_ms),
-                                 "direction": str(ev.direction),
-                                 "ofi": float(ev.ofi),
-                                 "ofi_usd": float(ev.ofi_usd),
-                                 "ofi_z": float(ev.ofi_z),
-                                 "stable_secs": float(ev.stable_secs),
-                                 "stability_score": float(ev.stability_score),
+                                 "ts_ms": _safe_int(ev.ts_ms)
+                                 "direction": str(ev.direction)
+                                 "ofi": float(ev.ofi)
+                                 "ofi_usd": float(ev.ofi_usd)
+                                 "ofi_z": float(ev.ofi_z)
+                                 "stable_secs": float(ev.stable_secs)
+                                 "stability_score": float(ev.stability_score)
                              }
                      except Exception:
                          pass
@@ -801,32 +801,32 @@ class BookProcessor:
                      if prev_snap is not None:
                          try:
                              ofi_raw = runtime.ofi_tracker.compute_ofi_best_level(
-                                 prev_bid_px=float(prev_snap.best_bid_px),
-                                 prev_bid_qty=float(prev_snap.best_bid_qty),
-                                 prev_ask_px=float(prev_snap.best_ask_px),
-                                 prev_ask_qty=float(prev_snap.best_ask_qty),
-                                 bid_px=float(snap.best_bid_px),
-                                 bid_qty=float(snap.best_bid_qty),
-                                 ask_px=float(snap.best_ask_px),
-                                 ask_qty=float(snap.best_ask_qty),
+                                 prev_bid_px=float(prev_snap.best_bid_px)
+                                 prev_bid_qty=float(prev_snap.best_bid_qty)
+                                 prev_ask_px=float(prev_snap.best_ask_px)
+                                 prev_ask_qty=float(prev_snap.best_ask_qty)
+                                 bid_px=float(snap.best_bid_px)
+                                 bid_qty=float(snap.best_bid_qty)
+                                 ask_px=float(snap.best_ask_px)
+                                 ask_qty=float(snap.best_ask_qty)
                              )
                              depth_qty = float(min(snap.depth_5_bid_vol, snap.depth_5_ask_vol))
                              ofi_z, stable_secs, score = runtime.ofi_tracker.update(
-                                 ts_ms=_safe_int(book_ts_ms),
-                                 ofi=float(ofi_raw),
-                                 depth_qty=depth_qty,
-                                 deadband_abs=float(runtime.config.get("ofi_deadband_abs", 0.0) or 0.0),
-                                 deadband_frac_depth=float(runtime.config.get("ofi_deadband_frac_depth", 0.02) or 0.02),
-                                 z_full=float(runtime.config.get("ofi_z_full", 3.0) or 3.0),
+                                 ts_ms=_safe_int(book_ts_ms)
+                                 ofi=float(ofi_raw)
+                                 depth_qty=depth_qty
+                                 deadband_abs=float(runtime.config.get("ofi_deadband_abs", 0.0) or 0.0)
+                                 deadband_frac_depth=float(runtime.config.get("ofi_deadband_frac_depth", 0.02) or 0.02)
+                                 z_full=float(runtime.config.get("ofi_z_full", 3.0) or 3.0)
                              )
                              is_stable = bool(stable_secs >= 1.0 and score >= 0.8)
                              ev_ofi = OFIEvent(
-                                 ts_ms=_safe_int(book_ts_ms),
-                                 ofi=float(ofi_raw),
-                                 ofi_z=float(ofi_z),
-                                 stable_secs=float(stable_secs),
-                                 stability_score=float(score),
-                                 stable=_safe_int(is_stable),
+                                 ts_ms=_safe_int(book_ts_ms)
+                                 ofi=float(ofi_raw)
+                                 ofi_z=float(ofi_z)
+                                 stable_secs=float(stable_secs)
+                                 stability_score=float(score)
+                                 stable=_safe_int(is_stable)
                              )
                              runtime.last_ofi_event = ev_ofi.to_dict()
                          except Exception:
@@ -839,10 +839,10 @@ class BookProcessor:
         if _safe_int(runtime.config.get("liq_enable", 1) or 0) == 1:
             try:
                 liq = runtime.liq_guard.update(
-                    ts_ms=_safe_int(book_ts_ms),
-                    spread_bps=float(runtime.last_spread_bps_l2),
-                    depth_min_5_usd=float(runtime.last_depth_min_5_usd),
-                    book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0),
+                    ts_ms=_safe_int(book_ts_ms)
+                    spread_bps=float(runtime.last_spread_bps_l2)
+                    depth_min_5_usd=float(runtime.last_depth_min_5_usd)
+                    book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
                 )
                 runtime.last_liq_score = float(liq.score)
                 runtime.last_liq_regime = str(liq.regime)

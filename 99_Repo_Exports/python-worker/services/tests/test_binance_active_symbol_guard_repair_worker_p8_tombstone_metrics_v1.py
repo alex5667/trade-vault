@@ -46,11 +46,11 @@ def test_repair_worker_exports_released_tombstone_age_metric():
     r = FakeRedis()
     now_ms = get_ny_time_millis()
     r.set('orders:active_symbol_sid:BTCUSDT', json.dumps({
-        'symbol': 'BTCUSDT',
-        'sid': 'sid-old',
-        'guard_status': 'released',
-        'released_at_ms': now_ms - 15_000,
-        'guard_version': 3,
+        'symbol': 'BTCUSDT'
+        'sid': 'sid-old'
+        'guard_status': 'released'
+        'released_at_ms': now_ms - 15_000
+        'guard_version': 3
     }))
     worker = worker_mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=DummyClient())
     out = worker.run_once()

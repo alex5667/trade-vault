@@ -54,34 +54,34 @@ def main():
     )
 
     parser.add_argument(
-        "--redis",
-        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
+        "--redis"
+        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         help="Redis URL"
     )
     parser.add_argument(
-        "--symbols",
-        required=True,
+        "--symbols"
+        required=True
         help="Comma-separated: XAUUSD,XAGUSD"
     )
     parser.add_argument(
-        "--strategies",
-        required=True,
+        "--strategies"
+        required=True
         help="Comma-separated: aggregated,orderflow,ta"
     )
     parser.add_argument(
-        "--days",
-        type=int,
-        default=7,
+        "--days"
+        type=int
+        default=7
         help="Количество дней истории"
     )
     parser.add_argument(
-        "--skip-dataset",
-        action="store_true",
+        "--skip-dataset"
+        action="store_true"
         help="Пропустить экспорт датасета"
     )
     parser.add_argument(
-        "--skip-telegram",
-        action="store_true",
+        "--skip-telegram"
+        action="store_true"
         help="Пропустить Telegram отчёты"
     )
 
@@ -137,9 +137,9 @@ def main():
                 ]
 
                 signals = list(repo.iter_signals(
-                    symbol=symbol,
-                    strategy=strategy,
-                    since_ts=since,
+                    symbol=symbol
+                    strategy=strategy
+                    since_ts=since
                     until_ts=until
                 ))
 
@@ -159,10 +159,10 @@ def main():
                 # 3) Тюнинг порога и сохранение ROC
                 logger.info("🔧 Тюнинг порога...")
                 tune_res = tuner.tune_and_publish(
-                    strategy=strategy,
-                    symbol=symbol,
-                    signals=signals,
-                    orders=orders,
+                    strategy=strategy
+                    symbol=symbol
+                    signals=signals
+                    orders=orders
                     emit_telegram=False  # Отправим позже с графиками
                 )
 
@@ -189,10 +189,10 @@ def main():
                 if reporter:
                     logger.info("📱 Отправка Telegram отчёта...")
                     reporter.send_roc_report(
-                        strategy=strategy,
-                        symbol=symbol,
-                        roc_points=points,
-                        auc=auc,
+                        strategy=strategy
+                        symbol=symbol
+                        roc_points=points
+                        auc=auc
                         summary=tune_res
                     )
                     logger.info("   ✅ Отчёт отправлен")
@@ -208,17 +208,17 @@ def main():
                 avg_pnl = total_pnl / n if n > 0 else 0.0
 
                 metrics_pub.publish(
-                    strategy=strategy,
-                    symbol=symbol,
+                    strategy=strategy
+                    symbol=symbol
                     metrics={
-                        "total_trades": n,
-                        "wins": wins,
-                        "losses": n - wins,
-                        "winrate": winrate,
-                        "total_pnl": total_pnl,
-                        "avg_pnl_usd": avg_pnl,
-                        "auc": auc,
-                        "thr": tune_res.get("thr"),
+                        "total_trades": n
+                        "wins": wins
+                        "losses": n - wins
+                        "winrate": winrate
+                        "total_pnl": total_pnl
+                        "avg_pnl_usd": avg_pnl
+                        "auc": auc
+                        "thr": tune_res.get("thr")
                         "youdenJ": tune_res.get("youdenJ")
                     }
                 )

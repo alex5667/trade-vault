@@ -147,12 +147,12 @@ def _depth_sum_levels(book_side: Any, n: int) -> Optional[float]:
 
 
 def build_decision_snapshot_event(
-    *,
-    signal: Dict[str, Any],
-    indicators: Dict[str, Any] | None,
-    runtime: Any | None,
-    schema_version: int = 1,
-    include_indicators: bool = False,
+    *
+    signal: Dict[str, Any]
+    indicators: Dict[str, Any] | None
+    runtime: Any | None
+    schema_version: int = 1
+    include_indicators: bool = False
 ) -> Dict[str, Any]:
     """Build a compact decision_snapshot event for Redis Stream.
 
@@ -234,45 +234,45 @@ def build_decision_snapshot_event(
         tca_ready = bool(sid and ts_decision_ms and mid is not None and (bid is not None and ask is not None) and ("crossed_bbo" not in merged_flags))
 
     out: Dict[str, Any] = {
-        "schema_version": int(schema_version),
-        "producer": str(os.getenv("SERVICE_NAME", "python-worker")),
-        "sid": sid,
-        "signal_id": signal_id,
-        "symbol": symbol,
-        "venue": venue,
-        "session": session,
-        "tf": tf,
-        "kind": kind,
-        "direction": direction,
-        "side": side,
-        "decision_ts_ms": int(ts_decision_ms),
-        "decision_bid": bid,
-        "decision_ask": ask,
-        "decision_mid": mid,
-        "decision_spread_bps": spread_bps,
-        "decision_depth_bid_5": depth_bid_5,
-        "decision_depth_ask_5": depth_ask_5,
-        "decision_depth_bid_20": depth_bid_20,
-        "decision_depth_ask_20": depth_ask_20,
-        "decision_book_slope_bid": slope_bid,
-        "decision_book_slope_ask": slope_ask,
-        "decision_dws_bps": dws_bps,
-        "decision_ofi_norm": ofi_norm,
-        "decision_expected_slippage_bps": exp_slip,
-        "decision_exec_risk_norm": exec_risk,
+        "schema_version": int(schema_version)
+        "producer": str(os.getenv("SERVICE_NAME", "python-worker"))
+        "sid": sid
+        "signal_id": signal_id
+        "symbol": symbol
+        "venue": venue
+        "session": session
+        "tf": tf
+        "kind": kind
+        "direction": direction
+        "side": side
+        "decision_ts_ms": int(ts_decision_ms)
+        "decision_bid": bid
+        "decision_ask": ask
+        "decision_mid": mid
+        "decision_spread_bps": spread_bps
+        "decision_depth_bid_5": depth_bid_5
+        "decision_depth_ask_5": depth_ask_5
+        "decision_depth_bid_20": depth_bid_20
+        "decision_depth_ask_20": depth_ask_20
+        "decision_book_slope_bid": slope_bid
+        "decision_book_slope_ask": slope_ask
+        "decision_dws_bps": dws_bps
+        "decision_ofi_norm": ofi_norm
+        "decision_expected_slippage_bps": exp_slip
+        "decision_exec_risk_norm": exec_risk
         "decision_price": mid,  # current rule: decision_price == decision_mid
-        "tca_ready": bool(tca_ready),
-        "book_sanity_flags": merged_flags,
-        "is_virtual": bool(int(signal.get("is_virtual", 0))) if "is_virtual" in signal else None,
-        "validation_status": str(signal.get("validation_status")) if "validation_status" in signal else None,
-        "validation_reason": str(signal.get("validation_reason")) if "validation_reason" in signal else None,
+        "tca_ready": bool(tca_ready)
+        "book_sanity_flags": merged_flags
+        "is_virtual": bool(int(signal.get("is_virtual", 0))) if "is_virtual" in signal else None
+        "validation_status": str(signal.get("validation_status")) if "validation_status" in signal else None
+        "validation_reason": str(signal.get("validation_reason")) if "validation_reason" in signal else None
     }
 
     if include_indicators:
         # Keep small allow-list to avoid massive payloads by accident.
         allow = {
-            "delta_z", "obi", "ofi_z", "ofi_stability_score", "obi_stability_score",
-            "book_ts_gap_ms", "book_stale_ms", "spread_bps", "confidence_raw", "confidence_cal",
+            "delta_z", "obi", "ofi_z", "ofi_stability_score", "obi_stability_score"
+            "book_ts_gap_ms", "book_stale_ms", "spread_bps", "confidence_raw", "confidence_cal"
         }
         out["indicators_small"] = {k: indicators.get(k) for k in allow if k in indicators}
 
@@ -288,12 +288,12 @@ def build_decision_snapshot_event(
 
 
 def build_decision_snapshot(
-    signal: Dict[str, Any],
-    *,
-    runtime: Any | None,
-    indicators: Dict[str, Any] | None,
-    schema_version: int = 1,
-    include_indicators: bool = False,
+    signal: Dict[str, Any]
+    *
+    runtime: Any | None
+    indicators: Dict[str, Any] | None
+    schema_version: int = 1
+    include_indicators: bool = False
 ) -> Dict[str, Any]:
     """Backward-compatible wrapper used by SignalPipeline.
 
@@ -302,22 +302,22 @@ def build_decision_snapshot(
     this alias here avoids fragile import-name drift.
     """
     return build_decision_snapshot_event(
-        signal=signal,
-        indicators=indicators,
-        runtime=runtime,
-        schema_version=schema_version,
-        include_indicators=include_indicators,
+        signal=signal
+        indicators=indicators
+        runtime=runtime
+        schema_version=schema_version
+        include_indicators=include_indicators
     )
 
 
 async def publish_decision_snapshot(
-    *,
-    publisher: Any,
-    stream: str,
-    maxlen: int,
-    symbol: str,
-    evt: Dict[str, Any] | None = None,
-    snapshot: Dict[str, Any] | None = None,
+    *
+    publisher: Any
+    stream: str
+    maxlen: int
+    symbol: str
+    evt: Dict[str, Any] | None = None
+    snapshot: Dict[str, Any] | None = None
 ) -> None:
     """Smoke-test friendly wrapper: publish decision snapshot using AsyncSignalPublisher.xadd_json.
 
@@ -329,7 +329,7 @@ async def publish_decision_snapshot(
         await publisher.xadd_json(stream=stream, payload=payload, symbol=symbol)
         return
     await publisher.xadd_json(
-        sink=StreamSink(name=str(stream), field="payload", maxlen=int(maxlen)),
-        payload=payload,
-        symbol=str(symbol),
+        sink=StreamSink(name=str(stream), field="payload", maxlen=int(maxlen))
+        payload=payload
+        symbol=str(symbol)
     )

@@ -124,9 +124,9 @@ class RegimeConfig:
     def __post_init__(self):
         if self.session_bias_default is None:
             self.session_bias_default = {
-                "asia": 0.1,
-                "europe": 0.0,
-                "us": -0.1,
+                "asia": 0.1
+                "europe": 0.0
+                "us": -0.1
             }
 
     @classmethod
@@ -134,8 +134,8 @@ class RegimeConfig:
         """Create config from environment variables"""
         import os
         return cls(
-            atr_quantile_trend_thr=float(os.getenv("REGIME_ATR_QUANTILE_TREND_THR", "0.7")),
-            atr_quantile_range_thr=float(os.getenv("REGIME_ATR_QUANTILE_RANGE_THR", "0.3")),
+            atr_quantile_trend_thr=float(os.getenv("REGIME_ATR_QUANTILE_TREND_THR", "0.7"))
+            atr_quantile_range_thr=float(os.getenv("REGIME_ATR_QUANTILE_RANGE_THR", "0.3"))
         )
 
 
@@ -143,7 +143,7 @@ class MarketRegimeService:
     """
     Service responsible for market regime detection and classification.
 
-    Handles ATR calculation, volatility quantiles, regime classification (RANGE/TREND/SQUEEZE/EXPANSION),
+    Handles ATR calculation, volatility quantiles, regime classification (RANGE/TREND/SQUEEZE/EXPANSION)
     and regime guards for signal emission.
     """
 
@@ -201,15 +201,15 @@ class MarketRegimeService:
 
         # Create snapshot
         snapshot = RegimeSnapshot(
-            symbol=symbol,
-            ts_event_ms=bar.ts_event_ms,
-            regime=regime,
-            atr_value=atr_value,
-            atr_quantile=atr_quantile,
-            volatility_state=volatility_state,
-            is_trending=is_trending,
-            trend_score=trend_score,
-            range_score=range_score,
+            symbol=symbol
+            ts_event_ms=bar.ts_event_ms
+            regime=regime
+            atr_value=atr_value
+            atr_quantile=atr_quantile
+            volatility_state=volatility_state
+            is_trending=is_trending
+            trend_score=trend_score
+            range_score=range_score
         )
 
         self._state_by_symbol[symbol] = snapshot
@@ -368,11 +368,11 @@ class MarketRegimeService:
         hist = self._regime_history[symbol]
         hist.append(
             RegimeSample(
-                ts=now,
-                price=ctx.last_price,
-                vwap_side=vwap_side,
-                daily_open_side=daily_open_side,
-                bar_index=bar_index,
+                ts=now
+                price=ctx.last_price
+                vwap_side=vwap_side
+                daily_open_side=daily_open_side
+                bar_index=bar_index
             )
         )
 
@@ -415,18 +415,18 @@ class MarketRegimeService:
 
         return RegimeFeatures(
             # Raw metrics
-            vwap_dev_bps=getattr(ctx, 'vwap_dev_bps', None),
-            daily_open_dev_bps=getattr(ctx, 'daily_open_dev_bps', None),
-            daily_open_cross_freq=getattr(ctx, 'daily_open_cross_freq', None),
-            htf_level_dist_bps=getattr(ctx, 'htf_level_dist_bps', None),
+            vwap_dev_bps=getattr(ctx, 'vwap_dev_bps', None)
+            daily_open_dev_bps=getattr(ctx, 'daily_open_dev_bps', None)
+            daily_open_cross_freq=getattr(ctx, 'daily_open_cross_freq', None)
+            htf_level_dist_bps=getattr(ctx, 'htf_level_dist_bps', None)
 
             # Bias metrics [-1, +1]
-            atr_bias=getattr(ctx, 'atr_bias', None),
-            delta_dir_bias=getattr(ctx, 'delta_dir_bias', None),
-            vwap_dev_bias=getattr(ctx, 'vwap_dev_bias', None),
-            daily_open_dev_bias=getattr(ctx, 'daily_open_dev_bias', None),
-            daily_open_cross_bias=self._compute_cross_bias(getattr(ctx, 'symbol', None)),
-            htf_prox_bias=getattr(ctx, 'htf_prox_bias', None),
-            weak_progress_bias=getattr(ctx, 'weak_progress_bias', None),
-            session_bias=getattr(ctx, 'session_bias', None),
+            atr_bias=getattr(ctx, 'atr_bias', None)
+            delta_dir_bias=getattr(ctx, 'delta_dir_bias', None)
+            vwap_dev_bias=getattr(ctx, 'vwap_dev_bias', None)
+            daily_open_dev_bias=getattr(ctx, 'daily_open_dev_bias', None)
+            daily_open_cross_bias=self._compute_cross_bias(getattr(ctx, 'symbol', None))
+            htf_prox_bias=getattr(ctx, 'htf_prox_bias', None)
+            weak_progress_bias=getattr(ctx, 'weak_progress_bias', None)
+            session_bias=getattr(ctx, 'session_bias', None)
         )

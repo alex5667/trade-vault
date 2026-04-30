@@ -34,11 +34,11 @@ class RegimeGuardService:
     """
 
     def __init__(
-        self,
-        pg_dsn: str,
-        redis_dsn: str,
-        window_size: int = 100,
-        baseline_horizon_days: int = 180,
+        self
+        pg_dsn: str
+        redis_dsn: str
+        window_size: int = 100
+        baseline_horizon_days: int = 180
         disable_dd_mult: float = 1.5,      # во сколько раз dd хуже лимита — сразу disable
         degrade_dd_mult: float = 1.0,      # при каком уровне — degraded
         wr_safe_margin: float = 0.05,      # гистерезис по winrate
@@ -140,8 +140,8 @@ class RegimeGuardService:
             return None
 
         cfg = BaselineConfig(
-            hit_rate=hit_rate,
-            expectancy_r=expectancy_r,
+            hit_rate=hit_rate
+            expectancy_r=expectancy_r
         )
         self._baseline_cache[key] = cfg
         return cfg
@@ -162,22 +162,22 @@ class RegimeGuardService:
             return None
 
         return BaselineQuantiles(
-            p05=row[0], p10=row[1], p25=row[2], p50=row[3],
+            p05=row[0], p10=row[1], p25=row[2], p50=row[3]
             p75=row[4], p90=row[5], p95=row[6], sample_size=row[7]
         )
 
     # ---------- публичный API: вызывается из SignalPerformanceTracker ----------
 
     def on_signal_closed(
-        self,
-        *,
-        signal_id: str,
-        family: str,
-        venue: str,
-        symbol: str,
-        timeframe: str,
-        r_value: float,
-        closed_at: datetime,
+        self
+        *
+        signal_id: str
+        family: str
+        venue: str
+        symbol: str
+        timeframe: str
+        r_value: float
+        closed_at: datetime
     ) -> Optional[Callable[[], None]]:
         """
         Вызывается при фактическом завершении сигнала (SL/TP/ручное закрытие).
@@ -203,10 +203,10 @@ class RegimeGuardService:
         exp_r = stats.expectancy_r
 
         state = self._state.get(key) or RegimeState(
-            family=family,
-            venue=venue,
-            symbol=symbol,
-            timeframe=timeframe,
+            family=family
+            venue=venue
+            symbol=symbol
+            timeframe=timeframe
         )
 
         # простая логика на основе baseline:
@@ -268,7 +268,7 @@ class RegimeGuardService:
 
     def _persist_state_change_sync(self, key: Key, state: RegimeState, ts_state: datetime) -> None:
         """
-        Для простоты: пишем в БД и кладём актуальное состояние в Redis (как KV),
+        Для простоты: пишем в БД и кладём актуальное состояние в Redis (как KV)
         чтобы ExecutionPlanner/детекторы могли читать быстрый снапшот.
         """
         venue, symbol, timeframe, family = key
@@ -276,52 +276,52 @@ class RegimeGuardService:
         # Timescale
         query = """
             INSERT INTO signal_family_regime_state (
-                ts_state, family, venue, symbol, timeframe,
-                status, wr_window, exp_r_window, dd_r_window, trades_window,
+                ts_state, family, venue, symbol, timeframe
+                status, wr_window, exp_r_window, dd_r_window, trades_window
                 reason, disable_until, threshold_mult
             )
-            VALUES (%s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
+            VALUES (%s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s
                     %s, %s, %s)
         """
         params = (
-            ts_state,
-            family,
-            venue,
-            symbol,
-            timeframe,
-            state.status,
-            state.wr_window,
-            state.exp_r_window,
-            state.dd_r_window,
-            state.trades_window,
-            state.reason,
-            state.disable_until,
-            state.threshold_mult,
+            ts_state
+            family
+            venue
+            symbol
+            timeframe
+            state.status
+            state.wr_window
+            state.exp_r_window
+            state.dd_r_window
+            state.trades_window
+            state.reason
+            state.disable_until
+            state.threshold_mult
         )
         self._safe_write(query, params)
 
         # Redis — быстрый runtime-снапшот
         key_redis = f"signals:regime_state:{venue}:{symbol}:{timeframe}:{family}"
         value = {
-            "status": state.status,
-            "wr_window": state.wr_window,
-            "exp_r_window": state.exp_r_window,
-            "dd_r_window": state.dd_r_window,
-            "trades_window": state.trades_window,
-            "threshold_mult": state.threshold_mult,
-            "disable_until": state.disable_until.isoformat() if state.disable_until else None,
+            "status": state.status
+            "wr_window": state.wr_window
+            "exp_r_window": state.exp_r_window
+            "dd_r_window": state.dd_r_window
+            "trades_window": state.trades_window
+            "threshold_mult": state.threshold_mult
+            "disable_until": state.disable_until.isoformat() if state.disable_until else None
         }
         self.redis.set(key_redis, json.dumps(value))
 
     # ---------- публичный API для чтения baseline ----------
 
     def load_baseline_for_family(
-        self,
-        symbol: str,
-        family: str,
-        window_size: int = 50,
-        horizon_days: int = 180,
+        self
+        symbol: str
+        family: str
+        window_size: int = 50
+        horizon_days: int = 180
     ) -> Dict[str, BaselineQuantiles]:
         """
         Читает baseline по двум метрикам для данного symbol+family.
@@ -334,8 +334,8 @@ class RegimeGuardService:
         result: Dict[str, BaselineQuantiles] = {}
 
         query = """
-            SELECT metric,
-                   p05, p10, p25, p50, p75, p90, p95,
+            SELECT metric
+                   p05, p10, p25, p50, p75, p90, p95
                    sample_size
             FROM signal_family_baseline
             WHERE symbol = %s
@@ -350,13 +350,13 @@ class RegimeGuardService:
         for row in rows:
                 metric, p05, p10, p25, p50, p75, p90, p95, sample_size = row
                 result[metric] = BaselineQuantiles(
-                    p05=p05,
-                    p10=p10,
-                    p25=p25,
-                    p50=p50,
-                    p75=p75,
-                    p90=p90,
-                    p95=p95,
-                    sample_size=sample_size,
+                    p05=p05
+                    p10=p10
+                    p25=p25
+                    p50=p50
+                    p75=p75
+                    p90=p90
+                    p95=p95
+                    sample_size=sample_size
                 )
         return result

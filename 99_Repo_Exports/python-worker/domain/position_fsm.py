@@ -2,7 +2,7 @@
 domain/position_fsm.py — P1-9: Explicit FSM for PositionState.
 
 Goal:
-  Replace implicit gate-chain state management (scattered boolean flags: pos.closed,
+  Replace implicit gate-chain state management (scattered boolean flags: pos.closed
   pos.trailing_active, pos.trail_armed, pos.tp1_hit, pos.tp2_hit …) with an explicit
   finite-state machine that:
 
@@ -16,12 +16,12 @@ Goal:
 Usage:
     fsm = PositionFSM(pos)         # attach at open_position time
     fsm.transition(
-        to=PositionStatus.TP1_HIT,
-        trigger="tp1_hit",
-        actor="trade_monitor",
-        reason="price crossed tp_levels[0]",
-        price=42100.0,
-        ts_ms=tick_ts_ms,
+        to=PositionStatus.TP1_HIT
+        trigger="tp1_hit"
+        actor="trade_monitor"
+        reason="price crossed tp_levels[0]"
+        price=42100.0
+        ts_ms=tick_ts_ms
     )
 
 Integration:
@@ -56,15 +56,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _TRANSITION_TOTAL = Counter(
-    "position_fsm_transition_total",
-    "Number of FSM state transitions",
-    ["from_state", "to_state", "trigger"],
+    "position_fsm_transition_total"
+    "Number of FSM state transitions"
+    ["from_state", "to_state", "trigger"]
 )
 
 _INVALID_TRANSITION_TOTAL = Counter(
-    "position_fsm_invalid_transition_total",
-    "Number of rejected FSM transition attempts (illegal transitions)",
-    ["from_state", "to_state", "trigger"],
+    "position_fsm_invalid_transition_total"
+    "Number of rejected FSM transition attempts (illegal transitions)"
+    ["from_state", "to_state", "trigger"]
 )
 
 
@@ -96,33 +96,33 @@ class PositionStatus(str, Enum):
 # (from_state, to_state) — both as PositionStatus
 ALLOWED_TRANSITIONS: FrozenSet[Tuple[PositionStatus, PositionStatus]] = frozenset(
     {
-        (PositionStatus.PENDING, PositionStatus.OPEN),
+        (PositionStatus.PENDING, PositionStatus.OPEN)
         # From OPEN
-        (PositionStatus.OPEN, PositionStatus.TP1_HIT),
-        (PositionStatus.OPEN, PositionStatus.TRAILING_ARMED),
-        (PositionStatus.OPEN, PositionStatus.TRAILING_ACTIVE),
-        (PositionStatus.OPEN, PositionStatus.CLOSED),
-        (PositionStatus.OPEN, PositionStatus.ORPHAN_CLOSED),
+        (PositionStatus.OPEN, PositionStatus.TP1_HIT)
+        (PositionStatus.OPEN, PositionStatus.TRAILING_ARMED)
+        (PositionStatus.OPEN, PositionStatus.TRAILING_ACTIVE)
+        (PositionStatus.OPEN, PositionStatus.CLOSED)
+        (PositionStatus.OPEN, PositionStatus.ORPHAN_CLOSED)
         # From TP1_HIT
-        (PositionStatus.TP1_HIT, PositionStatus.TP2_HIT),
-        (PositionStatus.TP1_HIT, PositionStatus.TRAILING_ARMED),
-        (PositionStatus.TP1_HIT, PositionStatus.TRAILING_ACTIVE),
-        (PositionStatus.TP1_HIT, PositionStatus.CLOSED),
-        (PositionStatus.TP1_HIT, PositionStatus.ORPHAN_CLOSED),
+        (PositionStatus.TP1_HIT, PositionStatus.TP2_HIT)
+        (PositionStatus.TP1_HIT, PositionStatus.TRAILING_ARMED)
+        (PositionStatus.TP1_HIT, PositionStatus.TRAILING_ACTIVE)
+        (PositionStatus.TP1_HIT, PositionStatus.CLOSED)
+        (PositionStatus.TP1_HIT, PositionStatus.ORPHAN_CLOSED)
         # From TP2_HIT
-        (PositionStatus.TP2_HIT, PositionStatus.TRAILING_ARMED),
-        (PositionStatus.TP2_HIT, PositionStatus.TRAILING_ACTIVE),
-        (PositionStatus.TP2_HIT, PositionStatus.CLOSED),
-        (PositionStatus.TP2_HIT, PositionStatus.ORPHAN_CLOSED),
+        (PositionStatus.TP2_HIT, PositionStatus.TRAILING_ARMED)
+        (PositionStatus.TP2_HIT, PositionStatus.TRAILING_ACTIVE)
+        (PositionStatus.TP2_HIT, PositionStatus.CLOSED)
+        (PositionStatus.TP2_HIT, PositionStatus.ORPHAN_CLOSED)
         # From TRAILING_ARMED
-        (PositionStatus.TRAILING_ARMED, PositionStatus.TRAILING_ACTIVE),
-        (PositionStatus.TRAILING_ARMED, PositionStatus.CLOSED),
-        (PositionStatus.TRAILING_ARMED, PositionStatus.ORPHAN_CLOSED),
+        (PositionStatus.TRAILING_ARMED, PositionStatus.TRAILING_ACTIVE)
+        (PositionStatus.TRAILING_ARMED, PositionStatus.CLOSED)
+        (PositionStatus.TRAILING_ARMED, PositionStatus.ORPHAN_CLOSED)
         # From TRAILING_ACTIVE
-        (PositionStatus.TRAILING_ACTIVE, PositionStatus.CLOSED),
-        (PositionStatus.TRAILING_ACTIVE, PositionStatus.ORPHAN_CLOSED),
+        (PositionStatus.TRAILING_ACTIVE, PositionStatus.CLOSED)
+        (PositionStatus.TRAILING_ACTIVE, PositionStatus.ORPHAN_CLOSED)
         # Self-transitions allowed for idempotency (e.g. multiple trailing moves)
-        (PositionStatus.TRAILING_ACTIVE, PositionStatus.TRAILING_ACTIVE),
+        (PositionStatus.TRAILING_ACTIVE, PositionStatus.TRAILING_ACTIVE)
     }
 )
 
@@ -151,13 +151,13 @@ class TransitionRecord:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "from": self.from_state,
-            "to": self.to_state,
-            "trigger": self.trigger,
-            "ts_ms": self.ts_ms,
-            "actor": self.actor,
-            "reason": self.reason,
-            **{f"meta_{k}": v for k, v in self.meta.items()},
+            "from": self.from_state
+            "to": self.to_state
+            "trigger": self.trigger
+            "ts_ms": self.ts_ms
+            "actor": self.actor
+            "reason": self.reason
+            **{f"meta_{k}": v for k, v in self.meta.items()}
         }
 
 
@@ -170,10 +170,10 @@ class InvalidTransitionError(ValueError):
     """Raised when an attempt is made to perform an illegal FSM transition."""
 
     def __init__(
-        self,
-        from_state: PositionStatus,
-        to_state: PositionStatus,
-        trigger: str,
+        self
+        from_state: PositionStatus
+        to_state: PositionStatus
+        trigger: str
     ) -> None:
         self.from_state = from_state
         self.to_state = to_state
@@ -210,9 +210,9 @@ class PositionFSM:
     MAX_TRAIL_LEN = 64
 
     def __init__(
-        self,
-        pos: "PositionState",
-        initial_status: PositionStatus = PositionStatus.PENDING,
+        self
+        pos: "PositionState"
+        initial_status: PositionStatus = PositionStatus.PENDING
     ) -> None:
         self._pos = pos
         self._status: PositionStatus = initial_status
@@ -233,13 +233,13 @@ class PositionFSM:
         return self._status in TERMINAL_STATES
 
     def transition(
-        self,
-        to: PositionStatus,
-        trigger: str,
-        actor: str = "trade_monitor",
-        reason: str = "",
-        ts_ms: Optional[int] = None,
-        **meta: Any,
+        self
+        to: PositionStatus
+        trigger: str
+        actor: str = "trade_monitor"
+        reason: str = ""
+        ts_ms: Optional[int] = None
+        **meta: Any
     ) -> TransitionRecord:
         """Attempt a state transition.
 
@@ -264,16 +264,16 @@ class PositionFSM:
         # --- Validate ---
         if not self._is_allowed(from_status, to):
             _INVALID_TRANSITION_TOTAL.labels(
-                from_state=from_status.value,
-                to_state=to.value,
-                trigger=trigger,
+                from_state=from_status.value
+                to_state=to.value
+                trigger=trigger
             ).inc()
             err = InvalidTransitionError(from_status, to, trigger)
             logger.error(
-                "🚨 [FSM] %s | pos_id=%s | %s",
-                err,
-                getattr(self._pos, "id", "?"),
-                meta,
+                "🚨 [FSM] %s | pos_id=%s | %s"
+                err
+                getattr(self._pos, "id", "?")
+                meta
             )
             raise err
 
@@ -284,43 +284,43 @@ class PositionFSM:
 
         # --- Record ---
         record = TransitionRecord(
-            from_state=from_status.value,
-            to_state=to.value,
-            trigger=trigger,
-            ts_ms=ts_ms,
-            actor=actor,
-            reason=reason,
-            meta=dict(meta),
+            from_state=from_status.value
+            to_state=to.value
+            trigger=trigger
+            ts_ms=ts_ms
+            actor=actor
+            reason=reason
+            meta=dict(meta)
         )
         self._append_trail(record)
 
         # --- Metrics ---
         _TRANSITION_TOTAL.labels(
-            from_state=from_status.value,
-            to_state=to.value,
-            trigger=trigger,
+            from_state=from_status.value
+            to_state=to.value
+            trigger=trigger
         ).inc()
 
         logger.debug(
-            "🔀 [FSM] %s → %s | trigger=%s | pos_id=%s | actor=%s | %s",
-            from_status.value,
-            to.value,
-            trigger,
-            getattr(self._pos, "id", "?"),
-            actor,
-            reason,
+            "🔀 [FSM] %s → %s | trigger=%s | pos_id=%s | actor=%s | %s"
+            from_status.value
+            to.value
+            trigger
+            getattr(self._pos, "id", "?")
+            actor
+            reason
         )
 
         return record
 
     def force_transition(
-        self,
-        to: PositionStatus,
-        trigger: str,
-        actor: str = "trade_monitor",
-        reason: str = "",
-        ts_ms: Optional[int] = None,
-        **meta: Any,
+        self
+        to: PositionStatus
+        trigger: str
+        actor: str = "trade_monitor"
+        reason: str = ""
+        ts_ms: Optional[int] = None
+        **meta: Any
     ) -> TransitionRecord:
         """Transition that skips the allow-list check (use sparingly for recovery).
 
@@ -335,33 +335,33 @@ class PositionFSM:
         self._sync_fsm_status()
 
         record = TransitionRecord(
-            from_state=old.value,
-            to_state=to.value,
-            trigger=trigger,
-            ts_ms=ts_ms,
-            actor=actor,
-            reason=f"[FORCED] {reason}",
-            meta=dict(meta),
+            from_state=old.value
+            to_state=to.value
+            trigger=trigger
+            ts_ms=ts_ms
+            actor=actor
+            reason=f"[FORCED] {reason}"
+            meta=dict(meta)
         )
         self._append_trail(record)
 
         _TRANSITION_TOTAL.labels(
-            from_state=old.value,
-            to_state=to.value,
-            trigger=f"FORCED:{trigger}",
+            from_state=old.value
+            to_state=to.value
+            trigger=f"FORCED:{trigger}"
         ).inc()
 
         if trigger == "recovery" and actor == "fsm_from_position":
             logger.debug(
-                "⚠️ [FSM] FORCED %s → %s | trigger=%s | pos_id=%s | actor=%s",
-                old.value, to.value, trigger,
-                getattr(self._pos, "id", "?"), actor,
+                "⚠️ [FSM] FORCED %s → %s | trigger=%s | pos_id=%s | actor=%s"
+                old.value, to.value, trigger
+                getattr(self._pos, "id", "?"), actor
             )
         else:
             logger.warning(
-                "⚠️ [FSM] FORCED %s → %s | trigger=%s | pos_id=%s | actor=%s",
-                old.value, to.value, trigger,
-                getattr(self._pos, "id", "?"), actor,
+                "⚠️ [FSM] FORCED %s → %s | trigger=%s | pos_id=%s | actor=%s"
+                old.value, to.value, trigger
+                getattr(self._pos, "id", "?"), actor
             )
         return record
 
@@ -376,11 +376,11 @@ class PositionFSM:
         symbol = getattr(self._pos, "symbol", "")
         last = self._trail[-1] if self._trail else None
         return {
-            "pos_id": pos_id,
-            "symbol": symbol,
-            "status": self._status.value,
-            "trail_len": len(self._trail),
-            **(last.to_dict() if last else {}),
+            "pos_id": pos_id
+            "symbol": symbol
+            "status": self._status.value
+            "trail_len": len(self._trail)
+            **(last.to_dict() if last else {})
         }
 
     # ------------------------------------------------------------------ #
@@ -463,7 +463,7 @@ def _safe_set(obj: Any, attr: str, value: Any) -> None:
 def fsm_from_position(pos: "PositionState") -> "PositionFSM":
     """Reconstruct an FSM from an existing PositionState (e.g. after Redis reload).
 
-    Derives the status from the boolean flags already stored on the position,
+    Derives the status from the boolean flags already stored on the position
     using force_transition to skip the allow-list.
 
     IMPORTANT: read stored fsm_status BEFORE constructing PositionFSM, because
@@ -486,10 +486,10 @@ def fsm_from_position(pos: "PositionState") -> "PositionFSM":
         try:
             target = PositionStatus(stored)
             fsm.force_transition(
-                target,
-                trigger="recovery",
-                actor="fsm_from_position",
-                reason=f"recovered from stored fsm_status={stored!r}",
+                target
+                trigger="recovery"
+                actor="fsm_from_position"
+                reason=f"recovered from stored fsm_status={stored!r}"
             )
             return fsm
         except Exception:
@@ -512,10 +512,10 @@ def fsm_from_position(pos: "PositionState") -> "PositionFSM":
         target = PositionStatus.OPEN  # default for any recovered position
 
     fsm.force_transition(
-        target,
-        trigger="recovery",
-        actor="fsm_from_position",
+        target
+        trigger="recovery"
+        actor="fsm_from_position"
         reason=f"inferred from boolean flags (closed={closed}, "
-               f"trailing_active={trailing_active}, tp1={tp1_hit}, tp2={tp2_hit})",
+               f"trailing_active={trailing_active}, tp1={tp1_hit}, tp2={tp2_hit})"
     )
     return fsm

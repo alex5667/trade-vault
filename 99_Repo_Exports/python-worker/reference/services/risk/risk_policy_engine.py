@@ -72,90 +72,90 @@ def _metric(factory, name: str, *args, **kwargs):
 
 
 TRADE_RISK_LEVEL = _metric(
-    Gauge,
-    "trade_risk_level",
-    "Risk-engine decision level for the next trade (0=ALLOW,1=TIGHTENED,2=DENY_SOFT,3=DENY_HARD,4=FORCE_FLATTEN).",
-    ["symbol"],
+    Gauge
+    "trade_risk_level"
+    "Risk-engine decision level for the next trade (0=ALLOW,1=TIGHTENED,2=DENY_SOFT,3=DENY_HARD,4=FORCE_FLATTEN)."
+    ["symbol"]
 )
 TRADE_RISK_DENY_TOTAL = _metric(
-    Counter,
-    "trade_risk_deny_total",
-    "Number of risk-engine denials for pre-trade publication.",
-    ["symbol", "reason", "level"],
+    Counter
+    "trade_risk_deny_total"
+    "Number of risk-engine denials for pre-trade publication."
+    ["symbol", "reason", "level"]
 )
 TRADE_RISK_FORCE_FLATTEN_TOTAL = _metric(
-    Counter,
-    "trade_risk_force_flatten_total",
-    "Number of times the risk engine requested forced flatten instead of new risk.",
-    ["symbol", "reason"],
+    Counter
+    "trade_risk_force_flatten_total"
+    "Number of times the risk engine requested forced flatten instead of new risk."
+    ["symbol", "reason"]
 )
 TRADE_PORTFOLIO_TOTAL_EXPOSURE_RATIO = _metric(
-    Gauge,
-    "trade_portfolio_total_exposure_ratio",
-    "Current total notional exposure divided by equity, before applying the next trade.",
+    Gauge
+    "trade_portfolio_total_exposure_ratio"
+    "Current total notional exposure divided by equity, before applying the next trade."
 )
 TRADE_PORTFOLIO_SYMBOL_EXPOSURE_RATIO = _metric(
-    Gauge,
-    "trade_portfolio_symbol_exposure_ratio",
-    "Current symbol notional exposure divided by equity, before applying the next trade.",
-    ["symbol"],
+    Gauge
+    "trade_portfolio_symbol_exposure_ratio"
+    "Current symbol notional exposure divided by equity, before applying the next trade."
+    ["symbol"]
 )
 TRADE_PORTFOLIO_CLUSTER_EXPOSURE_RATIO = _metric(
-    Gauge,
-    "trade_portfolio_cluster_exposure_ratio",
-    "Current cluster notional exposure divided by equity, before applying the next trade.",
-    ["cluster"],
+    Gauge
+    "trade_portfolio_cluster_exposure_ratio"
+    "Current cluster notional exposure divided by equity, before applying the next trade."
+    ["cluster"]
 )
 TRADE_RISK_RECOMMENDED_NOTIONAL_USD = _metric(
-    Gauge,
-    "trade_risk_recommended_notional_usd",
-    "Recommended notional after the risk engine applies budget and cap logic.",
-    ["symbol"],
+    Gauge
+    "trade_risk_recommended_notional_usd"
+    "Recommended notional after the risk engine applies budget and cap logic."
+    ["symbol"]
 )
 TRADE_RISK_LEVERAGE_CAP = _metric(
-    Gauge,
-    "trade_risk_leverage_cap",
-    "Leverage cap selected by the risk engine for the next trade.",
-    ["symbol", "tier"],
+    Gauge
+    "trade_risk_leverage_cap"
+    "Leverage cap selected by the risk engine for the next trade."
+    ["symbol", "tier"]
 )
 TRADE_RISK_MIN_CONFIDENCE_REQUIRED = _metric(
-    Gauge,
-    "trade_risk_min_confidence_required",
-    "Minimum confidence required by the tier policy for the next trade.",
-    ["symbol", "tier"],
+    Gauge
+    "trade_risk_min_confidence_required"
+    "Minimum confidence required by the tier policy for the next trade."
+    ["symbol", "tier"]
 )
 TRADE_RISK_MAKER_ALLOWED = _metric(
-    Gauge,
-    "trade_risk_maker_allowed",
-    "Whether maker policy is allowed by the current tier / regime / infra state.",
-    ["symbol", "tier"],
+    Gauge
+    "trade_risk_maker_allowed"
+    "Whether maker policy is allowed by the current tier / regime / infra state."
+    ["symbol", "tier"]
 )
 
 # P4.5 metrics: decision volume, latency distribution, clamp rate, confidence denials
 TRADE_RISK_DECISION_TOTAL = _metric(
-    Counter,
-    "trade_risk_decision_total",
-    "Total number of risk-engine decisions.",
-    ["tier", "level"],
+    Counter
+    "trade_risk_decision_total"
+    "Total number of risk-engine decisions."
+    ["tier", "level"]
 )
 TRADE_RISK_DECISION_LATENCY_MS = _metric(
-    Histogram,
-    "trade_risk_decision_latency_ms",
-    "Risk-engine decision latency in milliseconds.",
-    ["tier", "level"],
-    buckets=(1, 2, 5, 10, 20, 50, 100, 250, 500, 1000),
+    Histogram
+    "trade_risk_decision_latency_ms"
+    "Risk-engine decision latency in milliseconds."
+    ["tier", "level"]
+    buckets=(1, 2, 5, 10, 20, 50, 100, 250, 500, 1000)
 )
 TRADE_RISK_CLAMP_TOTAL = _metric(
-    Counter,
-    "trade_risk_clamp_total",
-    "Number of times requested notional was clamped by the risk engine.",
-    ["tier"],
+    Counter
+    "trade_risk_clamp_total"
+    "Number of times requested notional was clamped by the risk engine."
+    ["tier"]
 )
 TRADE_RISK_CONFIDENCE_DENY_TOTAL = _metric(
-    Counter,
-    "trade_risk_confidence_deny_total",
-    "Number of denials caused by confidence floor by tier.",
-    ["tier"],
+    Counter
+    "trade_risk_confidence_deny_total"
+    "Number of denials caused by confidence floor by tier."
+    ["tier"]
 )
 
 # Decision level string constants
@@ -209,11 +209,11 @@ def _tier(v: Any) -> str:
 def _level_num(level: str) -> int:
     """Convert level string to Prometheus gauge numeric value."""
     return {
-        RISK_ALLOW: 0,
-        RISK_ALLOW_TIGHTENED: 1,
-        RISK_DENY_SOFT: 2,
-        RISK_DENY_HARD: 3,
-        RISK_FORCE_FLATTEN: 4,
+        RISK_ALLOW: 0
+        RISK_ALLOW_TIGHTENED: 1
+        RISK_DENY_SOFT: 2
+        RISK_DENY_HARD: 3
+        RISK_FORCE_FLATTEN: 4
     }.get(level, 3)
 
 
@@ -234,15 +234,15 @@ class TierPolicy:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "name": self.name,
-            "leverage_cap": float(self.leverage_cap),
-            "min_confidence": float(self.min_confidence),
-            "maker_allowed": bool(self.maker_allowed),
-            "slippage_bps_cap": float(self.slippage_bps_cap),
-            "watchdog_timeout_ms": int(self.watchdog_timeout_ms),
-            "max_symbol_exposure_ratio": float(self.max_symbol_exposure_ratio),
-            "max_concurrent_positions": int(self.max_concurrent_positions),
-            "base_risk_pct": float(self.base_risk_pct),
+            "name": self.name
+            "leverage_cap": float(self.leverage_cap)
+            "min_confidence": float(self.min_confidence)
+            "maker_allowed": bool(self.maker_allowed)
+            "slippage_bps_cap": float(self.slippage_bps_cap)
+            "watchdog_timeout_ms": int(self.watchdog_timeout_ms)
+            "max_symbol_exposure_ratio": float(self.max_symbol_exposure_ratio)
+            "max_concurrent_positions": int(self.max_concurrent_positions)
+            "base_risk_pct": float(self.base_risk_pct)
         }
 
 
@@ -268,9 +268,8 @@ class RiskPolicyLimits:
     # Symbol lists defining tiers (uppercase); anything else → Tier C
     tier_a_symbols: tuple = ("BTCUSDT", "ETHUSDT")
     tier_b_symbols: tuple = (
-        "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT",
-        "LTCUSDT", "BCHUSDT", "AVAXUSDT", "LINKUSDT",
-    )
+        "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT"
+        "LTCUSDT", "BCHUSDT", "AVAXUSDT",     )
 
     @classmethod
     def from_env(cls) -> "RiskPolicyLimits":
@@ -295,19 +294,19 @@ class RiskPolicyLimits:
             return values or tuple(default)
 
         return cls(
-            max_daily_loss_pct=_f_l("RISK_MAX_DAILY_LOSS_PCT", cls.max_daily_loss_pct),
-            max_total_exposure_ratio=_f_l("RISK_MAX_TOTAL_EXPOSURE_RATIO", cls.max_total_exposure_ratio),
-            max_cluster_exposure_ratio=_f_l("RISK_MAX_CLUSTER_EXPOSURE_RATIO", cls.max_cluster_exposure_ratio),
-            infra_degraded_risk_multiplier=_f_l("RISK_INFRA_DEGRADED_MULTIPLIER", cls.infra_degraded_risk_multiplier),
-            high_vol_risk_multiplier=_f_l("RISK_HIGH_VOL_MULTIPLIER", cls.high_vol_risk_multiplier),
-            kill_switch=_b_l("RISK_KILL_SWITCH", cls.kill_switch),
-            kill_switch_force_flatten=_b_l("RISK_KILL_SWITCH_FORCE_FLATTEN", cls.kill_switch_force_flatten),
-            min_stop_distance_bps=_f_l("RISK_MIN_STOP_DISTANCE_BPS", cls.min_stop_distance_bps),
-            volatility_stop_weight=_f_l("RISK_VOLATILITY_STOP_WEIGHT", cls.volatility_stop_weight),
-            soft_spread_bps_cap=_f_l("RISK_SOFT_SPREAD_BPS_CAP", cls.soft_spread_bps_cap),
-            hard_spread_bps_cap=_f_l("RISK_HARD_SPREAD_BPS_CAP", cls.hard_spread_bps_cap),
-            tier_a_symbols=_csv("RISK_TIER_A_SYMBOLS", cls.tier_a_symbols),
-            tier_b_symbols=_csv("RISK_TIER_B_SYMBOLS", cls.tier_b_symbols),
+            max_daily_loss_pct=_f_l("RISK_MAX_DAILY_LOSS_PCT", cls.max_daily_loss_pct)
+            max_total_exposure_ratio=_f_l("RISK_MAX_TOTAL_EXPOSURE_RATIO", cls.max_total_exposure_ratio)
+            max_cluster_exposure_ratio=_f_l("RISK_MAX_CLUSTER_EXPOSURE_RATIO", cls.max_cluster_exposure_ratio)
+            infra_degraded_risk_multiplier=_f_l("RISK_INFRA_DEGRADED_MULTIPLIER", cls.infra_degraded_risk_multiplier)
+            high_vol_risk_multiplier=_f_l("RISK_HIGH_VOL_MULTIPLIER", cls.high_vol_risk_multiplier)
+            kill_switch=_b_l("RISK_KILL_SWITCH", cls.kill_switch)
+            kill_switch_force_flatten=_b_l("RISK_KILL_SWITCH_FORCE_FLATTEN", cls.kill_switch_force_flatten)
+            min_stop_distance_bps=_f_l("RISK_MIN_STOP_DISTANCE_BPS", cls.min_stop_distance_bps)
+            volatility_stop_weight=_f_l("RISK_VOLATILITY_STOP_WEIGHT", cls.volatility_stop_weight)
+            soft_spread_bps_cap=_f_l("RISK_SOFT_SPREAD_BPS_CAP", cls.soft_spread_bps_cap)
+            hard_spread_bps_cap=_f_l("RISK_HARD_SPREAD_BPS_CAP", cls.hard_spread_bps_cap)
+            tier_a_symbols=_csv("RISK_TIER_A_SYMBOLS", cls.tier_a_symbols)
+            tier_b_symbols=_csv("RISK_TIER_B_SYMBOLS", cls.tier_b_symbols)
         )
 
     def tier_policy(self, tier: str) -> TierPolicy:
@@ -316,39 +315,39 @@ class RiskPolicyLimits:
         # Safer defaults than legacy universal 100x / 5% risk settings.
         if t == "A":
             return TierPolicy(
-                name="A",
-                leverage_cap=_f_env("RISK_TIER_A_MAX_LEVERAGE", 10.0),
-                min_confidence=_f_env("RISK_TIER_A_MIN_CONFIDENCE", 0.55),
-                maker_allowed=_b_env("RISK_TIER_A_MAKER_ALLOWED", True),
-                slippage_bps_cap=_f_env("RISK_TIER_A_SLIPPAGE_BPS_CAP", 12.0),
-                watchdog_timeout_ms=_i_env("RISK_TIER_A_WATCHDOG_TIMEOUT_MS", 4000),
-                max_symbol_exposure_ratio=_f_env("RISK_TIER_A_MAX_SYMBOL_EXPOSURE_RATIO", 0.70),
-                max_concurrent_positions=_i_env("RISK_TIER_A_MAX_CONCURRENT_POSITIONS", 3),
-                base_risk_pct=_f_env("RISK_TIER_A_BASE_RISK_PCT", 0.75),
+                name="A"
+                leverage_cap=_f_env("RISK_TIER_A_MAX_LEVERAGE", 10.0)
+                min_confidence=_f_env("RISK_TIER_A_MIN_CONFIDENCE", 0.55)
+                maker_allowed=_b_env("RISK_TIER_A_MAKER_ALLOWED", True)
+                slippage_bps_cap=_f_env("RISK_TIER_A_SLIPPAGE_BPS_CAP", 12.0)
+                watchdog_timeout_ms=_i_env("RISK_TIER_A_WATCHDOG_TIMEOUT_MS", 4000)
+                max_symbol_exposure_ratio=_f_env("RISK_TIER_A_MAX_SYMBOL_EXPOSURE_RATIO", 0.70)
+                max_concurrent_positions=_i_env("RISK_TIER_A_MAX_CONCURRENT_POSITIONS", 3)
+                base_risk_pct=_f_env("RISK_TIER_A_BASE_RISK_PCT", 0.75)
             )
         if t == "B":
             return TierPolicy(
-                name="B",
-                leverage_cap=_f_env("RISK_TIER_B_MAX_LEVERAGE", 5.0),
-                min_confidence=_f_env("RISK_TIER_B_MIN_CONFIDENCE", 0.60),
-                maker_allowed=_b_env("RISK_TIER_B_MAKER_ALLOWED", True),
-                slippage_bps_cap=_f_env("RISK_TIER_B_SLIPPAGE_BPS_CAP", 18.0),
-                watchdog_timeout_ms=_i_env("RISK_TIER_B_WATCHDOG_TIMEOUT_MS", 3500),
-                max_symbol_exposure_ratio=_f_env("RISK_TIER_B_MAX_SYMBOL_EXPOSURE_RATIO", 0.45),
-                max_concurrent_positions=_i_env("RISK_TIER_B_MAX_CONCURRENT_POSITIONS", 2),
-                base_risk_pct=_f_env("RISK_TIER_B_BASE_RISK_PCT", 0.45),
+                name="B"
+                leverage_cap=_f_env("RISK_TIER_B_MAX_LEVERAGE", 5.0)
+                min_confidence=_f_env("RISK_TIER_B_MIN_CONFIDENCE", 0.60)
+                maker_allowed=_b_env("RISK_TIER_B_MAKER_ALLOWED", True)
+                slippage_bps_cap=_f_env("RISK_TIER_B_SLIPPAGE_BPS_CAP", 18.0)
+                watchdog_timeout_ms=_i_env("RISK_TIER_B_WATCHDOG_TIMEOUT_MS", 3500)
+                max_symbol_exposure_ratio=_f_env("RISK_TIER_B_MAX_SYMBOL_EXPOSURE_RATIO", 0.45)
+                max_concurrent_positions=_i_env("RISK_TIER_B_MAX_CONCURRENT_POSITIONS", 2)
+                base_risk_pct=_f_env("RISK_TIER_B_BASE_RISK_PCT", 0.45)
             )
         # Tier C — memes / thin books / noisy alts — most conservative defaults
         return TierPolicy(
-            name="C",
-            leverage_cap=_f_env("RISK_TIER_C_MAX_LEVERAGE", 3.0),
-            min_confidence=_f_env("RISK_TIER_C_MIN_CONFIDENCE", 0.68),
-            maker_allowed=_b_env("RISK_TIER_C_MAKER_ALLOWED", False),
-            slippage_bps_cap=_f_env("RISK_TIER_C_SLIPPAGE_BPS_CAP", 10.0),
-            watchdog_timeout_ms=_i_env("RISK_TIER_C_WATCHDOG_TIMEOUT_MS", 2500),
-            max_symbol_exposure_ratio=_f_env("RISK_TIER_C_MAX_SYMBOL_EXPOSURE_RATIO", 0.20),
-            max_concurrent_positions=_i_env("RISK_TIER_C_MAX_CONCURRENT_POSITIONS", 1),
-            base_risk_pct=_f_env("RISK_TIER_C_BASE_RISK_PCT", 0.25),
+            name="C"
+            leverage_cap=_f_env("RISK_TIER_C_MAX_LEVERAGE", 3.0)
+            min_confidence=_f_env("RISK_TIER_C_MIN_CONFIDENCE", 0.68)
+            maker_allowed=_b_env("RISK_TIER_C_MAKER_ALLOWED", False)
+            slippage_bps_cap=_f_env("RISK_TIER_C_SLIPPAGE_BPS_CAP", 10.0)
+            watchdog_timeout_ms=_i_env("RISK_TIER_C_WATCHDOG_TIMEOUT_MS", 2500)
+            max_symbol_exposure_ratio=_f_env("RISK_TIER_C_MAX_SYMBOL_EXPOSURE_RATIO", 0.20)
+            max_concurrent_positions=_i_env("RISK_TIER_C_MAX_CONCURRENT_POSITIONS", 1)
+            base_risk_pct=_f_env("RISK_TIER_C_BASE_RISK_PCT", 0.25)
         )
 
 
@@ -403,18 +402,18 @@ class RiskPolicyDecision:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "level": self.level,
-            "allow_trade_publish": bool(self.allow_trade_publish),
-            "adjusted_notional_usd": float(self.adjusted_notional_usd),
-            "leverage_cap": float(self.leverage_cap),
-            "risk_multiplier": float(self.risk_multiplier),
-            "reasons": list(self.reasons),
-            "snapshot": dict(self.snapshot),
-            "tier_policy": self.tier_policy.to_dict(),
-            "maker_policy_allowed": bool(self.maker_policy_allowed),
-            "min_confidence_required": float(self.min_confidence_required),
-            "watchdog_timeout_ms": int(self.watchdog_timeout_ms),
-            "effective_execution_policy": str(self.effective_execution_policy),
+            "level": self.level
+            "allow_trade_publish": bool(self.allow_trade_publish)
+            "adjusted_notional_usd": float(self.adjusted_notional_usd)
+            "leverage_cap": float(self.leverage_cap)
+            "risk_multiplier": float(self.risk_multiplier)
+            "reasons": list(self.reasons)
+            "snapshot": dict(self.snapshot)
+            "tier_policy": self.tier_policy.to_dict()
+            "maker_policy_allowed": bool(self.maker_policy_allowed)
+            "min_confidence_required": float(self.min_confidence_required)
+            "watchdog_timeout_ms": int(self.watchdog_timeout_ms)
+            "effective_execution_policy": str(self.effective_execution_policy)
         }
 
 
@@ -640,31 +639,31 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits
             level = RISK_ALLOW_TIGHTENED
 
     snapshot = {
-        "symbol": symbol,
-        "cluster": cluster,
-        "tier": tier,
-        "equity_usd": float(equity),
-        "daily_pnl_pct": float(_f(inp.daily_pnl_pct)),
-        "requested_notional_usd": float(req),
-        "adjusted_notional_usd": float(adjusted),
-        "base_risk_usd": float(base_risk_usd),
-        "budget_risk_usd": float(budget_risk_usd),
-        "effective_stop_bps": float(effective_stop_bps),
-        "spread_bps": float(spread_bps),
-        "expected_slippage_bps": float(expected_slippage_bps),
-        "confidence": float(confidence),
-        "total_exposure_ratio": float(total_ratio),
-        "symbol_exposure_ratio": float(symbol_ratio),
-        "cluster_exposure_ratio": float(cluster_ratio),
-        "max_position_notional_usd": float(max_position_notional_usd),
-        "symbol_position_count": int(symbol_position_count),
-        "maker_policy_requested": bool(inp.maker_policy_requested),
-        "maker_policy_allowed": bool(maker_allowed),
-        "infra_degraded": bool(inp.infra_degraded),
-        "high_vol": bool(inp.high_vol),
-        "kill_switch": bool(lim.kill_switch or inp.kill_switch),
+        "symbol": symbol
+        "cluster": cluster
+        "tier": tier
+        "equity_usd": float(equity)
+        "daily_pnl_pct": float(_f(inp.daily_pnl_pct))
+        "requested_notional_usd": float(req)
+        "adjusted_notional_usd": float(adjusted)
+        "base_risk_usd": float(base_risk_usd)
+        "budget_risk_usd": float(budget_risk_usd)
+        "effective_stop_bps": float(effective_stop_bps)
+        "spread_bps": float(spread_bps)
+        "expected_slippage_bps": float(expected_slippage_bps)
+        "confidence": float(confidence)
+        "total_exposure_ratio": float(total_ratio)
+        "symbol_exposure_ratio": float(symbol_ratio)
+        "cluster_exposure_ratio": float(cluster_ratio)
+        "max_position_notional_usd": float(max_position_notional_usd)
+        "symbol_position_count": int(symbol_position_count)
+        "maker_policy_requested": bool(inp.maker_policy_requested)
+        "maker_policy_allowed": bool(maker_allowed)
+        "infra_degraded": bool(inp.infra_degraded)
+        "high_vol": bool(inp.high_vol)
+        "kill_switch": bool(lim.kill_switch or inp.kill_switch)
         # P4.5: clamp_ratio — 1.0 means no clamping, <1.0 means notional was shrunk
-        "clamp_ratio": float((adjusted / requested_target_notional) if requested_target_notional > 0 else 1.0),
+        "clamp_ratio": float((adjusted / requested_target_notional) if requested_target_notional > 0 else 1.0)
     }
 
     # Update Prometheus metrics
@@ -693,18 +692,18 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits
             TRADE_RISK_FORCE_FLATTEN_TOTAL.labels(symbol=symbol, reason=reason).inc()
 
     return RiskPolicyDecision(
-        level=level,
-        allow_trade_publish=bool(allow),
-        adjusted_notional_usd=float(adjusted),
-        leverage_cap=float(tier_policy.leverage_cap),
-        risk_multiplier=float(risk_multiplier if allow else 0.0),
-        reasons=sorted(set(reasons)),
-        snapshot=snapshot,
-        tier_policy=tier_policy,
-        maker_policy_allowed=bool(maker_allowed),
-        min_confidence_required=float(tier_policy.min_confidence),
-        watchdog_timeout_ms=int(tier_policy.watchdog_timeout_ms),
-        effective_execution_policy=effective_execution_policy,
+        level=level
+        allow_trade_publish=bool(allow)
+        adjusted_notional_usd=float(adjusted)
+        leverage_cap=float(tier_policy.leverage_cap)
+        risk_multiplier=float(risk_multiplier if allow else 0.0)
+        reasons=sorted(set(reasons))
+        snapshot=snapshot
+        tier_policy=tier_policy
+        maker_policy_allowed=bool(maker_allowed)
+        min_confidence_required=float(tier_policy.min_confidence)
+        watchdog_timeout_ms=int(tier_policy.watchdog_timeout_ms)
+        effective_execution_policy=effective_execution_policy
     )
 
 

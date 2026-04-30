@@ -49,15 +49,15 @@ class HealthMetricsMapper:
         l2_is_stale = bool(getattr(ctx, "l2_is_stale", True))
 
         return dict(
-            symbol=symbol,
-            l2_age_ms=l2_age_ms,
-            z_score=z_score,
-            obi=obi,
-            obi_20=obi_20,
-            obi_sustained=obi_sustained,
-            spread_bps=spread_bps,
-            eta_fill_ms=eta_fill_ms,
-            burst_ratio=burst_ratio,
-            imbalance_min=imbalance_min,
-            l2_is_stale=l2_is_stale,
+            symbol=symbol
+            l2_age_ms=l2_age_ms
+            z_score=z_score
+            obi=obi
+            obi_20=obi_20
+            obi_sustained=obi_sustained
+            spread_bps=spread_bps
+            eta_fill_ms=eta_fill_ms
+            burst_ratio=burst_ratio
+            imbalance_min=imbalance_min
+            l2_is_stale=l2_is_stale
         )

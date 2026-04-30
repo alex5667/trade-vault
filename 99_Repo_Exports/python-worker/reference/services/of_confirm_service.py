@@ -46,8 +46,8 @@ events_received_total = Counter("of_confirm_events_received_total", "Total event
 
 # Logging
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=os.getenv("LOG_LEVEL", "INFO")
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("of_confirm_service")
 
@@ -145,9 +145,9 @@ class OFConfirmService:
 
         # Consumers
         tasks = [
-            safe_create_task(self._consume_ticks()),
-            safe_create_task(self._consume_books()),
-            safe_create_task(self._consume_bars()),
+            safe_create_task(self._consume_ticks())
+            safe_create_task(self._consume_books())
+            safe_create_task(self._consume_bars())
             safe_create_task(self._config_refresher())
         ]
         
@@ -203,7 +203,7 @@ class OFConfirmService:
         # For simplicity in this variant, we'll scan for active book streams or use XREADGroup on known keys if dynamic.
         # But standard redis streams for books are usually per-symbol. 
         # We will use a dedicated consumer group on a fixed list or pattern if supported.
-        # Since Redis Streams don't support PSUBSCRIBE pattern matching for groups in the same way,
+        # Since Redis Streams don't support PSUBSCRIBE pattern matching for groups in the same way
         # we often use a loop to sync active symbols. For now, we iterate known active symbols.
         
         while self.running:
@@ -299,9 +299,9 @@ class OFConfirmService:
             
             # We construct a normalized tick payload
             norm_tick = {
-                "ts": tick_ts,
-                "price": price,
-                "qty": qty,
+                "ts": tick_ts
+                "price": price
+                "qty": qty
                 "is_buyer_maker": is_buyer_maker
             }
             
@@ -362,22 +362,22 @@ class OFConfirmService:
             delta_z = spike.get("delta_z", 0.0)
             
             indicators = {
-                "now_ts_ms": ts_ms,
-                "delta": spike.get("delta", 0.0),
-                "delta_z": delta_z,
+                "now_ts_ms": ts_ms
+                "delta": spike.get("delta", 0.0)
+                "delta_z": delta_z
             }
             
             # Run engine
             of_confirm, decision = self.engine.build(
-                symbol=symbol,
-                tf="tick",
-                direction=spike.get("direction", "none"),
-                tick_ts_ms=ts_ms,
-                price=spike.get("price", 0.0),
-                delta_z=delta_z,
-                runtime=state,
-                cfg=state.config,
-                indicators=indicators,
+                symbol=symbol
+                tf="tick"
+                direction=spike.get("direction", "none")
+                tick_ts_ms=ts_ms
+                price=spike.get("price", 0.0)
+                delta_z=delta_z
+                runtime=state
+                cfg=state.config
+                indicators=indicators
             )
             
             status = "skipped"
@@ -386,9 +386,9 @@ class OFConfirmService:
                 out_payload = of_confirm.to_dict()
                 out_payload["generated_at"] = get_ny_time_millis()
                 await self.redis.xadd(
-                    self.stream_out,
-                    {"payload": json.dumps(out_payload)},
-                    maxlen=50000,
+                    self.stream_out
+                    {"payload": json.dumps(out_payload)}
+                    maxlen=50000
                     approximate=True
                 )
                 confirm_signals_total.labels(symbol=symbol).inc()
@@ -449,11 +449,11 @@ class OFConfirmService:
         stream_map: Dict[str, str] = {k: ">" for k in keys}
         try:
             resp = await self.redis.xreadgroup(
-                groupname=self.consumer_group,
-                consumername=self.consumer_name,
-                streams=stream_map,
-                count=int(os.getenv("OF_CONFIRM_BARS_BATCH", "200")),
-                block=int(os.getenv("OF_CONFIRM_BARS_BLOCK_MS", "500")),
+                groupname=self.consumer_group
+                consumername=self.consumer_name
+                streams=stream_map
+                count=int(os.getenv("OF_CONFIRM_BARS_BATCH", "200"))
+                block=int(os.getenv("OF_CONFIRM_BARS_BLOCK_MS", "500"))
             )
         except Exception:
             return 0
@@ -505,8 +505,8 @@ class OFConfirmService:
                 from types import SimpleNamespace
                 sw = bar["sweep"]
                 state.last_sweep = SimpleNamespace(
-                    kind=sw.get("kind"),
-                    ts_ms=sw.get("ts_ms"),
+                    kind=sw.get("kind")
+                    ts_ms=sw.get("ts_ms")
                     # Add defaults if engine needs them
                     direction_bias="NONE" 
                 )
@@ -515,8 +515,8 @@ class OFConfirmService:
                 from types import SimpleNamespace
                 rc = bar["reclaim"]
                 state.last_reclaim = SimpleNamespace(
-                    hold_bars=rc.get("hold_bars"),
-                    ts_ms=rc.get("ts_ms"),
+                    hold_bars=rc.get("hold_bars")
+                    ts_ms=rc.get("ts_ms")
                     direction_bias="NONE"
                 )
             
@@ -639,15 +639,15 @@ class OFConfirmService:
             state.config = config
             
             state.delta_detector = DeltaSpikeDetector(
-                window=delta_win,
+                window=delta_win
                 z_threshold=delta_z
             )
             state.obi_detector = OBIDetector(
-                threshold=obi_thr,
+                threshold=obi_thr
                 hold_secs=obi_dur
             )
             state.iceberg_detector = IcebergDetector(
-                min_refresh=ice_ref,
+                min_refresh=ice_ref
                 min_duration=ice_dur
             )
             

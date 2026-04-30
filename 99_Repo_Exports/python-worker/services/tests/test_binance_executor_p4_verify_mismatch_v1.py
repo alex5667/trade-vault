@@ -48,15 +48,15 @@ class DummyClientMismatched:
         sid = kwargs.get("sid", "")
         tp1_cid = _make_cid(sid, "tp1")
         return {
-            "sid": sid,
-            "symbol": symbol,
+            "sid": sid
+            "symbol": symbol
             "is_complete": False,           # stale price → incomplete
             "missing": [],                  # id exists, just price wrong
             "mismatched": ["tp1"],          # P4: stale trigger price
-            "tp_by_index": {1: {"algoId": 21, "clientAlgoId": tp1_cid, "triggerPrice": "111.0"}},
-            "by_client_algo_id": {tp1_cid: {"algoId": 21, "triggerPrice": "111.0"}},
-            "expect_sl": False,
-            "expected_tp_count": 1,
+            "tp_by_index": {1: {"algoId": 21, "clientAlgoId": tp1_cid, "triggerPrice": "111.0"}}
+            "by_client_algo_id": {tp1_cid: {"algoId": 21, "triggerPrice": "111.0"}}
+            "expect_sl": False
+            "expected_tp_count": 1
         }
 
 
@@ -65,15 +65,15 @@ class DummyClientComplete:
 
     def inspect_protection_set(self, symbol, **kwargs):
         return {
-            "sid": kwargs.get("sid", ""),
-            "symbol": symbol,
-            "is_complete": True,
-            "missing": [],
-            "mismatched": [],
-            "tp_by_index": {},
-            "by_client_algo_id": {},
-            "expect_sl": False,
-            "expected_tp_count": 0,
+            "sid": kwargs.get("sid", "")
+            "symbol": symbol
+            "is_complete": True
+            "missing": []
+            "mismatched": []
+            "tp_by_index": {}
+            "by_client_algo_id": {}
+            "expect_sl": False
+            "expected_tp_count": 0
         }
 
 
@@ -85,11 +85,11 @@ def test_verify_protection_on_exchange_rejects_stale_prices():
     payload = {"sid": sid, "symbol": "BTCUSDT", "tp1": 110.0}
     state: dict = {}
     out = ex._verify_protection_on_exchange(
-        sid=sid,
-        symbol="BTCUSDT",
-        payload=payload,
-        state=state,
-        client=DummyClientMismatched(),
+        sid=sid
+        symbol="BTCUSDT"
+        payload=payload
+        state=state
+        client=DummyClientMismatched()
     )
     assert out["is_complete"] is False, f"Expected is_complete=False, got {out}"
     assert out.get("mismatched") == ["tp1"], (
@@ -104,11 +104,11 @@ def test_verify_protection_on_exchange_complete_when_no_mismatch():
     payload = {"sid": sid, "symbol": "BTCUSDT"}
     state: dict = {}
     out = ex._verify_protection_on_exchange(
-        sid=sid,
-        symbol="BTCUSDT",
-        payload=payload,
-        state=state,
-        client=DummyClientComplete(),
+        sid=sid
+        symbol="BTCUSDT"
+        payload=payload
+        state=state
+        client=DummyClientComplete()
     )
     assert out["is_complete"] is True
     assert out.get("mismatched", []) == []

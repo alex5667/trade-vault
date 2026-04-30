@@ -98,9 +98,9 @@ class Agg:
     def snapshot(self) -> Dict[str, Any]:
         n = max(1, int(self.n))
         return {
-            "n": int(self.n),
-            "winrate": float(self.win) / float(n),
-            "avg_ret_bps": float(self.sum_ret_bps) / float(n),
+            "n": int(self.n)
+            "winrate": float(self.win) / float(n)
+            "avg_ret_bps": float(self.sum_ret_bps) / float(n)
         }
 
 
@@ -147,11 +147,11 @@ class EntryPolicyABReportService:
 
     async def _consume_audit(self) -> None:
         msgs = await self.r.xreadgroup(
-            groupname=self.group,
-            consumername=self.consumer,
-            streams={self.audit_stream: ">"},
-            count=self.read_count,
-            block=self.block_ms,
+            groupname=self.group
+            consumername=self.consumer
+            streams={self.audit_stream: ">"}
+            count=self.read_count
+            block=self.block_ms
         )
         if not msgs:
             return
@@ -263,13 +263,13 @@ class EntryPolicyABReportService:
 
             win = self._pick_winner(group)
             sug = {
-                "ts_ms": now,
-                "group": group,
-                "winner_arm": win["arm"],
-                "reason": win["reason"],
-                "metrics": win["metrics"],
-                "min_n": self.min_n,
-                "note": "Proxy winner via forward-return (60s/300s) on price:latest. Approve manually.",
+                "ts_ms": now
+                "group": group
+                "winner_arm": win["arm"]
+                "reason": win["reason"]
+                "metrics": win["metrics"]
+                "min_n": self.min_n
+                "note": "Proxy winner via forward-return (60s/300s) on price:latest. Approve manually."
             }
             sk = f"cfg:suggestions:entry_policy:ab_winner:v1:{group}"
             await self.r.set(sk, json.dumps(sug, ensure_ascii=False, separators=(",", ":")), ex=self.ttl_sec)

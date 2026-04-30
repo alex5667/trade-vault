@@ -64,10 +64,10 @@ def check_calibration_results():
             # Get statistics by symbol
             cur.execute("""
                 SELECT
-                    symbol,
-                    COUNT(*) as entries,
-                    AVG(count_samples) as avg_samples,
-                    MIN(updated_at) as oldest_update,
+                    symbol
+                    COUNT(*) as entries
+                    AVG(count_samples) as avg_samples
+                    MIN(updated_at) as oldest_update
                     MAX(updated_at) as newest_update
                 FROM signal_local_calibration
                 GROUP BY symbol
@@ -147,9 +147,9 @@ def check_calibration_results():
             # Check for NULL values
             cur.execute("""
                 SELECT
-                    COUNT(*) as total,
-                    COUNT(CASE WHEN q90 IS NULL THEN 1 END) as null_q90,
-                    COUNT(CASE WHEN chosen_threshold IS NULL THEN 1 END) as null_threshold,
+                    COUNT(*) as total
+                    COUNT(CASE WHEN q90 IS NULL THEN 1 END) as null_q90
+                    COUNT(CASE WHEN chosen_threshold IS NULL THEN 1 END) as null_threshold
                     COUNT(CASE WHEN count_samples < 100 THEN 1 END) as low_samples
                 FROM signal_local_calibration
             """)
@@ -167,7 +167,7 @@ def check_calibration_results():
 
             # Check for recent updates
             cur.execute("""
-                SELECT MAX(updated_at) as last_update,
+                SELECT MAX(updated_at) as last_update
                        EXTRACT(EPOCH FROM (NOW() - MAX(updated_at)))/3600 as hours_ago
                 FROM signal_local_calibration
             """)

@@ -28,13 +28,13 @@ class CooldownService:
         self._cooldown_tokens: Dict[str, str] = {}
 
         self._default_cooldowns_ms = {
-            "breakout": 30_000,
-            "sweep": 15_000,
-            "extreme": 90_000,
-            "absorption": 45_000,
-            "obi_spike": 20_000,
-            "weak_progress": 60_000,
-            "default": 10_000,
+            "breakout": 30_000
+            "sweep": 15_000
+            "extreme": 90_000
+            "absorption": 45_000
+            "obi_spike": 20_000
+            "weak_progress": 60_000
+            "default": 10_000
         }
 
         self._RELEASE_LUA = """
@@ -61,22 +61,22 @@ class CooldownService:
         """
         kind_n = (kind or "default").lower()
         ok, _, _ = self.reserve(
-            family=family,
-            timeframe_s=int(timeframe_s),
-            kind_lc=kind_n,
-            level_key=level_key,
-            ts_ms=int(ts_ms),
+            family=family
+            timeframe_s=int(timeframe_s)
+            kind_lc=kind_n
+            level_key=level_key
+            ts_ms=int(ts_ms)
         )
         return bool(ok)
 
     def reserve(
-        self,
-        *,
-        family: str,
-        timeframe_s: int,
-        kind_lc: str,
-        level_key: str,
-        ts_ms: int,
+        self
+        *
+        family: str
+        timeframe_s: int
+        kind_lc: str
+        level_key: str
+        ts_ms: int
     ) -> Tuple[bool, str, str]:
         """
         Вариант B (по-взрослому):

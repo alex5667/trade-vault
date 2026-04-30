@@ -66,11 +66,11 @@ class DeltaNotionalCalibrator:
         return int(dt.weekday() * 24 + dt.hour)
 
     def __init__(
-        self,
-        *,
-        min_samples: int = 300,
-        liq_alpha: float = 0.05,
-        liq_scale_clamp: Tuple[float, float] = (0.5, 2.0),
+        self
+        *
+        min_samples: int = 300
+        liq_alpha: float = 0.05
+        liq_scale_clamp: Tuple[float, float] = (0.5, 2.0)
     ) -> None:
         self.min_samples = int(min_samples)
         self._liq_alpha = float(liq_alpha)
@@ -138,14 +138,14 @@ class DeltaNotionalCalibrator:
         return x
 
     def tiers(
-        self,
-        *,
-        regime: str,
-        ts_ms: int = 0,
-        default_t0: float,
-        default_t1: float,
-        default_t2: float,
-        clamp_usd: Tuple[float, float] = (0.0, 1e12),
+        self
+        *
+        regime: str
+        ts_ms: int = 0
+        default_t0: float
+        default_t1: float
+        default_t2: float
+        clamp_usd: Tuple[float, float] = (0.0, 1e12)
     ) -> DeltaNotionalTiers:
         r = str(regime or "na")
         n = int(self._n.get(r, 0))
@@ -168,15 +168,15 @@ class DeltaNotionalCalibrator:
             t1 = float(default_t1 or 0.0) * scale
             t2 = float(default_t2 or 0.0) * scale
             return DeltaNotionalTiers(
-                tier0_usd=self._clamp(t0, *clamp_usd),
-                tier1_usd=self._clamp(t1, *clamp_usd),
-                tier2_usd=self._clamp(t2, *clamp_usd),
-                n=n,
-                src="static",
-                scale=scale,
-                hour_of_week=how,
-                g_liq_ema=g_liq,
-                b_liq_ema=b_liq,
+                tier0_usd=self._clamp(t0, *clamp_usd)
+                tier1_usd=self._clamp(t1, *clamp_usd)
+                tier2_usd=self._clamp(t2, *clamp_usd)
+                n=n
+                src="static"
+                scale=scale
+                hour_of_week=how
+                g_liq_ema=g_liq
+                b_liq_ema=b_liq
             )
 
         # Ready -> calibrated percentiles (in USD space)
@@ -185,31 +185,31 @@ class DeltaNotionalCalibrator:
         t2 = float(math.expm1(self._q95[r].value())) * scale
 
         return DeltaNotionalTiers(
-            tier0_usd=self._clamp(float(t0), *clamp_usd),
-            tier1_usd=self._clamp(float(t1), *clamp_usd),
-            tier2_usd=self._clamp(float(t2), *clamp_usd),
-            n=n,
-            src="calib_p50/p80/p95",
-            scale=scale,
-            hour_of_week=how,
-            g_liq_ema=g_liq,
-            b_liq_ema=b_liq,
+            tier0_usd=self._clamp(float(t0), *clamp_usd)
+            tier1_usd=self._clamp(float(t1), *clamp_usd)
+            tier2_usd=self._clamp(float(t2), *clamp_usd)
+            n=n
+            src="calib_p50/p80/p95"
+            scale=scale
+            hour_of_week=how
+            g_liq_ema=g_liq
+            b_liq_ema=b_liq
         )
 
     # ---------------- Persistence ----------------
     def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> Dict[str, Any]:
         r = str(regime or "na")
         return {
-            "v": 1,
-            "symbol": str(symbol),
-            "regime": r,
-            "updated_ts_ms": int(updated_ts_ms),
-            "n": int(self._n.get(r, 0)),
-            "q50_log": (self._q50.get(r).to_state() if self._q50.get(r) else None),
-            "q80_log": (self._q80.get(r).to_state() if self._q80.get(r) else None),
-            "q95_log": (self._q95.get(r).to_state() if self._q95.get(r) else None),
-            "liq_global": float(self._global_liq.get(r, 0.0)),
-            "liq_bucket": dict(self._bucket_liq.get(r, {})),
+            "v": 1
+            "symbol": str(symbol)
+            "regime": r
+            "updated_ts_ms": int(updated_ts_ms)
+            "n": int(self._n.get(r, 0))
+            "q50_log": (self._q50.get(r).to_state() if self._q50.get(r) else None)
+            "q80_log": (self._q80.get(r).to_state() if self._q80.get(r) else None)
+            "q95_log": (self._q95.get(r).to_state() if self._q95.get(r) else None)
+            "liq_global": float(self._global_liq.get(r, 0.0))
+            "liq_bucket": dict(self._bucket_liq.get(r, {}))
         }
 
     def load_regime_state(self, state: Dict[str, Any]) -> None:

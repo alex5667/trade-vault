@@ -201,7 +201,7 @@ def _should_sample(ts_ms: int, rate: float) -> bool:
 
 
 def _compute_tick_uid(
-    *, symbol: str, trade_id: Optional[int], ts_ms: int, price_src: Any, qty_src: Any,
+    *, symbol: str, trade_id: Optional[int], ts_ms: int, price_src: Any, qty_src: Any
     side: str, is_buyer_maker: Any, stream_id: Optional[str] = None
 ) -> str:
     """Deterministic tick UID for dedup across retries/replays.
@@ -397,24 +397,24 @@ def _parse_tick_payload(
         side_conf = "unknown"
 
     tick: Dict[str, Any] = {
-        "symbol": symbol,
+        "symbol": symbol
         "ts": int(ts_ms or 0),      # legacy epoch ms (keep)
         "ts_ms": int(ts_ms or 0),   # payload time (may be coerced later)
         "event_ts_ms": int(ts_ms or 0),  # payload event time (may be coerced later)
-        "price": _safe_float(price_src),
-        "last": _safe_float(merged.get("last")),
-        "bid": _safe_float(merged.get("bid")),
-        "ask": _safe_float(merged.get("ask")),
-        "qty": qty_src,
-        "side": side,
-        "side_raw": side_raw,
-        "side_conf": side_conf,
-        "is_buyer_maker": is_buyer_maker,
-        "trade_id": trade_id_val,
-        "raw": merged,
-        "written_at": datetime.now(timezone.utc).isoformat(),
-        "tick_uid": "",
-        "ts_source": "payload" if int(ts_ms or 0) > 0 else "missing",
+        "price": _safe_float(price_src)
+        "last": _safe_float(merged.get("last"))
+        "bid": _safe_float(merged.get("bid"))
+        "ask": _safe_float(merged.get("ask"))
+        "qty": qty_src
+        "side": side
+        "side_raw": side_raw
+        "side_conf": side_conf
+        "is_buyer_maker": is_buyer_maker
+        "trade_id": trade_id_val
+        "raw": merged
+        "written_at": datetime.now(timezone.utc).isoformat()
+        "tick_uid": ""
+        "ts_source": "payload" if int(ts_ms or 0) > 0 else "missing"
     }
 
     # normalize qty to float and bail if invalid
@@ -430,13 +430,13 @@ def _parse_tick_payload(
 
     # Deterministic UID for dedup (prefer trade_id; consumer may overwrite with stream_id-aware uid)
     tick["tick_uid"] = _compute_tick_uid(
-        symbol=str(tick.get("symbol") or ""),
-        trade_id=trade_id_val,
-        ts_ms=int(tick.get("ts_ms") or 0),
-        price_src=price_src,
-        qty_src=qty_src,
-        side=str(tick.get("side") or ""),
-        is_buyer_maker=tick.get("is_buyer_maker"),
+        symbol=str(tick.get("symbol") or "")
+        trade_id=trade_id_val
+        ts_ms=int(tick.get("ts_ms") or 0)
+        price_src=price_src
+        qty_src=qty_src
+        side=str(tick.get("side") or "")
+        is_buyer_maker=tick.get("is_buyer_maker")
     )
 
     bid = _safe_float(tick.get("bid"))
@@ -485,17 +485,17 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
     )
     
     return {
-        "symbol": symbol,
-        "ts_ms": ts_ms,
+        "symbol": symbol
+        "ts_ms": ts_ms
         # Binance: depthUpdate has both firstUpdateId ("U") and lastUpdateId ("u").
         # Spot depthUpdate: {"U": firstUpdateId, "u": lastUpdateId, ...}
         # Futures depthUpdate: same keys.
         # partial depth snapshots (@depth5/@depth10/@depth20) typically do NOT have U/u.
-        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId")),
+        "U": _safe_int(merged.get("U") or merged.get("firstUpdateId"))
         "u": _safe_int(merged.get("u") or merged.get("lastUpdateId")),  # Binance specific
-        "bids": bids,
-        "asks": asks,
-        "written_at": _safe_int(merged.get("written_at")),
+        "bids": bids
+        "asks": asks
+        "written_at": _safe_int(merged.get("written_at"))
     }
 
 class LogSampler:

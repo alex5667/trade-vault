@@ -51,10 +51,10 @@ def _get_nested(d: Dict[str, Any], keys: Iterable[str]) -> Any:
 
 def _extract_symbol(rec: Dict[str, Any]) -> str:
     for path in (
-        ("symbol",),
-        ("meta", "symbol"),
-        ("decision", "symbol"),
-        ("dr", "symbol"),
+        ("symbol",)
+        ("meta", "symbol")
+        ("decision", "symbol")
+        ("dr", "symbol")
     ):
         v = _get_nested(rec, path)
         if isinstance(v, str) and v:
@@ -77,10 +77,10 @@ def _extract_indicators(rec: Dict[str, Any]) -> Dict[str, Any]:
 
 def _extract_dq_level(rec: Dict[str, Any], ind: Dict[str, Any]) -> int:
     for path in (
-        ("dq_level",),
-        ("dq", "dq_level"),
-        ("decision", "dq_level"),
-        ("decision", "dq", "dq_level"),
+        ("dq_level",)
+        ("dq", "dq_level")
+        ("decision", "dq_level")
+        ("decision", "dq", "dq_level")
     ):
         v = _get_nested(rec, path)
         if v is not None:

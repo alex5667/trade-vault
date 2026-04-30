@@ -32,31 +32,31 @@ STREAM_ESC = "stream:atr_policy:escalations"
 
 VALID_MODES = {"shadow", "canary", "live"}
 REQUIRED_FIELDS = [
-    "source",
-    "symbol",
-    "scenario",
-    "regime",
-    "risk_horizon_bucket",
-    "stop_ttl_mode",
-    "trailing_mode",
+    "source"
+    "symbol"
+    "scenario"
+    "regime"
+    "risk_horizon_bucket"
+    "stop_ttl_mode"
+    "trailing_mode"
 ]
 
 # ── Prometheus ────────────────────────────────────────────────────────────────
 
 c_verify_total = Counter(
-    "atr_policy_verify_total",
-    "ATR policy verify attempts",
-    ["reason_code"],
+    "atr_policy_verify_total"
+    "ATR policy verify attempts"
+    ["reason_code"]
 )
 c_verify_fail = Counter(
-    "atr_policy_verify_fail_total",
-    "ATR policy verify failures",
-    ["reason_code"],
+    "atr_policy_verify_fail_total"
+    "ATR policy verify failures"
+    ["reason_code"]
 )
 c_corruption = Counter(
-    "atr_policy_active_corruption_total",
-    "ATR active policy corruptions detected",
-    ["reason_code"],
+    "atr_policy_active_corruption_total"
+    "ATR active policy corruptions detected"
+    ["reason_code"]
 )
 
 
@@ -64,8 +64,8 @@ c_corruption = Counter(
 
 def _redis() -> redis.Redis:
     return redis.Redis.from_url(
-        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        decode_responses=True,
+        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        decode_responses=True
     )
 
 
@@ -90,10 +90,10 @@ def _publish(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> None:
 # ── Core ──────────────────────────────────────────────────────────────────────
 
 def verify_active_policy(
-    policy_key: str,
-    r: Optional[redis.Redis] = None,
-    *,
-    publish: bool = True,
+    policy_key: str
+    r: Optional[redis.Redis] = None
+    *
+    publish: bool = True
 ) -> Dict[str, Any]:
     """
     Verify that the active policy key is schema-valid and kill_switch-free.
@@ -112,20 +112,20 @@ def verify_active_policy(
 
     def _fail(reason_code: str, extra: Optional[Dict] = None) -> Dict[str, Any]:
         result: Dict[str, Any] = {
-            "verified_ok": False,
-            "reason_code": reason_code,
-            "policy_key": policy_key,
-            "ts_ms": now_ms,
+            "verified_ok": False
+            "reason_code": reason_code
+            "policy_key": policy_key
+            "ts_ms": now_ms
         }
         if extra:
             result.update(extra)
         c_verify_fail.labels(reason_code=reason_code).inc()
         c_verify_total.labels(reason_code=reason_code).inc()
         if reason_code in (
-            "ACTIVE_KEY_JSON_CORRUPTED",
-            "ACTIVE_KEY_FIELDS_MISSING",
-            "ACTIVE_KEY_STOP_MODE_INVALID",
-            "ACTIVE_KEY_TRAIL_MODE_INVALID",
+            "ACTIVE_KEY_JSON_CORRUPTED"
+            "ACTIVE_KEY_FIELDS_MISSING"
+            "ACTIVE_KEY_STOP_MODE_INVALID"
+            "ACTIVE_KEY_TRAIL_MODE_INVALID"
         ):
             c_corruption.labels(reason_code=reason_code).inc()
         if publish:
@@ -155,13 +155,13 @@ def verify_active_policy(
     # ── 4. Mode validity ──────────────────────────────────────────────────
     if obj["stop_ttl_mode"] not in VALID_MODES:
         return _fail(
-            "ACTIVE_KEY_STOP_MODE_INVALID",
-            {"stop_ttl_mode": obj["stop_ttl_mode"], "valid": list(VALID_MODES)},
+            "ACTIVE_KEY_STOP_MODE_INVALID"
+            {"stop_ttl_mode": obj["stop_ttl_mode"], "valid": list(VALID_MODES)}
         )
     if obj["trailing_mode"] not in VALID_MODES:
         return _fail(
-            "ACTIVE_KEY_TRAIL_MODE_INVALID",
-            {"trailing_mode": obj["trailing_mode"], "valid": list(VALID_MODES)},
+            "ACTIVE_KEY_TRAIL_MODE_INVALID"
+            {"trailing_mode": obj["trailing_mode"], "valid": list(VALID_MODES)}
         )
 
     # ── 5. Kill-switch ────────────────────────────────────────────────────
@@ -176,14 +176,14 @@ def verify_active_policy(
 
     # ── OK ─────────────────────────────────────────────────────────────────
     result: Dict[str, Any] = {
-        "verified_ok": True,
-        "reason_code": "ACTIVE_POLICY_VERIFIED",
-        "policy_key": policy_key,
-        "ts_ms": now_ms,
-        "stop_ttl_mode": obj["stop_ttl_mode"],
-        "trailing_mode": obj["trailing_mode"],
-        "policy_ver": int(obj.get("policy_ver", 0)),
-        "policy": obj,
+        "verified_ok": True
+        "reason_code": "ACTIVE_POLICY_VERIFIED"
+        "policy_key": policy_key
+        "ts_ms": now_ms
+        "stop_ttl_mode": obj["stop_ttl_mode"]
+        "trailing_mode": obj["trailing_mode"]
+        "policy_ver": int(obj.get("policy_ver", 0))
+        "policy": obj
     }
     c_verify_total.labels(reason_code="ACTIVE_POLICY_VERIFIED").inc()
     if publish:
@@ -191,15 +191,15 @@ def verify_active_policy(
         pub = {k: v for k, v in result.items() if k != "policy"}
         _publish(r, STREAM_VERIFY, pub)
     logger.debug(
-        "verifier: OK — key=%s stop=%s trail=%s",
-        policy_key, obj["stop_ttl_mode"], obj["trailing_mode"],
+        "verifier: OK — key=%s stop=%s trail=%s"
+        policy_key, obj["stop_ttl_mode"], obj["trailing_mode"]
     )
     return result
 
 
 def verify_policy_dict(
-    policy: Dict[str, Any],
-    r: Optional[redis.Redis] = None,
+    policy: Dict[str, Any]
+    r: Optional[redis.Redis] = None
 ) -> Dict[str, Any]:
     """
     Convenience: verify an already-fetched policy dict WITHOUT round-tripping Redis.
@@ -209,9 +209,9 @@ def verify_policy_dict(
 
     def _fail(reason_code: str, extra: Optional[Dict] = None) -> Dict[str, Any]:
         result: Dict[str, Any] = {
-            "verified_ok": False,
-            "reason_code": reason_code,
-            "ts_ms": now_ms,
+            "verified_ok": False
+            "reason_code": reason_code
+            "ts_ms": now_ms
         }
         if extra:
             result.update(extra)

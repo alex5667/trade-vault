@@ -21,16 +21,16 @@ class StreamWorker:
     """
 
     def __init__(
-        self,
-        *,
-        redis: redis.Redis,
-        stream: str,
-        group: str,
-        consumer: str,
-        dlq_stream: str,
-        block_ms: int = 2000,
-        count: int = 50,
-        claim_idle_ms: int = 60_000,
+        self
+        *
+        redis: redis.Redis
+        stream: str
+        group: str
+        consumer: str
+        dlq_stream: str
+        block_ms: int = 2000
+        count: int = 50
+        claim_idle_ms: int = 60_000
     ):
         self.r = redis
         self.stream = stream

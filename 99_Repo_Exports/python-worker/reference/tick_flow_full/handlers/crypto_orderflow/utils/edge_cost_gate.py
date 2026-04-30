@@ -31,12 +31,12 @@ try:
     from prometheus_client import Counter, Gauge
     edge_time_skew_ms = Gauge(
         "edge_time_skew_ms", 
-        "Absolute time skew between signal event time and local wall-clock (ms)",
+        "Absolute time skew between signal event time and local wall-clock (ms)"
         ["symbol", "reason_code"]
     )
     edge_bad_time_total = Counter(
-        "edge_bad_time_total",
-        "Total count of signals rejected or penalized due to large time skew",
+        "edge_bad_time_total"
+        "Total count of signals rejected or penalized due to large time skew"
         ["symbol", "reason"]
     )
 except ImportError:
@@ -103,10 +103,10 @@ from domain.time_utils import normalize_ts_ms
 # Centralized key + EMA writer/reader utils for execution-cost statistics.
 # We keep this in services/ to allow StatsAggregator to write using identical key format.
 from services.execution_cost_ema import (
-    ExecCostEmaConfig,
-    session_from_ts_ms,
-    build_exec_cost_ema_key,
-    read_exec_cost_ema_slippage_bps,
+    ExecCostEmaConfig
+    session_from_ts_ms
+    build_exec_cost_ema_key
+    read_exec_cost_ema_slippage_bps
 )
 
 # Single source of truth for epoch-ms normalization (already used in TradeMonitor)
@@ -124,7 +124,7 @@ from domain.time_utils import normalize_ts_ms
 #     - p_hit_tp1 >= EDGE_EV_P_MIN
 #     - EV_bps    >= K * (fees_bps + slippage_bps)
 #
-# Where p_hit_tp1 is attached to ctx from online stats (EMA / rolling),
+# Where p_hit_tp1 is attached to ctx from online stats (EMA / rolling)
 # see services/ev_tp1_stats.py and stats_aggregator.py patch.
 # -----------------------------------------------------------------------------
 ExpectedMoveMode = Literal["tp1", "rr", "atr", "ev"]
@@ -326,16 +326,16 @@ def _extract_spread_bps_from_ctx(ctx: Any) -> float:
 
 
 def estimate_slippage_bps(
-    ctx: Any,
-    *,
-    redis_client: Any,
-    symbol: str,
-    venue: str,
-    ts_ms: Any,
-    kind: Optional[str] = None,
-    tf: Optional[str] = None,
-    default_bps: float = 5.0,
-    use_spread_half: bool = True,
+    ctx: Any
+    *
+    redis_client: Any
+    symbol: str
+    venue: str
+    ts_ms: Any
+    kind: Optional[str] = None
+    tf: Optional[str] = None
+    default_bps: float = 5.0
+    use_spread_half: bool = True
 ) -> float:
     """
     slippage_bps = max(default_bps, half_spread_bps, EMA(realized_slippage_bps@dims))
@@ -351,7 +351,7 @@ def estimate_slippage_bps(
     # STRICT TS POLICY (fail-open by default):
     #
     # EDGE_TS_BAD_POLICY:
-    #   - "correct_skip_ema" (default): if ts BAD -> correct to now for audit fields,
+    #   - "correct_skip_ema" (default): if ts BAD -> correct to now for audit fields
     #                                  but SKIP EMA and use only base slippage.
     #                                  if ts OK  -> USE EMA (normal behavior).
     #   - "skip_ema"                : ALWAYS skip EMA (only default/half-spread).
@@ -454,12 +454,12 @@ def estimate_slippage_bps(
 
     # Key = symbol×venue×session×tf×kind (backward-compatible fallback below)
     ema = _load_slippage_ema_bps(
-        redis_client,
-        symbol=str(symbol or "").upper(),
-        venue=str(venue or "na").lower(),
-        session=str(sess or "na").lower(),
-        tf=str(tfv or "na").lower(),
-        kind=str(knd or "na").lower(),
+        redis_client
+        symbol=str(symbol or "").upper()
+        venue=str(venue or "na").lower()
+        session=str(sess or "na").lower()
+        tf=str(tfv or "na").lower()
+        kind=str(knd or "na").lower()
     )
     if ema is not None and math.isfinite(float(ema)) and float(ema) > 0:
         return float(max(base, float(ema)))
@@ -499,8 +499,8 @@ def _normalize_ts_ms_fail_open(ts_ms: Any) -> int:
 
 
 def _load_slippage_ema_bps(
-    redis_client: Any, *,
-    symbol: str, venue: str, session: str, tf: str, kind: str,
+    redis_client: Any, *
+    symbol: str, venue: str, session: str, tf: str, kind: str
 ) -> Optional[float]:
     """
     Reads EMA slippage from Redis.
@@ -519,9 +519,9 @@ def _load_slippage_ema_bps(
         kind_l  = str(kind or "na").lower()
 
         keys = [
-            f"slipema:{symbol_u}:{venue_l}:{sess_l}:{tf_l}:{kind_l}",
-            f"slipema:{symbol_u}:{venue_l}:{sess_l}:{tf_l}:na",
-            f"slipema:{symbol_u}:{venue_l}:{sess_l}:{tf_l}",
+            f"slipema:{symbol_u}:{venue_l}:{sess_l}:{tf_l}:{kind_l}"
+            f"slipema:{symbol_u}:{venue_l}:{sess_l}:{tf_l}:na"
+            f"slipema:{symbol_u}:{venue_l}:{sess_l}:{tf_l}"
         ]
 
         min_n = int(float(os.getenv("EDGE_SLIP_EMA_MIN_SAMPLES", "20")))
@@ -580,13 +580,13 @@ def _hget_ema(redis_client: Any, key: str, *, min_n: int) -> Optional[float]:
 
 
 def _load_drift_active(
-    redis_client: Any,
-    *,
-    symbol: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
+    redis_client: Any
+    *
+    symbol: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
 ) -> Tuple[float, float, str]:
     """
     Read active drift factor (temporary tightening) from Redis.
@@ -890,23 +890,23 @@ class EdgeCostGate:
         ev_dynamic_k_atr_mult = _env_float("EDGE_EV_DYNAMIC_K_ATR_MULT", 0.5)
 
         return cls(
-            enabled=enabled,
+            enabled=enabled
             mode=mode,  # type: ignore[arg-type]
-            strict_missing_levels=strict_missing_levels,
-            apply_kinds=apply_kinds,
-            k_default=k_default,
-            k_by_symbol=k_by_symbol,
-            fees_bps_default=fees_bps_default,
-            slippage_bps_default=slippage_bps_default,
-            slippage_use_spread_half=slippage_use_spread_half,
-            min_expected_move_bps_default=min_expected_move_bps_default,
-            min_expected_move_bps_by_symbol=min_expected_move_bps_by_symbol,
-            ev_min_trades=int(ev_min_trades),
-            ev_strict_missing_stats=bool(ev_strict_missing_stats),
-            ev_dynamic_k_enabled=bool(ev_dynamic_k_enabled),
-            ev_dynamic_k_atr_mult=float(ev_dynamic_k_atr_mult),
-            ev_p_min=float(ev_p_min),
-            ev_p_min_by_kind=ev_p_min_by_kind,
+            strict_missing_levels=strict_missing_levels
+            apply_kinds=apply_kinds
+            k_default=k_default
+            k_by_symbol=k_by_symbol
+            fees_bps_default=fees_bps_default
+            slippage_bps_default=slippage_bps_default
+            slippage_use_spread_half=slippage_use_spread_half
+            min_expected_move_bps_default=min_expected_move_bps_default
+            min_expected_move_bps_by_symbol=min_expected_move_bps_by_symbol
+            ev_min_trades=int(ev_min_trades)
+            ev_strict_missing_stats=bool(ev_strict_missing_stats)
+            ev_dynamic_k_enabled=bool(ev_dynamic_k_enabled)
+            ev_dynamic_k_atr_mult=float(ev_dynamic_k_atr_mult)
+            ev_p_min=float(ev_p_min)
+            ev_p_min_by_kind=ev_p_min_by_kind
         )
 
     def _k_for(self, symbol: str) -> float:
@@ -989,7 +989,7 @@ class EdgeCostGate:
         redis_client = getattr(self, "redis", None) or getattr(ctx, "redis", None)
 
         # IMPORTANT (anti-regression):
-        #  - НЕ приводим ts к int() здесь. В реальном потоке ts может быть строкой "1700..",
+        #  - НЕ приводим ts к int() здесь. В реальном потоке ts может быть строкой "1700.."
         #    float-строкой "1700..0", None, "nan", и т.д.
         #  - ЕДИНЫЙ нормализатор normalize_ts_ms() живёт внутри estimate_slippage_bps().
         #  - Поэтому сюда передаём "сырой" ts (Any), а не локальные эвристики.
@@ -1001,15 +1001,15 @@ class EdgeCostGate:
         )
 
         slippage_bps = estimate_slippage_bps(
-            ctx,
-            redis_client=redis_client,
-            symbol=str(symbol or getattr(ctx, "symbol", "") or ""),
-            venue=str(getattr(ctx, "venue", "") or "na"),
-            ts_ms=raw_ts,
+            ctx
+            redis_client=redis_client
+            symbol=str(symbol or getattr(ctx, "symbol", "") or "")
+            venue=str(getattr(ctx, "venue", "") or "na")
+            ts_ms=raw_ts
             # allow ctx.tf to participate in v2 key without depending on caller
-            tf=str(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na"),
-            default_bps=self.slippage_bps_default,
-            use_spread_half=self.slippage_use_spread_half,
+            tf=str(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na")
+            default_bps=self.slippage_bps_default
+            use_spread_half=self.slippage_use_spread_half
         )
 
         # ------------------------------------------------------------------
@@ -1033,12 +1033,12 @@ class EdgeCostGate:
                     sess = str(getattr(ctx, "session", None) or session_from_ts_ms(int(tsm)) or "na")
                     tfv = _canon_tf(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na")
                     drift_factor, drift_score, drift_feat = _load_drift_active(
-                        redis_client,
-                        symbol=str(symbol or ""),
-                        venue=str(getattr(ctx, "venue", "") or "na"),
-                        session=str(sess or "na"),
-                        tf=str(tfv or "na"),
-                        kind=str(kind or "na"),
+                        redis_client
+                        symbol=str(symbol or "")
+                        venue=str(getattr(ctx, "venue", "") or "na")
+                        session=str(sess or "na")
+                        tf=str(tfv or "na")
+                        kind=str(kind or "na")
                     )
                     if not math.isfinite(float(drift_factor)) or float(drift_factor) <= 0:
                         drift_factor = 1.0
@@ -1219,28 +1219,28 @@ class EdgeCostGate:
         apply = self.enabled and (not self.apply_kinds or kind_l in self.apply_kinds)
         if not apply:
             d = EdgeCostGateDecision(
-                apply=False,
-                veto=False,
-                reason_code=self.REASON_SKIP,
-                expected_move_bps=0.0,
-                threshold_bps=0.0,
-                fees_bps=0.0,
-                slippage_bps=0.0,
-                k=float(k),
-                mode=self.mode,
-                notes="gate_disabled_or_kind_not_applicable",
-                drift_factor=1.0,
-                drift_score=0.0,
-                drift_feature="",
+                apply=False
+                veto=False
+                reason_code=self.REASON_SKIP
+                expected_move_bps=0.0
+                threshold_bps=0.0
+                fees_bps=0.0
+                slippage_bps=0.0
+                k=float(k)
+                mode=self.mode
+                notes="gate_disabled_or_kind_not_applicable"
+                drift_factor=1.0
+                drift_score=0.0
+                drift_feature=""
             )
             trace_gate(
-                ctx,
-                stage="gates",
-                name="edge_cost_gate",
-                passed=True,
-                veto=False,
-                reason_code=str(d.reason_code),
-                metrics={"apply": False, "k": float(d.k), "mode": str(d.mode)},
+                ctx
+                stage="gates"
+                name="edge_cost_gate"
+                passed=True
+                veto=False
+                reason_code=str(d.reason_code)
+                metrics={"apply": False, "k": float(d.k), "mode": str(d.mode)}
             )
             return d
 
@@ -1249,7 +1249,7 @@ class EdgeCostGate:
         # - Fees: legacy (unchanged)
         # - Slippage: measured model with strict ts normalization and fail-open rules
         #
-        # If your _costs_bps already returns a "base" slippage (default/half-spread),
+        # If your _costs_bps already returns a "base" slippage (default/half-spread)
         # we keep that AND take max(base, model) to avoid silently loosening the gate.
         # ------------------------------------------------------------------
         fees_bps, slip_bps = self._costs_bps(ctx, kind=str(kind or ""), symbol=str(symbol or ""), tf=getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None))
@@ -1261,7 +1261,7 @@ class EdgeCostGate:
         # ------------------------------------------------------------------
         # NEW: Feature drift alarm (temporary tightening).
         #
-        # If market microstructure distributions резко "уплыли" (obi/z_delta/spread/depth),
+        # If market microstructure distributions резко "уплыли" (obi/z_delta/spread/depth)
         # we temporarily tighten gates to reduce false positives.
         #
         # Implementation:
@@ -1288,12 +1288,12 @@ class EdgeCostGate:
                 tfv = _canon_tf(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na")
                 knd = (kind or "na")
                 drift_factor, drift_score, drift_feat = _load_drift_active(
-                    redis_client,
-                    symbol=str(symbol or ""),
-                    venue=str(getattr(ctx, "venue", "") or "na"),
-                    session=str(sess or "na"),
-                    tf=str(tfv or "na"),
-                    kind=str(knd or "na"),
+                    redis_client
+                    symbol=str(symbol or "")
+                    venue=str(getattr(ctx, "venue", "") or "na")
+                    session=str(sess or "na")
+                    tf=str(tfv or "na")
+                    kind=str(knd or "na")
                 )
                 if not math.isfinite(float(drift_factor)) or float(drift_factor) <= 0:
                     drift_factor = 1.0
@@ -1355,39 +1355,39 @@ class EdgeCostGate:
             if not math.isfinite(ev_bps) or not math.isfinite(p) or not math.isfinite(tp1_bps) or not math.isfinite(stop_bps):
                 if self.ev_strict_missing_stats:
                     d = EdgeCostGateDecision(
-                        apply=True, veto=True, reason_code=self.REASON_EV_MISSING_INPUTS,
-                        expected_move_bps=float("nan"), threshold_bps=float(thr),
-                        fees_bps=float(fees_bps), slippage_bps=float(slip_bps),
-                        k=float(k_eff), mode=self.mode,
-                        notes="strict_missing_stats_or_levels",
-                        p_hit_tp1=float(p) if math.isfinite(p) else float("nan"),
-                        p_min=float(p_min),
-                        tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps),
-                        stats_n=int(n), stats_src=str(src),
-                        drift_factor=float(drift_factor),
-                        drift_score=float(drift_score),
-                        drift_feature=str(drift_feat or ""),
+                        apply=True, veto=True, reason_code=self.REASON_EV_MISSING_INPUTS
+                        expected_move_bps=float("nan"), threshold_bps=float(thr)
+                        fees_bps=float(fees_bps), slippage_bps=float(slip_bps)
+                        k=float(k_eff), mode=self.mode
+                        notes="strict_missing_stats_or_levels"
+                        p_hit_tp1=float(p) if math.isfinite(p) else float("nan")
+                        p_min=float(p_min)
+                        tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps)
+                        stats_n=int(n), stats_src=str(src)
+                        drift_factor=float(drift_factor)
+                        drift_score=float(drift_score)
+                        drift_feature=str(drift_feat or "")
                     )
-                    trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto,
-                               reason_code=str(d.reason_code),
+                    trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto
+                               reason_code=str(d.reason_code)
                                metrics={"ev_bps": d.ev_bps, "thr": d.threshold_bps, "p": d.p_hit_tp1, "p_min": d.p_min, "n": d.stats_n})
                     return d
                 d = EdgeCostGateDecision(
-                    apply=True, veto=False, reason_code=self.REASON_OK,
-                    expected_move_bps=float("nan"), threshold_bps=float(thr),
-                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps),
-                    k=float(k_eff), mode=self.mode,
-                    notes="missing_ev_inputs_fail_open",
-                    p_hit_tp1=float(p) if math.isfinite(p) else float("nan"),
-                    p_min=float(p_min),
-                    tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps),
-                    stats_n=int(n), stats_src=str(src),
-                    drift_factor=float(drift_factor),
-                    drift_score=float(drift_score),
-                    drift_feature=str(drift_feat or ""),
+                    apply=True, veto=False, reason_code=self.REASON_OK
+                    expected_move_bps=float("nan"), threshold_bps=float(thr)
+                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps)
+                    k=float(k_eff), mode=self.mode
+                    notes="missing_ev_inputs_fail_open"
+                    p_hit_tp1=float(p) if math.isfinite(p) else float("nan")
+                    p_min=float(p_min)
+                    tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps)
+                    stats_n=int(n), stats_src=str(src)
+                    drift_factor=float(drift_factor)
+                    drift_score=float(drift_score)
+                    drift_feature=str(drift_feat or "")
                 )
-                trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto,
-                           reason_code=str(d.reason_code),
+                trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto
+                           reason_code=str(d.reason_code)
                            metrics={"ev_bps": d.ev_bps, "thr": d.threshold_bps, "p": d.p_hit_tp1, "p_min": d.p_min, "n": d.stats_n})
                 return d
 
@@ -1395,77 +1395,77 @@ class EdgeCostGate:
             if int(n) < int(self.ev_min_trades):
                 if self.ev_strict_missing_stats:
                     return EdgeCostGateDecision(
-                        apply=True, veto=True, reason_code=self.REASON_EV_INSUFFICIENT_STATS,
-                        expected_move_bps=float(ev_bps), threshold_bps=float(thr),
-                        fees_bps=float(fees_bps), slippage_bps=float(slip_bps),
-                        k=float(k_eff), mode=self.mode,
-                        notes="strict_insufficient_stats",
-                        p_hit_tp1=float(p), p_min=float(p_min),
-                        tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps),
-                        stats_n=int(n), stats_src=str(src),
-                        drift_factor=float(drift_factor),
-                        drift_score=float(drift_score),
-                        drift_feature=str(drift_feat or ""),
+                        apply=True, veto=True, reason_code=self.REASON_EV_INSUFFICIENT_STATS
+                        expected_move_bps=float(ev_bps), threshold_bps=float(thr)
+                        fees_bps=float(fees_bps), slippage_bps=float(slip_bps)
+                        k=float(k_eff), mode=self.mode
+                        notes="strict_insufficient_stats"
+                        p_hit_tp1=float(p), p_min=float(p_min)
+                        tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps)
+                        stats_n=int(n), stats_src=str(src)
+                        drift_factor=float(drift_factor)
+                        drift_score=float(drift_score)
+                        drift_feature=str(drift_feat or "")
                     )
                 return EdgeCostGateDecision(
-                    apply=True, veto=False, reason_code=self.REASON_OK,
-                    expected_move_bps=float(ev_bps), threshold_bps=float(thr),
-                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps),
-                    k=float(k_eff), mode=self.mode,
-                    notes="insufficient_stats_fail_open",
-                    p_hit_tp1=float(p), p_min=float(p_min),
-                    tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps),
-                    stats_n=int(n), stats_src=str(src),
-                    drift_factor=float(drift_factor),
-                    drift_score=float(drift_score),
-                    drift_feature=str(drift_feat or ""),
+                    apply=True, veto=False, reason_code=self.REASON_OK
+                    expected_move_bps=float(ev_bps), threshold_bps=float(thr)
+                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps)
+                    k=float(k_eff), mode=self.mode
+                    notes="insufficient_stats_fail_open"
+                    p_hit_tp1=float(p), p_min=float(p_min)
+                    tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps)
+                    stats_n=int(n), stats_src=str(src)
+                    drift_factor=float(drift_factor)
+                    drift_score=float(drift_score)
+                    drift_feature=str(drift_feat or "")
                 )
 
             # 3) probability floor (using per-kind threshold)
             if float(p) < float(p_min):
                 d = EdgeCostGateDecision(
-                    apply=True, veto=True, reason_code=self.REASON_EV_PROB,
-                    expected_move_bps=float(ev_bps), threshold_bps=float(thr),
-                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps),
-                    k=float(k_eff), mode=self.mode,
-                    notes="p_below_min",
-                    p_hit_tp1=float(p), p_min=float(p_min),
-                    tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps),
-                    stats_n=int(n), stats_src=str(src),
-                    drift_factor=float(drift_factor),
-                    drift_score=float(drift_score),
-                    drift_feature=str(drift_feat or ""),
+                    apply=True, veto=True, reason_code=self.REASON_EV_PROB
+                    expected_move_bps=float(ev_bps), threshold_bps=float(thr)
+                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps)
+                    k=float(k_eff), mode=self.mode
+                    notes="p_below_min"
+                    p_hit_tp1=float(p), p_min=float(p_min)
+                    tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps)
+                    stats_n=int(n), stats_src=str(src)
+                    drift_factor=float(drift_factor)
+                    drift_score=float(drift_score)
+                    drift_feature=str(drift_feat or "")
                 )
-                trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto,
-                           reason_code=str(d.reason_code),
+                trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto
+                           reason_code=str(d.reason_code)
                            metrics={"ev_bps": d.ev_bps, "thr": d.threshold_bps, "p": d.p_hit_tp1, "p_min": d.p_min, "n": d.stats_n})
                 return d
 
             # 4) EV >= costs*K (using potentially dynamic K)
             veto = float(ev_bps) < float(thr)
             d = EdgeCostGateDecision(
-                apply=True,
-                veto=bool(veto),
-                reason_code=self.REASON_EV_BELOW_K if veto else self.REASON_OK,
+                apply=True
+                veto=bool(veto)
+                reason_code=self.REASON_EV_BELOW_K if veto else self.REASON_OK
                 expected_move_bps=float(ev_bps),  # keep legacy field meaningful for logs
-                threshold_bps=float(thr),
-                fees_bps=float(fees_bps),
-                slippage_bps=float(slip_bps),
-                k=float(k_eff),
-                mode=self.mode,
-                notes="",
-                p_hit_tp1=float(p), p_min=float(p_min),
-                tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps),
-                stats_n=int(n), stats_src=str(src),
-                drift_factor=float(drift_factor),
-                drift_score=float(drift_score),
-                drift_feature=str(drift_feat or ""),
-                total_costs_bps=float(fees_bps) + float(slip_bps) + float(buffer_bps),
-                buffer_bps=float(buffer_bps),
-                edge_source=str(self.mode),
+                threshold_bps=float(thr)
+                fees_bps=float(fees_bps)
+                slippage_bps=float(slip_bps)
+                k=float(k_eff)
+                mode=self.mode
+                notes=""
+                p_hit_tp1=float(p), p_min=float(p_min)
+                tp1_bps=float(tp1_bps), stop_bps=float(stop_bps), ev_bps=float(ev_bps)
+                stats_n=int(n), stats_src=str(src)
+                drift_factor=float(drift_factor)
+                drift_score=float(drift_score)
+                drift_feature=str(drift_feat or "")
+                total_costs_bps=float(fees_bps) + float(slip_bps) + float(buffer_bps)
+                buffer_bps=float(buffer_bps)
+                edge_source=str(self.mode)
             )
-            trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto,
-                       reason_code=str(d.reason_code),
+            trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto
+                       reason_code=str(d.reason_code)
                        metrics={"ev_bps": d.ev_bps, "thr": d.threshold_bps, "p": d.p_hit_tp1, "p_min": d.p_min, "n": d.stats_n})
             return d
 
@@ -1477,51 +1477,51 @@ class EdgeCostGate:
             # missing levels -> либо fail-open, либо fail-closed в зависимости от env
             if self.strict_missing_levels:
                 d = EdgeCostGateDecision(
-                    apply=True, veto=True, reason_code=self.REASON_MISSING_LEVELS,
-                    expected_move_bps=float("nan"), threshold_bps=float(thr),
-                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps),
-                    k=float(k_eff), mode=self.mode,
-                    notes="strict_missing_levels",
-                    drift_factor=float(drift_factor),
-                    drift_score=float(drift_score),
-                    drift_feature=str(drift_feat or ""),
+                    apply=True, veto=True, reason_code=self.REASON_MISSING_LEVELS
+                    expected_move_bps=float("nan"), threshold_bps=float(thr)
+                    fees_bps=float(fees_bps), slippage_bps=float(slip_bps)
+                    k=float(k_eff), mode=self.mode
+                    notes="strict_missing_levels"
+                    drift_factor=float(drift_factor)
+                    drift_score=float(drift_score)
+                    drift_feature=str(drift_feat or "")
                 )
-                trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto,
-                           reason_code=str(d.reason_code),
+                trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto
+                           reason_code=str(d.reason_code)
                            metrics={"ev_bps": d.ev_bps, "thr": d.threshold_bps, "p": d.p_hit_tp1, "p_min": d.p_min, "n": d.stats_n})
                 return d
             d = EdgeCostGateDecision(
-                apply=True, veto=False, reason_code=self.REASON_OK,
-                expected_move_bps=float("nan"), threshold_bps=float(thr),
-                fees_bps=float(fees_bps), slippage_bps=float(slip_bps),
-                k=float(k_eff), mode=self.mode,
-                notes="missing_levels_fail_open",
-                drift_factor=float(drift_factor),
-                drift_score=float(drift_score),
-                drift_feature=str(drift_feat or ""),
+                apply=True, veto=False, reason_code=self.REASON_OK
+                expected_move_bps=float("nan"), threshold_bps=float(thr)
+                fees_bps=float(fees_bps), slippage_bps=float(slip_bps)
+                k=float(k_eff), mode=self.mode
+                notes="missing_levels_fail_open"
+                drift_factor=float(drift_factor)
+                drift_score=float(drift_score)
+                drift_feature=str(drift_feat or "")
             )
-            trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto,
-                       reason_code=str(d.reason_code),
+            trace_gate(ctx, stage="gates", name="edge_cost_gate", passed=not d.veto, veto=d.veto
+                       reason_code=str(d.reason_code)
                        metrics={"ev_bps": d.ev_bps, "thr": d.threshold_bps, "p": d.p_hit_tp1, "p_min": d.p_min, "n": d.stats_n})
             return d
         veto = float(exp_bps) < float(thr)
         decision = EdgeCostGateDecision(
-            apply=True,
-            veto=bool(veto),
-            reason_code=self.REASON_BELOW_K if veto else self.REASON_OK,
-            expected_move_bps=float(exp_bps),
-            threshold_bps=float(thr),
-            fees_bps=float(fees_bps),
-            slippage_bps=float(slip_bps),
-            k=float(k_eff),
-            mode=self.mode,
-            notes="",
-            drift_factor=float(drift_factor),
-            drift_score=float(drift_score),
-            drift_feature=str(drift_feat or ""),
-            total_costs_bps=float(fees_bps) + float(slip_bps) + float(buffer_bps),
-            buffer_bps=float(buffer_bps),
-            edge_source=str(self.mode),
+            apply=True
+            veto=bool(veto)
+            reason_code=self.REASON_BELOW_K if veto else self.REASON_OK
+            expected_move_bps=float(exp_bps)
+            threshold_bps=float(thr)
+            fees_bps=float(fees_bps)
+            slippage_bps=float(slip_bps)
+            k=float(k_eff)
+            mode=self.mode
+            notes=""
+            drift_factor=float(drift_factor)
+            drift_score=float(drift_score)
+            drift_feature=str(drift_feat or "")
+            total_costs_bps=float(fees_bps) + float(slip_bps) + float(buffer_bps)
+            buffer_bps=float(buffer_bps)
+            edge_source=str(self.mode)
         )
 
         # =====================================================================
@@ -1530,30 +1530,30 @@ class EdgeCostGate:
         try:
             _span.__exit__(None, None, None)
             trace_gate(
-                ctx,
-                stage="gates",
-                name="edge_cost_gate",
-                passed=bool(decision.apply and (not decision.veto)),
-                veto=bool(decision.veto),
-                reason_code=str(decision.reason_code or ""),
+                ctx
+                stage="gates"
+                name="edge_cost_gate"
+                passed=bool(decision.apply and (not decision.veto))
+                veto=bool(decision.veto)
+                reason_code=str(decision.reason_code or "")
                 metrics={
-                    "apply": bool(decision.apply),
-                    "expected_move_bps": float(decision.expected_move_bps),
-                    "threshold_bps": float(decision.threshold_bps),
-                    "fees_bps": float(decision.fees_bps),
-                    "slippage_bps": float(decision.slippage_bps),
-                    "k": float(decision.k),
-                    "mode": str(getattr(decision, "mode", "") or ""),
+                    "apply": bool(decision.apply)
+                    "expected_move_bps": float(decision.expected_move_bps)
+                    "threshold_bps": float(decision.threshold_bps)
+                    "fees_bps": float(decision.fees_bps)
+                    "slippage_bps": float(decision.slippage_bps)
+                    "k": float(decision.k)
+                    "mode": str(getattr(decision, "mode", "") or "")
                     # EV-mode diagnostics (if enabled upstream; defaults are NaN)
-                    "p_hit_tp1": float(getattr(decision, "p_hit_tp1", float("nan"))),
-                    "p_min": float(getattr(decision, "p_min", float("nan"))),
-                    "tp1_bps": float(getattr(decision, "tp1_bps", float("nan"))),
-                    "stop_bps": float(getattr(decision, "stop_bps", float("nan"))),
-                    "ev_bps": float(decision.ev_bps),
-                    "stats_n": int(getattr(decision, "stats_n", 0) or 0),
-                    "stats_src": str(getattr(decision, "stats_src", "") or ""),
-                },
-                duration_ms=float(_span.ms),
+                    "p_hit_tp1": float(getattr(decision, "p_hit_tp1", float("nan")))
+                    "p_min": float(getattr(decision, "p_min", float("nan")))
+                    "tp1_bps": float(getattr(decision, "tp1_bps", float("nan")))
+                    "stop_bps": float(getattr(decision, "stop_bps", float("nan")))
+                    "ev_bps": float(decision.ev_bps)
+                    "stats_n": int(getattr(decision, "stats_n", 0) or 0)
+                    "stats_src": str(getattr(decision, "stats_src", "") or "")
+                }
+                duration_ms=float(_span.ms)
             )
         except Exception:
             pass

@@ -25,11 +25,11 @@ def _sleep_backoff(attempt: int, base: float, cap: float) -> None:
 
 
 def http_get_json(
-    url: str,
-    *,
-    params: Optional[Dict[str, Any]] = None,
-    headers: Optional[Dict[str, str]] = None,
-    policy: HttpRetryPolicy = HttpRetryPolicy(),
+    url: str
+    *
+    params: Optional[Dict[str, Any]] = None
+    headers: Optional[Dict[str, str]] = None
+    policy: HttpRetryPolicy = HttpRetryPolicy()
 ) -> Tuple[Optional[Any], Optional[str]]:
     """
     Возвращает (json, error_str).

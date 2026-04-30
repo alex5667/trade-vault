@@ -54,12 +54,12 @@ def _redis():
 def _select_dataset_path(explicit: str) -> str:
     """Pick the first existing dataset path from a priority list of candidates."""
     candidates = [
-        explicit,
-        _env('STRATEGY_RESEARCH_STATS_DATASET_PATH', ''),
-        _env('ML_EDGE_STACK_DATASET_PATH', ''),
-        _env('ML_EDGE_STACK_OOF_DATASET_PATH', ''),
-        '/var/lib/trade/ml_models/edge_stack_v1/dataset.ndjson',
-        '/var/lib/trade/ml_models/edge_stack_v1_oof/edge_train.jsonl',
+        explicit
+        _env('STRATEGY_RESEARCH_STATS_DATASET_PATH', '')
+        _env('ML_EDGE_STACK_DATASET_PATH', '')
+        _env('ML_EDGE_STACK_OOF_DATASET_PATH', '')
+        '/var/lib/trade/ml_models/edge_stack_v1/dataset.ndjson'
+        '/var/lib/trade/ml_models/edge_stack_v1_oof/edge_train.jsonl'
     ]
     for c in candidates:
         if c and os.path.exists(c):
@@ -68,13 +68,13 @@ def _select_dataset_path(explicit: str) -> str:
 
 
 def _reason_from_metrics(
-    metrics: Dict[str, Any],
-    *,
-    min_psr: float,
-    min_dsr: float,
-    max_pbo: float,
-    min_primary: float,
-    fail_closed_missing: bool,
+    metrics: Dict[str, Any]
+    *
+    min_psr: float
+    min_dsr: float
+    max_pbo: float
+    min_primary: float
+    fail_closed_missing: bool
 ) -> str:
     """Derive a comma-joined reason string from metric violations."""
     problems = []
@@ -164,12 +164,12 @@ def main() -> int:
     if gate_mode not in ('report_only', 'soft', 'hard'):
         gate_mode = 'report_only'
     reason = _reason_from_metrics(
-        metrics,
-        min_psr=args.min_psr,
-        min_dsr=args.min_dsr,
-        max_pbo=args.max_pbo,
-        min_primary=args.min_primary,
-        fail_closed_missing=bool(int(args.fail_closed_missing)),
+        metrics
+        min_psr=args.min_psr
+        min_dsr=args.min_dsr
+        max_pbo=args.max_pbo
+        min_primary=args.min_primary
+        fail_closed_missing=bool(int(args.fail_closed_missing))
     )
     has_violation = reason != 'ok'
     blocked = 1 if gate_mode == 'hard' and has_violation else 0
@@ -178,38 +178,38 @@ def main() -> int:
     now_ms = get_ny_time_millis()
 
     summary = {
-        'updated_ts_ms': now_ms,
-        'success': 1,
-        'gate_mode': gate_mode,
-        'report_only': report_only,
-        'primary_metric_name': metrics.get('primary_metric_name', args.primary_metric),
-        'primary_metric_value': _to_float(metrics.get('primary_metric_value', 0.0), 0.0),
-        'net_expectancy': _to_float(metrics.get('net_expectancy', 0.0), 0.0),
-        'precision_at_top_x': _to_float(metrics.get('precision_at_top_x', 0.0), 0.0),
-        'mean_r': _to_float(metrics.get('mean_r', 0.0), 0.0),
-        'downside_adjusted_return': _to_float(metrics.get('downside_adjusted_return', 0.0), 0.0),
-        'hit_rate_conditioned_on_cost': _to_float(metrics.get('hit_rate_conditioned_on_cost', 0.0), 0.0),
-        'avg_cost_bps': _to_float(metrics.get('avg_cost_bps', 0.0), 0.0),
-        'score_entropy': _to_float(metrics.get('score_entropy', 0.0), 0.0),
-        'rows': int(metrics.get('rows', 0)),
-        'period_count': int(metrics.get('period_count', 0)),
-        'variant_count': int(metrics.get('variant_count', 0)),
-        'psr': _to_float(metrics.get('psr', 0.0), 0.0),
-        'dsr': _to_float(metrics.get('dsr', 0.0), 0.0),
-        'pbo': '' if metrics.get('pbo') is None else _to_float(metrics.get('pbo', 0.0), 0.0),
-        'cscv_splits': _to_float(metrics.get('cscv_splits', 0.0), 0.0),
-        'chosen_variant_unique': _to_float(metrics.get('chosen_variant_unique', 0.0), 0.0),
-        'dataset_path': dataset_path,
-        'blocker_reason': reason,
+        'updated_ts_ms': now_ms
+        'success': 1
+        'gate_mode': gate_mode
+        'report_only': report_only
+        'primary_metric_name': metrics.get('primary_metric_name', args.primary_metric)
+        'primary_metric_value': _to_float(metrics.get('primary_metric_value', 0.0), 0.0)
+        'net_expectancy': _to_float(metrics.get('net_expectancy', 0.0), 0.0)
+        'precision_at_top_x': _to_float(metrics.get('precision_at_top_x', 0.0), 0.0)
+        'mean_r': _to_float(metrics.get('mean_r', 0.0), 0.0)
+        'downside_adjusted_return': _to_float(metrics.get('downside_adjusted_return', 0.0), 0.0)
+        'hit_rate_conditioned_on_cost': _to_float(metrics.get('hit_rate_conditioned_on_cost', 0.0), 0.0)
+        'avg_cost_bps': _to_float(metrics.get('avg_cost_bps', 0.0), 0.0)
+        'score_entropy': _to_float(metrics.get('score_entropy', 0.0), 0.0)
+        'rows': int(metrics.get('rows', 0))
+        'period_count': int(metrics.get('period_count', 0))
+        'variant_count': int(metrics.get('variant_count', 0))
+        'psr': _to_float(metrics.get('psr', 0.0), 0.0)
+        'dsr': _to_float(metrics.get('dsr', 0.0), 0.0)
+        'pbo': '' if metrics.get('pbo') is None else _to_float(metrics.get('pbo', 0.0), 0.0)
+        'cscv_splits': _to_float(metrics.get('cscv_splits', 0.0), 0.0)
+        'chosen_variant_unique': _to_float(metrics.get('chosen_variant_unique', 0.0), 0.0)
+        'dataset_path': dataset_path
+        'blocker_reason': reason
     }
     blocker = {
-        'updated_ts_ms': now_ms,
-        'gate_mode': gate_mode,
-        'report_only': report_only,
-        'blocked': blocked,
-        'soft_blocked': soft_blocked,
-        'invalid': 0,
-        'reason': reason,
+        'updated_ts_ms': now_ms
+        'gate_mode': gate_mode
+        'report_only': report_only
+        'blocked': blocked
+        'soft_blocked': soft_blocked
+        'invalid': 0
+        'reason': reason
     }
 
     out_dir = Path(args.out_dir)
@@ -225,11 +225,11 @@ def main() -> int:
     _hset_mapping(client, args.blocker_key, blocker)
 
     print(json.dumps({
-        'ok': True,
-        'report_path': str(report_path),
-        'blocked': blocked,
-        'soft_blocked': soft_blocked,
-        'reason': reason,
+        'ok': True
+        'report_path': str(report_path)
+        'blocked': blocked
+        'soft_blocked': soft_blocked
+        'reason': reason
     }, ensure_ascii=False))
     return 0
 

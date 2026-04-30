@@ -13,17 +13,17 @@ def test_signal_quality_exporter_v3_p71():
     mock_cli.hgetall.side_effect = [
         # Call 1: cfg
         {
-            "signal_quality_n_24h": "100",
-            "signal_quality_last_ts_ms": "1000",
-            "policy_effectiveness_last_ts_ms": "2000",
-            "policy_effectiveness_input_last_ts_ms": "1500",
-            "policy_effectiveness_total_n_24h": "300",
-            "policy_effectiveness_baseline_ok_present": "1",
-            "policy_effectiveness_share_24h_warn": "0.1",
-            "policy_effectiveness_expectancy_r_delta_24h_warn": "-0.5",
-        },
+            "signal_quality_n_24h": "100"
+            "signal_quality_last_ts_ms": "1000"
+            "policy_effectiveness_last_ts_ms": "2000"
+            "policy_effectiveness_input_last_ts_ms": "1500"
+            "policy_effectiveness_total_n_24h": "300"
+            "policy_effectiveness_baseline_ok_present": "1"
+            "policy_effectiveness_share_24h_warn": "0.1"
+            "policy_effectiveness_expectancy_r_delta_24h_warn": "-0.5"
+        }
         # Call 2: by_mode
-        {},
+        {}
         # Call 3: by_bucket
         {}
     ]

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Flow toxicity metrics and enforcement helpers (Phase D / P3).
 
-We want to detect situations when order-flow signals look strong (OFI/OBI),
+We want to detect situations when order-flow signals look strong (OFI/OBI)
 *but execution is likely toxic* (adverse selection / price impact).
 
 This module provides:
@@ -96,20 +96,20 @@ def _map_profile_to_mode(profile: str) -> str:
 
 
 def evaluate_flow_toxicity(
-    *,
-    profile: str,
-    ofi_norm_z: float,
-    thr_ofi_norm_z: float,
-    vpin_cdf: float,
-    thr_vpin_cdf: float,
+    *
+    profile: str
+    ofi_norm_z: float
+    thr_ofi_norm_z: float
+    vpin_cdf: float
+    thr_vpin_cdf: float
     # Optional: combine with TCA (hard-veto only when both flow toxic + exec unhealthy)
-    tca_is_p95_bps: float,
-    tca_perm_impact_p95_bps: float,
-    thr_is_p95_bps: float,
-    thr_perm_impact_p95_bps: float,
-    tighten_mult: float,
-    tighten_cap_bps: float,
-    veto_without_tca: bool = False,
+    tca_is_p95_bps: float
+    tca_perm_impact_p95_bps: float
+    thr_is_p95_bps: float
+    thr_perm_impact_p95_bps: float
+    tighten_mult: float
+    tighten_cap_bps: float
+    veto_without_tca: bool = False
 ) -> FlowToxicityDecision:
     """Pure policy: decide monitor/tighten/veto from flow-toxicity inputs.
 
@@ -170,10 +170,10 @@ def evaluate_flow_toxicity(
             veto_reason = "flow_toxic"
 
     return FlowToxicityDecision(
-        hit=True,
-        mode=mode,
-        flags=flags,
-        tighten_add_bps=float(tighten_add),
-        veto=bool(veto),
-        veto_reason=str(veto_reason),
+        hit=True
+        mode=mode
+        flags=flags
+        tighten_add_bps=float(tighten_add)
+        veto=bool(veto)
+        veto_reason=str(veto_reason)
     )

@@ -91,13 +91,13 @@ def _write_state(r: redis.Redis, ok: bool, dur_ms: int, res: ReplayResult) -> No
     try:
         now_ms = _now_ms()
         mapping = {
-            "last_run_ok": "1" if ok else "0",
-            "last_run_ts_ms": str(now_ms),
-            "last_dur_ms": str(int(dur_ms)),
-            "replayed": str(int(res.replayed)),
-            "skipped": str(int(res.skipped)),
-            "failed": str(int(res.failed)),
-            "last_err": (res.last_err or "")[:512],
+            "last_run_ok": "1" if ok else "0"
+            "last_run_ts_ms": str(now_ms)
+            "last_dur_ms": str(int(dur_ms))
+            "replayed": str(int(res.replayed))
+            "skipped": str(int(res.skipped))
+            "failed": str(int(res.failed))
+            "last_err": (res.last_err or "")[:512]
         }
         # Preserve last successful timestamp across failing runs.
         if ok:
@@ -122,12 +122,12 @@ def _ensure_group(r: redis.Redis, stream: str, group: str) -> None:
 
 
 def _claim_pending(
-    r: redis.Redis,
-    stream: str,
-    group: str,
-    consumer: str,
-    min_idle_ms: int,
-    count: int,
+    r: redis.Redis
+    stream: str
+    group: str
+    consumer: str
+    min_idle_ms: int
+    count: int
 ) -> List[Tuple[str, Dict[str, str]]]:
     # Use XAUTOCLAIM when available.
     try:
@@ -158,12 +158,12 @@ def _claim_pending(
 
 
 def _read_new(
-    r: redis.Redis,
-    stream: str,
-    group: str,
-    consumer: str,
-    count: int,
-    block_ms: int,
+    r: redis.Redis
+    stream: str
+    group: str
+    consumer: str
+    count: int
+    block_ms: int
 ) -> List[Tuple[str, Dict[str, str]]]:
     try:
         resp = r.xreadgroup(groupname=group, consumername=consumer, streams={stream: ">"}, count=count, block=block_ms)
@@ -286,10 +286,10 @@ def main() -> int:
 
                 try:
                     r.xadd(
-                        target_stream,
-                        fields={"payload": payload_str, "replay": "1", "dlq_id": mid},
-                        maxlen=target_maxlen,
-                        approximate=True,
+                        target_stream
+                        fields={"payload": payload_str, "replay": "1", "dlq_id": mid}
+                        maxlen=target_maxlen
+                        approximate=True
                     )
                     res.replayed += 1
                     try:
@@ -321,15 +321,15 @@ def main() -> int:
         pass
 
     summary = {
-        "ok": ok,
-        "commit": commit,
-        "dlq_stream": dlq_stream,
-        "target_stream": target_stream_override or "<ctx.stream>",
-        "replayed": res.replayed,
-        "skipped": res.skipped,
-        "failed": res.failed,
-        "dur_ms": dur_ms,
-        "last_err": res.last_err,
+        "ok": ok
+        "commit": commit
+        "dlq_stream": dlq_stream
+        "target_stream": target_stream_override or "<ctx.stream>"
+        "replayed": res.replayed
+        "skipped": res.skipped
+        "failed": res.failed
+        "dur_ms": dur_ms
+        "last_err": res.last_err
     }
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
 

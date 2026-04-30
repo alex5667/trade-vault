@@ -135,27 +135,27 @@ class LeaderLock:
 def write_heartbeat(r: redis.Redis, *, kind: str, ok: bool, err: str = "", added: int = 0, ttl_sec: int = 30, instance: str = "") -> None:
     try:
         obj = {
-            "ts_ms": now_ms(),
-            "kind": kind,
-            "ok": bool(ok),
-            "err": str(err or ""),
-            "added": int(added),
-            "instance": instance,
+            "ts_ms": now_ms()
+            "kind": kind
+            "ok": bool(ok)
+            "err": str(err or "")
+            "added": int(added)
+            "instance": instance
         }
         raw = json.dumps(obj, separators=(",", ":"))
         r.set(f"hb:{kind}", raw, ex=int(ttl_sec))
         # history stream
         r.xadd(
-            f"hb:{kind}:stream",
+            f"hb:{kind}:stream"
             {
-                "ts_ms": str(obj["ts_ms"]),
-                "ok": "1" if ok else "0",
-                "err": obj["err"][:512],
-                "added": str(added),
-                "instance": instance,
-            },
-            maxlen=10000,
-            approximate=True,
+                "ts_ms": str(obj["ts_ms"])
+                "ok": "1" if ok else "0"
+                "err": obj["err"][:512]
+                "added": str(added)
+                "instance": instance
+            }
+            maxlen=10000
+            approximate=True
         )
     except Exception:
         pass
@@ -231,48 +231,48 @@ def parse_sources_json(raw: str) -> Tuple[RSSCfg, CryptoPanicCfg, FMPCfg, NewsAP
     # RSS
     rss_o = obj.get("rss") or {}
     rss = RSSCfg(
-        enabled=("rss" in providers) and bool(rss_o.get("enabled", True)),
-        urls=list(rss_o.get("urls") or []),
-        user_agent=str(rss_o.get("user_agent") or ""),
+        enabled=("rss" in providers) and bool(rss_o.get("enabled", True))
+        urls=list(rss_o.get("urls") or [])
+        user_agent=str(rss_o.get("user_agent") or "")
     )
 
     # CryptoPanic
     cp_o = obj.get("cryptopanic") or {}
     cp = CryptoPanicCfg(
-        enabled=("cryptopanic" in providers) and bool(cp_o.get("enabled", True)),
-        base_url=str(cp_o.get("base_url") or "https://cryptopanic.com"),
-        currencies=list(cp_o.get("currencies") or []),
-        kind=str(cp_o.get("kind") or ""),
-        filter=str(cp_o.get("filter") or ""),
-        regions=str(cp_o.get("regions") or ""),
-        user_agent=str(cp_o.get("user_agent") or ""),
+        enabled=("cryptopanic" in providers) and bool(cp_o.get("enabled", True))
+        base_url=str(cp_o.get("base_url") or "https://cryptopanic.com")
+        currencies=list(cp_o.get("currencies") or [])
+        kind=str(cp_o.get("kind") or "")
+        filter=str(cp_o.get("filter") or "")
+        regions=str(cp_o.get("regions") or "")
+        user_agent=str(cp_o.get("user_agent") or "")
     )
 
     # FMP
     fmp_o = obj.get("fmp") or {}
     econ_o = fmp_o.get("economic") or {}
     fmp = FMPCfg(
-        enabled=("fmp" in providers) and bool(fmp_o.get("enabled", True)),
-        base_url=str(fmp_o.get("base_url") or "https://financialmodelingprep.com"),
-        tickers=list(fmp_o.get("tickers") or []),
-        limit=int(fmp_o.get("limit") or 50),
-        user_agent=str(fmp_o.get("user_agent") or ""),
-        cal_enabled=bool(fmp_o.get("calendar_enabled", True)) and bool(fmp_o.get("enabled", True)),
-        cal_back_days=int(fmp_o.get("backDays") or 1),
-        cal_lookahead_days=int(fmp_o.get("lookaheadDays") or 7),
-        cal_countries=list(econ_o.get("countries") or []),
-        cal_importance=list(econ_o.get("importance") or []),
+        enabled=("fmp" in providers) and bool(fmp_o.get("enabled", True))
+        base_url=str(fmp_o.get("base_url") or "https://financialmodelingprep.com")
+        tickers=list(fmp_o.get("tickers") or [])
+        limit=int(fmp_o.get("limit") or 50)
+        user_agent=str(fmp_o.get("user_agent") or "")
+        cal_enabled=bool(fmp_o.get("calendar_enabled", True)) and bool(fmp_o.get("enabled", True))
+        cal_back_days=int(fmp_o.get("backDays") or 1)
+        cal_lookahead_days=int(fmp_o.get("lookaheadDays") or 7)
+        cal_countries=list(econ_o.get("countries") or [])
+        cal_importance=list(econ_o.get("importance") or [])
     )
 
     # NewsAPI
     na_o = obj.get("newsapi") or {}
     na = NewsAPICfg(
-        enabled=("newsapi" in providers) and bool(na_o.get("enabled", True)),
-        base_url=str(na_o.get("base_url") or "https://newsapi.org"),
-        q=str(na_o.get("q") or ""),
-        language=str(na_o.get("language") or ""),
-        page_size=int(na_o.get("pageSize") or 50),
-        user_agent=str(na_o.get("user_agent") or ""),
+        enabled=("newsapi" in providers) and bool(na_o.get("enabled", True))
+        base_url=str(na_o.get("base_url") or "https://newsapi.org")
+        q=str(na_o.get("q") or "")
+        language=str(na_o.get("language") or "")
+        page_size=int(na_o.get("pageSize") or 50)
+        user_agent=str(na_o.get("user_agent") or "")
     )
 
     return rss, cp, fmp, na
@@ -375,14 +375,14 @@ def fetch_cryptopanic(cfg: CryptoPanicCfg, *, timeout: int) -> List[Dict[str, An
         uid = stable_uid("cryptopanic", provider_id, link, title, str(bucket_start_ms(published_ms, _env_int("NEWS_UID_BUCKET_SEC", 6*3600))))
         out.append(
             {
-                "uid": uid,
-                "published_ts_ms": published_ms,
-                "source": "cryptopanic",
-                "title": title,
-                "url": link,
-                "summary": str(it.get("domain") or ""),
-                "symbols": symbols,
-                "payload": it,
+                "uid": uid
+                "published_ts_ms": published_ms
+                "source": "cryptopanic"
+                "title": title
+                "url": link
+                "summary": str(it.get("domain") or "")
+                "symbols": symbols
+                "payload": it
             }
         )
     return out
@@ -394,8 +394,8 @@ def fetch_fmp_stock_news(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
         return []
     url = cfg.base_url.rstrip("/") + "/api/v3/stock_news"
     params: Dict[str, str] = {
-        "apikey": key,
-        "limit": str(int(cfg.limit or 50)),
+        "apikey": key
+        "limit": str(int(cfg.limit or 50))
     }
     if cfg.tickers:
         params["tickers"] = ",".join(cfg.tickers)
@@ -420,14 +420,14 @@ def fetch_fmp_stock_news(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
         uid = stable_uid("fmp_stock_news", provider_id, link, title, str(bucket_start_ms(published_ms, _env_int("NEWS_UID_BUCKET_SEC", 6*3600))))
         out.append(
             {
-                "uid": uid,
-                "published_ts_ms": published_ms,
-                "source": "fmp",
-                "title": title,
-                "url": link,
-                "summary": str(it.get("text") or "")[:512],
-                "symbols": symbols,
-                "payload": it,
+                "uid": uid
+                "published_ts_ms": published_ms
+                "source": "fmp"
+                "title": title
+                "url": link
+                "summary": str(it.get("text") or "")[:512]
+                "symbols": symbols
+                "payload": it
             }
         )
     return out
@@ -439,8 +439,8 @@ def fetch_newsapi(cfg: NewsAPICfg, *, timeout: int) -> List[Dict[str, Any]]:
         return []
     url = cfg.base_url.rstrip("/") + "/v2/everything"
     params: Dict[str, str] = {
-        "q": cfg.q,
-        "pageSize": str(int(cfg.page_size or 50)),
+        "q": cfg.q
+        "pageSize": str(int(cfg.page_size or 50))
     }
     if cfg.language:
         params["language"] = cfg.language
@@ -465,14 +465,14 @@ def fetch_newsapi(cfg: NewsAPICfg, *, timeout: int) -> List[Dict[str, Any]]:
         uid = stable_uid("newsapi", provider_id, link, title, str(bucket_start_ms(published_ms, _env_int("NEWS_UID_BUCKET_SEC", 6*3600))))
         out.append(
             {
-                "uid": uid,
-                "published_ts_ms": published_ms,
-                "source": "newsapi",
-                "title": title,
-                "url": link,
-                "summary": str(it.get("description") or "")[:512],
-                "symbols": [],
-                "payload": it,
+                "uid": uid
+                "published_ts_ms": published_ms
+                "source": "newsapi"
+                "title": title
+                "url": link
+                "summary": str(it.get("description") or "")[:512]
+                "symbols": []
+                "payload": it
             }
         )
     return out
@@ -539,17 +539,17 @@ def fetch_fmp_calendar(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
         uid = stable_uid("fmp", title, country, currency, date_s)
         out.append(
             {
-                "uid": uid,
-                "event_ts_ms": event_ts_ms,
-                "country": country,
-                "currency": currency,
-                "title": title,
-                "importance": importance,
-                "forecast": forecast,
-                "previous": previous,
-                "unit": unit,
-                "source": "fmp",
-                "payload": it,
+                "uid": uid
+                "event_ts_ms": event_ts_ms
+                "country": country
+                "currency": currency
+                "title": title
+                "importance": importance
+                "forecast": forecast
+                "previous": previous
+                "unit": unit
+                "source": "fmp"
+                "payload": it
             }
         )
     return out
@@ -585,14 +585,14 @@ def fetch_rss(cfg: RSSCfg) -> List[Dict[str, Any]]:
                 uid = stable_uid("rss", feed_url, guid, link, title, str(bucket_start_ms(ts, bucket_sec)))
                 out.append(
                     {
-                        "uid": uid,
-                        "published_ts_ms": ts,
-                        "source": "rss",
-                        "title": title,
-                        "url": link,
-                        "summary": summary,
-                        "symbols": [],
-                        "payload": {"feed": feed_url, "guid": guid},
+                        "uid": uid
+                        "published_ts_ms": ts
+                        "source": "rss"
+                        "title": title
+                        "url": link
+                        "summary": summary
+                        "symbols": []
+                        "payload": {"feed": feed_url, "guid": guid}
                     }
                 )
         except Exception as e:
@@ -619,9 +619,9 @@ def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
             redis.connection.Connection.lib_version = None
 
             r = redis.Redis.from_url(
-                redis_url,
-                decode_responses=True,
-                socket_timeout=10,
+                redis_url
+                decode_responses=True
+                socket_timeout=10
             )
             # Test connection
             r.ping()
@@ -720,15 +720,15 @@ def run() -> None:
                     if not r.set(f"news:dedupe:{uid}", "1", nx=True, ex=int(dedupe_ttl_sec)):
                         continue
                     fields = {
-                        "uid": uid,
-                        "published_ts_ms": str(int(it.get("published_ts_ms") or ing_ms)),
-                        "ingested_ts_ms": str(ing_ms),
-                        "source": str(it.get("source") or ""),
-                        "title": str(it.get("title") or "")[:512],
-                        "url": str(it.get("url") or "")[:1024],
-                        "summary": str(it.get("summary") or "")[:1024],
-                        "symbols": json.dumps(it.get("symbols") or [], separators=(",", ":")),
-                        "payload": json.dumps(it.get("payload") or {}, separators=(",", ":"))[:4096],
+                        "uid": uid
+                        "published_ts_ms": str(int(it.get("published_ts_ms") or ing_ms))
+                        "ingested_ts_ms": str(ing_ms)
+                        "source": str(it.get("source") or "")
+                        "title": str(it.get("title") or "")[:512]
+                        "url": str(it.get("url") or "")[:1024]
+                        "summary": str(it.get("summary") or "")[:1024]
+                        "symbols": json.dumps(it.get("symbols") or [], separators=(",", ":"))
+                        "payload": json.dumps(it.get("payload") or {}, separators=(",", ":"))[:4096]
                     }
                     r.xadd(news_stream, fields, maxlen=news_maxlen, approximate=True)
                     added += 1
@@ -753,18 +753,18 @@ def run() -> None:
                     if not r.set(f"calendar:dedupe:{uid}", "1", nx=True, ex=int(dedupe_ttl_sec)):
                         continue
                     fields = {
-                        "uid": uid,
-                        "event_ts_ms": str(int(ev.get("event_ts_ms") or 0)),
-                        "ingested_ts_ms": str(ing_ms),
-                        "country": str(ev.get("country") or ""),
-                        "currency": str(ev.get("currency") or ""),
-                        "title": str(ev.get("title") or "")[:512],
-                        "importance": str(int(ev.get("importance") or 0)),
-                        "forecast": str(ev.get("forecast") or "")[:64],
-                        "previous": str(ev.get("previous") or "")[:64],
-                        "unit": str(ev.get("unit") or "")[:16],
-                        "source": str(ev.get("source") or "fmp"),
-                        "payload": json.dumps(ev.get("payload") or {}, separators=(",", ":"))[:4096],
+                        "uid": uid
+                        "event_ts_ms": str(int(ev.get("event_ts_ms") or 0))
+                        "ingested_ts_ms": str(ing_ms)
+                        "country": str(ev.get("country") or "")
+                        "currency": str(ev.get("currency") or "")
+                        "title": str(ev.get("title") or "")[:512]
+                        "importance": str(int(ev.get("importance") or 0))
+                        "forecast": str(ev.get("forecast") or "")[:64]
+                        "previous": str(ev.get("previous") or "")[:64]
+                        "unit": str(ev.get("unit") or "")[:16]
+                        "source": str(ev.get("source") or "fmp")
+                        "payload": json.dumps(ev.get("payload") or {}, separators=(",", ":"))[:4096]
                     }
                     r.xadd(cal_stream, fields, maxlen=cal_maxlen, approximate=True)
                     added += 1

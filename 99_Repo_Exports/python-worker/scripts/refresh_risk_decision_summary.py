@@ -64,15 +64,15 @@ def render_prometheus_textfile(report: dict) -> str:
     freshness_sec = freshness_ms / 1000.0
     stale = 1 if freshness_sec > float(os.getenv('RISK_SUMMARY_FRESHNESS_MAX_SEC', '900')) else 0
     lines = [
-        '# HELP trade_risk_summary_freshness_seconds Age of the latest risk summary refresh in seconds.',
-        '# TYPE trade_risk_summary_freshness_seconds gauge',
-        f'trade_risk_summary_freshness_seconds {freshness_sec}',
-        '# HELP trade_risk_summary_stale Whether the risk summary is stale.',
-        '# TYPE trade_risk_summary_stale gauge',
-        f'trade_risk_summary_stale {stale}',
-        '# HELP trade_risk_summary_row_count Number of rows in the latest summary.',
-        '# TYPE trade_risk_summary_row_count gauge',
-        f'trade_risk_summary_row_count {int(report.get("row_count") or 0)}',
+        '# HELP trade_risk_summary_freshness_seconds Age of the latest risk summary refresh in seconds.'
+        '# TYPE trade_risk_summary_freshness_seconds gauge'
+        f'trade_risk_summary_freshness_seconds {freshness_sec}'
+        '# HELP trade_risk_summary_stale Whether the risk summary is stale.'
+        '# TYPE trade_risk_summary_stale gauge'
+        f'trade_risk_summary_stale {stale}'
+        '# HELP trade_risk_summary_row_count Number of rows in the latest summary.'
+        '# TYPE trade_risk_summary_row_count gauge'
+        f'trade_risk_summary_row_count {int(report.get("row_count") or 0)}'
     ]
     return '\n'.join(lines) + '\n'
 
@@ -82,22 +82,22 @@ def main() -> int:
         description='Fetch latest risk decision continuous aggregate and emit JSON report.'
     )
     parser.add_argument(
-        '--dsn',
-        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),
-        help='PostgreSQL DSN for risk_decisions database',
+        '--dsn'
+        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', ''))
+        help='PostgreSQL DSN for risk_decisions database'
     )
     parser.add_argument(
-        '--out',
+        '--out'
         default=os.getenv(
-            'RISK_DECISION_SUMMARY_REPORT_PATH',
-            '/var/lib/trade-runbook/reports/latest_risk_decision_summary.json',
-        ),
-        help='Output path for the JSON report',
+            'RISK_DECISION_SUMMARY_REPORT_PATH'
+            '/var/lib/trade-runbook/reports/latest_risk_decision_summary.json'
+        )
+        help='Output path for the JSON report'
     )
     parser.add_argument(
-        '--textfile-output',
-        default=os.getenv('RISK_SUMMARY_TEXTFILE_PATH', ''),
-        help='Prometheus textfile output path for node_exporter (optional)',
+        '--textfile-output'
+        default=os.getenv('RISK_SUMMARY_TEXTFILE_PATH', '')
+        help='Prometheus textfile output path for node_exporter (optional)'
     )
     args = parser.parse_args()
 
@@ -118,19 +118,19 @@ def main() -> int:
                     cur.execute(
                         '''
                         with cagg_1h as (
-                            select '1h'::text as window_name, tier, level, decision_count, allow_count, deny_count,
-                                   clamp_count, confidence_denial_count, avg_clamp_ratio,
-                                   decision_latency_avg_ms,
-                                   (extract(epoch from latest_created_ts) * 1000)::bigint as latest_created_ts_ms,
+                            select '1h'::text as window_name, tier, level, decision_count, allow_count, deny_count
+                                   clamp_count, confidence_denial_count, avg_clamp_ratio
+                                   decision_latency_avg_ms
+                                   (extract(epoch from latest_created_ts) * 1000)::bigint as latest_created_ts_ms
                                    (extract(epoch from now()) * 1000)::bigint as refreshed_ts_ms
                             from risk_decision_summary_1h
                             where bucket = (select max(bucket) from risk_decision_summary_1h)
-                        ),
+                        )
                         cagg_24h as (
-                            select '24h'::text as window_name, tier, level, decision_count, allow_count, deny_count,
-                                   clamp_count, confidence_denial_count, avg_clamp_ratio,
+                            select '24h'::text as window_name, tier, level, decision_count, allow_count, deny_count
+                                   clamp_count, confidence_denial_count, avg_clamp_ratio
                                    decision_latency_avg_ms, 
-                                   (extract(epoch from latest_created_ts) * 1000)::bigint as latest_created_ts_ms,
+                                   (extract(epoch from latest_created_ts) * 1000)::bigint as latest_created_ts_ms
                                    (extract(epoch from now()) * 1000)::bigint as refreshed_ts_ms
                             from risk_decision_summary_24h
                             where bucket = (select max(bucket) from risk_decision_summary_24h)
@@ -154,8 +154,8 @@ def main() -> int:
 
     report['row_count'] = len(report['rows'])
     report['latest_refreshed_ts_ms'] = max(
-        (int(row.get('refreshed_ts_ms') or 0) for row in report['rows']),
-        default=0,
+        (int(row.get('refreshed_ts_ms') or 0) for row in report['rows'])
+        default=0
     )
 
     out = Path(args.out)
@@ -168,11 +168,11 @@ def main() -> int:
 
     print(json.dumps(
         {
-            'rows': len(report['rows']),
-            'out': str(out),
-            'latest_refreshed_ts_ms': report['latest_refreshed_ts_ms'],
-        },
-        ensure_ascii=False,
+            'rows': len(report['rows'])
+            'out': str(out)
+            'latest_refreshed_ts_ms': report['latest_refreshed_ts_ms']
+        }
+        ensure_ascii=False
     ))
     return 0
 

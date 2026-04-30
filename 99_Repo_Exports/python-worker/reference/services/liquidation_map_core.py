@@ -125,15 +125,15 @@ def normalize_liq_event(fields: Dict[str, object]) -> Tuple[Optional[LiqEventV1]
         return None, "bad_notional"
 
     ev = LiqEventV1(
-        ts_event_ms=ts_event_ms,
-        ts_ingest_ms=ts_ingest_ms,
-        venue=venue,
-        symbol=symbol,
-        order_side=order_side,
-        liq_side=liq_side,
-        price_s=price_s,
-        qty_s=qty_s,
-        notional_usd_s=notional_s,
+        ts_event_ms=ts_event_ms
+        ts_ingest_ms=ts_ingest_ms
+        venue=venue
+        symbol=symbol
+        order_side=order_side
+        liq_side=liq_side
+        price_s=price_s
+        qty_s=qty_s
+        notional_usd_s=notional_s
     )
     return ev, None
 
@@ -154,16 +154,16 @@ class Bucketizer:
       - abs: price_bucket_str
       - log_*: integer bucket_index as string
 
-    NOTE: Для лог-сетки price отображается как float (для UI),
+    NOTE: Для лог-сетки price отображается как float (для UI)
     но суммирование notional остаётся Decimal.
     """
 
     def __init__(
-        self,
-        mode: str,
-        abs_step: Optional[Decimal] = None,
-        bps: Optional[int] = None,
-        pct: Optional[float] = None,
+        self
+        mode: str
+        abs_step: Optional[Decimal] = None
+        bps: Optional[int] = None
+        pct: Optional[float] = None
     ) -> None:
         self.mode = mode
         self.abs_step = abs_step
@@ -250,9 +250,9 @@ class LiqMapWindowAgg:
     """
 
     def __init__(
-        self,
-        window_ms: int,
-        bucketizer: Bucketizer,
+        self
+        window_ms: int
+        bucketizer: Bucketizer
     ) -> None:
         if window_ms <= 0:
             raise LiqMapError("window_ms must be > 0")
@@ -308,10 +308,10 @@ class LiqMapWindowAgg:
         return n
 
     def levels(
-        self,
-        *,
-        max_levels: int,
-        range_pct: float,
+        self
+        *
+        max_levels: int
+        range_pct: float
     ) -> List[Tuple[float, str, Decimal, Decimal]]:
         """Return snapshot levels.
 

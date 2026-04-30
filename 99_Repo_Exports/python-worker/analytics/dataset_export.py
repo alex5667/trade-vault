@@ -99,67 +99,67 @@ def _join_rows(orders: List, sig_by_id: Dict[str, Any], repo) -> List[Dict[str, 
         
         rows.append({
             # Order fields
-            "order_id": o.order_id,
-            "symbol": o.symbol,
-            "timeframe": o.timeframe,
-            "strategy": o.strategy,
-            "source": o.source,
-            "direction": o.direction,
-            "lot": o.lot,
-            "entry_price": o.entry_price,
-            "entry_time": o.entry_time,
-            "exit_price": o.exit_price,
-            "exit_time": o.exit_time,
-            "pnl_usd": pnl,
-            "pnl_pct": o.pnl_pct,
-            "result": o.result,
+            "order_id": o.order_id
+            "symbol": o.symbol
+            "timeframe": o.timeframe
+            "strategy": o.strategy
+            "source": o.source
+            "direction": o.direction
+            "lot": o.lot
+            "entry_price": o.entry_price
+            "entry_time": o.entry_time
+            "exit_price": o.exit_price
+            "exit_time": o.exit_time
+            "pnl_usd": pnl
+            "pnl_pct": o.pnl_pct
+            "result": o.result
 
             # TP/SL levels and times
-            "tp1_price": o.tp1_price,
-            "tp1_time": o.tp1_time,
-            "tp1_hit": int(o.tp1_hit),
-            "tp1_latency": tp1_latency,
+            "tp1_price": o.tp1_price
+            "tp1_time": o.tp1_time
+            "tp1_hit": int(o.tp1_hit)
+            "tp1_latency": tp1_latency
 
-            "tp2_price": o.tp2_price,
-            "tp2_time": o.tp2_time,
-            "tp2_hit": int(o.tp2_hit),
-            "tp2_latency": tp2_latency,
+            "tp2_price": o.tp2_price
+            "tp2_time": o.tp2_time
+            "tp2_hit": int(o.tp2_hit)
+            "tp2_latency": tp2_latency
 
-            "tp3_price": o.tp3_price,
-            "tp3_time": o.tp3_time,
-            "tp3_hit": int(o.tp3_hit),
-            "tp3_latency": tp3_latency,
+            "tp3_price": o.tp3_price
+            "tp3_time": o.tp3_time
+            "tp3_hit": int(o.tp3_hit)
+            "tp3_latency": tp3_latency
 
-            "sl_price": o.sl_price,
-            "sl_time": o.sl_time,
-            "sl_latency": sl_latency,
+            "sl_price": o.sl_price
+            "sl_time": o.sl_time
+            "sl_latency": sl_latency
 
             # TP→SL metrics
-            "tp_before_sl": o.tp_before_sl,
-            "close_reason": o.close_reason,
+            "tp_before_sl": o.tp_before_sl
+            "close_reason": o.close_reason
 
             # Signal fields
-            "signal_id": s.signal_id if s else None,
-            "signal_ts": s.ts if s else None,
-            "signal_price": s.price if s else None,
-            "signal_confidence": s.confidence if s else None,
-            "signal_score": s.score if s else None,
-            "signal_source": s.source if s else None,
-            "signal_atr": s.atr if s else None,
+            "signal_id": s.signal_id if s else None
+            "signal_ts": s.ts if s else None
+            "signal_price": s.price if s else None
+            "signal_confidence": s.confidence if s else None
+            "signal_score": s.score if s else None
+            "signal_source": s.source if s else None
+            "signal_atr": s.atr if s else None
 
             # NOTE: year/month/day/hour derived after DataFrame creation (vectorised)
 
             # Outcome flag
-            "win": win,
+            "win": win
         })
     
     return rows
 
 
 def export_dataset(
-    repo,
-    orders: List,
-    signals: List,
+    repo
+    orders: List
+    signals: List
     out_name: Optional[str] = None
 ) -> str:
     """
@@ -206,10 +206,10 @@ def export_dataset(
 
 
 def export_dataset_partitioned(
-    repo,
-    orders: List,
-    signals: List,
-    partition_cols: Sequence[str] = ("symbol", "strategy", "year", "month"),
+    repo
+    orders: List
+    signals: List
+    partition_cols: Sequence[str] = ("symbol", "strategy", "year", "month")
     base_dir: Optional[str] = None
 ) -> str:
     """
@@ -248,9 +248,9 @@ def export_dataset_partitioned(
         # Используем PyArrow для партиционирования
         table = pa.Table.from_pandas(df, preserve_index=False)
         pq.write_to_dataset(
-            table,
-            root_path=base_dir,
-            partition_cols=list(partition_cols),
+            table
+            root_path=base_dir
+            partition_cols=list(partition_cols)
             existing_data_behavior="overwrite_or_ignore"
         )
     else:

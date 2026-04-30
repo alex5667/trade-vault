@@ -247,12 +247,12 @@ class SlQuantileAggregator:
             tp1_rate = sum(hits) / len(hits) if hits else 0.0
             
             payload = {
-                "n": len(buf),
-                "sl_buffer_atr_q50": float(q_vals[0]),
-                "sl_buffer_atr_q75": float(q_vals[1]),
-                "sl_buffer_atr_q90": float(q_vals[2]),
-                "sl_buffer_atr_q95": float(q_vals[3]),
-                "post_sl_tp1_hit_rate": tp1_rate,
+                "n": len(buf)
+                "sl_buffer_atr_q50": float(q_vals[0])
+                "sl_buffer_atr_q75": float(q_vals[1])
+                "sl_buffer_atr_q90": float(q_vals[2])
+                "sl_buffer_atr_q95": float(q_vals[3])
+                "post_sl_tp1_hit_rate": tp1_rate
                 "ts_ms": get_ny_time_millis()
             }
             

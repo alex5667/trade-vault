@@ -31,10 +31,10 @@ class SignalFamilyBaselineJob:
     """
 
     def __init__(
-        self,
-        dsn: str,
-        window_size: int = DEFAULT_WINDOW_SIZE,
-        horizon_days: int = DEFAULT_HORIZON_DAYS,
+        self
+        dsn: str
+        window_size: int = DEFAULT_WINDOW_SIZE
+        horizon_days: int = DEFAULT_HORIZON_DAYS
     ) -> None:
         self.dsn = dsn
         self.window_size = window_size
@@ -58,8 +58,8 @@ class SignalFamilyBaselineJob:
                 FROM signal_exec_summary
                 WHERE opened_at >= %s
                 ORDER BY symbol, family, opened_at
-                """,
-                (cutoff,),
+                """
+                (cutoff,)
             )
 
             rows_count = 0
@@ -67,11 +67,11 @@ class SignalFamilyBaselineJob:
                 signal_id, symbol, family, opened_at, result_r = row
                 by_key[(symbol, family)].append(
                     SignalExecRow(
-                        signal_id=signal_id,
-                        symbol=symbol,
-                        family=family,
-                        opened_at=opened_at,
-                        result_r=result_r,
+                        signal_id=signal_id
+                        symbol=symbol
+                        family=family
+                        opened_at=opened_at
+                        result_r=result_r
                     )
                 )
                 rows_count += 1
@@ -81,12 +81,12 @@ class SignalFamilyBaselineJob:
         return by_key
 
     def _upsert_baseline_row(
-        self,
-        conn,
-        symbol: str,
-        family: str,
-        metric: str,
-        q: BaselineQuantiles,
+        self
+        conn
+        symbol: str
+        family: str
+        metric: str
+        q: BaselineQuantiles
     ) -> None:
         """
         Записывает/обновляет baseline для одной метрики.
@@ -95,44 +95,44 @@ class SignalFamilyBaselineJob:
             cur.execute(
                 """
                 INSERT INTO signal_family_baseline (
-                    symbol, family, metric,
-                    window_size, horizon_days,
-                    p05, p10, p25, p50, p75, p90, p95,
+                    symbol, family, metric
+                    window_size, horizon_days
+                    p05, p10, p25, p50, p75, p90, p95
                     sample_size, computed_at
                 )
                 VALUES (
-                    %s, %s, %s,
-                    %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s
+                    %s, %s
+                    %s, %s, %s, %s, %s, %s, %s
                     %s, NOW()
                 )
                 ON CONFLICT (symbol, family, metric, window_size, horizon_days)
                 DO UPDATE SET
-                    p05 = EXCLUDED.p05,
-                    p10 = EXCLUDED.p10,
-                    p25 = EXCLUDED.p25,
-                    p50 = EXCLUDED.p50,
-                    p75 = EXCLUDED.p75,
-                    p90 = EXCLUDED.p90,
-                    p95 = EXCLUDED.p95,
-                    sample_size = EXCLUDED.sample_size,
+                    p05 = EXCLUDED.p05
+                    p10 = EXCLUDED.p10
+                    p25 = EXCLUDED.p25
+                    p50 = EXCLUDED.p50
+                    p75 = EXCLUDED.p75
+                    p90 = EXCLUDED.p90
+                    p95 = EXCLUDED.p95
+                    sample_size = EXCLUDED.sample_size
                     computed_at = EXCLUDED.computed_at
-                """,
+                """
                 (
-                    symbol,
-                    family,
-                    metric,
-                    self.window_size,
-                    self.horizon_days,
-                    q.p05,
-                    q.p10,
-                    q.p25,
-                    q.p50,
-                    q.p75,
-                    q.p90,
-                    q.p95,
-                    q.sample_size,
-                ),
+                    symbol
+                    family
+                    metric
+                    self.window_size
+                    self.horizon_days
+                    q.p05
+                    q.p10
+                    q.p25
+                    q.p50
+                    q.p75
+                    q.p90
+                    q.p95
+                    q.sample_size
+                )
             )
 
     def run(self) -> None:
@@ -169,11 +169,11 @@ class SignalFamilyBaselineJob:
                         continue
 
                     self._upsert_baseline_row(
-                        conn,
-                        symbol=symbol,
-                        family=family,
-                        metric=metric_name,
-                        q=q,
+                        conn
+                        symbol=symbol
+                        family=family
+                        metric=metric_name
+                        q=q
                     )
 
                     self.logger.debug(
@@ -206,9 +206,9 @@ def main():
 
     try:
         job = SignalFamilyBaselineJob(
-            dsn=pg_dsn,
-            window_size=window_size,
-            horizon_days=horizon_days,
+            dsn=pg_dsn
+            window_size=window_size
+            horizon_days=horizon_days
         )
         job.run()
 

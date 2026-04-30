@@ -32,9 +32,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 ALL = "all"
 _SCOPE_TO_ENV = {
-    "edge": "EDGE_EXEC_HEALTH_MODE",
-    "pipeline": "PIPELINE_EXEC_HEALTH_MODE",
-    "entry_policy": "ENTRY_EXEC_HEALTH_MODE",
+    "edge": "EDGE_EXEC_HEALTH_MODE"
+    "pipeline": "PIPELINE_EXEC_HEALTH_MODE"
+    "entry_policy": "ENTRY_EXEC_HEALTH_MODE"
 }
 
 
@@ -94,19 +94,19 @@ class ExecHealthThresholds:
     def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
         deltas = tuple(_csv_ints(os.getenv(f"{prefix}TCA_DELTA_SEC_LIST", "1,5"), default=(1, 5)))
         return ExecHealthThresholds(
-            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
-            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
-            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0),
-            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0),
-            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0),
-            tighten_k_mult=_f(os.getenv(f"{prefix}TIGHTEN_K_MULT", "1.0"), 1.0),
+            max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0)
+            max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0)
+            min_realized_spread_p50_bps=_f(os.getenv(f"{prefix}MIN_REALIZED_SPREAD_P50_BPS", "-999"), -999.0)
+            tighten_add_mult=_f(os.getenv(f"{prefix}TIGHTEN_ADD_MULT", "1.0"), 1.0)
+            tighten_add_cap_bps=_f(os.getenv(f"{prefix}TIGHTEN_ADD_CAP_BPS", "8.0"), 8.0)
+            tighten_k_mult=_f(os.getenv(f"{prefix}TIGHTEN_K_MULT", "1.0"), 1.0)
             veto_require_both_is_and_impact=str(
                 os.getenv(f"{prefix}VETO_REQUIRE_BOTH_IS_AND_IMPACT", "1") or "1"
-            ).strip().lower() not in {"0", "false", "no", "off"},
+            ).strip().lower() not in {"0", "false", "no", "off"}
             veto_on_adverse=str(
                 os.getenv(f"{prefix}VETO_ON_ADVERSE", "0") or "0"
-            ).strip().lower() in {"1", "true", "yes", "on"},
-            delta_sec_list=deltas,
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            delta_sec_list=deltas
         )
 
 
@@ -132,14 +132,14 @@ class ExecHealthDecision:
 
 
 def build_rollup_keys(
-    *,
-    metric: str,
-    sym: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
-    side: str,
+    *
+    metric: str
+    sym: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
+    side: str
 ) -> List[str]:
     """Build bounded fallback keys for a single rollup metric.
 
@@ -149,10 +149,10 @@ def build_rollup_keys(
     sym_n = str(sym or "").upper()
     venue_n = str(venue or "na").lower()
     dims = [
-        str(session or ALL).lower(),
-        str(tf or ALL).lower(),
-        str(kind or ALL).lower(),
-        _norm_side(side),
+        str(session or ALL).lower()
+        str(tf or ALL).lower()
+        str(kind or ALL).lower()
+        _norm_side(side)
     ]
 
     out: List[str] = []
@@ -178,12 +178,12 @@ def _metric_key_map(
     }
     for delta_sec in deltas:
         metric_keys[f"perm_impact_p95_bps_{int(delta_sec)}"] = build_rollup_keys(
-            metric=f"perm_impact_p95_bps:{int(delta_sec)}",
-            sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side,
+            metric=f"perm_impact_p95_bps:{int(delta_sec)}"
+            sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side
         )
         metric_keys[f"realized_spread_p50_bps_{int(delta_sec)}"] = build_rollup_keys(
-            metric=f"realized_spread_p50_bps:{int(delta_sec)}",
-            sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side,
+            metric=f"realized_spread_p50_bps:{int(delta_sec)}"
+            sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side
         )
     return metric_keys
 
@@ -267,15 +267,15 @@ async def _async_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
 
 
 def read_exec_health_rollups_sync(
-    *,
-    redis: Any,
-    sym: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
-    side: str,
-    delta_sec_list: Optional[Sequence[int]] = None,
+    *
+    redis: Any
+    sym: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
+    side: str
+    delta_sec_list: Optional[Sequence[int]] = None
 ) -> Dict[str, float]:
     """Synchronous reader for TCA rollups — used in EdgeCostGate hot-path."""
     if redis is None:
@@ -291,15 +291,15 @@ def read_exec_health_rollups_sync(
 
 
 async def aread_exec_health_rollups(
-    *,
-    redis: Any,
-    sym: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
-    side: str,
-    delta_sec_list: Optional[Sequence[int]] = None,
+    *
+    redis: Any
+    sym: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
+    side: str
+    delta_sec_list: Optional[Sequence[int]] = None
 ) -> Dict[str, float]:
     """Async reader for TCA rollups — used in SignalPipeline and EntryPolicyService."""
     if redis is None:
@@ -395,7 +395,7 @@ def decide_exec_health_from_env(
     tighten_k_mult = 1.0
     if mode in {"tighten", "veto"}:
         tighten_add_bps = min(
-            float(thr.tighten_add_cap_bps),
+            float(thr.tighten_add_cap_bps)
             max(0.0, sev - 1.0) * 5.0 * max(0.0, float(thr.tighten_add_mult))
         )
         tighten_k_mult = max(1.0, float(thr.tighten_k_mult or 1.0))
@@ -415,17 +415,17 @@ def decide_exec_health_from_env(
                 reason_code = "VETO_EXEC_HEALTH"
 
     return ExecHealthDecision(
-        apply=True,
-        veto=bool(veto),
-        mode=mode,
-        flags=flags,
-        reason_code=str(reason_code),
-        tighten_add_bps=float(tighten_add_bps),
-        tighten_k_mult=float(tighten_k_mult),
-        scope=str(scope),
+        apply=True
+        veto=bool(veto)
+        mode=mode
+        flags=flags
+        reason_code=str(reason_code)
+        tighten_add_bps=float(tighten_add_bps)
+        tighten_k_mult=float(tighten_k_mult)
+        scope=str(scope)
         rollups={
             k: float(v)
             for k, v in dict(rollups or {}).items()
             if isinstance(v, (int, float)) and math.isfinite(float(v))
-        },
+        }
     )

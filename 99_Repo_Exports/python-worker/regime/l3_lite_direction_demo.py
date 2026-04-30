@@ -11,10 +11,10 @@ from utils.time_utils import get_ny_time_millis
 
 import time
 from regime import (
-    L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot,
-    CryptoConfScorer, CryptoConfScorerConfig,
-    SignalQualityMonitor,
-    build_signal_snapshot,
+    L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot
+    CryptoConfScorer, CryptoConfScorerConfig
+    SignalQualityMonitor
+    build_signal_snapshot
 )
 
 
@@ -32,15 +32,15 @@ def simulate_trading_scenario(symbol: str = "BTCUSDT"):
 
     # Базовая книга
     base_book = BookSnapshot(
-        ts_ms=get_ny_time_millis(),
-        bids=[(49999.0, 1.0), (49998.0, 2.0), (49997.0, 1.5)],
+        ts_ms=get_ny_time_millis()
+        bids=[(49999.0, 1.0), (49998.0, 2.0), (49997.0, 1.5)]
         asks=[(50001.0, 1.0), (50002.0, 2.0), (50003.0, 1.5)]
     )
 
     # Симуляция разных рыночных условий
     scenarios = [
         {
-            "name": "Bullish Setup",
+            "name": "Bullish Setup"
             "direction": 1,  # Long
             "events": [
                 # Торги в пользу покупателей (хороший setup для long)
@@ -50,11 +50,11 @@ def simulate_trading_scenario(symbol: str = "BTCUSDT"):
                 # Небольшой cancel со стороны продавцов
                 L3LiteEvent(ts_ms=base_book.ts_ms + 4000 + i*300, kind="cancel", side="ask", price=50002.0, qty=0.02)
                 for i in range(5)
-            ],
-            "expected_confidence": "HIGH (OBI в пользу long, cancel продавцов)",
-        },
+            ]
+            "expected_confidence": "HIGH (OBI в пользу long, cancel продавцов)"
+        }
         {
-            "name": "Bearish Setup",
+            "name": "Bearish Setup"
             "direction": -1,  # Short
             "events": [
                 # Торги в пользу продавцов (хороший setup для short)
@@ -64,19 +64,19 @@ def simulate_trading_scenario(symbol: str = "BTCUSDT"):
                 # Cancel покупателей
                 L3LiteEvent(ts_ms=base_book.ts_ms + 3000 + i*250, kind="cancel", side="bid", price=49998.0, qty=0.03)
                 for i in range(8)
-            ],
-            "expected_confidence": "HIGH (OBI в пользу short, cancel покупателей)",
-        },
+            ]
+            "expected_confidence": "HIGH (OBI в пользу short, cancel покупателей)"
+        }
         {
-            "name": "Neutral/Conflicting Setup",
+            "name": "Neutral/Conflicting Setup"
             "direction": 0,  # Neutral
             "events": [
                 # Смешанная активность
                 L3LiteEvent(ts_ms=base_book.ts_ms + i*150, kind="trade", side="bid" if i % 2 else "ask", price=50000.0, qty=0.04)
                 for i in range(20)
-            ],
-            "expected_confidence": "NEUTRAL (direction=0, no direction-aware bonuses)",
-        },
+            ]
+            "expected_confidence": "NEUTRAL (direction=0, no direction-aware bonuses)"
+        }
     ]
 
     results = []
@@ -95,8 +95,8 @@ def simulate_trading_scenario(symbol: str = "BTCUSDT"):
 
         # Обновляем книгу
         scenario_book = BookSnapshot(
-            ts_ms=scenario["events"][-1].ts_ms,
-            bids=base_book.bids,
+            ts_ms=scenario["events"][-1].ts_ms
+            bids=base_book.bids
             asks=base_book.asks
         )
         l3_agg.on_book_update(scenario_book)
@@ -146,33 +146,33 @@ def simulate_trading_scenario(symbol: str = "BTCUSDT"):
 
         try:
             _snapshot = build_signal_snapshot(
-                signal_id=signal_id,
-                symbol=symbol,
-                ts_ms=scenario_book.ts_ms,
-                family="crypto_orderflow",
-                conf_score=confidence,
-                ctx=ctx,
+                signal_id=signal_id
+                symbol=symbol
+                ts_ms=scenario_book.ts_ms
+                family="crypto_orderflow"
+                conf_score=confidence
+                ctx=ctx
             )
 
             quality_monitor.record_signal(
-                signal_id=signal_id,
-                symbol=symbol,
-                family="crypto_orderflow",
-                ctx=ctx,
+                signal_id=signal_id
+                symbol=symbol
+                family="crypto_orderflow"
+                ctx=ctx
                 raw_score=2.0,  # mock
-                final_score=confidence,
+                final_score=confidence
             )
 
             results.append({
-                "scenario": scenario["name"],
-                "direction": scenario["direction"],
-                "confidence": confidence,
-                "l3_features": l3_features,
+                "scenario": scenario["name"]
+                "direction": scenario["direction"]
+                "confidence": confidence
+                "l3_features": l3_features
                 "terms_breakdown": {
-                    "spread": spread_term,
-                    "obi": obi_term,
-                    "cancel": cancel_term,
-                    "micro": micro_term,
+                    "spread": spread_term
+                    "obi": obi_term
+                    "cancel": cancel_term
+                    "micro": micro_term
                 }
             })
 

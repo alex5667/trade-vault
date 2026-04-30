@@ -33,11 +33,11 @@ class SignalQualityEstimator:
     """
 
     def __init__(
-        self,
-        pg_dsn: str,
-        horizon: str = "R_main",
-        w_offline: float = 0.7,
-        w_online: float = 0.3,
+        self
+        pg_dsn: str
+        horizon: str = "R_main"
+        w_offline: float = 0.7
+        w_online: float = 0.3
     ) -> None:
         """
         Initialize the quality estimator.
@@ -54,15 +54,15 @@ class SignalQualityEstimator:
         self._w_online = w_online
 
     def estimate(
-        self,
-        *,
-        symbol: str,
-        signal_type: str,
-        side: str,
-        session: str,
-        regime: str,
-        feature_bucket: str,
-        conn: Optional[psycopg2.extensions.connection] = None,
+        self
+        *
+        symbol: str
+        signal_type: str
+        side: str
+        session: str
+        regime: str
+        feature_bucket: str
+        conn: Optional[psycopg2.extensions.connection] = None
     ) -> Optional[QualityEstimate]:
         """
         Estimate quality for a signal based on historical performance.
@@ -90,7 +90,7 @@ class SignalQualityEstimator:
                 cur.execute(
                     """
                     SELECT
-                        quality_score,
+                        quality_score
                         expectancy_r
                     FROM signal_quality_offline
                     WHERE symbol = %s
@@ -100,8 +100,8 @@ class SignalQualityEstimator:
                       AND COALESCE(regime, '') = COALESCE(%s, '')
                       AND COALESCE(feature_bucket, '') = COALESCE(%s, '')
                       AND horizon = %s
-                    """,
-                    (symbol, signal_type, side, session, regime, feature_bucket, self._horizon),
+                    """
+                    (symbol, signal_type, side, session, regime, feature_bucket, self._horizon)
                 )
                 row_off = cur.fetchone()
 
@@ -110,15 +110,15 @@ class SignalQualityEstimator:
                     cur.execute(
                         """
                         SELECT
-                            AVG(quality_score) AS quality_score,
+                            AVG(quality_score) AS quality_score
                             AVG(expectancy_r) AS expectancy_r
                         FROM signal_quality_offline
                         WHERE symbol = %s
                           AND signal_type = %s
                           AND side = %s
                           AND horizon = %s
-                        """,
-                        (symbol, signal_type, side, self._horizon),
+                        """
+                        (symbol, signal_type, side, self._horizon)
                     )
                     row_off = cur.fetchone()
 
@@ -134,16 +134,16 @@ class SignalQualityEstimator:
                 cur.execute(
                     """
                     SELECT
-                        quality_score_online,
-                        expectancy_r_recent,
+                        quality_score_online
+                        expectancy_r_recent
                         status
                     FROM signal_quality_online
                     WHERE symbol = %s
                       AND signal_type = %s
                       AND side = %s
                       AND horizon = %s
-                    """,
-                    (symbol, signal_type, side, self._horizon),
+                    """
+                    (symbol, signal_type, side, self._horizon)
                 )
                 row_on = cur.fetchone()
 
@@ -161,22 +161,22 @@ class SignalQualityEstimator:
                 combined = self._w_offline * offline_score + self._w_online * online_score
 
                 return QualityEstimate(
-                    offline_score=offline_score,
-                    online_score=online_score,
-                    combined_score=combined,
-                    status=status,
-                    expectancy_r_offline=exp_r_off,
-                    expectancy_r_online=exp_r_on,
+                    offline_score=offline_score
+                    online_score=online_score
+                    combined_score=combined
+                    status=status
+                    expectancy_r_offline=exp_r_off
+                    expectancy_r_online=exp_r_on
                 )
         finally:
             if _owns_conn:
                 conn.close()
 
     def estimate_quality(
-        self,
+        self
         ctx,  # SignalContext or similar
-        base_score: float,
-        base_confidence: float,
+        base_score: float
+        base_confidence: float
     ) -> "QualityResult":
         """
         Estimate signal quality and return QualityResult.
@@ -186,12 +186,12 @@ class SignalQualityEstimator:
         from scoring.scoring_engine import QualityResult, SignalQualityLabel
 
         quality_estimate = self.estimate(
-            symbol=getattr(ctx, "symbol", ""),
-            signal_type=getattr(ctx, "signal_type", "unknown"),
-            side=getattr(ctx, "side", "buy"),
-            session=getattr(ctx, "session", ""),
-            regime=getattr(ctx, "regime", ""),
-            feature_bucket=getattr(ctx, "feature_bucket", ""),
+            symbol=getattr(ctx, "symbol", "")
+            signal_type=getattr(ctx, "signal_type", "unknown")
+            side=getattr(ctx, "side", "buy")
+            session=getattr(ctx, "session", "")
+            regime=getattr(ctx, "regime", "")
+            feature_bucket=getattr(ctx, "feature_bucket", "")
         )
 
         label = SignalQualityLabel.C
@@ -224,8 +224,8 @@ class SignalQualityEstimator:
             reasons.append("no_quality_data")
 
         return QualityResult(
-            confidence=adjusted_confidence,
-            label=label,
-            reasons=reasons,
-            force_reject=force_reject,
+            confidence=adjusted_confidence
+            label=label
+            reasons=reasons
+            force_reject=force_reject
         )

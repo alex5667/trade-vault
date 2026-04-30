@@ -8,8 +8,8 @@ from orderflow_services.confidence_calibrator import get_cached_calibrator, Conf
 def test_get_cached_calibrator_basic(tmp_path):
     cal_file = tmp_path / "cal.json"
     cal_data = {
-        "schema_version": 1,
-        "type": "temp_logit",
+        "schema_version": 1
+        "type": "temp_logit"
         "t": 1.5
     }
     cal_file.write_text(json.dumps(cal_data))

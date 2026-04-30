@@ -95,15 +95,15 @@ class ZonePack:
                     continue
                 zs.append(
                     Zone(
-                        id=_s(z.get("id", ""), ""),
-                        type=_s(z.get("type", "LEVEL"), "LEVEL"),
-                        src=_s(z.get("src", "na"), "na"),
-                        side=_s(z.get("side", "NA"), "NA"),
-                        px_lo=_f(z.get("px_lo", 0.0), 0.0),
-                        px_hi=_f(z.get("px_hi", 0.0), 0.0),
-                        ts_ms=_i(z.get("ts_ms", ts), ts),
-                        weight=_f(z.get("weight", 1.0), 1.0),
-                        meta=z.get("meta", {}) if isinstance(z.get("meta", {}), dict) else {},
+                        id=_s(z.get("id", ""), "")
+                        type=_s(z.get("type", "LEVEL"), "LEVEL")
+                        src=_s(z.get("src", "na"), "na")
+                        side=_s(z.get("side", "NA"), "NA")
+                        px_lo=_f(z.get("px_lo", 0.0), 0.0)
+                        px_hi=_f(z.get("px_hi", 0.0), 0.0)
+                        ts_ms=_i(z.get("ts_ms", ts), ts)
+                        weight=_f(z.get("weight", 1.0), 1.0)
+                        meta=z.get("meta", {}) if isinstance(z.get("meta", {}), dict) else {}
                     )
                 )
             if not sym:

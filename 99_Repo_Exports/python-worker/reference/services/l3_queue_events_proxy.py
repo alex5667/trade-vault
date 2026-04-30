@@ -55,48 +55,48 @@ class L3QueueEventsProxy:
     """
 
     __slots__ = (
-        "bucket_ms",
-        "alpha",
-        "eps",
+        "bucket_ms"
+        "alpha"
+        "eps"
         # Cancel rate EMA
-        "_cancel_rate_alpha",
-        "cancel_bid_rate_ema",
-        "cancel_ask_rate_ema",
+        "_cancel_rate_alpha"
+        "cancel_bid_rate_ema"
+        "cancel_ask_rate_ema"
         # Trade rate EMAs
-        "_bucket_buy",
-        "_bucket_sell",
-        "_rate_buy_ema",
-        "_rate_sell_ema",
+        "_bucket_buy"
+        "_bucket_sell"
+        "_rate_buy_ema"
+        "_rate_sell_ema"
         # Added liquidity (limit-add) EMA rates
-        "_add_rate_alpha",
-        "_add_bid_rate_ema",
-        "_add_ask_rate_ema",
-        "_rate_add_bid_ema",
-        "_rate_add_ask_ema",
+        "_add_rate_alpha"
+        "_add_bid_rate_ema"
+        "_add_ask_rate_ema"
+        "_rate_add_bid_ema"
+        "_rate_add_ask_ema"
         # VPIN-like toxicity proxy (robust z-score via MAD)
-        "_vpin_alpha",
-        "_vpin_mean_alpha",
-        "_vpin_mad_alpha",
-        "_vpin_tox_ema",
-        "_vpin_mean_ema",
-        "_vpin_mad_ema",
-        "_vpin_tox_z",
-        "_vpin_var_ema",
-        "_last_vpin_z",
+        "_vpin_alpha"
+        "_vpin_mean_alpha"
+        "_vpin_mad_alpha"
+        "_vpin_tox_ema"
+        "_vpin_mean_ema"
+        "_vpin_mad_ema"
+        "_vpin_tox_z"
+        "_vpin_var_ema"
+        "_last_vpin_z"
         # Bucket tracking
-        "_last_bucket_id",
+        "_last_bucket_id"
         # L3-lite reconciliation state (top-K totals)
-        "_l2_bid_total",
-        "_l2_ask_total",
-        "_bucket_bid_start_total",
-        "_bucket_ask_start_total",
+        "_l2_bid_total"
+        "_l2_ask_total"
+        "_bucket_bid_start_total"
+        "_bucket_ask_start_total"
         # Debug/observability (last computed)
-        "_last_pulled_bid_qty",
-        "_last_pulled_ask_qty",
-        "_last_added_bid_qty",
-        "_last_added_ask_qty",
-        "_last_exec_overflow_bid",
-        "_last_exec_overflow_ask",
+        "_last_pulled_bid_qty"
+        "_last_pulled_ask_qty"
+        "_last_added_bid_qty"
+        "_last_added_ask_qty"
+        "_last_exec_overflow_bid"
+        "_last_exec_overflow_ask"
     )
 
     def __init__(self, *, bucket_ms: int, alpha: float = 0.12, eps: float = 1e-9) -> None:
@@ -217,22 +217,22 @@ class L3QueueEventsProxy:
         self._vpin_tox_z = (tox_raw - self._vpin_mean_ema) / max(self._vpin_mad_ema, 1e-6)
 
         out = L3BucketStats(
-            taker_buy_qty=self._bucket_buy,
-            taker_sell_qty=self._bucket_sell,
-            taker_buy_rate_ema=self._rate_buy_ema,
-            taker_sell_rate_ema=self._rate_sell_ema,
-            cancel_bid_rate_ema=self.cancel_bid_rate_ema,
-            cancel_ask_rate_ema=self.cancel_ask_rate_ema,
-            added_bid_qty=float(self._last_added_bid_qty),
-            added_ask_qty=float(self._last_added_ask_qty),
-            added_bid_rate_ema=float(self._rate_add_bid_ema),
-            added_ask_rate_ema=float(self._rate_add_ask_ema),
-            limit_add_bid_rate_ema=self._add_bid_rate_ema,
-            limit_add_ask_rate_ema=self._add_ask_rate_ema,
-            limit_add_total_rate_ema=float(add_total),
-            limit_add_imb=float(add_imb),
-            vpin_tox_ema=float(self._vpin_tox_ema),
-            vpin_tox_z=float(self._vpin_tox_z),
+            taker_buy_qty=self._bucket_buy
+            taker_sell_qty=self._bucket_sell
+            taker_buy_rate_ema=self._rate_buy_ema
+            taker_sell_rate_ema=self._rate_sell_ema
+            cancel_bid_rate_ema=self.cancel_bid_rate_ema
+            cancel_ask_rate_ema=self.cancel_ask_rate_ema
+            added_bid_qty=float(self._last_added_bid_qty)
+            added_ask_qty=float(self._last_added_ask_qty)
+            added_bid_rate_ema=float(self._rate_add_bid_ema)
+            added_ask_rate_ema=float(self._rate_add_ask_ema)
+            limit_add_bid_rate_ema=self._add_bid_rate_ema
+            limit_add_ask_rate_ema=self._add_ask_rate_ema
+            limit_add_total_rate_ema=float(add_total)
+            limit_add_imb=float(add_imb)
+            vpin_tox_ema=float(self._vpin_tox_ema)
+            vpin_tox_z=float(self._vpin_tox_z)
         )
 
         # reset for new bucket
@@ -277,10 +277,10 @@ class L3QueueEventsProxy:
             self._bucket_ask_start_total = at
 
     def on_l2_levels(
-        self,
-        *,
-        bids: list[list[float]] | list[tuple[float, float]],
-        asks: list[list[float]] | list[tuple[float, float]],
+        self
+        *
+        bids: list[list[float]] | list[tuple[float, float]]
+        asks: list[list[float]] | list[tuple[float, float]]
     ) -> None:
         """
         Optional helper: accept top-K levels and sum totals internally.
@@ -347,11 +347,11 @@ class L3QueueEventsProxy:
         return pulled_bid, pulled_ask, added_bid, added_ask, exec_overflow_bid, exec_overflow_ask
 
     def on_bucket_close(
-        self,
-        *,
-        pulled_bid_qty_proxy: Optional[float] = None,
-        pulled_ask_qty_proxy: Optional[float] = None,
-        bucket_ms: int,
+        self
+        *
+        pulled_bid_qty_proxy: Optional[float] = None
+        pulled_ask_qty_proxy: Optional[float] = None
+        bucket_ms: int
     ) -> None:
         """
         Обновляет EMA cancel_rate (qty/sec) на основании pulled liquidity за бакет.
@@ -391,19 +391,19 @@ class L3QueueEventsProxy:
     def snapshot(self) -> Dict[str, float]:
         """Non-essential: quick current values (for observability)."""
         return {
-            "taker_buy_qty_bucket": float(self._bucket_buy),
-            "taker_sell_qty_bucket": float(self._bucket_sell),
-            "taker_buy_rate_ema": float(self._rate_buy_ema),
-            "taker_sell_rate_ema": float(self._rate_sell_ema),
-            "cancel_bid_rate_ema": float(self.cancel_bid_rate_ema),
-            "cancel_ask_rate_ema": float(self.cancel_ask_rate_ema),
-            "added_bid_rate_ema": float(self._rate_add_bid_ema),
-            "added_ask_rate_ema": float(self._rate_add_ask_ema),
-            "limit_add_total_rate_ema": float(self._add_bid_rate_ema + self._add_ask_rate_ema),
+            "taker_buy_qty_bucket": float(self._bucket_buy)
+            "taker_sell_qty_bucket": float(self._bucket_sell)
+            "taker_buy_rate_ema": float(self._rate_buy_ema)
+            "taker_sell_rate_ema": float(self._rate_sell_ema)
+            "cancel_bid_rate_ema": float(self.cancel_bid_rate_ema)
+            "cancel_ask_rate_ema": float(self.cancel_ask_rate_ema)
+            "added_bid_rate_ema": float(self._rate_add_bid_ema)
+            "added_ask_rate_ema": float(self._rate_add_ask_ema)
+            "limit_add_total_rate_ema": float(self._add_bid_rate_ema + self._add_ask_rate_ema)
             "limit_add_imb": float(
                 (self._add_bid_rate_ema - self._add_ask_rate_ema)
                 / (self._add_bid_rate_ema + self._add_ask_rate_ema + self.eps)
-            ),
-            "vpin_tox_ema": float(self._vpin_tox_ema),
-            "vpin_tox_z": float(self._vpin_tox_z),
+            )
+            "vpin_tox_ema": float(self._vpin_tox_ema)
+            "vpin_tox_z": float(self._vpin_tox_z)
         }

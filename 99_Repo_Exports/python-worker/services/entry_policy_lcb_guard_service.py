@@ -32,13 +32,13 @@ class LcbConfig:
     @staticmethod
     def from_env() -> LcbConfig:
         return LcbConfig(
-            in_stream=os.getenv("LCB_GUARD_IN_STREAM", "events:trades"),
-            group=os.getenv("LCB_GUARD_GROUP", "lcb-guard"),
-            consumer=os.getenv("LCB_GUARD_CONSUMER", "c1"),
-            min_samples=int(os.getenv("LCB_GUARD_MIN_SAMPLES", "20")),
+            in_stream=os.getenv("LCB_GUARD_IN_STREAM", "events:trades")
+            group=os.getenv("LCB_GUARD_GROUP", "lcb-guard")
+            consumer=os.getenv("LCB_GUARD_CONSUMER", "c1")
+            min_samples=int(os.getenv("LCB_GUARD_MIN_SAMPLES", "20"))
             z_score=float(os.getenv("LCB_GUARD_Z", "1.96")), # 95% confidence
-            lcb_threshold=float(os.getenv("LCB_GUARD_THRESHOLD", "0.0")),
-            streak_required=int(os.getenv("LCB_GUARD_STREAK", "2")),
+            lcb_threshold=float(os.getenv("LCB_GUARD_THRESHOLD", "0.0"))
+            streak_required=int(os.getenv("LCB_GUARD_STREAK", "2"))
             min_freeze_duration_ms=int(os.getenv("LCB_GUARD_MIN_FREEZE_MS", "300000")), # 5 min
         )
 
@@ -75,10 +75,10 @@ class EntryPolicyLcbGuardService:
 
         # Save back
         await self.r.hset(f"{self.stats_prefix}:{key}", mapping={
-            "n": n,
-            "mean": mean,
-            "m2": m2,
-            "last_r": r_mult,
+            "n": n
+            "mean": mean
+            "m2": m2
+            "last_r": r_mult
             "updated_ts": _now_ms()
         })
         # Set TTL for stats (e.g. 7 days)
@@ -167,15 +167,15 @@ class EntryPolicyLcbGuardService:
             
             # Emit audit event for unfreeze?
             audit_payload = {
-                "ts_ms": now,
-                "event_type": "UNFREEZE_BY_PROOF",
-                "symbol": sym,
-                "group": ab_group,
-                "scenario": scenario,
-                "lcb": lcb,
-                "n": n,
-                "mean": mean,
-                "std": std,
+                "ts_ms": now
+                "event_type": "UNFREEZE_BY_PROOF"
+                "symbol": sym
+                "group": ab_group
+                "scenario": scenario
+                "lcb": lcb
+                "n": n
+                "mean": mean
+                "std": std
                 "notes": f"Automatic unfreeze by LCB Guard. Mean R: {mean:.2f}"
             }
             await self.r.xadd("stream:trade:entry_audit", {"data": json.dumps(audit_payload)}, maxlen=10000, approximate=True)

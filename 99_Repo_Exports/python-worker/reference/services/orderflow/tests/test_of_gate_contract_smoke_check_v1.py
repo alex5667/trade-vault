@@ -2,7 +2,7 @@
 Unit tests for OF Gate contract smoke-check integration in of_timers_worker.
 
 Tests are adapted to the actual API of each module:
-  - services.of_timers_worker: uses run_of_gate_contract_smoke_check directly,
+  - services.of_timers_worker: uses run_of_gate_contract_smoke_check directly
     with internal subprocess.run + _notify_stream (rich dedup version)
   - tick_flow_full.services.of_timers_worker: same rich base + run_tool_rc +
     _best_effort_notify_telegram helpers
@@ -36,8 +36,8 @@ def _reload_worker(module_path: str):
 
 
 WORKER_MODULES = [
-    "services.of_timers_worker",
-    "tick_flow_full.services.of_timers_worker",
+    "services.of_timers_worker"
+    "tick_flow_full.services.of_timers_worker"
 ]
 
 
@@ -106,9 +106,9 @@ class TestFormatMsg:
     def test_json_payload_extracted(self, worker_mod):
         w = _reload_worker(worker_mod)
         payload = {
-            "n": 1234, "bad": 3, "bad_share": 0.0024,
-            "stream": "metrics:of_gate",
-            "top_bad_reasons": [{"k": "missing_ts_ms", "n": 2}, {"k": "schema_err", "n": 1}],
+            "n": 1234, "bad": 3, "bad_share": 0.0024
+            "stream": "metrics:of_gate"
+            "top_bad_reasons": [{"k": "missing_ts_ms", "n": 2}, {"k": "schema_err", "n": 1}]
         }
         stdout = f"prefix text\n{json.dumps(payload)}\n"
         msg = w._format_of_gate_contract_smoke_msg(stdout, "", rc=2)
@@ -135,8 +135,8 @@ class TestFormatMsg:
     def test_top_bad_reasons_capped(self, worker_mod):
         w = _reload_worker(worker_mod)
         payload = {
-            "n": 10, "bad": 10, "bad_share": 1.0, "stream": "metrics:of_gate",
-            "top_bad_reasons": [{"k": f"reason_{i}", "n": i} for i in range(10)],
+            "n": 10, "bad": 10, "bad_share": 1.0, "stream": "metrics:of_gate"
+            "top_bad_reasons": [{"k": f"reason_{i}", "n": i} for i in range(10)]
         }
         msg = w._format_of_gate_contract_smoke_msg(json.dumps(payload), "", rc=2)
         assert "reason_4" in msg
@@ -194,7 +194,7 @@ class TestBestEffortNotify:
             with patch.object(w, '_notify_stream', side_effect=AttributeError):
                 pass  # tick_flow_full doesn't have _notify_stream in this path
             # Directly test
-            with patch("tick_flow_full.services.of_timers_worker._notify_stream",
+            with patch("tick_flow_full.services.of_timers_worker._notify_stream"
                        side_effect=AttributeError("no such attr"), create=True):
                 pass
         # Just verify it doesn't raise on normal call
@@ -235,8 +235,8 @@ class TestRunSmokeCheck:
         """rc=2 → notification sent (to _notify_stream or _best_effort_notify_telegram)."""
         w = _reload_worker(worker_mod)
         payload = json.dumps({
-            "n": 100, "bad": 1, "bad_share": 0.01,
-            "stream": "metrics:of_gate", "top_bad_reasons": [],
+            "n": 100, "bad": 1, "bad_share": 0.01
+            "stream": "metrics:of_gate", "top_bad_reasons": []
         })
         fake = MagicMock(returncode=2, stdout=payload, stderr="")
         notify_calls = []
@@ -273,8 +273,8 @@ class TestRunSmokeCheck:
         w = _reload_worker(worker_mod)
         fake = MagicMock(returncode=0, stdout="", stderr="")
         env = {
-            "ENABLE_OF_GATE_CONTRACT_SMOKE": "1",
-            "OF_GATE_CONTRACT_SMOKE_DRY_RUN": "0",
+            "ENABLE_OF_GATE_CONTRACT_SMOKE": "1"
+            "OF_GATE_CONTRACT_SMOKE_DRY_RUN": "0"
         }
         with patch.dict(os.environ, env):
             with patch("subprocess.run", return_value=fake) as mock_sp:
@@ -290,8 +290,8 @@ class TestRunSmokeCheck:
         w = _reload_worker(worker_mod)
         fake = MagicMock(returncode=0, stdout="", stderr="")
         with patch.dict(os.environ, {
-            "ENABLE_OF_GATE_CONTRACT_SMOKE": "1",
-            "OF_GATE_CONTRACT_SMOKE_MODULE": "custom.checker_v99",
+            "ENABLE_OF_GATE_CONTRACT_SMOKE": "1"
+            "OF_GATE_CONTRACT_SMOKE_MODULE": "custom.checker_v99"
         }):
             with patch("subprocess.run", return_value=fake) as mock_sp:
                 w.run_of_gate_contract_smoke_check()

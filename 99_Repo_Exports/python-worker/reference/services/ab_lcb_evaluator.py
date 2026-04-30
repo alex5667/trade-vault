@@ -109,9 +109,9 @@ def moments_from_stats(d: Dict[str, Any]) -> ArmMoments:
 
     if "sum_r" in d and "sum_r2" in d:
         return ArmMoments(
-            n=n,
-            sum_r=float(d.get("sum_r", 0.0) or 0.0),
-            sum_r2=float(d.get("sum_r2", 0.0) or 0.0),
+            n=n
+            sum_r=float(d.get("sum_r", 0.0) or 0.0)
+            sum_r2=float(d.get("sum_r2", 0.0) or 0.0)
         )
 
     mean_r = float(d.get("mean_r", 0.0) or d.get("avg_r", 0.0) or 0.0)
@@ -148,10 +148,10 @@ class WinnerDecision:
 
 
 def choose_winner_lcb(
-    *,
-    stats_by_arm: Dict[str, Dict[str, Any]],
-    regime: str,
-    baseline_arm: str = "A",
+    *
+    stats_by_arm: Dict[str, Dict[str, Any]]
+    regime: str
+    baseline_arm: str = "A"
 ) -> WinnerDecision:
     """
     Choose winner using LCB(mean R) per regime.
@@ -193,30 +193,30 @@ def choose_winner_lcb(
 
     if base not in eligible:
         return WinnerDecision(
-            winner=base,
-            ok=False,
-            reason="baseline_not_ready",
-            baseline=base,
-            z=cfg.z,
-            min_n=cfg.min_n,
-            min_edge_lcb=cfg.min_edge_lcb,
-            lcb_by_arm=lcb_map,
-            mean_by_arm=mean_map,
-            n_by_arm=n_map,
+            winner=base
+            ok=False
+            reason="baseline_not_ready"
+            baseline=base
+            z=cfg.z
+            min_n=cfg.min_n
+            min_edge_lcb=cfg.min_edge_lcb
+            lcb_by_arm=lcb_map
+            mean_by_arm=mean_map
+            n_by_arm=n_map
         )
 
     if not eligible:
         return WinnerDecision(
-            winner=base,
-            ok=False,
-            reason="no_eligible_arms",
-            baseline=base,
-            z=cfg.z,
-            min_n=cfg.min_n,
-            min_edge_lcb=cfg.min_edge_lcb,
-            lcb_by_arm=lcb_map,
-            mean_by_arm=mean_map,
-            n_by_arm=n_map,
+            winner=base
+            ok=False
+            reason="no_eligible_arms"
+            baseline=base
+            z=cfg.z
+            min_n=cfg.min_n
+            min_edge_lcb=cfg.min_edge_lcb
+            lcb_by_arm=lcb_map
+            mean_by_arm=mean_map
+            n_by_arm=n_map
         )
 
     # winner among eligible
@@ -233,27 +233,27 @@ def choose_winner_lcb(
         edge = best_lcb - base_lcb
         if edge < float(cfg.min_edge_lcb):
             return WinnerDecision(
-                winner=base,
-                ok=False,
-                reason=f"edge_below_min_lcb edge={edge:.4f}",
-                baseline=base,
-                z=cfg.z,
-                min_n=cfg.min_n,
-                min_edge_lcb=cfg.min_edge_lcb,
-                lcb_by_arm=lcb_map,
-                mean_by_arm=mean_map,
-                n_by_arm=n_map,
+                winner=base
+                ok=False
+                reason=f"edge_below_min_lcb edge={edge:.4f}"
+                baseline=base
+                z=cfg.z
+                min_n=cfg.min_n
+                min_edge_lcb=cfg.min_edge_lcb
+                lcb_by_arm=lcb_map
+                mean_by_arm=mean_map
+                n_by_arm=n_map
             )
 
     return WinnerDecision(
-        winner=best,
-        ok=True,
-        reason="lcb_winner",
-        baseline=base,
-        z=cfg.z,
-        min_n=cfg.min_n,
-        min_edge_lcb=cfg.min_edge_lcb,
-        lcb_by_arm=lcb_map,
-        mean_by_arm=mean_map,
-        n_by_arm=n_map,
+        winner=best
+        ok=True
+        reason="lcb_winner"
+        baseline=base
+        z=cfg.z
+        min_n=cfg.min_n
+        min_edge_lcb=cfg.min_edge_lcb
+        lcb_by_arm=lcb_map
+        mean_by_arm=mean_map
+        n_by_arm=n_map
     )

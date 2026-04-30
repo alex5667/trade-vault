@@ -45,40 +45,40 @@ except Exception:  # pragma: no cover
 # --- Prometheus metrics (P3.3-hardening) ---
 
 TRADE_EXECUTION_REHYDRATE_TOTAL = _metric(
-    Counter,
-    'trade_execution_rehydrate_total',
-    'Total execution state rehydration attempts, labelled by source and result.',
-    ['source', 'result'],
+    Counter
+    'trade_execution_rehydrate_total'
+    'Total execution state rehydration attempts, labelled by source and result.'
+    ['source', 'result']
 )
 
 TRADE_EXECUTION_REPLAY_TRUNCATED_TOTAL = _metric(
-    Counter,
-    'trade_execution_replay_truncated_total',
-    'Replay attempts where the scan window hit the scan_count cap.',
-    ['result'],
+    Counter
+    'trade_execution_replay_truncated_total'
+    'Replay attempts where the scan window hit the scan_count cap.'
+    ['result']
 )
 
 TRADE_EXECUTION_REPLAY_SQL_FALLBACK_TOTAL = _metric(
-    Counter,
-    'trade_execution_replay_sql_fallback_total',
-    'Replay attempts that fell back to the SQL snapshot.',
-    ['result'],
+    Counter
+    'trade_execution_replay_sql_fallback_total'
+    'Replay attempts that fell back to the SQL snapshot.'
+    ['result']
 )
 
 # P3.3-ops-complete: retention guard counter
 TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL = _metric(
-    Counter,
-    'trade_execution_replay_retention_guard_total',
-    'Replay attempts where the checkpoint fell behind Redis stream retention.',
-    ['result'],
+    Counter
+    'trade_execution_replay_retention_guard_total'
+    'Replay attempts where the checkpoint fell behind Redis stream retention.'
+    ['result']
 )
 
 # P3.3-ops-complete: replay latency histogram
 TRADE_EXECUTION_REPLAY_LATENCY_MS = _metric(
-    Histogram,
-    'trade_execution_replay_latency_ms',
-    'Execution replay/rehydrate latency in milliseconds.',
-    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000),
+    Histogram
+    'trade_execution_replay_latency_ms'
+    'Execution replay/rehydrate latency in milliseconds.'
+    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
 )
 
 
@@ -143,21 +143,21 @@ def _loads(value: Any) -> Dict[str, Any]:
 
 # Keys that should never be copied into the materialized state document.
 TRANSIENT_FIELDS = {
-    'stream_id',
-    'event_type',
-    'severity',
-    'error_class',
-    'msg',
-    'reason',
+    'stream_id'
+    'event_type'
+    'severity'
+    'error_class'
+    'msg'
+    'reason'
 }
 
 
 STATE_PRIORITY_FIELDS = {
-    'sid', 'symbol', 'action', 'status', 'venue', 'execution_policy',
-    'fsm_state', 'fsm_prev_state', 'entry_client_order_id', 'binance_order_id',
-    'filled_qty', 'avg_price', 'entry_status', 'side', 'qty', 'exec_price',
-    'sl_algo_id', 'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id', 'trail_algo_id',
-    'tp1_state', 'tp2_state', 'tp3_state',
+    'sid', 'symbol', 'action', 'status', 'venue', 'execution_policy'
+    'fsm_state', 'fsm_prev_state', 'entry_client_order_id', 'binance_order_id'
+    'filled_qty', 'avg_price', 'entry_status', 'side', 'qty', 'exec_price'
+    'sl_algo_id', 'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id', 'trail_algo_id'
+    'tp1_state', 'tp2_state', 'tp3_state'
 }
 
 
@@ -282,11 +282,11 @@ def _retention_guard_triggered(redis_client: Any, *, exec_stream: str, checkpoin
 
 
 def stream_retention_guard_report(
-    redis_client: Any,
-    *,
-    exec_stream: str,
-    checkpoint_prefix: str,
-    sample_limit: int = 2000,
+    redis_client: Any
+    *
+    exec_stream: str
+    checkpoint_prefix: str
+    sample_limit: int = 2000
 ) -> Dict[str, Any]:
     """Scan checkpoint keys and report how many have drifted behind stream retention.
 
@@ -313,13 +313,13 @@ def stream_retention_guard_report(
             if len(examples) < 20:
                 examples.append({'sid': sid, 'checkpoint_id': checkpoint_id, 'oldest_stream_id': oldest})
     return {
-        'exec_stream': exec_stream,
-        'checkpoint_prefix': prefix,
-        'oldest_stream_id': oldest,
-        'checked_checkpoint_keys': total,
-        'breached_checkpoints': breached,
-        'breached_examples': examples,
-        'status': 'critical' if breached > 0 else 'ok',
+        'exec_stream': exec_stream
+        'checkpoint_prefix': prefix
+        'oldest_stream_id': oldest
+        'checked_checkpoint_keys': total
+        'breached_checkpoints': breached
+        'breached_examples': examples
+        'status': 'critical' if breached > 0 else 'ok'
     }
 
 
@@ -328,11 +328,11 @@ def stream_retention_guard_report(
 # ---------------------------------------------------------------------------
 
 def _bounded_rows(
-    redis_client: Any,
-    *,
-    exec_stream: str,
-    checkpoint_id: str,
-    scan_count: int,
+    redis_client: Any
+    *
+    exec_stream: str
+    checkpoint_id: str
+    scan_count: int
 ) -> Tuple[List[Tuple[Any, Mapping[str, Any]]], bool, bool]:
     """Fetch at most ``scan_count`` stream rows relative to the checkpoint.
 
@@ -371,8 +371,8 @@ def _load_sql_state_snapshot(*, dsn: str, sid: str) -> Dict[str, Any]:
         conn = psycopg.connect(dsn)
         with conn.cursor() as cur:
             cur.execute(
-                'SELECT snapshot FROM execution_state_snapshots WHERE sid = %s ORDER BY created_at DESC LIMIT 1',
-                (sid,),
+                'SELECT snapshot FROM execution_state_snapshots WHERE sid = %s ORDER BY created_at DESC LIMIT 1'
+                (sid,)
             )
             row = cur.fetchone()
             if row:
@@ -383,13 +383,13 @@ def _load_sql_state_snapshot(*, dsn: str, sid: str) -> Dict[str, Any]:
 
 
 def rebuild_state_with_fallback(
-    redis_client: Any,
-    *,
-    exec_stream: str,
-    sid: str,
-    scan_count: int = 20000,
-    checkpoint_id: str = '',
-    sql_dsn: str = '',
+    redis_client: Any
+    *
+    exec_stream: str
+    sid: str
+    scan_count: int = 20000
+    checkpoint_id: str = ''
+    sql_dsn: str = ''
 ) -> ReplayBuildResult:
     """Rebuild SID state from stream (with SQL fallback).
 
@@ -415,14 +415,14 @@ def rebuild_state_with_fallback(
         if truncated and TRADE_EXECUTION_REPLAY_TRUNCATED_TOTAL:
             TRADE_EXECUTION_REPLAY_TRUNCATED_TOTAL.labels(result='truncated').inc()
         return ReplayBuildResult(
-            state_doc=state,
-            source='stream',
-            used_checkpoint=bool(checkpoint_id),
-            checkpoint_id=checkpoint_id,
-            replayed_events=int(state.get('stream_replayed_events') or len(events)),
-            truncated=truncated,
-            retention_guard_triggered=retention_guard,
-            latency_ms=latency_ms,
+            state_doc=state
+            source='stream'
+            used_checkpoint=bool(checkpoint_id)
+            checkpoint_id=checkpoint_id
+            replayed_events=int(state.get('stream_replayed_events') or len(events))
+            truncated=truncated
+            retention_guard_triggered=retention_guard
+            latency_ms=latency_ms
         )
     sql_state = _load_sql_state_snapshot(dsn=sql_dsn, sid=sid) if sql_dsn else {}
     if sql_state:
@@ -434,14 +434,14 @@ def rebuild_state_with_fallback(
         if TRADE_EXECUTION_REHYDRATE_TOTAL:
             TRADE_EXECUTION_REHYDRATE_TOTAL.labels(source='sql', result='ok').inc()
         return ReplayBuildResult(
-            state_doc=sql_state,
-            source='sql',
-            used_checkpoint=bool(checkpoint_id),
-            checkpoint_id=checkpoint_id,
-            replayed_events=0,
-            truncated=truncated,
-            retention_guard_triggered=retention_guard,
-            latency_ms=latency_ms,
+            state_doc=sql_state
+            source='sql'
+            used_checkpoint=bool(checkpoint_id)
+            checkpoint_id=checkpoint_id
+            replayed_events=0
+            truncated=truncated
+            retention_guard_triggered=retention_guard
+            latency_ms=latency_ms
         )
     latency_ms = int((time.perf_counter() - started) * 1000)
     if TRADE_EXECUTION_REPLAY_LATENCY_MS:
@@ -453,24 +453,24 @@ def rebuild_state_with_fallback(
     if retention_guard and TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL:
         TRADE_EXECUTION_REPLAY_RETENTION_GUARD_TOTAL.labels(result='miss').inc()
     return ReplayBuildResult(
-        state_doc={},
-        source='none',
-        used_checkpoint=bool(checkpoint_id),
-        checkpoint_id=checkpoint_id,
-        replayed_events=0,
-        truncated=truncated,
-        retention_guard_triggered=retention_guard,
-        latency_ms=latency_ms,
+        state_doc={}
+        source='none'
+        used_checkpoint=bool(checkpoint_id)
+        checkpoint_id=checkpoint_id
+        replayed_events=0
+        truncated=truncated
+        retention_guard_triggered=retention_guard
+        latency_ms=latency_ms
     )
 
 
 def persist_state_snapshot(
-    redis_client: Any,
-    *,
-    state_key: str,
-    state_doc: Mapping[str, Any],
-    ttl_sec: int = 0,
-    checkpoint_key: str = '',
+    redis_client: Any
+    *
+    state_key: str
+    state_doc: Mapping[str, Any]
+    ttl_sec: int = 0
+    checkpoint_key: str = ''
 ) -> bool:
     """Write state_doc to Redis.
 
@@ -495,7 +495,7 @@ def compare_replayed_state(redis_state: Mapping[str, Any], replayed_state: Mappi
     """Return a compact mismatch report for operator/runbook use."""
     mismatches: Dict[str, Any] = {}
     fields = [
-        'symbol', 'status', 'fsm_state', 'execution_policy', 'binance_order_id',
+        'symbol', 'status', 'fsm_state', 'execution_policy', 'binance_order_id'
         'sl_algo_id', 'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id', 'trail_algo_id'
     ]
     for field in fields:

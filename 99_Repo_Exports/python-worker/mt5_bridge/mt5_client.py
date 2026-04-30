@@ -132,13 +132,13 @@ class Mt5Client:
         return vol
 
     def send_market_order(
-        self,
-        symbol: str,
-        is_buy: bool,
-        volume_lots: float,
-        sl_price: Optional[float],
-        tp_price: Optional[float],
-        comment: str = "",
+        self
+        symbol: str
+        is_buy: bool
+        volume_lots: float
+        sl_price: Optional[float]
+        tp_price: Optional[float]
+        comment: str = ""
     ):
         """
         Отправляет рыночный ордер с SL/TP.
@@ -171,16 +171,16 @@ class Mt5Client:
 
         # Формируем запрос на сделку
         request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": mapped,
-            "volume": volume,
-            "type": order_type,
-            "price": price,
-            "sl": sl_price or 0.0,
-            "tp": tp_price or 0.0,
+            "action": mt5.TRADE_ACTION_DEAL
+            "symbol": mapped
+            "volume": volume
+            "type": order_type
+            "price": price
+            "sl": sl_price or 0.0
+            "tp": tp_price or 0.0
             "deviation": 20,  # max slippage in points, подстрой под брокера
             "magic": 2025121501,  # магический номер для идентификации
-            "comment": comment,
+            "comment": comment
             "type_filling": mt5.ORDER_FILLING_IOC,  # Immediate or Cancel
             "type_time": mt5.ORDER_TIME_GTC,  # Good Till Cancel
         }

@@ -34,8 +34,8 @@ async def _send_telegram(r: aioredis.Redis, stream: str, text: str) -> None:
     """
     if not stream: return
     msg = {
-        "type": "report",
-        "ts_ms": str(_now_ms()),
+        "type": "report"
+        "ts_ms": str(_now_ms())
         "text": f"<pre>{html.escape(str(text))}</pre>"
     }
     try:
@@ -118,36 +118,36 @@ async def run_once() -> None:
         
         # Consistent with EntryPolicyOverridesV1 schema
         o = EntryPolicyOverridesV1(
-            updated_ts_ms=_now_ms(),
-            enabled=1,
-            symbol=sym,
-            regime=rg,
-            scenario=scn,
-            group=grp,
-            force_active_arm=arm,
-            freeze_active=0,
-            ab_split_b=int(os.getenv("AB_SPLIT_B", "10")),
-            ab_split_c=int(os.getenv("AB_SPLIT_C", "10")),
-            ab_salt=str(os.getenv("AB_SALT", "v1")),
+            updated_ts_ms=_now_ms()
+            enabled=1
+            symbol=sym
+            regime=rg
+            scenario=scn
+            group=grp
+            force_active_arm=arm
+            freeze_active=0
+            ab_split_b=int(os.getenv("AB_SPLIT_B", "10"))
+            ab_split_c=int(os.getenv("AB_SPLIT_C", "10"))
+            ab_salt=str(os.getenv("AB_SALT", "v1"))
             extra={
-                "src": "autopilot_reporter",
-                "n": int(w.get("n",0) or 0),
-                "mean_r": float(w.get("mean_r",0.0) or 0.0),
-                "lcb_r": float(w.get("lcb_r",0.0) or 0.0),
-            },
+                "src": "autopilot_reporter"
+                "n": int(w.get("n",0) or 0)
+                "mean_r": float(w.get("mean_r",0.0) or 0.0)
+                "lcb_r": float(w.get("lcb_r",0.0) or 0.0)
+            }
         )
 
         sid = f"auto:{sym}:{rg}:{scn}:{grp}:{arm}:{int(o.updated_ts_ms)}"
         meta = {
-            "kind": "overrides_v1",
-            "symbol": sym,
-            "regime": rg,
-            "scenario": scn,
-            "group": grp,
-            "winner_arm": arm,
-            "overrides_json": json.loads(o.to_json()),
-            "updated_ts_ms": int(o.updated_ts_ms),
-            "approvals_required": int(os.getenv("AUTOPILOT_APPROVALS_REQUIRED", "2")),
+            "kind": "overrides_v1"
+            "symbol": sym
+            "regime": rg
+            "scenario": scn
+            "group": grp
+            "winner_arm": arm
+            "overrides_json": json.loads(o.to_json())
+            "updated_ts_ms": int(o.updated_ts_ms)
+            "approvals_required": int(os.getenv("AUTOPILOT_APPROVALS_REQUIRED", "2"))
         }
         try:
             ok, _ = o.validate()

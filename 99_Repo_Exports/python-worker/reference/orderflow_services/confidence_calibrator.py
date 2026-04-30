@@ -166,12 +166,12 @@ def load_calibrator_from_path(path: str) -> Optional[ConfidenceCalibrator]:
 
 
 def get_cached_calibrator(
-    runtime: Any,
-    path: str,
-    *,
-    check_every_ms: int = 5000,
-    max_age_ms: int = 0,
-    disable_if_stale: int = 0,
+    runtime: Any
+    path: str
+    *
+    check_every_ms: int = 5000
+    max_age_ms: int = 0
+    disable_if_stale: int = 0
 ) -> Optional[ConfidenceCalibrator]:
     """
     Fast path for production: keep calibrator cached in runtime and only
@@ -183,11 +183,11 @@ def get_cached_calibrator(
 
     Cache key on runtime:
       runtime._confidence_cal_cache = {
-        "path": str,
-        "mtime_ns": int,
-        "last_check_ms": int,
-        "cal": ConfidenceCalibrator|None,
-        "meta": dict|None,
+        "path": str
+        "mtime_ns": int
+        "last_check_ms": int
+        "cal": ConfidenceCalibrator|None
+        "meta": dict|None
       }
     """
     try:
@@ -251,13 +251,13 @@ def get_cached_calibrator(
                     raw = rep.get("raw") or {}
                     cc = rep.get("cal") or {}
                     emit_train_report(
-                        sym,
-                        cal_type=str(payload.get("type") or "unknown"),
-                        schema_version=int(payload.get("schema_version", 1) or 1),
-                        raw_ece=float(raw.get("ece", 0.0) or 0.0),
-                        cal_ece=float(cc.get("ece", 0.0) or 0.0),
-                        raw_brier=float(raw.get("brier", 0.0) or 0.0),
-                        cal_brier=float(cc.get("brier", 0.0) or 0.0),
+                        sym
+                        cal_type=str(payload.get("type") or "unknown")
+                        schema_version=int(payload.get("schema_version", 1) or 1)
+                        raw_ece=float(raw.get("ece", 0.0) or 0.0)
+                        cal_ece=float(cc.get("ece", 0.0) or 0.0)
+                        raw_brier=float(raw.get("brier", 0.0) or 0.0)
+                        cal_brier=float(cc.get("brier", 0.0) or 0.0)
                     )
                 except Exception:
                     pass

@@ -21,13 +21,13 @@ def _fresh_ctx(**kwargs):
     """Build a minimal ctx with sane defaults that passes all checks."""
     now = _now_ms()
     defaults = dict(
-        hold_target_ms=300_000,
-        alpha_half_life_ms=180_000,
-        max_signal_age_ms=90_000,
-        atr_value=250.0,
-        atr_tf_ms=60_000,
-        atr_age_ms=1_000,
-        selector_reason_code="ATR_SEL_EXACT",
+        hold_target_ms=300_000
+        alpha_half_life_ms=180_000
+        max_signal_age_ms=90_000
+        atr_value=250.0
+        atr_tf_ms=60_000
+        atr_age_ms=1_000
+        selector_reason_code="ATR_SEL_EXACT"
         book_ts_ms=now - 500,   # 500 ms old → comfortably inside book budget
         ts_ms=now - 1_000,      # 1 s old → comfortably inside signal budget
     )
@@ -75,10 +75,10 @@ def test_horizon_dq_shadow_blocks_negative_atr():
 
 def test_horizon_dq_shadow_blocks_stale_selected_atr():
     ctx = _fresh_ctx(
-        hold_target_ms=60_000,
-        alpha_half_life_ms=30_000,
-        max_signal_age_ms=30_000,
-        atr_tf_ms=15_000,
+        hold_target_ms=60_000
+        alpha_half_life_ms=30_000
+        max_signal_age_ms=30_000
+        atr_tf_ms=15_000
         atr_age_ms=120_000,   # >> 60000*0.25 = 15000
     )
     out = compute_horizon_dq_shadow(ctx)
@@ -88,7 +88,7 @@ def test_horizon_dq_shadow_blocks_stale_selected_atr():
 
 def test_horizon_dq_shadow_fresh_atr_within_budget():
     ctx = _fresh_ctx(
-        hold_target_ms=60_000,
+        hold_target_ms=60_000
         atr_age_ms=10_000,  # < 15_000 budget → should pass
     )
     out = compute_horizon_dq_shadow(ctx)
@@ -125,7 +125,7 @@ def test_horizon_dq_shadow_no_book_ts_does_not_block():
 def test_horizon_dq_shadow_blocks_old_signal():
     now = _now_ms()
     ctx = _fresh_ctx(
-        max_signal_age_ms=30_000,
+        max_signal_age_ms=30_000
         ts_ms=now - 60_000,  # 60 s >> 30 s budget
     )
     out = compute_horizon_dq_shadow(ctx)
@@ -146,10 +146,10 @@ def test_horizon_dq_shadow_no_signal_ts_does_not_block():
 
 def test_horizon_dq_shadow_no_horizon_uses_caps():
     ctx = _fresh_ctx(
-        hold_target_ms=0,
-        alpha_half_life_ms=0,
-        max_signal_age_ms=0,
-        atr_age_ms=100,
+        hold_target_ms=0
+        alpha_half_life_ms=0
+        max_signal_age_ms=0
+        atr_age_ms=100
     )
     out = compute_horizon_dq_shadow(ctx)
     # With no hold_target_ms the ATR budget = cap (300_000 by default) → pass
@@ -172,10 +172,10 @@ def test_horizon_dq_shadow_fields_present():
     ctx = _fresh_ctx()
     out = compute_horizon_dq_shadow(ctx)
     required = {
-        "allow_shadow", "shadow_reason_code",
-        "atr_selected_value", "atr_selected_tf_ms", "atr_selected_age_ms",
-        "atr_age_budget_ms", "book_age_budget_ms", "signal_age_budget_ms",
-        "selector_reason_code", "reason_details",
+        "allow_shadow", "shadow_reason_code"
+        "atr_selected_value", "atr_selected_tf_ms", "atr_selected_age_ms"
+        "atr_age_budget_ms", "book_age_budget_ms", "signal_age_budget_ms"
+        "selector_reason_code", "reason_details"
     }
     assert required <= set(out.keys())
 

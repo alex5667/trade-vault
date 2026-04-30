@@ -121,12 +121,12 @@ def _get_group_key(row: Dict[str, Any], group_by: str) -> Tuple[str, ...]:
 
 
 def build_report(
-    rows: Iterable[Dict[str, Any]],
-    *,
-    group_by: str = "symbol_regime",
-    baseline_days: int = 7,
-    target_day: str | None = None,
-    top_n: int = 50,
+    rows: Iterable[Dict[str, Any]]
+    *
+    group_by: str = "symbol_regime"
+    baseline_days: int = 7
+    target_day: str | None = None
+    top_n: int = 50
 ) -> Dict[str, Any]:
     # Collect part values by (group, day, key)
     data: DefaultDict[Tuple[str, ...], DefaultDict[str, DefaultDict[str, List[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -192,13 +192,13 @@ def build_report(
                 tgt_med = _median(tgt_vs)
 
             parts_rep.append({
-                "key": k,
-                "n_base": int(len(base_vs)),
-                "n_target": int(len(tgt_vs)),
-                "baseline_median": base_med,
-                "baseline_mad": base_mad,
-                "target_median": tgt_med,
-                "drift_z": z,
+                "key": k
+                "n_base": int(len(base_vs))
+                "n_target": int(len(tgt_vs))
+                "baseline_median": base_med
+                "baseline_mad": base_mad
+                "target_median": tgt_med
+                "drift_z": z
             })
 
         # order by abs drift_z, then by n_target
@@ -207,17 +207,17 @@ def build_report(
             parts_rep = parts_rep[: int(top_n)]
 
         out_groups.append({
-            "group": list(gk),
-            "target_day": target_day,
-            "baseline_days": list(base_days),
-            "parts": parts_rep,
+            "group": list(gk)
+            "target_day": target_day
+            "baseline_days": list(base_days)
+            "parts": parts_rep
         })
 
     return {
-        "target_day": target_day,
-        "baseline_days": list(base_days),
-        "group_by": group_by,
-        "groups": out_groups,
+        "target_day": target_day
+        "baseline_days": list(base_days)
+        "group_by": group_by
+        "groups": out_groups
     }
 
 
@@ -234,11 +234,11 @@ def main() -> int:
     # Streaming read since datasets can be large
     try:
         rep = build_report(
-            _read_jsonl(args.in_jsonl),
-            group_by=args.group_by,
-            baseline_days=args.baseline_days,
-            target_day=args.target_day,
-            top_n=args.top_n,
+            _read_jsonl(args.in_jsonl)
+            group_by=args.group_by
+            baseline_days=args.baseline_days
+            target_day=args.target_day
+            top_n=args.top_n
         )
         with open(args.out_json, "w", encoding="utf-8") as f:
             json.dump(rep, f, ensure_ascii=False, indent=2, sort_keys=True)

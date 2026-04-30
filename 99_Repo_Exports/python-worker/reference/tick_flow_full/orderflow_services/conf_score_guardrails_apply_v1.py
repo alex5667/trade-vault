@@ -177,8 +177,8 @@ def _row_part_dz(part_metrics: Any) -> Optional[float]:
 
 
 def _compute_row_max_abs_dz(
-    row: Dict[str, Any],
-    parts_allow: Optional[List[str]] = None,
+    row: Dict[str, Any]
+    parts_allow: Optional[List[str]] = None
 ) -> Tuple[Optional[float], List[Tuple[str, float]]]:
     """Return max abs drift score for a row.
 
@@ -240,13 +240,13 @@ def _compute_row_max_abs_dz(
 
 
 def decide_actions_thresholds(
-    report: Dict[str, Any],
-    *,
-    warn_z: float,
-    crit_z: float,
-    min_n: int,
-    parts_allow: Optional[List[str]] = None,
-    top_k: int = 4,
+    report: Dict[str, Any]
+    *
+    warn_z: float
+    crit_z: float
+    min_n: int
+    parts_allow: Optional[List[str]] = None
+    top_k: int = 4
 ) -> Dict[str, Dict[str, Any]]:
     """Return per-symbol checks based purely on thresholds (no hysteresis).
 
@@ -268,10 +268,10 @@ def decide_actions_thresholds(
         cur = by_sym.get(sym)
         if cur is None:
             by_sym[sym] = {
-                "max_abs_dz": float(max_abs),
-                "n": int(n),
-                "top": top[:top_k],
-                "rows": 1,
+                "max_abs_dz": float(max_abs)
+                "n": int(n)
+                "top": top[:top_k]
+                "rows": 1
             }
         else:
             cur["n"] = int(cur.get("n", 0)) + int(n)
@@ -305,38 +305,38 @@ def decide_actions_thresholds(
                 reason = "warn"
 
         out[sym] = {
-            "freeze": int(freeze),
-            "desired_scale": float(desired_scale),
-            "reason": str(reason),
-            "max_abs_dz": float(max_abs),
-            "n": int(n),
-            "rows": int(st.get("rows", 1)),
-            "top": st.get("top", []),
+            "freeze": int(freeze)
+            "desired_scale": float(desired_scale)
+            "reason": str(reason)
+            "max_abs_dz": float(max_abs)
+            "n": int(n)
+            "rows": int(st.get("rows", 1))
+            "top": st.get("top", [])
         }
 
     return out
 
 
 def decide_actions(
-    report: Dict[str, Any],
-    *,
-    warn_z: float,
-    crit_z: float,
-    min_n: int,
-    parts_allow: Optional[List[str]] = None,
-    top_k: int = 4,
+    report: Dict[str, Any]
+    *
+    warn_z: float
+    crit_z: float
+    min_n: int
+    parts_allow: Optional[List[str]] = None
+    top_k: int = 4
 ) -> Dict[str, Dict[str, Any]]:
     """Backward-compatible wrapper (v1 API).
 
     Returns {freeze, scale, max_abs_dz, n, top...} without hysteresis.
     """
     raw = decide_actions_thresholds(
-        report,
-        warn_z=warn_z,
-        crit_z=crit_z,
-        min_n=min_n,
-        parts_allow=parts_allow,
-        top_k=top_k,
+        report
+        warn_z=warn_z
+        crit_z=crit_z
+        min_n=min_n
+        parts_allow=parts_allow
+        top_k=top_k
     )
     out: Dict[str, Dict[str, Any]] = {}
     for sym, d in raw.items():
@@ -373,18 +373,18 @@ def _prev_symbol_state(prev: Dict[str, Any], sym: str) -> Dict[str, Any]:
 
 
 def apply_hysteresis_and_recovery(
-    raw_decisions: Dict[str, Dict[str, Any]],
-    *,
-    prev_state: Dict[str, Any],
-    now_ms: int,
-    recover_z: float,
-    recover_runs: int,
-    freeze_hold_sec: int,
-    recover_scale_start: float,
-    recover_scale_step: float,
-    scale_bump_min_sec: int,
-    canary_share: float,
-    canary_salt: str,
+    raw_decisions: Dict[str, Dict[str, Any]]
+    *
+    prev_state: Dict[str, Any]
+    now_ms: int
+    recover_z: float
+    recover_runs: int
+    freeze_hold_sec: int
+    recover_scale_start: float
+    recover_scale_step: float
+    scale_bump_min_sec: int
+    canary_share: float
+    canary_salt: str
 ) -> Dict[str, Dict[str, Any]]:
     """Apply stateful hysteresis (latch, recovery ramp) and canary gating.
 
@@ -500,12 +500,12 @@ def apply_hysteresis_and_recovery(
 
 
 def apply_overrides_redis(
-    decisions: Dict[str, Dict[str, Any]],
-    *,
-    redis_url: str,
-    key_prefix: str,
-    now_ms: int,
-    dry_run: bool,
+    decisions: Dict[str, Dict[str, Any]]
+    *
+    redis_url: str
+    key_prefix: str
+    now_ms: int
+    dry_run: bool
 ) -> Dict[str, Any]:
     try:
         import redis  # type: ignore
@@ -573,11 +573,11 @@ def _compute_changed_symbols(
 
 
 def _write_bundle(
-    bundle_dir: str,
-    bundle_retain: int,
-    state: Dict[str, Any],
-    promote: bool,
-    tag: str,
+    bundle_dir: str
+    bundle_retain: int
+    state: Dict[str, Any]
+    promote: bool
+    tag: str
 ) -> Dict[str, Any]:
     """Writes immutable bundle and updates current pointer."""
     os.makedirs(bundle_dir, exist_ok=True)
@@ -618,12 +618,12 @@ def _write_bundle(
                 prev_info = json.load(f)
         
         new_pointer = {
-            "current_file": filename,
-            "current_ts": ts,
-            "current_sha": sha,
-            "updated_at_iso": datetime.now(timezone.utc).isoformat(),
-            "prev_file": prev_info.get("current_file"),
-            "prev_ts": prev_info.get("current_ts"),
+            "current_file": filename
+            "current_ts": ts
+            "current_sha": sha
+            "updated_at_iso": datetime.now(timezone.utc).isoformat()
+            "prev_file": prev_info.get("current_file")
+            "prev_ts": prev_info.get("current_ts")
         }
         
         tmp_ptr = current_path + ".tmp"
@@ -633,9 +633,9 @@ def _write_bundle(
         pointer_info = new_pointer
 
     return {
-        "file": filename,
-        "sha": sha,
-        "promoted": promote,
+        "file": filename
+        "sha": sha
+        "promoted": promote
         "pointer": pointer_info
     }
 
@@ -646,22 +646,22 @@ def main() -> int:
     ap.add_argument("--apply", type=int, default=0, help="Set 1 to apply Redis overrides")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", ""), help="Redis URL")
     ap.add_argument(
-        "--key-prefix",
-        default="cfg:crypto_of:overrides:",
-        help="Redis key prefix for per-symbol overrides",
+        "--key-prefix"
+        default="cfg:crypto_of:overrides:"
+        help="Redis key prefix for per-symbol overrides"
     )
     ap.add_argument("--warn-z", type=float, default=4.0)
     ap.add_argument("--crit-z", type=float, default=6.0)
     ap.add_argument("--min-n", type=int, default=200)
     ap.add_argument(
-        "--parts",
-        default="",
-        help="Comma-separated allowlist of parts keys to watch (empty = all)",
+        "--parts"
+        default=""
+        help="Comma-separated allowlist of parts keys to watch (empty = all)"
     )
     ap.add_argument("--top-k", type=int, default=4)
     ap.add_argument(
-        "--state-path",
-        default=os.getenv("CONF_SCORE_GUARD_STATE_PATH", "/tmp/conf_score_guard_state.json"),
+        "--state-path"
+        default=os.getenv("CONF_SCORE_GUARD_STATE_PATH", "/tmp/conf_score_guard_state.json")
     )
     # Hysteresis / Recovery / Canary args
     ap.add_argument("--freeze-hold-sec", type=int, default=3600, help="Min time to hold freeze")
@@ -673,7 +673,7 @@ def main() -> int:
     ap.add_argument("--canary-salt", type=str, default="", help="Salt for canary hashing (default: from window)")
 
     # Bundle / Lock args
-    ap.add_argument("--bundle-enable", type=int,
+    ap.add_argument("--bundle-enable", type=int
                     default=int(os.getenv("CONF_SCORE_GUARD_BUNDLE_ENABLE", "1")))
     ap.add_argument("--bundle-dir", 
                     default=os.getenv("CONF_SCORE_GUARD_BUNDLE_DIR", "/var/lib/trade/conf_score_guard_bundles"))
@@ -681,7 +681,7 @@ def main() -> int:
     ap.add_argument("--bundle-promote", type=int, default=-1, 
                     help="Update current pointer? -1=auto(if apply=1), 0=no, 1=yes")
     ap.add_argument("--bundle-tag", default="v1")
-    ap.add_argument("--lock-path",
+    ap.add_argument("--lock-path"
                     default=os.getenv("CONF_SCORE_GUARD_LOCK_PATH", "/tmp/conf_score_guard.lock"))
 
     # Stage / Promote args
@@ -704,12 +704,12 @@ def main() -> int:
 
         # 2. Raw Threshold Decisions
         raw_decisions = decide_actions_thresholds(
-            report,
-            warn_z=args.warn_z,
-            crit_z=args.crit_z,
-            min_n=args.min_n,
-            parts_allow=parts_allow,
-            top_k=args.top_k,
+            report
+            warn_z=args.warn_z
+            crit_z=args.crit_z
+            min_n=args.min_n
+            parts_allow=parts_allow
+            top_k=args.top_k
         )
 
         # Resolve Canary Salt
@@ -720,27 +720,27 @@ def main() -> int:
         # 3. Stateful Logic
         now_ms = _now_ms()
         final_decisions = apply_hysteresis_and_recovery(
-            raw_decisions,
-            prev_state=prev_state,
-            now_ms=now_ms,
-            recover_z=args.recover_z,
-            recover_runs=args.recover_runs,
-            freeze_hold_sec=args.freeze_hold_sec,
-            recover_scale_start=args.recover_scale_start,
-            recover_scale_step=args.recover_scale_step,
+            raw_decisions
+            prev_state=prev_state
+            now_ms=now_ms
+            recover_z=args.recover_z
+            recover_runs=args.recover_runs
+            freeze_hold_sec=args.freeze_hold_sec
+            recover_scale_start=args.recover_scale_start
+            recover_scale_step=args.recover_scale_step
             scale_bump_min_sec=300,  # lowered default to 5m
-            canary_share=args.canary_share,
-            canary_salt=c_salt,
+            canary_share=args.canary_share
+            canary_salt=c_salt
         )
 
         decisions = final_decisions
 
         summary = {
-            "frozen": sum(1 for v in decisions.values() if int(v.get("freeze", 0)) == 1),
-            "scaled": sum(1 for v in decisions.values() if float(v.get("scale", 1.0)) < 0.999),
-            "latched": sum(1 for v in decisions.values() if float(v.get("latch_remaining_sec", 0) or 0) > 0),
-            "canary_skip": sum(1 for v in decisions.values() if int(v.get("canary", 1)) == 0),
-            "symbols": len(decisions),
+            "frozen": sum(1 for v in decisions.values() if int(v.get("freeze", 0)) == 1)
+            "scaled": sum(1 for v in decisions.values() if float(v.get("scale", 1.0)) < 0.999)
+            "latched": sum(1 for v in decisions.values() if float(v.get("latch_remaining_sec", 0) or 0) > 0)
+            "canary_skip": sum(1 for v in decisions.values() if int(v.get("canary", 1)) == 0)
+            "symbols": len(decisions)
         }
 
         # Calculate Changed Symbols
@@ -750,22 +750,22 @@ def main() -> int:
         )
 
         state = {
-            "ts_ms": now_ms,
+            "ts_ms": now_ms
             "inputs": {
-                "drift_report": args.drift_report,
-                "warn_z": float(args.warn_z),
-                "crit_z": float(args.crit_z),
-                "min_n": int(args.min_n),
-                "parts": parts_allow or [],
-                "canary_share": float(args.canary_share),
-            },
-            "window": report.get("window", {}),
-            "group_by": report.get("group_by"),
-            "decisions": decisions,
-            "summary": summary,
+                "drift_report": args.drift_report
+                "warn_z": float(args.warn_z)
+                "crit_z": float(args.crit_z)
+                "min_n": int(args.min_n)
+                "parts": parts_allow or []
+                "canary_share": float(args.canary_share)
+            }
+            "window": report.get("window", {})
+            "group_by": report.get("group_by")
+            "decisions": decisions
+            "summary": summary
             "bundle": {
-                "changed_count": n_changed,
-                "changed_symbols": changed_list,
+                "changed_count": n_changed
+                "changed_symbols": changed_list
             }
         }
         
@@ -784,11 +784,11 @@ def main() -> int:
                 target_prefix = "cfg:crypto_of:overrides_staged:"
             
             applied_info = apply_overrides_redis(
-                decisions,
-                redis_url=args.redis_url,
-                key_prefix=target_prefix,
-                now_ms=now_ms,
-                dry_run=False,
+                decisions
+                redis_url=args.redis_url
+                key_prefix=target_prefix
+                now_ms=now_ms
+                dry_run=False
             )
         else:
             applied_info = {"applied": 0, "dry_run": True}
@@ -810,11 +810,11 @@ def main() -> int:
                     should_promote = (int(args.bundle_promote) == 1)
             
             bundle_info = _write_bundle(
-                bundle_dir=args.bundle_dir,
-                bundle_retain=args.bundle_retain,
-                state=state,
-                promote=should_promote,
-                tag=args.bundle_tag,
+                bundle_dir=args.bundle_dir
+                bundle_retain=args.bundle_retain
+                state=state
+                promote=should_promote
+                tag=args.bundle_tag
             )
             
             # If stage mode, we handle "staged.json" pointer manually
@@ -825,9 +825,9 @@ def main() -> int:
                 
                 if staged_ptr_path:
                     ptr_data = {
-                        "staged_file": bundle_info["file"],
-                        "staged_ts": now_ms,
-                        "staged_sha": bundle_info["sha"],
+                        "staged_file": bundle_info["file"]
+                        "staged_ts": now_ms
+                        "staged_sha": bundle_info["sha"]
                         "updated_at_iso": datetime.now(timezone.utc).isoformat()
                     }
                     tmp_ptr = staged_ptr_path + ".tmp"

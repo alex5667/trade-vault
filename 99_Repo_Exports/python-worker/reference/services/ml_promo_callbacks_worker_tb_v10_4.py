@@ -42,7 +42,7 @@ def _is_valid_cfg(cfg: Dict[str, Any]) -> bool:
 
 def _notify(r: redis.Redis, stream: str, text: str, subtype: str = "ml_promo") -> None:
     try:
-        r.xadd(stream, {"type": "alert", "subtype": subtype, "ts_ms": str(get_ny_time_millis()), "text": text},
+        r.xadd(stream, {"type": "alert", "subtype": subtype, "ts_ms": str(get_ny_time_millis()), "text": text}
                maxlen=200000, approximate=True)
     except Exception:
         pass
@@ -73,7 +73,7 @@ def main() -> None:
         champ = _safe_loads(r.get(champion_key))
         if not _is_valid_cfg(champ):
             _notify(r, notify_stream, f"ML champion cfg invalid/empty at {champion_key}. "
-                                    f"TYPE={r.type(champion_key)} STRLEN={r.strlen(champion_key)}",
+                                    f"TYPE={r.type(champion_key)} STRLEN={r.strlen(champion_key)}"
                     subtype="ml_champion_invalid")
     except Exception:
         pass
@@ -86,9 +86,9 @@ def main() -> None:
                 cfg = _coerce_hash_cfg(h)
                 r.set(champion_key, json.dumps(cfg, ensure_ascii=False, separators=(",", ":")))
                 r.xadd(notify_stream, {
-                    "type": "info",
-                    "subtype": "ml_cfg_bootstrap",
-                    "ts_ms": str(get_ny_time_millis()),
+                    "type": "info"
+                    "subtype": "ml_cfg_bootstrap"
+                    "ts_ms": str(get_ny_time_millis())
                     "text": f"Bootstrapped {champion_key} from hash {cfg_hash_key} (mode={cfg.get('mode')}, enforce_share={cfg.get('enforce_share')})"
                 }, maxlen=200000, approximate=True)
     except Exception:
@@ -125,9 +125,9 @@ def main() -> None:
                         r.set(champion_key, json.dumps(chal, ensure_ascii=False, separators=(",", ":")))
                         r.delete(challenger_key)
                     else:
-                        _notify(r, notify_stream,
+                        _notify(r, notify_stream
                                 f"Approve requested for run_id={run_id}, but challenger missing/invalid at {challenger_key}. "
-                                f"TYPE={r.type(challenger_key)} STRLEN={r.strlen(challenger_key)}",
+                                f"TYPE={r.type(challenger_key)} STRLEN={r.strlen(challenger_key)}"
                                 subtype="ml_challenger_missing")
                 elif cb.startswith("reject:ml_tb_v10_4:"):
                     run_id = cb.split(":", 2)[2]

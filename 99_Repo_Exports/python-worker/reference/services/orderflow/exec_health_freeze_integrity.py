@@ -33,19 +33,19 @@ from services.orderflow.exec_health_freeze_request_log import REQUEST_LOG_VIOLAT
 
 
 VIOLATION_KINDS = [
-    "none",
-    "control_missing_pending_ack",
-    "state_missing_pending_ack",
-    "control_state_missing_without_valid_ack",
-    "thaw_without_valid_ack_event",
-    "invalid_ack_event_signature",
-    "invalid_control_ack_signature",
+    "none"
+    "control_missing_pending_ack"
+    "state_missing_pending_ack"
+    "control_state_missing_without_valid_ack"
+    "thaw_without_valid_ack_event"
+    "invalid_ack_event_signature"
+    "invalid_control_ack_signature"
     # P11: нарушения сильного — прямое редактирование hash мимо FCALL entrypoints
-    "control_seal_missing",
-    "control_seal_invalid",
-    "state_seal_missing",
-    "state_seal_invalid",
-    *[k for k in REQUEST_LOG_VIOLATION_KINDS if k != "none"],
+    "control_seal_missing"
+    "control_seal_invalid"
+    "state_seal_missing"
+    "state_seal_invalid"
+    *[k for k in REQUEST_LOG_VIOLATION_KINDS if k != "none"]
 ]
 
 
@@ -122,35 +122,35 @@ def _event_to_control_like(payload: Mapping[str, Any]) -> Dict[str, Any]:
     if kind == 'manual_ack_thaw_commit':
         # Dual-control commit event — map to dual-control control-like shape
         return {
-            'manual_override_action': 'thaw',
-            'manual_override_active': 1,
-            'active_thaw_request_id': _s(payload.get('request_id')),
-            'manual_commit_request_id': _s(payload.get('request_id')),
-            'thaw_request_nonce': _s(payload.get('ack_nonce')),
-            'manual_ack_nonce': _s(payload.get('ack_nonce')),
-            'thaw_prepared_by': _s(payload.get('prepared_by')),
-            'thaw_approved_by': _s(payload.get('approved_by')),
-            'manual_commit_by': _s(payload.get('operator')),
-            'thaw_request_reason': _s(payload.get('reason')),
-            'thaw_request_ticket': _s(payload.get('ticket')),
-            'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0),
-            'thaw_prepare_ts_ms': _i(payload.get('prepared_ts_ms'), 0),
-            'thaw_approve_ts_ms': _i(payload.get('approved_ts_ms'), 0),
-            'manual_commit_ts_ms': _i(payload.get('ts_ms'), 0),
-            'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0),
-            'manual_commit_sig': _s(payload.get('commit_sig')),
-            'manual_ack_sig': _s(payload.get('commit_sig')),
+            'manual_override_action': 'thaw'
+            'manual_override_active': 1
+            'active_thaw_request_id': _s(payload.get('request_id'))
+            'manual_commit_request_id': _s(payload.get('request_id'))
+            'thaw_request_nonce': _s(payload.get('ack_nonce'))
+            'manual_ack_nonce': _s(payload.get('ack_nonce'))
+            'thaw_prepared_by': _s(payload.get('prepared_by'))
+            'thaw_approved_by': _s(payload.get('approved_by'))
+            'manual_commit_by': _s(payload.get('operator'))
+            'thaw_request_reason': _s(payload.get('reason'))
+            'thaw_request_ticket': _s(payload.get('ticket'))
+            'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0)
+            'thaw_prepare_ts_ms': _i(payload.get('prepared_ts_ms'), 0)
+            'thaw_approve_ts_ms': _i(payload.get('approved_ts_ms'), 0)
+            'manual_commit_ts_ms': _i(payload.get('ts_ms'), 0)
+            'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0)
+            'manual_commit_sig': _s(payload.get('commit_sig'))
+            'manual_ack_sig': _s(payload.get('commit_sig'))
         }
     # Legacy P8 manual_ack_thaw event
     return {
-        'manual_override_action': 'thaw',
-        'manual_ack_sig': _s(payload.get('ack_sig'), ''),
-        'manual_ack_nonce': _s(payload.get('ack_nonce'), ''),
-        'manual_ack_operator': _s(payload.get('operator'), ''),
-        'manual_ack_reason': _s(payload.get('reason'), ''),
-        'manual_ack_ticket': _s(payload.get('ticket'), ''),
-        'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0),
-        'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0),
+        'manual_override_action': 'thaw'
+        'manual_ack_sig': _s(payload.get('ack_sig'), '')
+        'manual_ack_nonce': _s(payload.get('ack_nonce'), '')
+        'manual_ack_operator': _s(payload.get('operator'), '')
+        'manual_ack_reason': _s(payload.get('reason'), '')
+        'manual_ack_ticket': _s(payload.get('ticket'), '')
+        'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0)
+        'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0)
     }
 
 
@@ -166,12 +166,12 @@ def find_ack_events_for_nonce(events: Sequence[Any], nonce: str) -> List[Tuple[s
 
 
 def evaluate_freeze_integrity(
-    *,
-    control_raw: Mapping[str, Any] | None,
-    state_raw: Mapping[str, Any] | None,
-    events: Sequence[Any] | None,
-    request_events: Sequence[Any] | None = None,
-    now_ms: int | None = None,
+    *
+    control_raw: Mapping[str, Any] | None
+    state_raw: Mapping[str, Any] | None
+    events: Sequence[Any] | None
+    request_events: Sequence[Any] | None = None
+    now_ms: int | None = None
 ) -> FreezeIntegrityResult:
     """Evaluate the consistency of control/state hashes and event stream.
 
@@ -234,9 +234,9 @@ def evaluate_freeze_integrity(
 
     # P10: evaluate request log sequence — this is the true SoT for thaw authorisation
     request_log_res = evaluate_request_log_sequence(
-        control_raw=control.raw_payload,
-        request_events=req_evs,
-        request_id=control.active_thaw_request_id or control.manual_commit_request_id or None,
+        control_raw=control.raw_payload
+        request_events=req_evs
+        request_id=control.active_thaw_request_id or control.manual_commit_request_id or None
     )
 
     violations: List[str] = []
@@ -291,16 +291,16 @@ def evaluate_freeze_integrity(
         violations = ['none']
 
     return FreezeIntegrityResult(
-        control_present=control_present,
-        state_present=state_present,
-        pending_ack_nonce=str(pending_ack_nonce or ''),
-        pending_trigger_ts_ms=int(pending_trigger_ts_ms or 0),
-        valid_ack_event_present=bool(valid_ack_event_present or request_log_res.valid_sequence),
-        valid_ack_event_id=str(valid_ack_event_id or request_log_res.commit_event_id or ''),
-        latest_trigger_event_id=str(latest_trigger_event_id or ''),
-        latest_trigger_nonce=str(latest_trigger_nonce or ''),
-        invalid_ack_event_present=bool(invalid_ack_event_present),
-        request_log_valid_sequence=bool(request_log_res.valid_sequence),
-        request_log_request_id=str(request_log_res.request_id or ''),
-        violation_kinds=violations,
+        control_present=control_present
+        state_present=state_present
+        pending_ack_nonce=str(pending_ack_nonce or '')
+        pending_trigger_ts_ms=int(pending_trigger_ts_ms or 0)
+        valid_ack_event_present=bool(valid_ack_event_present or request_log_res.valid_sequence)
+        valid_ack_event_id=str(valid_ack_event_id or request_log_res.commit_event_id or '')
+        latest_trigger_event_id=str(latest_trigger_event_id or '')
+        latest_trigger_nonce=str(latest_trigger_nonce or '')
+        invalid_ack_event_present=bool(invalid_ack_event_present)
+        request_log_valid_sequence=bool(request_log_res.valid_sequence)
+        request_log_request_id=str(request_log_res.request_id or '')
+        violation_kinds=violations
     )

@@ -27,7 +27,7 @@ def _make_exec():
     ex._exec_event = MagicMock()
     ex._cancel_by_token = MagicMock(return_value=0)
     ex._cancel_all_symbol_orders_best_effort = MagicMock(return_value={
-        "plain_seen": 3, "algo_seen": 0, "plain_canceled": 3, "algo_canceled": 0,
+        "plain_seen": 3, "algo_seen": 0, "plain_canceled": 3, "algo_canceled": 0
     })
     # step_size = 0.1 (e.g. SUI, XRP)
     ex._position_qty_tolerance = MagicMock(return_value=0.1)
@@ -48,10 +48,10 @@ def test_lifecycle_does_not_cancel_when_qty_equals_step_size():
     with patch("time.sleep"):
         with patch("time.time", side_effect=[100, 100 + 14401]):  # past deadline
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-dust",
-                symbol="SUIUSDT",
-                logical_side="LONG",
-                client=client,
+                sid="sid-dust"
+                symbol="SUIUSDT"
+                logical_side="LONG"
+                client=client
             )
 
     # Neither cancel method should be called — position is still open
@@ -71,22 +71,22 @@ def test_lifecycle_cancels_when_qty_below_step_size():
 
     # Seq: 1.0 → 0.0 (below step_size 0.1)
     client.get_position_risk.side_effect = [
-        [{"symbol": "SUIUSDT", "positionAmt": "1.0"}],
-        [{"symbol": "SUIUSDT", "positionAmt": "0.0"}],
+        [{"symbol": "SUIUSDT", "positionAmt": "1.0"}]
+        [{"symbol": "SUIUSDT", "positionAmt": "0.0"}]
     ]
 
     with patch("time.sleep"):
         with patch("time.time", side_effect=[100, 101, 102, 103]):
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-close",
-                symbol="SUIUSDT",
-                logical_side="LONG",
-                client=client,
+                sid="sid-close"
+                symbol="SUIUSDT"
+                logical_side="LONG"
+                client=client
             )
 
     # Must call cancel_all for fully closed positions
     ex._cancel_all_symbol_orders_best_effort.assert_called_once_with(
-        symbol="SUIUSDT", client=client,
+        symbol="SUIUSDT", client=client
     )
     ex._cancel_by_token.assert_not_called()
 
@@ -102,16 +102,16 @@ def test_lifecycle_cancels_when_qty_is_half_step_size():
     client = MagicMock()
 
     client.get_position_risk.side_effect = [
-        [{"symbol": "XRPUSDT", "positionAmt": "-0.05"}],
+        [{"symbol": "XRPUSDT", "positionAmt": "-0.05"}]
     ]
 
     with patch("time.sleep"):
         with patch("time.time", side_effect=[100, 101, 102]):
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-half-dust",
-                symbol="XRPUSDT",
-                logical_side="SHORT",
-                client=client,
+                sid="sid-half-dust"
+                symbol="XRPUSDT"
+                logical_side="SHORT"
+                client=client
             )
 
     ex._cancel_all_symbol_orders_best_effort.assert_called_once()

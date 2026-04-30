@@ -202,10 +202,10 @@ class PairsDataHandler:
         other_pairs = [p for p in pairs if not p.endswith(('USDT', 'BTC', 'ETH'))]
         
         return {
-            'total': len(pairs),
-            'usdt': len(usdt_pairs),
-            'btc': len(btc_pairs),
-            'eth': len(eth_pairs),
+            'total': len(pairs)
+            'usdt': len(usdt_pairs)
+            'btc': len(btc_pairs)
+            'eth': len(eth_pairs)
             'other': len(other_pairs)
         }
     

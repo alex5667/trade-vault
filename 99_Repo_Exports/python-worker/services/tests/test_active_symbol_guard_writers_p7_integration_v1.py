@@ -86,10 +86,10 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     ex._load_order_state = lambda sid: {}
     ex._guard_single_active_symbol_open(sid='sid-1', symbol='ETHUSDT')
     ex._persist_materialized_state_cache('sid-1', {
-        'sid': 'sid-1',
-        'symbol': 'ETHUSDT',
-        'fsm_state': 'OPEN',
-        'status': 'open',
+        'sid': 'sid-1'
+        'symbol': 'ETHUSDT'
+        'fsm_state': 'OPEN'
+        'status': 'open'
     })
     
     # 2. Assume trade reached terminal state, but exchange truth flag is true, so projection worker
@@ -112,11 +112,11 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     # In P6 this would overwrite the key and resurrect the guard blocking the symbol.
     # In P7 CAS, it must be rejected!
     proj = proj_mod.ExecutionProjectionWorker(
-        r, exec_stream='orders:exec', state_key_prefix='orders:state:',
+        r, exec_stream='orders:exec', state_key_prefix='orders:state:'
         active_symbol_key_prefix='orders:active_symbol_sid:', cursor_key='orders:cursor'
     )
     r.xadd('orders:exec', {
-        'sid': 'sid-1', 'symbol': 'ETHUSDT', 'action': 'cancel', 'fsm_state': 'EXIT_FILLED',
+        'sid': 'sid-1', 'symbol': 'ETHUSDT', 'action': 'cancel', 'fsm_state': 'EXIT_FILLED'
         'event_type': 'state_transition'
     })
     proj.run_until_idle()
@@ -151,10 +151,10 @@ def test_executor_new_sid_can_acquire_after_released_tombstone():
     # This should succeed and overwrite the tombstone with new sid
     ex._guard_single_active_symbol_open(sid='new-sid', symbol='XRPUSDT')
     ex._persist_materialized_state_cache('new-sid', {
-        'sid': 'new-sid',
-        'symbol': 'XRPUSDT',
-        'fsm_state': 'OPEN',
-        'status': 'open',
+        'sid': 'new-sid'
+        'symbol': 'XRPUSDT'
+        'fsm_state': 'OPEN'
+        'status': 'open'
     })
     
     final_guard = json.loads(r.get("orders:active_symbol_sid:XRPUSDT"))

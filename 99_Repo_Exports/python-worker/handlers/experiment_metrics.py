@@ -122,14 +122,14 @@ def winrate(rs: List[float]) -> float:
 
 
 def precision_recall(
-    success_flags: List[bool],
-    traded_flags: List[bool],
+    success_flags: List[bool]
+    traded_flags: List[bool]
 ) -> Tuple[float, float, float]:
     """
     Вычисляет precision, recall, f1-score для фильтра
 
     Предполагаем:
-      - success_flags[i] = True, если сигнал был "хорошим" (R >= threshold),
+      - success_flags[i] = True, если сигнал был "хорошим" (R >= threshold)
       - traded_flags[i] = True, если мы реально вошли по этому сигналу.
 
     Args:
@@ -162,8 +162,8 @@ def precision_recall(
 
 
 def calculate_experiment_metrics(
-    pnl_rs: List[float],
-    success_threshold_r: float = 0.2,
+    pnl_rs: List[float]
+    success_threshold_r: float = 0.2
 ) -> dict:
     """
     Вычисляет полный набор метрик для эксперимента
@@ -181,25 +181,25 @@ def calculate_experiment_metrics(
     precision, recall, f1 = precision_recall(success_flags, traded_flags)
 
     return {
-        "signals_total": len(pnl_rs),
-        "traded_total": len(pnl_rs),
-        "winners_total": sum(success_flags),
-        "losers_total": len(pnl_rs) - sum(success_flags),
-        "expectancy_r": expectancy_r(pnl_rs),
-        "sharpe_r": sharpe_r(pnl_rs),
-        "max_dd_r": max_drawdown_r(pnl_rs),
-        "cl_ratio": cl_ratio(pnl_rs),
-        "winrate": winrate(pnl_rs),
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
+        "signals_total": len(pnl_rs)
+        "traded_total": len(pnl_rs)
+        "winners_total": sum(success_flags)
+        "losers_total": len(pnl_rs) - sum(success_flags)
+        "expectancy_r": expectancy_r(pnl_rs)
+        "sharpe_r": sharpe_r(pnl_rs)
+        "max_dd_r": max_drawdown_r(pnl_rs)
+        "cl_ratio": cl_ratio(pnl_rs)
+        "winrate": winrate(pnl_rs)
+        "precision": precision
+        "recall": recall
+        "f1": f1
     }
 
 
 def compare_variants(
-    control_rs: List[float],
-    treatment_rs: List[float],
-    success_threshold_r: float = 0.2,
+    control_rs: List[float]
+    treatment_rs: List[float]
+    success_threshold_r: float = 0.2
 ) -> dict:
     """
     Сравнивает метрики control vs treatment вариантов
@@ -222,18 +222,18 @@ def compare_variants(
             differences[f"{key}_diff"] = treatment_metrics[key] - control_metrics[key]
 
     return {
-        "control": control_metrics,
-        "treatment": treatment_metrics,
-        "differences": differences,
+        "control": control_metrics
+        "treatment": treatment_metrics
+        "differences": differences
     }
 
 
 def is_experiment_successful(
-    control_metrics: dict,
-    treatment_metrics: dict,
-    target_metric: str,
-    min_improvement: float = 0.05,
-    max_dd_worsening: float = 0.1,
+    control_metrics: dict
+    treatment_metrics: dict
+    target_metric: str
+    min_improvement: float = 0.05
+    max_dd_worsening: float = 0.1
 ) -> Tuple[bool, str]:
     """
     Определяет, успешен ли эксперимент на основе целевой метрики

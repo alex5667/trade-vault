@@ -136,8 +136,8 @@ class BundlePaths:
 
 def main() -> None:
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        level=os.getenv("LOG_LEVEL", "INFO")
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
     start_wall = time.time()
@@ -167,21 +167,21 @@ def main() -> None:
     _ensure_dir(paths.run_dir)
 
     status: Dict[str, Any] = {
-        "run_id": run_id,
-        "ts_ms": now_ms,
-        "window": {"days": days, "start_ts_ms": start_ms, "end_ts_ms": now_ms},
-        "apply": int(apply),
-        "symbols": symbols,
+        "run_id": run_id
+        "ts_ms": now_ms
+        "window": {"days": days, "start_ts_ms": start_ms, "end_ts_ms": now_ms}
+        "apply": int(apply)
+        "symbols": symbols
         "paths": {
-            "run_dir": paths.run_dir,
-            "inputs": paths.inputs_ndjson,
-            "closed": paths.closed_ndjson,
-            "dataset": paths.dataset_parquet,
-            "tuning": paths.tuning_json,
-        },
-        "steps": {},
-        "ok": 0,
-        "error": "",
+            "run_dir": paths.run_dir
+            "inputs": paths.inputs_ndjson
+            "closed": paths.closed_ndjson
+            "dataset": paths.dataset_parquet
+            "tuning": paths.tuning_json
+        }
+        "steps": {}
+        "ok": 0
+        "error": ""
     }
 
     r = _redis_from_env()
@@ -194,10 +194,10 @@ def main() -> None:
             return
 
     _dyn_update({
-        "conf_score_tuning_last_ts_ms": now_ms,
-        "conf_score_tuning_last_ok": 0,
-        "conf_score_tuning_last_run_id": run_id,
-        "conf_score_tuning_last_apply": int(apply),
+        "conf_score_tuning_last_ts_ms": now_ms
+        "conf_score_tuning_last_ok": 0
+        "conf_score_tuning_last_run_id": run_id
+        "conf_score_tuning_last_apply": int(apply)
     })
 
     # Resolve script paths (relative to repo root)
@@ -216,10 +216,10 @@ def main() -> None:
     try:
         # Step 1: export inputs
         t0 = time.time()
-        cmd = [sys.executable, str(s_export_inputs),
-               "--archive-dir", archive_dir,
-               "--start-ts-ms", str(start_ms),
-               "--end-ts-ms", str(now_ms),
+        cmd = [sys.executable, str(s_export_inputs)
+               "--archive-dir", archive_dir
+               "--start-ts-ms", str(start_ms)
+               "--end-ts-ms", str(now_ms)
                "--out", paths.inputs_ndjson]
         rc, out, err = _run(cmd, timeout_s=min(900, watchdog_s))
         status["steps"]["export_inputs"] = {"rc": rc, "stdout": out[-4000:], "stderr": err[-4000:], "sec": round(time.time()-t0, 3)}
@@ -228,10 +228,10 @@ def main() -> None:
 
         # Step 2: export closed from Postgres
         t0 = time.time()
-        cmd = [sys.executable, str(s_export_closed),
-               "--dsn", trades_dsn,
-               "--start-ts-ms", str(start_ms),
-               "--end-ts-ms", str(now_ms),
+        cmd = [sys.executable, str(s_export_closed)
+               "--dsn", trades_dsn
+               "--start-ts-ms", str(start_ms)
+               "--end-ts-ms", str(now_ms)
                "--out", paths.closed_ndjson]
         rc, out, err = _run(cmd, timeout_s=min(900, watchdog_s))
         status["steps"]["export_closed"] = {"rc": rc, "stdout": out[-4000:], "stderr": err[-4000:], "sec": round(time.time()-t0, 3)}
@@ -240,9 +240,9 @@ def main() -> None:
 
         # Step 3: build dataset parquet
         t0 = time.time()
-        cmd = [sys.executable, str(s_build_ds),
-               "--inputs", paths.inputs_ndjson,
-               "--closed", paths.closed_ndjson,
+        cmd = [sys.executable, str(s_build_ds)
+               "--inputs", paths.inputs_ndjson
+               "--closed", paths.closed_ndjson
                "--out", paths.dataset_parquet]
         rc, out, err = _run(cmd, timeout_s=min(1200, watchdog_s))
         status["steps"]["build_dataset"] = {"rc": rc, "stdout": out[-4000:], "stderr": err[-4000:], "sec": round(time.time()-t0, 3)}
@@ -257,8 +257,8 @@ def main() -> None:
         status["dataset"] = {"summary": ds_summary, "joined_rows": joined_rows, "pos_rate": pos_rate}
 
         _dyn_update({
-            "conf_score_tuning_last_dataset_joined_rows": joined_rows,
-            "conf_score_tuning_last_pos_rate": pos_rate,
+            "conf_score_tuning_last_dataset_joined_rows": joined_rows
+            "conf_score_tuning_last_pos_rate": pos_rate
         })
 
         if joined_rows < min_joined:
@@ -266,8 +266,8 @@ def main() -> None:
 
         # Step 4: tune weights
         t0 = time.time()
-        cmd = [sys.executable, str(s_tune),
-               "--in", paths.dataset_parquet,
+        cmd = [sys.executable, str(s_tune)
+               "--in", paths.dataset_parquet
                "--out", paths.tuning_json]
         rc, out, err = _run(cmd, timeout_s=min(1200, watchdog_s))
         status["steps"]["tune"] = {"rc": rc, "stdout": out[-4000:], "stderr": err[-4000:], "sec": round(time.time()-t0, 3)}
@@ -279,8 +279,8 @@ def main() -> None:
             raise RuntimeError("tuning json is empty or invalid")
 
         status["tuning"] = {
-            "keys": sorted(list(tuning.keys()))[:50],
-            "regimes": sorted(list((tuning.get("by_regime") or {}).keys())) if isinstance(tuning.get("by_regime"), dict) else [],
+            "keys": sorted(list(tuning.keys()))[:50]
+            "regimes": sorted(list((tuning.get("by_regime") or {}).keys())) if isinstance(tuning.get("by_regime"), dict) else []
         }
 
         # Step 5: publish to Redis (optional)
@@ -294,9 +294,9 @@ def main() -> None:
                     if prev:
                         r.hset(key, backup_field, prev)
                     r.hset(key, mapping={
-                        field: payload,
-                        "conf_score_weight_tuning_generated_at_ms": str(now_ms),
-                        "conf_score_weight_tuning_run_id": run_id,
+                        field: payload
+                        "conf_score_weight_tuning_generated_at_ms": str(now_ms)
+                        "conf_score_weight_tuning_run_id": run_id
                     })
                     published += 1
                 except Exception as exc:
@@ -316,15 +316,15 @@ def main() -> None:
         status["ok"] = 1
 
         _dyn_update({
-            "conf_score_tuning_last_ok": 1,
-            "conf_score_tuning_last_published": published,
+            "conf_score_tuning_last_ok": 1
+            "conf_score_tuning_last_published": published
         })
 
     except Exception as exc:  # noqa: BLE001
         status["error"] = str(exc)
         _dyn_update({
-            "conf_score_tuning_last_ok": 0,
-            "conf_score_tuning_last_error": str(exc)[:200],
+            "conf_score_tuning_last_ok": 0
+            "conf_score_tuning_last_error": str(exc)[:200]
         })
         logger.exception("bundle failed")
         raise

@@ -79,19 +79,19 @@ class SignalLogger:
 
             sql = """
             INSERT INTO signals (
-                signal_id,
-                ts_signal,
-                symbol,
-                side,
-                setup_type,
-                price_at_signal,
-                final_score,
-                atr_1m,
-                session,
-                regime,
-                delta_spike_z,
-                obi,
-                weak_progress,
+                signal_id
+                ts_signal
+                symbol
+                side
+                setup_type
+                price_at_signal
+                final_score
+                atr_1m
+                session
+                regime
+                delta_spike_z
+                obi
+                weak_progress
                 raw_ctx
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
@@ -100,19 +100,19 @@ class SignalLogger:
             """
 
             cur.execute(sql, (
-                signal_id,
-                ts_signal,
-                symbol,
-                str(side).upper(),
-                setup_type,
-                price_at_signal,
-                final_score,
-                atr_1m,
-                session,
-                regime,
-                delta_spike_z,
-                obi,
-                weak_progress,
+                signal_id
+                ts_signal
+                symbol
+                str(side).upper()
+                setup_type
+                price_at_signal
+                final_score
+                atr_1m
+                session
+                regime
+                delta_spike_z
+                obi
+                weak_progress
                 psycopg2.extras.Json(raw_ctx)
             ))
         except Exception as e:
@@ -120,9 +120,9 @@ class SignalLogger:
             raise
 
     def get_recent_signals(
-        self,
-        symbol: Optional[str] = None,
-        family: Optional[str] = None,
+        self
+        symbol: Optional[str] = None
+        family: Optional[str] = None
         limit: int = 100
     ) -> list[dict]:
         """

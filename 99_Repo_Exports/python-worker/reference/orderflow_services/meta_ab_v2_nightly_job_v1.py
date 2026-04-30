@@ -131,16 +131,16 @@ def _policy_env_overrides(cfg) -> dict[str, Any]:
     # Defaults from evaluator cfg when available
     require_ci = bool(_env_int("META_AB_REQUIRE_CI_POSITIVE", 1))
     return {
-        "enabled": _env_bool("META_AB_POLICY_ENABLED", True),
-        "fail_closed": _env_bool("META_AB_POLICY_FAIL_CLOSED", True),
-        "allow_decrease": _env_bool("META_AB_POLICY_ALLOW_DECREASE", True),
-        "require_winner_challenger_for_increase": _env_bool("META_AB_POLICY_REQUIRE_WINNER_CHALLENGER", True),
-        "require_ci_positive_for_increase": _env_bool("META_AB_POLICY_REQUIRE_CI_POSITIVE", require_ci),
-        "min_n_eligible": _env_int("META_AB_POLICY_MIN_N_ELIGIBLE", getattr(cfg, "min_n", 1000)),
-        "min_delta_exp_r": _env_float("META_AB_POLICY_MIN_DELTA_EXPR", getattr(cfg, "min_delta_exp_r", 0.002)),
-        "max_delta_tail": _env_float("META_AB_POLICY_MAX_DELTA_TAIL", getattr(cfg, "tail_slack", 0.01)),
-        "max_step": _env_float("META_AB_POLICY_MAX_STEP", getattr(cfg, "ramp_step", 0.05)),
-        "max_share": _env_float("META_AB_POLICY_MAX_SHARE", getattr(cfg, "max_share", 0.50)),
+        "enabled": _env_bool("META_AB_POLICY_ENABLED", True)
+        "fail_closed": _env_bool("META_AB_POLICY_FAIL_CLOSED", True)
+        "allow_decrease": _env_bool("META_AB_POLICY_ALLOW_DECREASE", True)
+        "require_winner_challenger_for_increase": _env_bool("META_AB_POLICY_REQUIRE_WINNER_CHALLENGER", True)
+        "require_ci_positive_for_increase": _env_bool("META_AB_POLICY_REQUIRE_CI_POSITIVE", require_ci)
+        "min_n_eligible": _env_int("META_AB_POLICY_MIN_N_ELIGIBLE", getattr(cfg, "min_n", 1000))
+        "min_delta_exp_r": _env_float("META_AB_POLICY_MIN_DELTA_EXPR", getattr(cfg, "min_delta_exp_r", 0.002))
+        "max_delta_tail": _env_float("META_AB_POLICY_MAX_DELTA_TAIL", getattr(cfg, "tail_slack", 0.01))
+        "max_step": _env_float("META_AB_POLICY_MAX_STEP", getattr(cfg, "ramp_step", 0.05))
+        "max_share": _env_float("META_AB_POLICY_MAX_SHARE", getattr(cfg, "max_share", 0.50))
     }
 
 
@@ -193,12 +193,12 @@ def _apply_share_to_redis(symbols: list[str], share_next: float, winner: str, re
     # best-effort notification (single message)
     try:
         msg = {
-            "kind": "meta_ab_winner_v2",
-            "ts_ms": str(_now_ms()),
-            "symbols": ",".join(symbols),
-            "winner": str(winner),
-            "share_next": f"{share_next:.6f}",
-            "summary": json.dumps(report_compact, ensure_ascii=False),
+            "kind": "meta_ab_winner_v2"
+            "ts_ms": str(_now_ms())
+            "symbols": ",".join(symbols)
+            "winner": str(winner)
+            "share_next": f"{share_next:.6f}"
+            "summary": json.dumps(report_compact, ensure_ascii=False)
         }
         r.xadd(notify_stream, msg, maxlen=200000, approximate=True)
     except Exception:
@@ -242,21 +242,21 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
             cur.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {table} (
-                  ts TIMESTAMPTZ NOT NULL,
-                  ts_ms BIGINT NOT NULL,
-                  run_id TEXT NOT NULL,
-                  winner TEXT NOT NULL,
-                  reason TEXT NOT NULL,
-                  p_min DOUBLE PRECISION NOT NULL,
-                  n_total INTEGER NOT NULL,
-                  n_eligible INTEGER NOT NULL,
-                  share_current DOUBLE PRECISION NOT NULL,
-                  share_next DOUBLE PRECISION NOT NULL,
-                  action TEXT NOT NULL,
-                  delta_exp_r DOUBLE PRECISION NOT NULL,
-                  delta_tail_rate DOUBLE PRECISION NOT NULL,
-                  champion_model TEXT NOT NULL,
-                  challenger_model TEXT NOT NULL,
+                  ts TIMESTAMPTZ NOT NULL
+                  ts_ms BIGINT NOT NULL
+                  run_id TEXT NOT NULL
+                  winner TEXT NOT NULL
+                  reason TEXT NOT NULL
+                  p_min DOUBLE PRECISION NOT NULL
+                  n_total INTEGER NOT NULL
+                  n_eligible INTEGER NOT NULL
+                  share_current DOUBLE PRECISION NOT NULL
+                  share_next DOUBLE PRECISION NOT NULL
+                  action TEXT NOT NULL
+                  delta_exp_r DOUBLE PRECISION NOT NULL
+                  delta_tail_rate DOUBLE PRECISION NOT NULL
+                  champion_model TEXT NOT NULL
+                  challenger_model TEXT NOT NULL
                   report_json JSONB NOT NULL
                 );
                 """
@@ -294,35 +294,35 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
         cur.execute(
             f"""
             INSERT INTO {table} (
-              ts, ts_ms, run_id, winner, reason, p_min, n_total, n_eligible,
-              share_current, share_next, action,
-              delta_exp_r, delta_tail_rate,
+              ts, ts_ms, run_id, winner, reason, p_min, n_total, n_eligible
+              share_current, share_next, action
+              delta_exp_r, delta_tail_rate
               champion_model, challenger_model, report_json
             ) VALUES (
-              %s,%s,%s,%s,%s,%s,%s,%s,
-              %s,%s,%s,
-              %s,%s,
+              %s,%s,%s,%s,%s,%s,%s,%s
+              %s,%s,%s
+              %s,%s
               %s,%s,%s
             );
-            """,
+            """
             (
-                datetime.now(timezone.utc),
-                ts_ms,
-                run_id,
-                winner,
-                reason,
-                p_min,
-                n_total,
-                n_eligible,
-                share_current,
-                share_next,
-                action,
-                delta_exp_r,
-                delta_tail,
-                champ,
-                chall,
-                json.dumps(report, ensure_ascii=False),
-            ),
+                datetime.now(timezone.utc)
+                ts_ms
+                run_id
+                winner
+                reason
+                p_min
+                n_total
+                n_eligible
+                share_current
+                share_next
+                action
+                delta_exp_r
+                delta_tail
+                champ
+                chall
+                json.dumps(report, ensure_ascii=False)
+            )
         )
         _log(f"Timescale inserted into {table}: winner={winner} share_next={share_next:.4f}")
 
@@ -340,21 +340,21 @@ def _compact(rep: dict) -> dict:
     # keep compact and stable (for notify + audit)
     pol = rep.get("policy") or {}
     return {
-        "winner": rep.get("winner"),
-        "reason": rep.get("reason"),
-        "counts": rep.get("counts"),
-        "delta": rep.get("delta"),
-        "ci": rep.get("ci"),
-        "strata_top": rep.get("strata_top"),
+        "winner": rep.get("winner")
+        "reason": rep.get("reason")
+        "counts": rep.get("counts")
+        "delta": rep.get("delta")
+        "ci": rep.get("ci")
+        "strata_top": rep.get("strata_top")
         "policy": {
-            "blocked": bool(pol.get("blocked", False)),
-            "allow_apply": bool(pol.get("allow_apply", False)),
-            "blocked_reasons": pol.get("blocked_reasons", []),
-            "action_raw": pol.get("action_raw"),
-            "action_final": pol.get("action_final"),
-            "share_next_raw": pol.get("share_next_raw"),
-            "share_next_final": pol.get("share_next_final"),
-        },
+            "blocked": bool(pol.get("blocked", False))
+            "allow_apply": bool(pol.get("allow_apply", False))
+            "blocked_reasons": pol.get("blocked_reasons", [])
+            "action_raw": pol.get("action_raw")
+            "action_final": pol.get("action_final")
+            "share_next_raw": pol.get("share_next_raw")
+            "share_next_final": pol.get("share_next_final")
+        }
     }
 
 
@@ -364,8 +364,8 @@ def main() -> int:
         return 0
 
     dataset_parquet = os.getenv(
-        "META_AB_DATASET_PARQUET",
-        "/var/lib/trade/of_reports/datasets/meta_inputs_outcomes_v2.parquet",
+        "META_AB_DATASET_PARQUET"
+        "/var/lib/trade/of_reports/datasets/meta_inputs_outcomes_v2.parquet"
     )
     champion_model = (os.getenv("META_MODEL_PATH", "") or "").strip()
     challenger_model = (os.getenv("META_MODEL_CHALLENGER_PATH", "") or "").strip()
@@ -387,8 +387,8 @@ def main() -> int:
         return 0
 
     out_json = os.getenv(
-        "META_AB_V2_OUT_JSON",
-        "/var/lib/trade/of_reports/out/meta_ab_v2/ab_v2_report.json",
+        "META_AB_V2_OUT_JSON"
+        "/var/lib/trade/of_reports/out/meta_ab_v2/ab_v2_report.json"
     )
     _safe_mkdir(os.path.dirname(out_json) or ".")
 
@@ -411,24 +411,24 @@ def main() -> int:
         from tools import meta_ab_winner_evaluator_v2 as abv2  # type: ignore
 
         cfg = abv2.V2Config(
-            p_min=p_min,
-            label_col=os.getenv("META_AB_LABEL_COL", "y"),
-            r_col=os.getenv("META_AB_R_COL", "r_mult"),
-            ok_col=os.getenv("META_AB_OK_COL", "ok"),
-            min_n=_env_int("META_AB_MIN_ELIGIBLE", 1000),
-            min_delta_exp_r=_env_float("META_AB_MIN_DELTA_EXPR", 0.002),
-            tail_r=_env_float("META_AB_TAIL_R", -1.0),
-            tail_slack=_env_float("META_AB_TAIL_SLACK", 0.01),
-            bootstrap=_env_int("META_AB_BOOTSTRAP", 1),
-            boot_n=_env_int("META_AB_BOOT_N", 400),
-            boot_alpha=_env_float("META_AB_BOOT_ALPHA", 0.10),
-            boot_seed=_env_int("META_AB_BOOT_SEED", 1337),
-            require_ci_positive=_env_int("META_AB_REQUIRE_CI_POSITIVE", 1),
-            strata_cols=tuple((os.getenv("META_AB_STRATA_COLS", "symbol") or "symbol").split(",")),
-            strata_topk=_env_int("META_AB_STRATA_TOPK", 10),
-            current_share=float(share_current),
-            ramp_step=_env_float("META_AB_RAMP_STEP", 0.05),
-            max_share=_env_float("META_AB_MAX_SHARE", 0.50),
+            p_min=p_min
+            label_col=os.getenv("META_AB_LABEL_COL", "y")
+            r_col=os.getenv("META_AB_R_COL", "r_mult")
+            ok_col=os.getenv("META_AB_OK_COL", "ok")
+            min_n=_env_int("META_AB_MIN_ELIGIBLE", 1000)
+            min_delta_exp_r=_env_float("META_AB_MIN_DELTA_EXPR", 0.002)
+            tail_r=_env_float("META_AB_TAIL_R", -1.0)
+            tail_slack=_env_float("META_AB_TAIL_SLACK", 0.01)
+            bootstrap=_env_int("META_AB_BOOTSTRAP", 1)
+            boot_n=_env_int("META_AB_BOOT_N", 400)
+            boot_alpha=_env_float("META_AB_BOOT_ALPHA", 0.10)
+            boot_seed=_env_int("META_AB_BOOT_SEED", 1337)
+            require_ci_positive=_env_int("META_AB_REQUIRE_CI_POSITIVE", 1)
+            strata_cols=tuple((os.getenv("META_AB_STRATA_COLS", "symbol") or "symbol").split(","))
+            strata_topk=_env_int("META_AB_STRATA_TOPK", 10)
+            current_share=float(share_current)
+            ramp_step=_env_float("META_AB_RAMP_STEP", 0.05)
+            max_share=_env_float("META_AB_MAX_SHARE", 0.50)
         )
 
         df = abv2.load_dataset(dataset_parquet, p_min)
@@ -439,10 +439,10 @@ def main() -> int:
 
         freeze_max = _read_freeze_max_share()
         share_next, action = abv2.recommend_next_share(
-            str(rep.get("winner") or "tie"),
-            float(share_current),
-            cfg,
-            freeze_max,
+            str(rep.get("winner") or "tie")
+            float(share_current)
+            cfg
+            freeze_max
         )
 
         share_next_raw = float(share_next)
@@ -450,26 +450,26 @@ def main() -> int:
 
         # Policy guardrail (fail-closed): may override ramp/apply -> HOLD
         dec = decide_meta_ab_v2_policy(
-            rep=rep,
-            cfg=cfg,
-            share_current=float(share_current),
-            share_next_raw=share_next_raw,
-            action_raw=action_raw,
-            freeze_max_share=freeze_max,
-            env_overrides=_policy_env_overrides(cfg),
+            rep=rep
+            cfg=cfg
+            share_current=float(share_current)
+            share_next_raw=share_next_raw
+            action_raw=action_raw
+            freeze_max_share=freeze_max
+            env_overrides=_policy_env_overrides(cfg)
         )
         share_next = float(dec.share_next_final)
         action = str(dec.action_final)
 
         rep["policy"] = {
-            "checked": True,
-            "blocked": bool(dec.blocked),
-            "allow_apply": bool(dec.allow_apply),
-            "blocked_reasons": list(dec.reasons),
-            "share_next_raw": share_next_raw,
-            "action_raw": action_raw,
-            "share_next_final": float(share_next),
-            "action_final": str(action),
+            "checked": True
+            "blocked": bool(dec.blocked)
+            "allow_apply": bool(dec.allow_apply)
+            "blocked_reasons": list(dec.reasons)
+            "share_next_raw": share_next_raw
+            "action_raw": action_raw
+            "share_next_final": float(share_next)
+            "action_final": str(action)
         }
 
         rep["ts_ms"] = int(rep.get("ts_ms") or _now_ms())
@@ -477,10 +477,10 @@ def main() -> int:
         rep["champion_model"] = champion_model
         rep["challenger_model"] = challenger_model
         rep["ramp"] = {
-            "share_current": float(share_current),
-            "share_next": float(share_next),
-            "action": str(action),
-            "freeze_max_share": freeze_max,
+            "share_current": float(share_current)
+            "share_next": float(share_next)
+            "action": str(action)
+            "freeze_max_share": freeze_max
         }
 
         _atomic_write_json(out_json, rep)
@@ -488,10 +488,10 @@ def main() -> int:
 
         # Timescale export (optional)
         ts_cfg = TimescaleConfig(
-            enabled=_env_bool("ENABLE_META_AB_V2_TS_EXPORT", True),
-            dsn=os.getenv("PG_DSN", ""),
-            table=os.getenv("META_AB_V2_TS_TABLE", "meta_ab_eval_v2"),
-            auto_ddl=_env_bool("META_AB_V2_TS_AUTO_DDL", True),
+            enabled=_env_bool("ENABLE_META_AB_V2_TS_EXPORT", True)
+            dsn=os.getenv("PG_DSN", "")
+            table=os.getenv("META_AB_V2_TS_TABLE", "meta_ab_eval_v2")
+            auto_ddl=_env_bool("META_AB_V2_TS_AUTO_DDL", True)
         )
         _try_timescale_insert(ts_cfg, rep)
 
@@ -509,15 +509,15 @@ def main() -> int:
         _log(f"evaluation failed: {type(e).__name__}: {e}")
         # best-effort: write failure report (so exporter shows something)
         fail = {
-            "ts_ms": _now_ms(),
-            "run_id": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "winner": "tie",
-            "reason": f"{type(e).__name__}: {e}",
-            "counts": {"n_total": 0, "n_eligible": 0},
-            "delta": {"exp_r_per_candidate": 0.0, "tail_rate_per_candidate": 0.0},
-            "ramp": {"share_current": float(share_current_env), "share_next": float(share_current_env), "action": "hold"},
-            "champion_model": champion_model,
-            "challenger_model": challenger_model,
+            "ts_ms": _now_ms()
+            "run_id": datetime.now(timezone.utc).isoformat(timespec="seconds")
+            "winner": "tie"
+            "reason": f"{type(e).__name__}: {e}"
+            "counts": {"n_total": 0, "n_eligible": 0}
+            "delta": {"exp_r_per_candidate": 0.0, "tail_rate_per_candidate": 0.0}
+            "ramp": {"share_current": float(share_current_env), "share_next": float(share_current_env), "action": "hold"}
+            "champion_model": champion_model
+            "challenger_model": challenger_model
         }
         try:
             _atomic_write_json(out_json, fail)

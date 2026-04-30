@@ -47,11 +47,11 @@ def _parse_time_ms(s: str) -> int:
         return 0
     s = s.strip()
     layouts = [
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%dT%H:%M:%S.%f%z",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S%z"
+        "%Y-%m-%dT%H:%M:%S.%f%z"
+        "%Y-%m-%dT%H:%M:%S"
+        "%Y-%m-%d %H:%M:%S"
+        "%Y-%m-%d"
     ]
     for l in layouts:
         try:
@@ -113,12 +113,12 @@ class FMPCalendarConfig:
         """
         Совместимо с вашим Go-конфигом:
         {
-          "enabled": true,
-          "base_url": "...",
-          "backDays": 1,
-          "lookaheadDays": 7,
-          "countries": ["US","EU"],
-          "importance": ["High","Medium"],
+          "enabled": true
+          "base_url": "..."
+          "backDays": 1
+          "lookaheadDays": 7
+          "countries": ["US","EU"]
+          "importance": ["High","Medium"]
           "user_agent": "..."
         }
         """
@@ -135,14 +135,14 @@ class FMPCalendarConfig:
         timeout = float(src.get("http_timeout_sec", src.get("httpTimeoutSec", 12.0)) or 12.0)
 
         return FMPCalendarConfig(
-            enabled=enabled,
-            base_url=base_url,
-            back_days=max(0, back_days),
-            lookahead_days=max(1, lookahead_days),
-            countries=countries,
-            importance=importance,
-            user_agent=ua,
-            http_timeout_sec=timeout,
+            enabled=enabled
+            base_url=base_url
+            back_days=max(0, back_days)
+            lookahead_days=max(1, lookahead_days)
+            countries=countries
+            importance=importance
+            user_agent=ua
+            http_timeout_sec=timeout
         )
 
 
@@ -217,19 +217,19 @@ def normalize_calendar_events(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
             uid = stable_uid("fmpcal", currency, title, provider_id, str(bucket_ms), ac)
 
             out.append({
-                "uid": uid,
-                "asset_class": ac,
-                "event_ts_ms": str(int(event_ts_ms)),
-                "ingested_ts_ms": str(int(now_ms)),
-                "country": country,
-                "currency": currency,
-                "title": title,
-                "importance": str(int(importance)),
-                "forecast": forecast,
-                "previous": previous,
-                "unit": unit,
-                "source": "fmp",
-                "payload": json.dumps(r, ensure_ascii=False),
+                "uid": uid
+                "asset_class": ac
+                "event_ts_ms": str(int(event_ts_ms))
+                "ingested_ts_ms": str(int(now_ms))
+                "country": country
+                "currency": currency
+                "title": title
+                "importance": str(int(importance))
+                "forecast": forecast
+                "previous": previous
+                "unit": unit
+                "source": "fmp"
+                "payload": json.dumps(r, ensure_ascii=False)
             })
 
     return out

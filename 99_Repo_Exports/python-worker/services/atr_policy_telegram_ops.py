@@ -56,13 +56,13 @@ def _proposal_text(p: Dict[str, Any]) -> str:
 def _buttons(proposal_id: str) -> List[List[Dict[str, str]]]:
     return [
         [
-            {"text": "✅ Approve", "callback": f"atrpol:approve:{proposal_id}"},
-            {"text": "❌ Reject", "callback": f"atrpol:reject:{proposal_id}"},
-        ],
+            {"text": "✅ Approve", "callback": f"atrpol:approve:{proposal_id}"}
+            {"text": "❌ Reject", "callback": f"atrpol:reject:{proposal_id}"}
+        ]
         [
-            {"text": "↩️ Revoke", "callback": f"atrpol:revoke:{proposal_id}"},
-            {"text": "🔎 Show", "callback": f"atrpol:show:{proposal_id}"},
-        ],
+            {"text": "↩️ Revoke", "callback": f"atrpol:revoke:{proposal_id}"}
+            {"text": "🔎 Show", "callback": f"atrpol:show:{proposal_id}"}
+        ]
     ]
 
 
@@ -72,8 +72,8 @@ def publish_policy_proposal_to_telegram(proposal: Dict[str, Any]) -> bool:
         return False
 
     payload = {
-        "text": _proposal_text(proposal),
-        "buttons": json.dumps(_buttons(proposal_id), ensure_ascii=False),
+        "text": _proposal_text(proposal)
+        "buttons": json.dumps(_buttons(proposal_id), ensure_ascii=False)
     }
     chat_id = _ops_chat_id()
     if chat_id:
@@ -81,10 +81,10 @@ def publish_policy_proposal_to_telegram(proposal: Dict[str, Any]) -> bool:
 
     try:
         _redis().xadd(
-            "notify:telegram",
-            payload,
-            maxlen=int(os.getenv("ATR_POLICY_TELEGRAM_NOTIFY_MAXLEN", "10000")),
-            approximate=True,
+            "notify:telegram"
+            payload
+            maxlen=int(os.getenv("ATR_POLICY_TELEGRAM_NOTIFY_MAXLEN", "10000"))
+            approximate=True
         )
         try:
             from services.atr_promotion_policy_metrics import atr_policy_tg_proposal_publish_total

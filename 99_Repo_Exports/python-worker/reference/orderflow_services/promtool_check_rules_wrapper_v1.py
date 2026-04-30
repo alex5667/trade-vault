@@ -41,9 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--root", default=None, help="Repo root (default: auto)")
     p.add_argument(
-        "--manifest",
-        default=None,
-        help="Manifest path (relative to repo root or absolute). Default: env PROM_RULES_BUNDLE_MANIFEST or v2 manifest.",
+        "--manifest"
+        default=None
+        help="Manifest path (relative to repo root or absolute). Default: env PROM_RULES_BUNDLE_MANIFEST or v2 manifest."
     )
     args = p.parse_args(argv)
 
@@ -63,9 +63,9 @@ def main(argv: list[str] | None = None) -> int:
     errors: list[str] = []
     for path in files:
         proc = subprocess.run(
-            [promtool, "check", "rules", str(path)],
-            capture_output=True,
-            text=True,
+            [promtool, "check", "rules", str(path)]
+            capture_output=True
+            text=True
         )
         if proc.returncode != 0:
             out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()

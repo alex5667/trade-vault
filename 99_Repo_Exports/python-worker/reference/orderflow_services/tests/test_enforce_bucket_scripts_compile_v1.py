@@ -14,9 +14,9 @@ from pathlib import Path
 def test_scripts_compile():
     root = Path(__file__).resolve().parents[1]
     paths = [
-        root / "enforce_bucket_promoter_rollback_controller_v1.py",
-        root / "enforce_bucket_ops_validate_p78.py",
-        root / "enforce_bucket_state_exporter_v1.py",
+        root / "enforce_bucket_promoter_rollback_controller_v1.py"
+        root / "enforce_bucket_ops_validate_p78.py"
+        root / "enforce_bucket_state_exporter_v1.py"
     ]
     for p in paths:
         py_compile.compile(str(p), doraise=True)
@@ -26,9 +26,9 @@ def test_alert_yamls_valid():
     """P90: All enforce-bucket alert YAML files must parse cleanly."""
     root = Path(__file__).resolve().parents[1]
     yaml_files = [
-        root / "prometheus_alerts_enforce_bucket_state_exporter_p90.yml",
-        root / "prometheus_alerts_enforce_bucket_promoter_v1.yml",
-        root / "prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml",
+        root / "prometheus_alerts_enforce_bucket_state_exporter_p90.yml"
+        root / "prometheus_alerts_enforce_bucket_promoter_v1.yml"
+        root / "prometheus_alerts_enforce_bucket_promoter_rollback_v1.yml"
     ]
     for yf in yaml_files:
         assert yf.exists(), f"Alert YAML not found: {yf}"

@@ -156,12 +156,12 @@ class LagTracker:
       -> gauge("tick_lag_ms_p95", ...)
     """
     def __init__(
-        self,
-        *,
-        metric: str,
-        export_every_n: int = 200,
-        window: int = 2048,
-        tags: Optional[dict[str, Any]] = None,
+        self
+        *
+        metric: str
+        export_every_n: int = 200
+        window: int = 2048
+        tags: Optional[dict[str, Any]] = None
     ) -> None:
         self.metric = metric
         self.export_every_n = max(1, int(export_every_n))
@@ -381,14 +381,14 @@ class LagTracker:
     - maybe_export() периодически экспортирует tick_lag_ms_p50/p95/p99
     """
     def __init__(
-        self,
-        *,
-        window: int = 2048,
-        export_every_n: int = 200,
-        metric_p50: str = "tick_lag_ms_p50",
-        metric_p95: str = "tick_lag_ms_p95",
-        metric_p99: str = "tick_lag_ms_p99",
-        tags: Optional[dict[str, Any]] = None,
+        self
+        *
+        window: int = 2048
+        export_every_n: int = 200
+        metric_p50: str = "tick_lag_ms_p50"
+        metric_p95: str = "tick_lag_ms_p95"
+        metric_p99: str = "tick_lag_ms_p99"
+        tags: Optional[dict[str, Any]] = None
     ) -> None:
         self._xs: Deque[float] = deque(maxlen=max(16, int(window)))
         self._n = 0
@@ -475,12 +475,12 @@ class EventRateTracker:
     - maybe_export() -> gauge rate
     """
     def __init__(
-        self,
-        *,
-        metric: str,
-        export_every_ms: int = 1000,
-        alpha: float = 0.3,
-        tags: Optional[dict[str, Any]] = None,
+        self
+        *
+        metric: str
+        export_every_ms: int = 1000
+        alpha: float = 0.3
+        tags: Optional[dict[str, Any]] = None
     ) -> None:
         self._metric = metric
         self._tags = tags

@@ -11,11 +11,11 @@ class NormalizedTime:
     err: str = ""
 
 def normalize_epoch_ms(
-    x: Any,
-    *,
-    now_ms: Optional[int] = None,
-    max_future_ms: int = 2 * 24 * 3600_000,
-    max_past_ms: int = 10 * 365 * 24 * 3600_000,
+    x: Any
+    *
+    now_ms: Optional[int] = None
+    max_future_ms: int = 2 * 24 * 3600_000
+    max_past_ms: int = 10 * 365 * 24 * 3600_000
 ) -> NormalizedTime:
     """
     Normalize epoch-like timestamp to epoch milliseconds.

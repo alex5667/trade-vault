@@ -2,10 +2,10 @@
 """P60 Edge Stack Shadow Eval Bundle.
 
 Runs nightly:
-  1) builds a dataset (last N hours) using tools.build_edge_stack_dataset_from_redis,
-  2) loads champion + candidate configs from Redis,
-  3) evaluates both models on the same dataset,
-  4) computes shadow metrics (Brier/ECE/Precision@top5/Expectancy@top5),
+  1) builds a dataset (last N hours) using tools.build_edge_stack_dataset_from_redis
+  2) loads champion + candidate configs from Redis
+  3) evaluates both models on the same dataset
+  4) computes shadow metrics (Brier/ECE/Precision@top5/Expectancy@top5)
   5) writes:
      - status file (for edge_stack_shadow_status_exporter_v1)
      - Redis hash metrics: metrics:edge_stack_shadow:last
@@ -55,10 +55,10 @@ from ml_analysis.tools.edge_stack_shadow_metrics_p60 import calculate_shadow_met
 
 # Import P59 bundle utilities (atomic write, now_ms, metrics writer)
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
-    atomic_copy,
-    atomic_write_json,
-    now_ms,
-    write_train_metrics,
+    atomic_copy
+    atomic_write_json
+    now_ms
+    write_train_metrics
 )
 
 
@@ -129,13 +129,13 @@ def _predict_pack_p(model_pack: Dict[str, Any], row: Dict[str, Any]) -> Tuple[fl
     sc = model_pack.get("robust_scaler") or {}
 
     x = build_feature_row(
-        feature_cols=feature_cols,
-        indicators=indicators,
-        direction=direction,
-        scenario=scenario,
-        ts_ms=ts_ms,
-        feature_transforms=tf,
-        robust_scaler_params=sc,
+        feature_cols=feature_cols
+        indicators=indicators
+        direction=direction
+        scenario=scenario
+        ts_ms=ts_ms
+        feature_transforms=tf
+        robust_scaler_params=sc
     )
     X = np.asarray([x], dtype=np.float32)
 
@@ -215,8 +215,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     max_brier_rel = _read_env_float("EDGE_STACK_PROMOTE_MAX_BRIER_REL", 1.02)
     # Support both old ECE_ABS and new ECE_ABS_DIFF env names for backward compat
     max_ece_abs_diff = _read_env_float(
-        "EDGE_STACK_PROMOTE_MAX_ECE_ABS_DIFF",
-        _read_env_float("EDGE_STACK_PROMOTE_MAX_ECE_ABS", 0.005),
+        "EDGE_STACK_PROMOTE_MAX_ECE_ABS_DIFF"
+        _read_env_float("EDGE_STACK_PROMOTE_MAX_ECE_ABS", 0.005)
     )
     min_prec_delta = _read_env_float("EDGE_STACK_PROMOTE_MIN_PREC_DELTA", 0.0)
 
@@ -236,30 +236,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         rc = build_dataset_main([
-            "--redis_url", redis_url,
-            "--since_ms", str(start_ms),
-            "--until_ms", str(end_ms),
-            "--out_jsonl", ds_path,
-            "--out_report_json", ds_report,
-            "--strict_feature_cols", str(int(strict_cols)),
-            "--diagnose_mismatch", "1",
-            "--max_examples", "50",
+            "--redis_url", redis_url
+            "--since_ms", str(start_ms)
+            "--until_ms", str(end_ms)
+            "--out_jsonl", ds_path
+            "--out_report_json", ds_report
+            "--strict_feature_cols", str(int(strict_cols))
+            "--diagnose_mismatch", "1"
+            "--max_examples", "50"
         ])
     except SystemExit as se:
         rc = int(getattr(se, "code", 1) or 1)
 
     if rc != 0:
         write_train_metrics(redis_url, metrics_key, {
-            "status": "fail_build",
-            "success": 0,
-            "error": "dataset_build_failed",
+            "status": "fail_build"
+            "success": 0
+            "error": "dataset_build_failed"
         })
         atomic_write_json(status_path, {
-            "ts_ms": now_ms(),
-            "n": 0,
-            "promote_recommended": 0,
-            "promote_applied": 0,
-            "error": "dataset_build_failed",
+            "ts_ms": now_ms()
+            "n": 0
+            "promote_recommended": 0
+            "promote_applied": 0
+            "error": "dataset_build_failed"
         })
         return 2
 
@@ -271,17 +271,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     rows = _read_jsonl(ds_path)
     if not rows:
         write_train_metrics(redis_url, metrics_key, {
-            "status": "fail_validate",
-            "success": 0,
-            "error": "dataset_empty",
-            "joined": int(report_obj.get("joined", 0) or 0),
+            "status": "fail_validate"
+            "success": 0
+            "error": "dataset_empty"
+            "joined": int(report_obj.get("joined", 0) or 0)
         })
         atomic_write_json(status_path, {
-            "ts_ms": now_ms(),
-            "n": 0,
-            "promote_recommended": 0,
-            "promote_applied": 0,
-            "error": "dataset_empty",
+            "ts_ms": now_ms()
+            "n": 0
+            "promote_recommended": 0
+            "promote_applied": 0
+            "error": "dataset_empty"
         })
         return 2
 
@@ -293,16 +293,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Champion is required for comparison; candidate may be missing.
     if not champ_cfg:
         write_train_metrics(redis_url, metrics_key, {
-            "status": "fail_cfg",
-            "success": 0,
-            "error": "missing_champion_cfg",
+            "status": "fail_cfg"
+            "success": 0
+            "error": "missing_champion_cfg"
         })
         atomic_write_json(status_path, {
-            "ts_ms": now_ms(),
-            "n": int(len(rows)),
-            "promote_recommended": 0,
-            "promote_applied": 0,
-            "error": "missing_champion_cfg",
+            "ts_ms": now_ms()
+            "n": int(len(rows))
+            "promote_recommended": 0
+            "promote_applied": 0
+            "error": "missing_champion_cfg"
         })
         return 2
 
@@ -364,11 +364,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     promote_reasons: List[str] = []
     if cand_pack is not None:
         ok, reasons = check_promotion_guard(
-            champion_metrics=champ_metrics_cal,
-            candidate_metrics=cand_metrics_cal,
-            max_brier_rel=float(max_brier_rel),
-            max_ece_abs_diff=float(max_ece_abs_diff),
-            min_prec_delta=float(min_prec_delta),
+            champion_metrics=champ_metrics_cal
+            candidate_metrics=cand_metrics_cal
+            max_brier_rel=float(max_brier_rel)
+            max_ece_abs_diff=float(max_ece_abs_diff)
+            min_prec_delta=float(min_prec_delta)
         )
         promote_recommended = 1 if ok else 0
         promote_reasons = reasons
@@ -400,50 +400,50 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Write status JSON for file-based exporter (edge_stack_shadow_status_exporter_v1)
     status_obj = {
-        "ts_ms": now_ms(),
-        "n": int(len(rows)),
-        "joined": int(report_obj.get("joined", len(rows)) or len(rows)),
-        "pos_rate": float(report_obj.get("pos_rate", 0.0) or 0.0),
-        "promote_recommended": int(promote_recommended),
-        "promote_applied": int(promote_applied),
-        "promote_reasons": list(promote_reasons)[:10],
+        "ts_ms": now_ms()
+        "n": int(len(rows))
+        "joined": int(report_obj.get("joined", len(rows)) or len(rows))
+        "pos_rate": float(report_obj.get("pos_rate", 0.0) or 0.0)
+        "promote_recommended": int(promote_recommended)
+        "promote_applied": int(promote_applied)
+        "promote_reasons": list(promote_reasons)[:10]
         "champion": {
             "cfg": {
-                "run_id": str(champ_cfg.get("run_id", "")),
-                "model_path": str(champ_model_path),
-            },
-            "metrics": {"raw": champ_metrics_raw, "cal": champ_metrics_cal},
-            "missing_sum": int(champ_missing_sum),
-        },
+                "run_id": str(champ_cfg.get("run_id", ""))
+                "model_path": str(champ_model_path)
+            }
+            "metrics": {"raw": champ_metrics_raw, "cal": champ_metrics_cal}
+            "missing_sum": int(champ_missing_sum)
+        }
         "candidate": {
             "cfg": {
-                "run_id": str(cand_cfg.get("run_id", "")) if isinstance(cand_cfg, dict) else "",
-                "model_path": str(cand_model_path or ""),
-            },
-            "metrics": {"raw": cand_metrics_raw, "cal": cand_metrics_cal} if cand_pack is not None else {},
-            "missing_sum": int(cand_missing_sum),
-        },
+                "run_id": str(cand_cfg.get("run_id", "")) if isinstance(cand_cfg, dict) else ""
+                "model_path": str(cand_model_path or "")
+            }
+            "metrics": {"raw": cand_metrics_raw, "cal": cand_metrics_cal} if cand_pack is not None else {}
+            "missing_sum": int(cand_missing_sum)
+        }
     }
     atomic_write_json(status_path, status_obj)
 
     # Write Redis metrics hash for Prometheus alerts (P60)
     out_metrics: Dict[str, Any] = {
-        "status": "ok",
-        "success": 1,
-        "window_hours": int(args.window_hours),
-        "joined": int(report_obj.get("joined", len(rows)) or len(rows)),
-        "pos_rate": float(report_obj.get("pos_rate", 0.0) or 0.0),
-        "promote_recommended": int(promote_recommended),
-        "promote_applied": int(promote_applied),
-        "promote_reasons": promote_reasons,
-        "champion_brier": float(champ_metrics_cal.get("brier", 0.0) or 0.0),
-        "champion_ece": float(champ_metrics_cal.get("ece", 0.0) or 0.0),
-        "champion_precision_top5pct": float(champ_metrics_cal.get("precision_top5pct", 0.0) or 0.0),
-        "champion_expectancy_r_top5pct": float(champ_metrics_cal.get("expectancy_r_top5pct", 0.0) or 0.0),
-        "candidate_brier": float(cand_metrics_cal.get("brier", 0.0) or 0.0),
-        "candidate_ece": float(cand_metrics_cal.get("ece", 0.0) or 0.0),
-        "candidate_precision_top5pct": float(cand_metrics_cal.get("precision_top5pct", 0.0) or 0.0),
-        "candidate_expectancy_r_top5pct": float(cand_metrics_cal.get("expectancy_r_top5pct", 0.0) or 0.0),
+        "status": "ok"
+        "success": 1
+        "window_hours": int(args.window_hours)
+        "joined": int(report_obj.get("joined", len(rows)) or len(rows))
+        "pos_rate": float(report_obj.get("pos_rate", 0.0) or 0.0)
+        "promote_recommended": int(promote_recommended)
+        "promote_applied": int(promote_applied)
+        "promote_reasons": promote_reasons
+        "champion_brier": float(champ_metrics_cal.get("brier", 0.0) or 0.0)
+        "champion_ece": float(champ_metrics_cal.get("ece", 0.0) or 0.0)
+        "champion_precision_top5pct": float(champ_metrics_cal.get("precision_top5pct", 0.0) or 0.0)
+        "champion_expectancy_r_top5pct": float(champ_metrics_cal.get("expectancy_r_top5pct", 0.0) or 0.0)
+        "candidate_brier": float(cand_metrics_cal.get("brier", 0.0) or 0.0)
+        "candidate_ece": float(cand_metrics_cal.get("ece", 0.0) or 0.0)
+        "candidate_precision_top5pct": float(cand_metrics_cal.get("precision_top5pct", 0.0) or 0.0)
+        "candidate_expectancy_r_top5pct": float(cand_metrics_cal.get("expectancy_r_top5pct", 0.0) or 0.0)
     }
     write_train_metrics(redis_url, metrics_key, out_metrics)
 

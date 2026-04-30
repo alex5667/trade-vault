@@ -12,7 +12,7 @@ What it does
 ------------
 1. Runs the SQL/Redis consistency check.
 2. Collects sids with mismatches at or above the threshold severity.
-3. For each sid, copies the current state into ``orders:quarantine:state:<sid>``,
+3. For each sid, copies the current state into ``orders:quarantine:state:<sid>``
    adds the sid to the ``orders:quarantine:state:sids`` set, and emits an event
    into the ``orders:quarantine:state:events`` stream.
 
@@ -75,9 +75,9 @@ def _s(v: Any) -> str:
 
 
 def build_quarantine_targets(
-    mismatches: Iterable[consistency.ConsistencyMismatch],
-    *,
-    severity: str = 'critical',
+    mismatches: Iterable[consistency.ConsistencyMismatch]
+    *
+    severity: str = 'critical'
 ) -> List[Dict[str, Any]]:
     """Group mismatches by sid and filter by minimum severity.
 
@@ -94,25 +94,25 @@ def build_quarantine_targets(
     out: List[Dict[str, Any]] = []
     for sid, items in sorted(by_sid.items()):
         out.append({
-            'sid': sid,
+            'sid': sid
             # Combine all distinct mismatch categories into one reason string
-            'reason': '; '.join(sorted({m.category for m in items})),
-            'severity': max((m.severity for m in items), key=lambda s: order.get(s, 0)),
+            'reason': '; '.join(sorted({m.category for m in items}))
+            'severity': max((m.severity for m in items), key=lambda s: order.get(s, 0))
         })
     return out
 
 
 def quarantine_sid(
-    redis_client: Any,
-    sid: str,
-    *,
-    state_prefix: str,
-    quarantine_prefix: str,
-    reason: str,
-    severity: str = 'critical',
-    source: str = 'consistency_checker',
-    dry_run: bool = False,
-    ledger: Any = None,
+    redis_client: Any
+    sid: str
+    *
+    state_prefix: str
+    quarantine_prefix: str
+    reason: str
+    severity: str = 'critical'
+    source: str = 'consistency_checker'
+    dry_run: bool = False
+    ledger: Any = None
 ) -> Dict[str, Any]:
     """Soft-quarantine a single sid in Redis using a pipeline for atomicity.
 
@@ -140,13 +140,13 @@ def quarantine_sid(
     state_doc['quarantine_reason'] = reason
     state_doc['quarantine_source'] = source
     result = {
-        'sid': sid,
-        'symbol': _s(state_doc.get('symbol')),
-        'state_key': state_key,
-        'quarantine_key': quarantine_key,
-        'reason': reason,
-        'severity': severity,
-        'applied': not dry_run,
+        'sid': sid
+        'symbol': _s(state_doc.get('symbol'))
+        'state_key': state_key
+        'quarantine_key': quarantine_key
+        'reason': reason
+        'severity': severity
+        'applied': not dry_run
     }
     if dry_run:
         return result
@@ -157,25 +157,25 @@ def quarantine_sid(
     pipe.sadd(f'{quarantine_prefix}sids', sid)
     # Cap the event stream to 10 000 entries to bound memory
     pipe.xadd(
-        f'{quarantine_prefix}events',
-        {'sid': sid, 'reason': reason, 'ts_ms': now_ms, 'source': source},
-        maxlen=10000,
-        approximate=True,
+        f'{quarantine_prefix}events'
+        {'sid': sid, 'reason': reason, 'ts_ms': now_ms, 'source': source}
+        maxlen=10000
+        approximate=True
     )
     pipe.execute()
     if ledger is not None:
         ledger.record_quarantine_event({
-            'sid': sid,
-            'symbol': _s(state_doc.get('symbol')),
-            'action': 'QUARANTINED',
-            'severity': severity,
-            'reason': reason,
-            'source': source,
-            'quarantine_key': quarantine_key,
-            'applied': True,
-            'state': state_doc,
-            'event_ts_ms': now_ms,
-            'created_at_ms': now_ms,
+            'sid': sid
+            'symbol': _s(state_doc.get('symbol'))
+            'action': 'QUARANTINED'
+            'severity': severity
+            'reason': reason
+            'source': source
+            'quarantine_key': quarantine_key
+            'applied': True
+            'state': state_doc
+            'event_ts_ms': now_ms
+            'created_at_ms': now_ms
         })
     return result
 
@@ -188,7 +188,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
     parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
     parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
-    parser.add_argument('--severity', default=os.getenv('EXEC_QUARANTINE_MIN_SEVERITY', 'critical'),
+    parser.add_argument('--severity', default=os.getenv('EXEC_QUARANTINE_MIN_SEVERITY', 'critical')
                         choices=['critical', 'warning'], help='Minimum mismatch severity to quarantine')
     parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
     parser.add_argument('--dry-run', action='store_true', help='Plan only – do not write to Redis')
@@ -199,11 +199,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Run consistency check to find mismatching sids
     summary = consistency.run_check(
-        redis_url=args.redis_url,
-        journal_dsn=args.journal_dsn,
-        state_prefix=args.state_prefix,
-        exec_stream=args.exec_stream,
-        stream_count=args.stream_count,
+        redis_url=args.redis_url
+        journal_dsn=args.journal_dsn
+        state_prefix=args.state_prefix
+        exec_stream=args.exec_stream
+        stream_count=args.stream_count
     )
     mismatches = [consistency.ConsistencyMismatch(**m) for m in summary.mismatches]
     targets = build_quarantine_targets(mismatches, severity=args.severity)
@@ -213,14 +213,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     ledger = QuarantineLedgerSink(dsn=args.ledger_dsn) if QuarantineLedgerSink and args.ledger_dsn else None
     results = [
         quarantine_sid(
-            redis_client,
-            item['sid'],
-            state_prefix=args.state_prefix,
-            quarantine_prefix=args.quarantine_prefix,
-            reason=item['reason'],
-            severity=str(item.get('severity') or args.severity),
-            dry_run=args.dry_run,
-            ledger=ledger,
+            redis_client
+            item['sid']
+            state_prefix=args.state_prefix
+            quarantine_prefix=args.quarantine_prefix
+            reason=item['reason']
+            severity=str(item.get('severity') or args.severity)
+            dry_run=args.dry_run
+            ledger=ledger
         )
         for item in targets
     ]

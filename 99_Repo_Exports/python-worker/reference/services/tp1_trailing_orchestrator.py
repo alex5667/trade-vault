@@ -132,8 +132,8 @@ class TP1TrailingOrchestrator:
 
     def __init__(
         self, 
-        redis_client: Optional[redis.Redis] = None,
-        profiles: Optional[TrailingProfilesRegistry] = None,
+        redis_client: Optional[redis.Redis] = None
+        profiles: Optional[TrailingProfilesRegistry] = None
         gateway_url: Optional[str] = None
     ):
         """
@@ -199,11 +199,11 @@ class TP1TrailingOrchestrator:
         }
 
         default_prefixes: List[str] = [
-            self.signal_key_prefix,
-            "signals:audit:",
-            "signals:crypto:",
-            "signal:",
-            "signal:snap:",
+            self.signal_key_prefix
+            "signals:audit:"
+            "signals:crypto:"
+            "signal:"
+            "signal:snap:"
         ]
         custom_prefixes = _parse_csv_env("SIGNAL_KEY_PREFIXES")
         prefixes = custom_prefixes if custom_prefixes else default_prefixes
@@ -211,16 +211,16 @@ class TP1TrailingOrchestrator:
         
         # Статистика
         self.stats = {
-            "events_processed": 0,
-            "tp1_hits": 0,
-            "trailing_started": 0,
-            "trailing_failed": 0,
-            "signals_not_found": 0,
-            "no_trail_flag": 0,
+            "events_processed": 0
+            "tp1_hits": 0
+            "trailing_started": 0
+            "trailing_failed": 0
+            "signals_not_found": 0
+            "no_trail_flag": 0
         }
         
         log.info(
-            "✅ TP1TrailingOrchestrator initialized | default_profile=%s profiles=%d",
+            "✅ TP1TrailingOrchestrator initialized | default_profile=%s profiles=%d"
             self.default_profile, len(self.profiles.list_names())
         )
         if self.symbol_filter_enabled:
@@ -239,13 +239,13 @@ class TP1TrailingOrchestrator:
         
         Event format:
         {
-            "event_type": "TP1_HIT" | "TP2_HIT" | "SL_HIT" | "POSITION_OPENED",
-            "sid": "signal-XAUUSD-1730222790",
-            "symbol": "XAUUSD",
+            "event_type": "TP1_HIT" | "TP2_HIT" | "SL_HIT" | "POSITION_OPENED"
+            "sid": "signal-XAUUSD-1730222790"
+            "symbol": "XAUUSD"
             "position_id": "1234567",  # MT5 ticket
             "ticket": "1234567",        # альтернативное поле
-            "price": "2769.9",
-            "ts": "1730222790",
+            "price": "2769.9"
+            "ts": "1730222790"
             "source": "paper_executor" | "mt5" | "backtest"
         }
         
@@ -259,27 +259,27 @@ class TP1TrailingOrchestrator:
         return result.success or result.skipped
 
     def start_trailing(
-        self,
-        sid: str,
-        symbol: str,
-        price: float,
-        position_id: Optional[str] = None,
-        source: str = "signal_performance_tracker",
-        event_ts: Optional[Any] = None,
-        signal_payload: Optional[Dict[str, Any]] = None,
-        signal_key: Optional[str] = None,
+        self
+        sid: str
+        symbol: str
+        price: float
+        position_id: Optional[str] = None
+        source: str = "signal_performance_tracker"
+        event_ts: Optional[Any] = None
+        signal_payload: Optional[Dict[str, Any]] = None
+        signal_key: Optional[str] = None
     ) -> TrailingResult:
         """
         Прямой запуск расчёта трейлинга из приложений (без внешнего события).
         """
         event: Dict[str, Any] = {
-            "event_type": "TP1_HIT",
-            "sid": sid,
-            "symbol": symbol,
-            "price": price,
-            "position_id": position_id,
-            "source": source,
-            "ts": event_ts,
+            "event_type": "TP1_HIT"
+            "sid": sid
+            "symbol": symbol
+            "price": price
+            "position_id": position_id
+            "source": source
+            "ts": event_ts
         }
         if signal_payload:
             event["_signal_payload"] = signal_payload
@@ -326,7 +326,7 @@ class TP1TrailingOrchestrator:
             return TrailingResult(success=False, skipped=False, error="sid_missing")
         
         log.info(
-            "🎯 TP1_HIT event: sid=%s symbol=%s price=%.2f position=%s source=%s",
+            "🎯 TP1_HIT event: sid=%s symbol=%s price=%.2f position=%s source=%s"
             sid, symbol, price, position_id, source
         )
 
@@ -348,9 +348,9 @@ class TP1TrailingOrchestrator:
         signal_source = _normalize_source(signal.get("source"))
         if self.source_filter_enabled and signal_source not in self.trailing_sources:
             log.debug(
-                "Signal %s source %s is not in trailing sources list, skip",
-                sid,
-                signal_source,
+                "Signal %s source %s is not in trailing sources list, skip"
+                sid
+                signal_source
             )
             return TrailingResult(success=False, skipped=True, error="source_filtered")
         
@@ -360,7 +360,7 @@ class TP1TrailingOrchestrator:
             if HAS_METRICS:
                 TrailingMetrics.record_signal_without_flag(symbol)
             log.debug(
-                "Signal %s does not have trail_after_tp1 flag, skip trailing",
+                "Signal %s does not have trail_after_tp1 flag, skip trailing"
                 sid
             )
             return TrailingResult(success=False, skipped=True, error="trail_flag_disabled")
@@ -370,14 +370,14 @@ class TP1TrailingOrchestrator:
         
         if not profile:
             log.warning(
-                "⚠️  Trailing profile not found: %s (sid=%s), using default: %s",
+                "⚠️  Trailing profile not found: %s (sid=%s), using default: %s"
                 profile_name, sid, self.default_profile
             )
             profile = self.profiles.get(self.default_profile)
             
             if not profile:
                 log.error(
-                    "❌ Default profile not found: %s, cannot start trailing",
+                    "❌ Default profile not found: %s, cannot start trailing"
                     self.default_profile
                 )
                 if record_stats:
@@ -394,12 +394,12 @@ class TP1TrailingOrchestrator:
         original_sl_value = _to_float(original_sl)
 
         base_metadata = {
-            "triggered_by": "TP1_HIT",
-            "tp1_price": price,
-            "source": source,
-            "timestamp": event.get("ts"),
-            "profile_name": profile.name,
-            "profile_mode": profile.mode,
+            "triggered_by": "TP1_HIT"
+            "tp1_price": price
+            "source": source
+            "timestamp": event.get("ts")
+            "profile_name": profile.name
+            "profile_mode": profile.mode
         }
         if original_sl_value is not None:
             base_metadata["previous_sl"] = original_sl_value
@@ -416,7 +416,7 @@ class TP1TrailingOrchestrator:
 
         if not trail_distance_price or trail_distance_price <= 0:
             log.warning(
-                "⚠️  Cannot compute trailing distance for sid=%s (ATR missing and profile mode %s)",
+                "⚠️  Cannot compute trailing distance for sid=%s (ATR missing and profile mode %s)"
                 sid, profile.mode
             )
             if record_stats:
@@ -426,16 +426,16 @@ class TP1TrailingOrchestrator:
             return TrailingResult(success=False, skipped=False, error="distance_not_computed")
 
         new_sl = self._compute_trailing_sl(
-            side=side,
-            tp1_price=price,
-            trail_distance=trail_distance_price,
-            original_sl=original_sl_value,
+            side=side
+            tp1_price=price
+            trail_distance=trail_distance_price
+            original_sl=original_sl_value
             point=point_size
         )
 
         if not new_sl:
             log.info(
-                "ℹ️ Trailing SL unchanged for sid=%s (computed distance %.5f insufficient)",
+                "ℹ️ Trailing SL unchanged for sid=%s (computed distance %.5f insufficient)"
                 sid, trail_distance_price
             )
             return TrailingResult(success=False, skipped=True, error="distance_insufficient")
@@ -443,15 +443,15 @@ class TP1TrailingOrchestrator:
         trail_points = trail_distance_price / point_size if point_size > 0 else None
         metadata = dict(base_metadata)
         metadata.update({
-            "trail_distance_price": trail_distance_price,
-            "point_size": point_size,
-            "trail_mode": "continuous",
+            "trail_distance_price": trail_distance_price
+            "point_size": point_size
+            "trail_mode": "continuous"
         })
         if atr_value and atr_value > 0:
             metadata.update({
-                "atr_value": atr_value,
-                "atr_mult": profile.atr_mult,
-                "calculated_from_signal_atr": True,
+                "atr_value": atr_value
+                "atr_mult": profile.atr_mult
+                "calculated_from_signal_atr": True
             })
         if trail_points:
             metadata["trail_points"] = trail_points
@@ -461,29 +461,29 @@ class TP1TrailingOrchestrator:
 
         if atr_value and atr_value > 0:
             trailing_sent = self.dispatcher.send_trailing_command_from_atr(
-                sid=sid,
-                symbol=symbol,
-                position_id=position_id,
-                atr_value=atr_value,
-                atr_mult=profile.atr_mult,
-                point=point_size,
-                metadata=command_metadata,
+                sid=sid
+                symbol=symbol
+                position_id=position_id
+                atr_value=atr_value
+                atr_mult=profile.atr_mult
+                point=point_size
+                metadata=command_metadata
             )
         else:
             trailing_sent = self.dispatcher.send_trailing_command(
-                sid=sid,
-                symbol=symbol,
-                position_id=position_id,
-                profile=profile,
-                metadata=command_metadata,
+                sid=sid
+                symbol=symbol
+                position_id=position_id
+                profile=profile
+                metadata=command_metadata
             )
 
         if not trailing_sent:
             log.error(
-                "❌ Failed to start trailing for sid=%s symbol=%s profile=%s",
-                sid,
-                symbol,
-                profile.name,
+                "❌ Failed to start trailing for sid=%s symbol=%s profile=%s"
+                sid
+                symbol
+                profile.name
             )
             if record_stats:
                 self.stats["trailing_failed"] += 1
@@ -501,21 +501,21 @@ class TP1TrailingOrchestrator:
         modify_metadata["clear_tp_levels"] = is_rocket
 
         dispatch_success = self.dispatcher.send_trailing_modify(
-            sid=sid,
-            symbol=symbol,
-            side=side,
-            position_id=position_id,
-            new_sl=new_sl,
-            tp_levels=[] if is_rocket else list(tp_levels),
-            metadata=modify_metadata,
-            clear_tp_levels=is_rocket,
+            sid=sid
+            symbol=symbol
+            side=side
+            position_id=position_id
+            new_sl=new_sl
+            tp_levels=[] if is_rocket else list(tp_levels)
+            metadata=modify_metadata
+            clear_tp_levels=is_rocket
         )
         if not dispatch_success:
             log.error(
-                "❌ Failed to send trailing modify to gateway: sid=%s side=%s profile=%s",
-                sid,
-                side,
-                profile.name,
+                "❌ Failed to send trailing modify to gateway: sid=%s side=%s profile=%s"
+                sid
+                side
+                profile.name
             )
             if record_stats:
                 self.stats["trailing_failed"] += 1
@@ -532,33 +532,33 @@ class TP1TrailingOrchestrator:
             TrailingMetrics.record_trailing_started(symbol, profile.name)
         
         log.info(
-            "✅ Trailing modify sent: sid=%s side=%s new_sl=%.5f (profile=%s)",
+            "✅ Trailing modify sent: sid=%s side=%s new_sl=%.5f (profile=%s)"
             sid, side, new_sl if new_sl is not None else float('nan'), profile.name
         )
 
         self._write_trailing_event(
-            sid=sid,
-            symbol=symbol,
-            profile_name=profile.name,
-            event_type="TRAILING_STARTED",
+            sid=sid
+            symbol=symbol
+            profile_name=profile.name
+            event_type="TRAILING_STARTED"
             metadata={
-                "tp1_price": price,
-                "position_id": position_id,
-                "source": source,
-                "new_sl": f"{new_sl:.10f}" if new_sl is not None else "",
-                "tp_levels_cleared": is_rocket,
-                "clear_tp_levels": is_rocket,
+                "tp1_price": price
+                "position_id": position_id
+                "source": source
+                "new_sl": f"{new_sl:.10f}" if new_sl is not None else ""
+                "tp_levels_cleared": is_rocket
+                "clear_tp_levels": is_rocket
             }
         )
         
         if self.events_logger:
             self.events_logger.log_trailing_started(
-                sid=sid,
-                symbol=symbol,
-                profile=profile.name,
-                initial_sl=initial_sl_for_log,
-                tp1_price=price,
-                position_id=position_id,
+                sid=sid
+                symbol=symbol
+                profile=profile.name
+                initial_sl=initial_sl_for_log
+                tp1_price=price
+                position_id=position_id
                 source="tp1_trailing_orchestrator"
             )
 
@@ -567,18 +567,18 @@ class TP1TrailingOrchestrator:
         metadata["clear_tp_levels"] = is_rocket
 
         return TrailingResult(
-            success=True,
-            skipped=False,
-            new_sl=new_sl,
-            profile_name=profile.name,
+            success=True
+            skipped=False
+            new_sl=new_sl
+            profile_name=profile.name
             metadata=metadata
         )
     
     def _persist_signal_sl_update(
-        self,
-        key: Optional[str],
-        signal: Dict[str, Any],
-        new_sl: float,
+        self
+        key: Optional[str]
+        signal: Dict[str, Any]
+        new_sl: float
         clear_tp_levels: bool = False
     ) -> None:
         if not key:
@@ -587,10 +587,10 @@ class TP1TrailingOrchestrator:
             previous_sl = signal.get("sl")
             signal["sl"] = new_sl
             signal.setdefault("trailing_history", []).append({
-                "ts": get_ny_time_millis(),
-                "new_sl": new_sl,
-                "reason": "tp1_trailing_orchestrator",
-                "tp_levels_cleared": clear_tp_levels,
+                "ts": get_ny_time_millis()
+                "new_sl": new_sl
+                "reason": "tp1_trailing_orchestrator"
+                "tp_levels_cleared": clear_tp_levels
             })
             if clear_tp_levels:
                 signal["tp_levels"] = []
@@ -599,9 +599,9 @@ class TP1TrailingOrchestrator:
                 signal.pop("tp_rest", None)
             self.r.set(key, json.dumps(signal))
             log.debug(
-                "🔄 Signal SL updated in Redis: key=%s old=%s new=%.5f",
-                key,
-                previous_sl,
+                "🔄 Signal SL updated in Redis: key=%s old=%s new=%.5f"
+                key
+                previous_sl
                 new_sl
             )
         except Exception as exc:
@@ -638,11 +638,11 @@ class TP1TrailingOrchestrator:
         return None
     
     def _write_trailing_event(
-        self,
-        sid: str,
-        symbol: str,
-        profile_name: str,
-        event_type: str = "TRAILING_STARTED",
+        self
+        sid: str
+        symbol: str
+        profile_name: str
+        event_type: str = "TRAILING_STARTED"
         metadata: Optional[Dict] = None
     ):
         """
@@ -660,11 +660,11 @@ class TP1TrailingOrchestrator:
             metadata: Дополнительные метаданные
         """
         event = {
-            "event_type": event_type,
-            "sid": sid,
-            "symbol": symbol,
-            "profile": profile_name,
-            "ts": get_ny_time_millis(),
+            "event_type": event_type
+            "sid": sid
+            "symbol": symbol
+            "profile": profile_name
+            "ts": get_ny_time_millis()
             "source": "tp1_trailing_orchestrator"
         }
         
@@ -726,11 +726,11 @@ class TP1TrailingOrchestrator:
         return math.floor(value / point) * point
 
     def _compute_trailing_sl(
-        self,
-        side: str,
-        tp1_price: float,
-        trail_distance: float,
-        original_sl: Optional[float],
+        self
+        side: str
+        tp1_price: float
+        trail_distance: float
+        original_sl: Optional[float]
         point: float
     ) -> Optional[float]:
         if trail_distance <= 0 or tp1_price <= 0:
@@ -773,12 +773,12 @@ class TP1TrailingOrchestrator:
     def log_stats(self):
         """Вывести статистику в лог."""
         log.info(
-            "📊 TP1 Trailing Stats: processed=%d tp1_hits=%d started=%d failed=%d not_found=%d no_flag=%d",
-            self.stats["events_processed"],
-            self.stats["tp1_hits"],
-            self.stats["trailing_started"],
-            self.stats["trailing_failed"],
-            self.stats["signals_not_found"],
+            "📊 TP1 Trailing Stats: processed=%d tp1_hits=%d started=%d failed=%d not_found=%d no_flag=%d"
+            self.stats["events_processed"]
+            self.stats["tp1_hits"]
+            self.stats["trailing_started"]
+            self.stats["trailing_failed"]
+            self.stats["signals_not_found"]
             self.stats["no_trail_flag"]
         )
 
@@ -789,12 +789,12 @@ if __name__ == "__main__":
     
     # Тестовое событие
     test_event = {
-        "event_type": "TP1_HIT",
-        "sid": "signal-XAUUSD-1730222790",
-        "symbol": "XAUUSD",
-        "position_id": "1234567",
-        "price": "2769.9",
-        "ts": "1730222790",
+        "event_type": "TP1_HIT"
+        "sid": "signal-XAUUSD-1730222790"
+        "symbol": "XAUUSD"
+        "position_id": "1234567"
+        "price": "2769.9"
+        "ts": "1730222790"
         "source": "test"
     }
     

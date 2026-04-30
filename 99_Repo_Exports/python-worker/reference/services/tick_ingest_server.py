@@ -42,10 +42,10 @@ try:
     from core.dual_redis_client import get_dual_signals_redis
     from core.ticks_redis_client import get_dual_ticks_redis
     from core.config import (
-        XAU_TICK_STREAM,
-        XAU_TICK_STREAM_MAXLEN,
-        XAU_BOOK_STREAM,
-        XAU_BOOK_STREAM_MAXLEN,
+        XAU_TICK_STREAM
+        XAU_TICK_STREAM_MAXLEN
+        XAU_BOOK_STREAM
+        XAU_BOOK_STREAM_MAXLEN
     )
     USE_DUAL = True
     USE_TICKS_REDIS = True
@@ -79,18 +79,18 @@ CRYPTO_SOURCE_WHITELIST = {
 
 # Метрики
 stats = {
-    "total_ticks": 0,
-    "total_books": 0,
-    "errors": 0,
-    "started_at": time.time(),
-    "last_tick_ts": 0,
+    "total_ticks": 0
+    "total_books": 0
+    "errors": 0
+    "started_at": time.time()
+    "last_tick_ts": 0
     "last_book_ts": 0
 }
 
 # FastAPI приложение
 app = FastAPI(
-    title="XAU Tick/Book Ingest Server",
-    description="Прием тиков и Order Book от MT5 EA и публикация в Redis Streams",
+    title="XAU Tick/Book Ingest Server"
+    description="Прием тиков и Order Book от MT5 EA и публикация в Redis Streams"
     version="2.0.0"
 )
 
@@ -200,7 +200,7 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
         if ALLOW_SYMBOLS and symbol not in ALLOW_SYMBOLS:
             stats["errors"] += 1
             raise HTTPException(
-                status_code=403,
+                status_code=403
                 detail=f"Symbol {symbol} not allowed"
             )
         
@@ -214,7 +214,7 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             if missing:
                 stats["errors"] += 1
                 raise HTTPException(
-                    status_code=422,
+                    status_code=422
                     detail=f"Missing required fields: {', '.join(missing)}"
                 )
 
@@ -230,13 +230,13 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
                 raise HTTPException(status_code=422, detail="side must be BUY or SELL")
 
             normalized_tick = {
-                "symbol": symbol,
-                "ts": ts_val,
-                "price": str(data["price"]),
-                "qty": str(data["qty"]),
-                "side": side,
-                "source": data.get("source", "binance-futures"),
-                "market": data.get("market", "USDT-M"),
+                "symbol": symbol
+                "ts": ts_val
+                "price": str(data["price"])
+                "qty": str(data["qty"])
+                "side": side
+                "source": data.get("source", "binance-futures")
+                "market": data.get("market", "USDT-M")
             }
             if "trade_id" in data:
                 normalized_tick["trade_id"] = str(data["trade_id"])
@@ -260,10 +260,10 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             try:
                 # 🎯 Используем ticks_redis_client для записи в redis-ticks
                 get_ticks_client().xadd(
-                    tick_stream,
-                    payload,
-                    maxlen=CRYPTO_TICK_MAXLEN,
-                    approximate=True,
+                    tick_stream
+                    payload
+                    maxlen=CRYPTO_TICK_MAXLEN
+                    approximate=True
                 )
             except Exception as e:  # noqa: BLE001
                 stats["errors"] += 1
@@ -278,14 +278,14 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             # ---------------------------------------------------------------------
             try:
                 write_price_latest(
-                    get_ticks_client(),
-                    symbol=str(symbol),
-                    ts_ms=int(ts_val),
+                    get_ticks_client()
+                    symbol=str(symbol)
+                    ts_ms=int(ts_val)
                     bid=None,  # crypto ticks may not have bid/ask
-                    ask=None,
-                    last=float(data["price"]) if "price" in data else None,
-                    mid=None,
-                    venue=str(data.get("source", "na")),
+                    ask=None
+                    last=float(data["price"]) if "price" in data else None
+                    mid=None
+                    venue=str(data.get("source", "na"))
                 )
             except Exception:
                 pass
@@ -294,10 +294,10 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             stats["last_tick_ts"] = ts_val
 
             return {
-                "ok": True,
-                "stream": tick_stream,
-                "symbol": symbol,
-                "ts": ts_val,
+                "ok": True
+                "stream": tick_stream
+                "symbol": symbol
+                "ts": ts_val
             }
 
         # Forex/MT5 формат
@@ -307,7 +307,7 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
         if missing:
             stats["errors"] += 1
             raise HTTPException(
-                status_code=422,
+                status_code=422
                 detail=f"Missing required fields: {', '.join(missing)}"
             )
         
@@ -329,32 +329,32 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
                 corrected_ts = raw_ts
             
             tick_data = {
-                "ts": corrected_ts,
-                "bid": float(data["bid"]),
-                "ask": float(data["ask"]),
-                "last": float(data["last"]),
-                "volume": float(data["volume"]),
-                "flags": int(data["flags"]),
+                "ts": corrected_ts
+                "bid": float(data["bid"])
+                "ask": float(data["ask"])
+                "last": float(data["last"])
+                "volume": float(data["volume"])
+                "flags": int(data["flags"])
                 "symbol": symbol
             }
         except (ValueError, TypeError) as e:
             stats["errors"] += 1
             raise HTTPException(
-                status_code=422,
+                status_code=422
                 detail=f"Invalid field type: {str(e)}"
             )
         
         if tick_data["bid"] <= 0 or tick_data["ask"] <= 0:
             stats["errors"] += 1
             raise HTTPException(
-                status_code=422,
+                status_code=422
                 detail="Bid and Ask must be positive"
             )
         
         if tick_data["ask"] < tick_data["bid"]:
             stats["errors"] += 1
             raise HTTPException(
-                status_code=422,
+                status_code=422
                 detail="Ask must be >= Bid"
             )
         
@@ -366,9 +366,9 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             
             if USE_MAXLEN:
                 get_ticks_client().xadd(
-                    tick_stream_name,
-                    payload,
-                    maxlen=MAXLEN,
+                    tick_stream_name
+                    payload
+                    maxlen=MAXLEN
                     approximate=True
                 )
             else:
@@ -386,14 +386,14 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
                 # venue is best-effort; default "mt5" for this ingest
                 venue = (os.getenv("TICKS_VENUE", "mt5") or "mt5").strip().lower()
                 write_price_latest(
-                    get_ticks_client(),
-                    symbol=str(tick_data["symbol"]),
-                    ts_ms=int(tick_data["ts"]),
-                    bid=float(tick_data["bid"]),
-                    ask=float(tick_data["ask"]),
-                    last=float(tick_data["last"]),
-                    mid=None,
-                    venue=venue,
+                    get_ticks_client()
+                    symbol=str(tick_data["symbol"])
+                    ts_ms=int(tick_data["ts"])
+                    bid=float(tick_data["bid"])
+                    ask=float(tick_data["ask"])
+                    last=float(tick_data["last"])
+                    mid=None
+                    venue=venue
                 )
             except Exception:
                 pass
@@ -402,9 +402,9 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             stats["last_tick_ts"] = tick_data["ts"]
             
             return {
-                "ok": True,
-                "stream": STREAM,
-                "symbol": tick_data["symbol"],
+                "ok": True
+                "stream": STREAM
+                "symbol": tick_data["symbol"]
                 "ts": tick_data["ts"]
             }
             
@@ -413,7 +413,7 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             print(f"❌ Ошибка публикации в Redis: {e}")
             sys.stdout.flush()
             raise HTTPException(
-                status_code=500,
+                status_code=500
                 detail=f"Redis error: {str(e)}"
             )
     
@@ -436,16 +436,16 @@ async def health_check() -> Dict[str, Any]:
         redis_ok = get_signals_client().ping()
         
         return {
-            "status": "healthy",
-            "redis": "ok" if redis_ok else "error",
-            "stream": STREAM,
+            "status": "healthy"
+            "redis": "ok" if redis_ok else "error"
+            "stream": STREAM
             "uptime_seconds": int(time.time() - stats["started_at"])
         }
     except Exception as e:
         return JSONResponse(
-            status_code=503,
+            status_code=503
             content={
-                "status": "unhealthy",
+                "status": "unhealthy"
                 "error": str(e)
             }
         )
@@ -462,12 +462,12 @@ async def receive_book(request: Request) -> Dict[str, Any]:
         "symbol": "XAUUSD",       // символ
         "bids": [                 // bid уровни (сортированы по убыванию цены)
             [1880.50, 100.5],     // [price, volume]
-            [1880.45, 50.0],
+            [1880.45, 50.0]
             ...
-        ],
+        ]
         "asks": [                 // ask уровни (сортированы по возрастанию цены)
-            [1880.75, 80.0],
-            [1880.80, 60.0],
+            [1880.75, 80.0]
+            [1880.80, 60.0]
             ...
         ]
     }
@@ -487,7 +487,7 @@ async def receive_book(request: Request) -> Dict[str, Any]:
         if ALLOW_SYMBOLS and symbol not in ALLOW_SYMBOLS:
             stats["errors"] += 1
             raise HTTPException(
-                status_code=403,
+                status_code=403
                 detail=f"Symbol {symbol} not allowed"
             )
 
@@ -500,7 +500,7 @@ async def receive_book(request: Request) -> Dict[str, Any]:
         if missing:
             stats["errors"] += 1
             raise HTTPException(
-                status_code=422,
+                status_code=422
                 detail=f"Missing required fields: {', '.join(missing)}"
             )
         
@@ -524,10 +524,10 @@ async def receive_book(request: Request) -> Dict[str, Any]:
                     return None
 
             book_snapshot = {
-                "symbol": symbol,
-                "ts": ts_val,
-                "source": data.get("source", "binance-futures"),
-                "market": data.get("market", "USDT-M"),
+                "symbol": symbol
+                "ts": ts_val
+                "source": data.get("source", "binance-futures")
+                "market": data.get("market", "USDT-M")
             }
 
             first_id_int = _safe_int_field(first_id)
@@ -558,9 +558,9 @@ async def receive_book(request: Request) -> Dict[str, Any]:
 
             payload = {key: str(value) for key, value in book_snapshot.items()}
             payload["data"] = json.dumps({
-                **book_snapshot,
-                "bids": bids_raw,
-                "asks": asks_raw,
+                **book_snapshot
+                "bids": bids_raw
+                "asks": asks_raw
             })
 
             book_stream = f"stream:book_{symbol}"
@@ -570,10 +570,10 @@ async def receive_book(request: Request) -> Dict[str, Any]:
                 # 🎯 Используем ticks_redis_client для записи в redis-ticks
                 get_ticks_client().set(cache_key, payload["data"])
                 get_ticks_client().xadd(
-                    book_stream,
-                    payload,
-                    maxlen=CRYPTO_BOOK_MAXLEN,
-                    approximate=True,
+                    book_stream
+                    payload
+                    maxlen=CRYPTO_BOOK_MAXLEN
+                    approximate=True
                 )
             except Exception as e:  # noqa: BLE001
                 stats["errors"] += 1
@@ -585,13 +585,13 @@ async def receive_book(request: Request) -> Dict[str, Any]:
             stats["last_book_ts"] = ts_val
 
             return {
-                "ok": True,
-                "stream": book_stream,
-                "cache_key": cache_key,
-                "symbol": symbol,
-                "ts": ts_val,
+                "ok": True
+                "stream": book_stream
+                "cache_key": cache_key
+                "symbol": symbol
+                "ts": ts_val
                 "depth": {
-                    "bids": len(bids_raw),
+                    "bids": len(bids_raw)
                     "asks": len(asks_raw)
                 }
             }
@@ -621,9 +621,9 @@ async def receive_book(request: Request) -> Dict[str, Any]:
             raise HTTPException(status_code=422, detail=error_msg)
         
         book_data = {
-            "ts": int(data["ts"]),
-            "symbol": symbol,
-            "bids": [[float(p), float(v)] for p, v in data["bids"]],
+            "ts": int(data["ts"])
+            "symbol": symbol
+            "bids": [[float(p), float(v)] for p, v in data["bids"]]
             "asks": [[float(p), float(v)] for p, v in data["asks"]]
         }
         
@@ -640,9 +640,9 @@ async def receive_book(request: Request) -> Dict[str, Any]:
             
             if USE_MAXLEN:
                 get_ticks_client().xadd(
-                    book_stream,
-                    payload,
-                    maxlen=BOOK_MAXLEN,
+                    book_stream
+                    payload
+                    maxlen=BOOK_MAXLEN
                     approximate=True
                 )
             else:
@@ -652,13 +652,13 @@ async def receive_book(request: Request) -> Dict[str, Any]:
             stats["last_book_ts"] = book_data["ts"]
             
             return {
-                "ok": True,
-                "stream": book_stream,
-                "cache_key": cache_key,
-                "symbol": symbol,
-                "ts": book_data["ts"],
+                "ok": True
+                "stream": book_stream
+                "cache_key": cache_key
+                "symbol": symbol
+                "ts": book_data["ts"]
                 "depth": {
-                    "bids": len(book_data["bids"]),
+                    "bids": len(book_data["bids"])
                     "asks": len(book_data["asks"])
                 }
             }
@@ -668,7 +668,7 @@ async def receive_book(request: Request) -> Dict[str, Any]:
             print(f"❌ Ошибка публикации Order Book в Redis: {e}")
             sys.stdout.flush()
             raise HTTPException(
-                status_code=500,
+                status_code=500
                 detail=f"Redis error: {str(e)}"
             )
     
@@ -714,18 +714,18 @@ async def get_stats() -> Dict[str, Any]:
         book_stream_len = None
     
     return {
-        "total_ticks": stats["total_ticks"],
-        "total_books": stats["total_books"],
-        "errors": stats["errors"],
-        "uptime_seconds": int(uptime),
-        "ticks_per_second": round(tick_rate, 2),
-        "books_per_second": round(book_rate, 2),
-        "last_tick_ago_seconds": round(last_tick_ago, 2) if last_tick_ago else None,
-        "last_book_ago_seconds": round(last_book_ago, 2) if last_book_ago else None,
-        "tick_stream": STREAM,
-        "book_stream": BOOK_STREAM,
-        "tick_stream_length": tick_stream_len,
-        "book_stream_length": book_stream_len,
+        "total_ticks": stats["total_ticks"]
+        "total_books": stats["total_books"]
+        "errors": stats["errors"]
+        "uptime_seconds": int(uptime)
+        "ticks_per_second": round(tick_rate, 2)
+        "books_per_second": round(book_rate, 2)
+        "last_tick_ago_seconds": round(last_tick_ago, 2) if last_tick_ago else None
+        "last_book_ago_seconds": round(last_book_ago, 2) if last_book_ago else None
+        "tick_stream": STREAM
+        "book_stream": BOOK_STREAM
+        "tick_stream_length": tick_stream_len
+        "book_stream_length": book_stream_len
         "started_at": datetime.fromtimestamp(stats["started_at"], tz=timezone.utc).isoformat()
     }
 
@@ -736,20 +736,20 @@ async def root():
     Корневой endpoint с информацией о сервисе.
     """
     return {
-        "service": "XAU Tick/Book Ingest Server",
-        "version": "2.0.0",
+        "service": "XAU Tick/Book Ingest Server"
+        "version": "2.0.0"
         "endpoints": {
-            "POST /tick": "Прием тика от MT5 EA (TickBridge)",
-            "POST /book": "Прием Order Book от MT5 EA (BookBridge)",
-            "GET /health": "Health check",
-            "GET /stats": "Статистика",
+            "POST /tick": "Прием тика от MT5 EA (TickBridge)"
+            "POST /book": "Прием Order Book от MT5 EA (BookBridge)"
+            "GET /health": "Health check"
+            "GET /stats": "Статистика"
             "GET /": "Эта информация"
-        },
+        }
         "streams": {
-            "ticks": STREAM,
+            "ticks": STREAM
             "books": BOOK_STREAM
-        },
-        "cache": "book:latest:<SYMBOL>",
+        }
+        "cache": "book:latest:<SYMBOL>"
         "status": "running"
     }
 

@@ -4,8 +4,8 @@ from .l2_confirm_absorption import L2ConfirmAbsorption
 from .result import ConfirmResult
 
 __all__ = [
-    "L2QualityPolicy", "L2Assessment",
-    "L2ConfirmBreakout",
-    "L2ConfirmAbsorption",
-    "ConfirmResult",
+    "L2QualityPolicy", "L2Assessment"
+    "L2ConfirmBreakout"
+    "L2ConfirmAbsorption"
+    "ConfirmResult"
 ]

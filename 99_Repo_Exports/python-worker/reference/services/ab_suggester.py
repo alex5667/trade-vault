@@ -140,30 +140,30 @@ class ABSuggester:
         ts_ms = _now_ms()
         try:
             await self.r.hset(
-                key,
+                key
                 mapping={
-                    "arm": str(winner),
-                    "ts_ms": str(ts_ms),
-                    "stats": json.dumps(stats_json, ensure_ascii=False, separators=(",", ":")),
-                },
+                    "arm": str(winner)
+                    "ts_ms": str(ts_ms)
+                    "stats": json.dumps(stats_json, ensure_ascii=False, separators=(",", ":"))
+                }
             )
         except Exception:
             pass
         # stream suggestion
         payload = {
-            "ts_ms": ts_ms,
-            "regime": reg,
-            "winner": winner,
-            "stats": stats_json,
-            "window_ms": self.window_ms,
-            "min_n": self.min_n,
+            "ts_ms": ts_ms
+            "regime": reg
+            "winner": winner
+            "stats": stats_json
+            "window_ms": self.window_ms
+            "min_n": self.min_n
         }
         try:
             await self.r.xadd(
-                self.out_stream,
-                fields={"payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
-                maxlen=20000,
-                approximate=True,
+                self.out_stream
+                fields={"payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}
+                maxlen=20000
+                approximate=True
             )
         except Exception:
             pass
@@ -188,11 +188,11 @@ class ABSuggester:
         while True:
             try:
                 msgs = await self.r.xreadgroup(
-                    groupname=self.group,
-                    consumername=self.consumer,
-                    streams={self.stream: ">"},
-                    count=200,
-                    block=1000,
+                    groupname=self.group
+                    consumername=self.consumer
+                    streams={self.stream: ">"}
+                    count=200
+                    block=1000
                 )
             except Exception:
                 await asyncio.sleep(self.sleep_no_msgs)

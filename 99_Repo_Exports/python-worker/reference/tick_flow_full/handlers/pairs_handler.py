@@ -6,5 +6,5 @@
 from .pairs_handler_impl import PairsDataHandler
 
 __all__ = [
-    'PairsDataHandler',
+    'PairsDataHandler'
 ] 

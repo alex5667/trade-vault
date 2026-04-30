@@ -30,14 +30,14 @@ class EventCoordinator:
     """
     
     def __init__(
-        self,
-        symbol: str,
-        data_processor: Any,
-        cache_service: Any,
-        session_service: Any,
-        calibration_service: Any,
-        health_metrics: Optional[Any] = None,
-        logger: Optional[logging.Logger] = None,
+        self
+        symbol: str
+        data_processor: Any
+        cache_service: Any
+        session_service: Any
+        calibration_service: Any
+        health_metrics: Optional[Any] = None
+        logger: Optional[logging.Logger] = None
     ):
         """
         Initialize event coordinator.
@@ -147,8 +147,8 @@ class EventCoordinator:
         
         try:
             self._emit_health_callback(
-                self.health_metrics,
-                symbol=self.symbol,
+                self.health_metrics
+                symbol=self.symbol
                 ctx=ctx
             )
         except Exception as e:
@@ -163,8 +163,8 @@ class EventCoordinator:
             # Call health metrics error handler if available
             if hasattr(self.health_metrics, 'on_signal_bar_failed'):
                 self.health_metrics.on_signal_bar_failed(
-                    self.symbol,
-                    tf="1m",
+                    self.symbol
+                    tf="1m"
                     reason="build_ctx_failed"
                 )
         except Exception:

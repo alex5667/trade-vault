@@ -6,7 +6,7 @@ from utils.time_utils import get_ny_time_millis
 Combines two dependency checks into a single readiness gate that the
 executor MUST pass before becoming ready to process orders:
 
-  1. Projection cluster — verifies ExecutionProjectionWorker health (lag,
+  1. Projection cluster — verifies ExecutionProjectionWorker health (lag
      cursor age, leader lease) so derived state is always consistent.
   2. User-stream contour — verifies Binance listenKey lifecycle and WebSocket
      heartbeat freshness via `orders:user_stream:status`.
@@ -105,29 +105,29 @@ def _b(v: Any, default: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 TRADE_EXECUTION_BOOTSTRAP_READY = _metric(
-    Gauge,
-    'trade_execution_bootstrap_ready',
-    'Whether projection cluster and user-stream contour are healthy enough for executor startup (1 or 0).',
+    Gauge
+    'trade_execution_bootstrap_ready'
+    'Whether projection cluster and user-stream contour are healthy enough for executor startup (1 or 0).'
 )
 TRADE_EXECUTION_BOOTSTRAP_PROJECTION_READY = _metric(
-    Gauge,
-    'trade_execution_bootstrap_projection_ready',
-    'Projection-cluster dependency readiness for executor bootstrap (1 or 0).',
+    Gauge
+    'trade_execution_bootstrap_projection_ready'
+    'Projection-cluster dependency readiness for executor bootstrap (1 or 0).'
 )
 TRADE_EXECUTION_BOOTSTRAP_USER_STREAM_READY = _metric(
-    Gauge,
-    'trade_execution_bootstrap_user_stream_ready',
-    'User-stream contour readiness for executor bootstrap (1 or 0).',
+    Gauge
+    'trade_execution_bootstrap_user_stream_ready'
+    'User-stream contour readiness for executor bootstrap (1 or 0).'
 )
 TRADE_EXECUTION_BOOTSTRAP_BLOCKED = _metric(
-    Gauge,
-    'trade_execution_bootstrap_blocked',
-    'Whether executor bootstrap is currently blocked by a dependency failure (1 or 0).',
+    Gauge
+    'trade_execution_bootstrap_blocked'
+    'Whether executor bootstrap is currently blocked by a dependency failure (1 or 0).'
 )
 TRADE_EXECUTION_BOOTSTRAP_LAST_BLOCK_TIMESTAMP_SECONDS = _metric(
-    Gauge,
-    'trade_execution_bootstrap_last_block_timestamp_seconds',
-    'Unix timestamp of the latest persisted bootstrap block incident.',
+    Gauge
+    'trade_execution_bootstrap_last_block_timestamp_seconds'
+    'Unix timestamp of the latest persisted bootstrap block incident.'
 )
 
 
@@ -193,19 +193,19 @@ class ExecutionBootstrapSupervisor:
     """
 
     def __init__(
-        self,
-        redis_client: Any,
-        *,
-        projection_worker: Optional[ExecutionProjectionWorker] = None,
-        user_stream_status_key: str = 'orders:user_stream:status',
-        user_stream_max_stale_ms: int = 45000,
-        user_stream_bootstrap_grace_ms: int = 45000,
-        require_projection_ready: bool = True,
-        require_user_stream_ready: bool = True,
-        status_key: str = 'orders:execution:bootstrap:status',
-        last_block_key: str = 'orders:execution:bootstrap:last_block',
-        block_ttl_sec: int = 86400,
-        projection_lag_readyz_max_ms: int = 30000,
+        self
+        redis_client: Any
+        *
+        projection_worker: Optional[ExecutionProjectionWorker] = None
+        user_stream_status_key: str = 'orders:user_stream:status'
+        user_stream_max_stale_ms: int = 45000
+        user_stream_bootstrap_grace_ms: int = 45000
+        require_projection_ready: bool = True
+        require_user_stream_ready: bool = True
+        status_key: str = 'orders:execution:bootstrap:status'
+        last_block_key: str = 'orders:execution:bootstrap:last_block'
+        block_ttl_sec: int = 86400
+        projection_lag_readyz_max_ms: int = 30000
     ) -> None:
         self.r = redis_client
         # Allow injection for tests; fall back to ENV-wired worker
@@ -235,7 +235,7 @@ class ExecutionBootstrapSupervisor:
         """
         try:
             raw = self.projection_worker.health_snapshot(
-                lag_readyz_max_ms=self.projection_lag_readyz_max_ms,
+                lag_readyz_max_ms=self.projection_lag_readyz_max_ms
             )
             # health_snapshot() returns a plain dict in ExecutionProjectionWorker
             if isinstance(raw, dict):
@@ -255,16 +255,16 @@ class ExecutionBootstrapSupervisor:
             reason = 'projection_exception'
         # If projection not required, treat as ready regardless
         return BootstrapDependencyStatus(
-            ready=(ready or not self.require_projection_ready),
-            reason=reason,
-            detail=snap,
+            ready=(ready or not self.require_projection_ready)
+            reason=reason
+            detail=snap
         )
 
     def user_stream_status(self) -> BootstrapDependencyStatus:
         """Evaluate freshness of the user-stream status key.
 
         Freshness anchors (highest non-zero wins):
-          last_event_ms, last_ingest_ms, last_keepalive_ms,
+          last_event_ms, last_ingest_ms, last_keepalive_ms
           ws_connected_ms, listen_key_started_ms
 
         Bootstrap grace allows a briefly-connected WS to be considered
@@ -280,16 +280,16 @@ class ExecutionBootstrapSupervisor:
                 doc = {}
         except Exception as exc:
             return BootstrapDependencyStatus(
-                ready=False,
-                reason='user_stream_status_error',
-                detail={'error': str(exc)},
+                ready=False
+                reason='user_stream_status_error'
+                detail={'error': str(exc)}
             )
 
         if not doc:
             return BootstrapDependencyStatus(
-                ready=(not self.require_user_stream_ready),
-                reason='user_stream_missing',
-                detail={},
+                ready=(not self.require_user_stream_ready)
+                reason='user_stream_missing'
+                detail={}
             )
 
         connected = _b(doc.get('connected'), False)
@@ -300,8 +300,8 @@ class ExecutionBootstrapSupervisor:
         listen_key_started_ms = _i(doc.get('listen_key_started_ms'))
         # Pick the most recent activity anchor across all heartbeat fields
         freshest_ms = max(
-            last_event_ms, last_ingest_ms, last_keepalive_ms,
-            ws_connected_ms, listen_key_started_ms,
+            last_event_ms, last_ingest_ms, last_keepalive_ms
+            ws_connected_ms, listen_key_started_ms
         )
         age_ms = max(0, now_ms - freshest_ms) if freshest_ms else now_ms
         have_listen_key = bool(_s(doc.get('listen_key')))
@@ -325,24 +325,24 @@ class ExecutionBootstrapSupervisor:
             reason = 'user_stream_stale'
 
         detail = {
-            'status_key': self.user_stream_status_key,
-            'connected': connected,
-            'status': status,
-            'have_listen_key': have_listen_key,
-            'freshest_ms': freshest_ms,
-            'age_ms': age_ms,
-            'last_event_ms': last_event_ms,
-            'last_ingest_ms': last_ingest_ms,
-            'last_keepalive_ms': last_keepalive_ms,
-            'ws_connected_ms': ws_connected_ms,
-            'listen_key_started_ms': listen_key_started_ms,
+            'status_key': self.user_stream_status_key
+            'connected': connected
+            'status': status
+            'have_listen_key': have_listen_key
+            'freshest_ms': freshest_ms
+            'age_ms': age_ms
+            'last_event_ms': last_event_ms
+            'last_ingest_ms': last_ingest_ms
+            'last_keepalive_ms': last_keepalive_ms
+            'ws_connected_ms': ws_connected_ms
+            'listen_key_started_ms': listen_key_started_ms
         }
         # Include raw doc fields for extra observability (status, listen_key, etc.)
         detail.update(doc)
         return BootstrapDependencyStatus(
-            ready=(ready or not self.require_user_stream_ready),
-            reason=reason,
-            detail=detail,
+            ready=(ready or not self.require_user_stream_ready)
+            reason=reason
+            detail=detail
         )
 
     # ------------------------------------------------------------------
@@ -421,16 +421,16 @@ class ExecutionBootstrapSupervisor:
         if blocked:
             # Persist the incident for operator inspection
             incident = BootstrapBlockIncident(
-                ready=snap.ready,
-                reason=snap.reason,
-                checked_at_ms=snap.checked_at_ms,
-                projection=snap.projection,
-                user_stream=snap.user_stream,
+                ready=snap.ready
+                reason=snap.reason
+                checked_at_ms=snap.checked_at_ms
+                projection=snap.projection
+                user_stream=snap.user_stream
                 runbook_actions=self._runbook_actions_for_reason(
                     snap.reason, snap.projection, snap.user_stream
-                ),
-                status_key=self.status_key,
-                last_block_key=self.last_block_key,
+                )
+                status_key=self.status_key
+                last_block_key=self.last_block_key
             )
             self._persist_json(self.last_block_key, incident.to_dict(), ttl_sec=self.block_ttl_sec)
             try:
@@ -459,16 +459,16 @@ class ExecutionBootstrapSupervisor:
         ) else None
         if not actions:
             actions = self._runbook_actions_for_reason(
-                latest_reason or _s(current.get('reason')),
-                current.get('projection') or {},
-                current.get('user_stream') or {},
+                latest_reason or _s(current.get('reason'))
+                current.get('projection') or {}
+                current.get('user_stream') or {}
             )
         return {
-            'current': current,
-            'latest_block': latest_block,
-            'runbook_actions': actions,
-            'status_key': self.status_key,
-            'last_block_key': self.last_block_key,
+            'current': current
+            'latest_block': latest_block
+            'runbook_actions': actions
+            'status_key': self.status_key
+            'last_block_key': self.last_block_key
         }
 
     # ------------------------------------------------------------------
@@ -499,12 +499,12 @@ class ExecutionBootstrapSupervisor:
             pass
 
         snap = BootstrapHealthSnapshot(
-            ok=ready,
-            ready=ready,
-            reason=reason,
-            projection=projection.to_dict(),
-            user_stream=user_stream.to_dict(),
-            checked_at_ms=checked_at_ms,
+            ok=ready
+            ready=ready
+            reason=reason
+            projection=projection.to_dict()
+            user_stream=user_stream.to_dict()
+            checked_at_ms=checked_at_ms
         )
         # P1.2.4: persist snapshot and update blocked gauges on every check
         self._record_snapshot(snap)
@@ -543,23 +543,23 @@ def _redis_from_env() -> Any:  # pragma: no cover
 def _supervisor_from_env(redis_client: Any) -> ExecutionBootstrapSupervisor:
     """Build ExecutionBootstrapSupervisor from ENV variables."""
     return ExecutionBootstrapSupervisor(
-        redis_client,
-        projection_worker=_worker_from_env(redis_client),
-        user_stream_status_key=os.getenv('USER_STREAM_STATUS_KEY', 'orders:user_stream:status'),
-        user_stream_max_stale_ms=int(os.getenv('USER_STREAM_MAX_STALE_MS', '45000')),
+        redis_client
+        projection_worker=_worker_from_env(redis_client)
+        user_stream_status_key=os.getenv('USER_STREAM_STATUS_KEY', 'orders:user_stream:status')
+        user_stream_max_stale_ms=int(os.getenv('USER_STREAM_MAX_STALE_MS', '45000'))
         user_stream_bootstrap_grace_ms=int(
             os.getenv('EXEC_BOOTSTRAP_USER_STREAM_GRACE_MS', os.getenv('USER_STREAM_MAX_STALE_MS', '45000'))
-        ),
-        require_projection_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY', '1'), True),
-        require_user_stream_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY', '1'), True),
+        )
+        require_projection_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_PROJECTION_READY', '1'), True)
+        require_user_stream_ready=_b(os.getenv('EXEC_BOOTSTRAP_REQUIRE_USER_STREAM_READY', '1'), True)
         # Projection lag threshold — forwarded to health_snapshot(lag_readyz_max_ms=…)
         projection_lag_readyz_max_ms=int(
             os.getenv('EXEC_PROJECTION_HEALTH_MAX_LAG_MS', '30000')
-        ),
+        )
         # P1.2.4: persisted bootstrap block state keys
-        status_key=os.getenv('EXEC_BOOTSTRAP_STATUS_KEY', 'orders:execution:bootstrap:status'),
-        last_block_key=os.getenv('EXEC_BOOTSTRAP_LAST_BLOCK_KEY', 'orders:execution:bootstrap:last_block'),
-        block_ttl_sec=int(os.getenv('EXEC_BOOTSTRAP_BLOCK_TTL_SEC', '86400')),
+        status_key=os.getenv('EXEC_BOOTSTRAP_STATUS_KEY', 'orders:execution:bootstrap:status')
+        last_block_key=os.getenv('EXEC_BOOTSTRAP_LAST_BLOCK_KEY', 'orders:execution:bootstrap:last_block')
+        block_ttl_sec=int(os.getenv('EXEC_BOOTSTRAP_BLOCK_TTL_SEC', '86400'))
     )
 
 
@@ -579,20 +579,20 @@ def wait_until_env_ready(*, timeout_ms: int = 0, poll_ms: int = 500) -> Bootstra
 
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:  # pragma: no cover
     p = argparse.ArgumentParser(description='Execution bootstrap supervisor')
-    p.add_argument('--print-health', action='store_true',
+    p.add_argument('--print-health', action='store_true'
                    help='print one combined bootstrap health snapshot and exit')
     # P1.2.4: new CLI ops tools for incident triage
-    p.add_argument('--print-last-block', action='store_true',
+    p.add_argument('--print-last-block', action='store_true'
                    help='print latest persisted bootstrap block incident and exit')
-    p.add_argument('--print-runbook', action='store_true',
+    p.add_argument('--print-runbook', action='store_true'
                    help='print runbook payload with latest block reason and actions and exit')
-    p.add_argument('--wait-until-ready', action='store_true',
+    p.add_argument('--wait-until-ready', action='store_true'
                    help='block until projection cluster and user-stream contour are healthy')
-    p.add_argument('--timeout-ms', type=int,
+    p.add_argument('--timeout-ms', type=int
                    default=int(os.getenv('EXEC_BOOTSTRAP_TIMEOUT_MS', '0')))
-    p.add_argument('--poll-ms', type=int,
+    p.add_argument('--poll-ms', type=int
                    default=int(os.getenv('EXEC_BOOTSTRAP_POLL_MS', '500')))
-    p.add_argument('--run-executor', action='store_true',
+    p.add_argument('--run-executor', action='store_true'
                    help='wait until ready and then start BinanceExecutor in-process')
     return p.parse_args(argv)
 
@@ -613,8 +613,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover
         return 0
     if args.wait_until_ready or args.run_executor:
         snap = sup.wait_until_ready(
-            timeout_ms=int(args.timeout_ms or 0),
-            poll_ms=int(args.poll_ms or 500),
+            timeout_ms=int(args.timeout_ms or 0)
+            poll_ms=int(args.poll_ms or 500)
         )
         print(json.dumps(snap.to_dict(), ensure_ascii=False, indent=2))
         if not snap.ready:

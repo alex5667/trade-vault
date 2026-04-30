@@ -72,10 +72,10 @@ class InvariantRuntimeEngine:
             # sl_price < entry_price < tp1_price
             if not (0 < sl_price < entry_price and (tp1_price == 0 or entry_price < tp1_price)):
                 violations.append({
-                    "invariant_id": active_codes["INV_PAYLOAD_BUY_ORDERING"]["invariant_id"],
-                    "reason_code": "INV_PAYLOAD_BUY_ORDERING",
-                    "severity": active_codes["INV_PAYLOAD_BUY_ORDERING"]["severity"],
-                    "enforcement_mode": active_codes["INV_PAYLOAD_BUY_ORDERING"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_PAYLOAD_BUY_ORDERING"]["invariant_id"]
+                    "reason_code": "INV_PAYLOAD_BUY_ORDERING"
+                    "severity": active_codes["INV_PAYLOAD_BUY_ORDERING"]["severity"]
+                    "enforcement_mode": active_codes["INV_PAYLOAD_BUY_ORDERING"]["enforcement_mode"]
                     "details": f"BUY ordering violated: sl={sl_price}, entry={entry_price}, tp1={tp1_price}"
                 })
 
@@ -83,30 +83,30 @@ class InvariantRuntimeEngine:
             # sl_price > entry_price > tp1_price
             if not (sl_price > entry_price and (tp1_price == 0 or entry_price > tp1_price)):
                 violations.append({
-                    "invariant_id": active_codes["INV_PAYLOAD_SELL_ORDERING"]["invariant_id"],
-                    "reason_code": "INV_PAYLOAD_SELL_ORDERING",
-                    "severity": active_codes["INV_PAYLOAD_SELL_ORDERING"]["severity"],
-                    "enforcement_mode": active_codes["INV_PAYLOAD_SELL_ORDERING"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_PAYLOAD_SELL_ORDERING"]["invariant_id"]
+                    "reason_code": "INV_PAYLOAD_SELL_ORDERING"
+                    "severity": active_codes["INV_PAYLOAD_SELL_ORDERING"]["severity"]
+                    "enforcement_mode": active_codes["INV_PAYLOAD_SELL_ORDERING"]["enforcement_mode"]
                     "details": f"SELL ordering violated: sl={sl_price}, entry={entry_price}, tp1={tp1_price}"
                 })
                 
         if "INV_SIGNAL_ID_REQUIRED" in active_codes:
             if not signal_id:
                 violations.append({
-                    "invariant_id": active_codes["INV_SIGNAL_ID_REQUIRED"]["invariant_id"],
-                    "reason_code": "INV_SIGNAL_ID_REQUIRED",
-                    "severity": active_codes["INV_SIGNAL_ID_REQUIRED"]["severity"],
-                    "enforcement_mode": active_codes["INV_SIGNAL_ID_REQUIRED"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_SIGNAL_ID_REQUIRED"]["invariant_id"]
+                    "reason_code": "INV_SIGNAL_ID_REQUIRED"
+                    "severity": active_codes["INV_SIGNAL_ID_REQUIRED"]["severity"]
+                    "enforcement_mode": active_codes["INV_SIGNAL_ID_REQUIRED"]["enforcement_mode"]
                     "details": "signal_id is missing or empty"
                 })
 
         if "INV_TRADEABLE_REQUIRES_NO_HARD_VETO" in active_codes:
             if tradeable and veto_reason is not None and str(veto_reason).strip() != "":
                 violations.append({
-                    "invariant_id": active_codes["INV_TRADEABLE_REQUIRES_NO_HARD_VETO"]["invariant_id"],
-                    "reason_code": "INV_TRADEABLE_REQUIRES_NO_HARD_VETO",
-                    "severity": active_codes["INV_TRADEABLE_REQUIRES_NO_HARD_VETO"]["severity"],
-                    "enforcement_mode": active_codes["INV_TRADEABLE_REQUIRES_NO_HARD_VETO"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_TRADEABLE_REQUIRES_NO_HARD_VETO"]["invariant_id"]
+                    "reason_code": "INV_TRADEABLE_REQUIRES_NO_HARD_VETO"
+                    "severity": active_codes["INV_TRADEABLE_REQUIRES_NO_HARD_VETO"]["severity"]
+                    "enforcement_mode": active_codes["INV_TRADEABLE_REQUIRES_NO_HARD_VETO"]["enforcement_mode"]
                     "details": f"Marked tradeable but has veto_reason: {veto_reason}"
                 })
 
@@ -114,20 +114,20 @@ class InvariantRuntimeEngine:
             # We assume order evaluation is happening if we are in validate_signal
             if risk_pct <= 0 and effective_risk_pct <= 0:
                 violations.append({
-                    "invariant_id": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["invariant_id"],
-                    "reason_code": "INV_NO_ORDER_WITHOUT_RISK_PCT",
-                    "severity": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["severity"],
-                    "enforcement_mode": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["invariant_id"]
+                    "reason_code": "INV_NO_ORDER_WITHOUT_RISK_PCT"
+                    "severity": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["severity"]
+                    "enforcement_mode": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["enforcement_mode"]
                     "details": f"risk_pct=0 and effective_risk_pct=0"
                 })
 
         if "INV_NO_ORDER_WITHOUT_SL" in active_codes:
             if sl_price <= 0:
                 violations.append({
-                    "invariant_id": active_codes["INV_NO_ORDER_WITHOUT_SL"]["invariant_id"],
-                    "reason_code": "INV_NO_ORDER_WITHOUT_SL",
-                    "severity": active_codes["INV_NO_ORDER_WITHOUT_SL"]["severity"],
-                    "enforcement_mode": active_codes["INV_NO_ORDER_WITHOUT_SL"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_NO_ORDER_WITHOUT_SL"]["invariant_id"]
+                    "reason_code": "INV_NO_ORDER_WITHOUT_SL"
+                    "severity": active_codes["INV_NO_ORDER_WITHOUT_SL"]["severity"]
+                    "enforcement_mode": active_codes["INV_NO_ORDER_WITHOUT_SL"]["enforcement_mode"]
                     "details": "sl_price is zero or missing"
                 })
 
@@ -149,40 +149,40 @@ class InvariantRuntimeEngine:
         if "INV_NO_NEW_RISK_UNDER_DEGRADE" in active_codes:
             if is_new_entry and degrade_state in {"reduce_only", "no_new_risk", "hard_freeze"}:
                 violations.append({
-                    "invariant_id": active_codes["INV_NO_NEW_RISK_UNDER_DEGRADE"]["invariant_id"],
-                    "reason_code": "INV_NO_NEW_RISK_UNDER_DEGRADE",
-                    "severity": active_codes["INV_NO_NEW_RISK_UNDER_DEGRADE"]["severity"],
-                    "enforcement_mode": active_codes["INV_NO_NEW_RISK_UNDER_DEGRADE"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_NO_NEW_RISK_UNDER_DEGRADE"]["invariant_id"]
+                    "reason_code": "INV_NO_NEW_RISK_UNDER_DEGRADE"
+                    "severity": active_codes["INV_NO_NEW_RISK_UNDER_DEGRADE"]["severity"]
+                    "enforcement_mode": active_codes["INV_NO_NEW_RISK_UNDER_DEGRADE"]["enforcement_mode"]
                     "details": f"Cannot take new risk under degrade_state={degrade_state}"
                 })
 
         if "INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE" in active_codes:
             if rollout_stage == "live_100" and allocator_state != "fresh" and is_new_entry:
                 violations.append({
-                    "invariant_id": active_codes["INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE"]["invariant_id"],
-                    "reason_code": "INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE",
-                    "severity": active_codes["INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE"]["severity"],
-                    "enforcement_mode": active_codes["INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE"]["invariant_id"]
+                    "reason_code": "INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE"
+                    "severity": active_codes["INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE"]["severity"]
+                    "enforcement_mode": active_codes["INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE"]["enforcement_mode"]
                     "details": "Live scope cannot trade on stale allocator state"
                 })
 
         if "INV_NO_PORTFOLIO_CAP_BYPASS" in active_codes:
             if is_new_entry and not portfolio_gate_allow:
                 violations.append({
-                    "invariant_id": active_codes["INV_NO_PORTFOLIO_CAP_BYPASS"]["invariant_id"],
-                    "reason_code": "INV_NO_PORTFOLIO_CAP_BYPASS",
-                    "severity": active_codes["INV_NO_PORTFOLIO_CAP_BYPASS"]["severity"],
-                    "enforcement_mode": active_codes["INV_NO_PORTFOLIO_CAP_BYPASS"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_NO_PORTFOLIO_CAP_BYPASS"]["invariant_id"]
+                    "reason_code": "INV_NO_PORTFOLIO_CAP_BYPASS"
+                    "severity": active_codes["INV_NO_PORTFOLIO_CAP_BYPASS"]["severity"]
+                    "enforcement_mode": active_codes["INV_NO_PORTFOLIO_CAP_BYPASS"]["enforcement_mode"]
                     "details": "Order violates portfolio gate concentration/cluster caps"
                 })
 
         if "INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE" in active_codes:
             if (not is_new_entry) and not protective_exit_allowed:
                 violations.append({
-                    "invariant_id": active_codes["INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE"]["invariant_id"],
-                    "reason_code": "INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE",
-                    "severity": active_codes["INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE"]["severity"],
-                    "enforcement_mode": active_codes["INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE"]["invariant_id"]
+                    "reason_code": "INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE"
+                    "severity": active_codes["INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE"]["severity"]
+                    "enforcement_mode": active_codes["INV_PROTECTIVE_EXITS_ALWAYS_ALLOWED_UNDER_DEGRADE"]["enforcement_mode"]
                     "details": "Protective exit explicitly blocked"
                 })
 

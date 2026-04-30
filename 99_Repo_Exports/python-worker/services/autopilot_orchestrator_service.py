@@ -66,12 +66,12 @@ def _run_cmd(cmd: str, cwd: str) -> tuple[int, str]:
     """Run a shell command and return (rc, combined_output)."""
     try:
         p = subprocess.run(
-            cmd,
-            cwd=cwd,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
+            cmd
+            cwd=cwd
+            shell=True
+            stdout=subprocess.PIPE
+            stderr=subprocess.STDOUT
+            text=True
         )
         return int(p.returncode), str(p.stdout or "")
     except Exception as e:
@@ -123,9 +123,9 @@ def main() -> int:
     out_path = os.getenv("AUTOPILOT_OUT_PATH", "/tmp/closed_7d.ndjson")
 
     sch = AutopilotSchedule(
-        tz=os.getenv("AUTOPILOT_TZ", "Europe/Zaporozhye"),
-        hour_local=int(os.getenv("AUTOPILOT_RUN_HOUR_LOCAL", "9")),
-        minute_local=int(os.getenv("AUTOPILOT_RUN_MINUTE_LOCAL", "5")),
+        tz=os.getenv("AUTOPILOT_TZ", "Europe/Zaporozhye")
+        hour_local=int(os.getenv("AUTOPILOT_RUN_HOUR_LOCAL", "9"))
+        minute_local=int(os.getenv("AUTOPILOT_RUN_MINUTE_LOCAL", "5"))
     )
 
     lock_ttl = int(os.getenv("AUTOPILOT_LOCK_TTL_SEC", "21600"))

@@ -22,8 +22,8 @@ def compute_conf_thresholds(env: Mapping[str, str], sym_u: str) -> Tuple[float, 
       min_cf   = ENV[MIN_CONF_FACTOR_{SYM}]       fallback ENV[MIN_CONF_FACTOR_DEFAULT]
 
     Почему отдельная функция:
-      - легко тестировать,
-      - не тянет os.getenv(),
+      - легко тестировать
+      - не тянет os.getenv()
       - можно переиспользовать в разных местах (handler/pipeline).
     """
     sym_u = (sym_u or "").strip()

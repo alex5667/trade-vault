@@ -16,10 +16,10 @@ from types import SimpleNamespace
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 from ml_analysis.golden_replay.compare import (
-    diff_objects,
-    extract_expected_ofc,
-    extract_policy_keys,
-    summarize_diffs,
+    diff_objects
+    extract_expected_ofc
+    extract_policy_keys
+    summarize_diffs
 )
 
 
@@ -72,9 +72,9 @@ def _build_runtime(engine: Any, snap: Dict[str, Any]) -> Any:
 
 def _engine_import() -> Any:
     for mod in (
-        "tick_flow_full.core.of_confirm_engine",
-        "core.of_confirm_engine",
-        "of_confirm_engine",
+        "tick_flow_full.core.of_confirm_engine"
+        "core.of_confirm_engine"
+        "of_confirm_engine"
     ):
         try:
             m = __import__(mod, fromlist=["OFConfirmEngine"])
@@ -129,10 +129,10 @@ def main() -> int:
     mismatch_samples = []
 
     evidence_keys_lite = {
-        "meta_enable", "meta_mode", "meta_p_min", "meta_p", "meta_veto", "meta_reason",
-        "meta_schema_name", "meta_schema_version", "meta_schema_hash",
-        "meta_model_schema_name", "meta_model_schema_version", "meta_model_schema_hash",
-        "hard_veto", "ok_soft", "scenario_v4", "need_reason", "policy_reason",
+        "meta_enable", "meta_mode", "meta_p_min", "meta_p", "meta_veto", "meta_reason"
+        "meta_schema_name", "meta_schema_version", "meta_schema_hash"
+        "meta_model_schema_name", "meta_model_schema_version", "meta_model_schema_hash"
+        "hard_veto", "ok_soft", "scenario_v4", "need_reason", "policy_reason"
     }
 
     for rec in _read_ndjson(in_path, limit=args.limit):
@@ -205,18 +205,18 @@ def main() -> int:
 
         try:
             ofc, _dec = engine.build(
-                symbol=symbol,
-                tf=tf,
-                direction=direction,
-                tick_ts_ms=tick_ts_ms,
-                price=price,
-                delta_z=delta_z,
-                snap_t0=None,
-                snap_prev=None,
-                runtime=runtime,
-                cfg=cfg,
-                indicators=dict(indicators),
-                absorption=inputs.get("absorption") if isinstance(inputs.get("absorption"), dict) else None,
+                symbol=symbol
+                tf=tf
+                direction=direction
+                tick_ts_ms=tick_ts_ms
+                price=price
+                delta_z=delta_z
+                snap_t0=None
+                snap_prev=None
+                runtime=runtime
+                cfg=cfg
+                indicators=dict(indicators)
+                absorption=inputs.get("absorption") if isinstance(inputs.get("absorption"), dict) else None
             )
         except Exception as e:
             mism += 1
@@ -248,24 +248,24 @@ def main() -> int:
         if diffs:
             mism += 1
             mismatch_samples.append({
-                "row": total,
-                "kind": "diff",
-                "summary": summarize_diffs(diffs),
-                "policy_hash": ph,
-                "manifest_hash": mh,
+                "row": total
+                "kind": "diff"
+                "summary": summarize_diffs(diffs)
+                "policy_hash": ph
+                "manifest_hash": mh
             })
 
     report = {
-        "input": str(in_path),
-        "total_rows": total,
-        "mismatched_rows": mism,
-        "policy_hash": policy_seen,
-        "manifest_hash": manifest_seen,
-        "abs_tol": float(args.abs_tol),
-        "rel_tol": float(args.rel_tol),
-        "evidence_mode": args.evidence,
-        "compare_meta_features": bool(args.compare_meta_features),
-        "samples": mismatch_samples[:50],
+        "input": str(in_path)
+        "total_rows": total
+        "mismatched_rows": mism
+        "policy_hash": policy_seen
+        "manifest_hash": manifest_seen
+        "abs_tol": float(args.abs_tol)
+        "rel_tol": float(args.rel_tol)
+        "evidence_mode": args.evidence
+        "compare_meta_features": bool(args.compare_meta_features)
+        "samples": mismatch_samples[:50]
     }
     (outdir / "golden_replay_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 

@@ -26,19 +26,19 @@ def example_1_standalone_tracker():
     
     # Конфигурация
     config = {
-        "symbols": ["XAUUSD"],
-        "strategies": ["orderflow"],
+        "symbols": ["XAUUSD"]
+        "strategies": ["orderflow"]
         "monitor": {
-            "default_lot": 1.0,
-            "stop_atr_mult": 1.0,
-            "rr_levels": [1.0, 2.0, 3.0],
+            "default_lot": 1.0
+            "stop_atr_mult": 1.0
+            "rr_levels": [1.0, 2.0, 3.0]
             "tp_ratio": [0.50, 0.30, 0.20]
-        },
+        }
         "telegram": {
             "bot_token": None,  # Заполнить из ENV
             "chat_id": None
-        },
-        "daily_summary_enabled": True,
+        }
+        "daily_summary_enabled": True
         "daily_summary_hour": 0
     }
     
@@ -83,9 +83,9 @@ def example_2_manual_components():
     
     # Создание компонентов
     monitor = TradeMonitor(config={
-        "default_lot": 1.0,
-        "stop_atr_mult": 1.0,
-        "rr_levels": [1.0, 2.0, 3.0],
+        "default_lot": 1.0
+        "stop_atr_mult": 1.0
+        "rr_levels": [1.0, 2.0, 3.0]
         "tp_ratio": [0.50, 0.30, 0.20]
     })
     
@@ -93,12 +93,12 @@ def example_2_manual_components():
     
     # Обработка тестового сигнала
     test_signal = {
-        "strategy": "orderflow",
-        "symbol": "XAUUSD",
-        "tf": "tick",
-        "direction": "LONG",
-        "price": 2650.50,
-        "atr": 1.2,
+        "strategy": "orderflow"
+        "symbol": "XAUUSD"
+        "tf": "tick"
+        "direction": "LONG"
+        "price": 2650.50
+        "atr": 1.2
         "timestamp": get_ny_time_millis()
     }
     
@@ -111,9 +111,9 @@ def example_2_manual_components():
     
     # Тик 1: движение к TP1
     tick_1 = {
-        "symbol": "XAUUSD",
+        "symbol": "XAUUSD"
         "last": 2651.70,  # TP1 = 2650.50 + 1.2 = 2651.70
-        "bid": 2651.68,
+        "bid": 2651.68
         "ask": 2651.72
     }
     monitor.process_tick(tick_1)
@@ -121,9 +121,9 @@ def example_2_manual_components():
     
     # Тик 2: движение к TP2
     tick_2 = {
-        "symbol": "XAUUSD",
+        "symbol": "XAUUSD"
         "last": 2652.90,  # TP2 = 2650.50 + 2.4 = 2652.90
-        "bid": 2652.88,
+        "bid": 2652.88
         "ask": 2652.92
     }
     monitor.process_tick(tick_2)
@@ -225,7 +225,7 @@ def example_4_telegram_notifications():
     
     # ВАЖНО: Заполнить реальные значения
     telegram_config = {
-        "bot_token": "YOUR_BOT_TOKEN",
+        "bot_token": "YOUR_BOT_TOKEN"
         "chat_id": "YOUR_CHAT_ID"
     }
     
@@ -248,14 +248,14 @@ def example_4_telegram_notifications():
     # Уведомление о закрытии сделки
     print("\n📤 Отправка уведомления о сделке...")
     test_trade = {
-        "strategy": "orderflow",
-        "symbol": "XAUUSD",
-        "tf": "tick",
-        "direction": "LONG",
-        "result": "win",
-        "pnl": 45.50,
-        "pnl_pct": 1.8,
-        "close_reason": "TP2",
+        "strategy": "orderflow"
+        "symbol": "XAUUSD"
+        "tf": "tick"
+        "direction": "LONG"
+        "result": "win"
+        "pnl": 45.50
+        "pnl_pct": 1.8
+        "close_reason": "TP2"
         "tp_count": 2
     }
     reporting.notify_trade_closed(test_trade)
@@ -313,7 +313,7 @@ def example_6_real_time_monitoring():
     print("=" * 60)
     
     config = {
-        "symbols": ["XAUUSD"],
+        "symbols": ["XAUUSD"]
         "strategies": ["orderflow"]
     }
     
@@ -353,12 +353,12 @@ def main():
     print("=" * 60 + "\n")
     
     examples = {
-        "1": ("Standalone Tracker", example_1_standalone_tracker),
-        "2": ("Ручное управление компонентами", example_2_manual_components),
-        "3": ("Статистика и отчёты", example_3_statistics_and_reports),
-        "4": ("Telegram уведомления", example_4_telegram_notifications),
-        "5": ("Экспорт данных", example_5_export_data),
-        "6": ("Real-time мониторинг", example_6_real_time_monitoring),
+        "1": ("Standalone Tracker", example_1_standalone_tracker)
+        "2": ("Ручное управление компонентами", example_2_manual_components)
+        "3": ("Статистика и отчёты", example_3_statistics_and_reports)
+        "4": ("Telegram уведомления", example_4_telegram_notifications)
+        "5": ("Экспорт данных", example_5_export_data)
+        "6": ("Real-time мониторинг", example_6_real_time_monitoring)
     }
     
     print("Доступные примеры:")

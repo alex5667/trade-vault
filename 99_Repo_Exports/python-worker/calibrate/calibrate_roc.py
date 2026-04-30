@@ -90,10 +90,10 @@ def main():
             best_threshold = thresholds[best_idx]
             
             results[feat] = {
-                "auc": float(auc),
-                "threshold": float(best_threshold),
-                "tpr": float(tpr[best_idx]),
-                "fpr": float(fpr[best_idx]),
+                "auc": float(auc)
+                "threshold": float(best_threshold)
+                "tpr": float(tpr[best_idx])
+                "fpr": float(fpr[best_idx])
                 "youden_j": float(j[best_idx])
             }
             
@@ -110,18 +110,18 @@ def main():
     
     # Build config
     cfg = {
-        "symbol": args.symbol,
+        "symbol": args.symbol
         "thresholds": {
-            "deltaSpikeZ": float(results.get("delta_z", {}).get("threshold", 2.0)),
-            "obi_signed": float(results.get("obi_signed", {}).get("threshold", 0.25)),
+            "deltaSpikeZ": float(results.get("delta_z", {}).get("threshold", 2.0))
+            "obi_signed": float(results.get("obi_signed", {}).get("threshold", 0.25))
             "weakProgress": 0.3  # Fixed methodologically
-        },
+        }
         "aucs": {
             k: v["auc"] for k, v in results.items()
-        },
+        }
         "calibration": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "samples": len(df),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+            "samples": len(df)
             "win_rate": float(df["label"].mean())
         }
     }

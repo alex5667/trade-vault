@@ -41,23 +41,23 @@ class PositionStrategy:
 # Canonical strategy definitions
 _STRATEGIES = {
     "independent": PositionStrategy(
-        name="independent",
-        single_active=False,
+        name="independent"
+        single_active=False
         router_enable=True,       # passthrough — no redirect
-        scale_in_enable=False,
-    ),
+        scale_in_enable=False
+    )
     "single": PositionStrategy(
-        name="single",
-        single_active=True,
+        name="single"
+        single_active=True
         router_enable=True,       # passthrough — new opens rejected by executor
-        scale_in_enable=False,
-    ),
+        scale_in_enable=False
+    )
     "scale_in": PositionStrategy(
-        name="scale_in",
+        name="scale_in"
         single_active=True,       # required — scale-in needs single owner
-        router_enable=True,
-        scale_in_enable=True,
-    ),
+        router_enable=True
+        scale_in_enable=True
+    )
 }
 
 
@@ -95,10 +95,10 @@ def resolve_strategy() -> PositionStrategy:
         if strategy.scale_in_enable:
             # Downgrade scale_in → single (keep single_active, disable redirect)
             strategy = PositionStrategy(
-                name=f"{strategy.name}(kill_switch→single)",
-                single_active=strategy.single_active,
-                router_enable=strategy.router_enable,
-                scale_in_enable=False,
+                name=f"{strategy.name}(kill_switch→single)"
+                single_active=strategy.single_active
+                router_enable=strategy.router_enable
+                scale_in_enable=False
             )
 
     return strategy

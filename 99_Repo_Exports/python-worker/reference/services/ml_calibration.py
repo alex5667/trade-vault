@@ -46,7 +46,7 @@ class PlattLogitCalibrator:
     Calibrator on probability space using logit(p):
       p_cal = sigmoid(a * logit(p_raw) + b)
 
-    Это эквивалент "temperature scaling" (если b=0) и Platt scaling (если a,b оба обучаемые),
+    Это эквивалент "temperature scaling" (если b=0) и Platt scaling (если a,b оба обучаемые)
     но работает напрямую по p_raw (не требуя доступа к исходным logits модели).
 
     Parameters:
@@ -83,9 +83,9 @@ class PlattLogitCalibrator:
         Deserialize calibrator from dict (loaded from Redis cfg).
         """
         return PlattLogitCalibrator(
-            a=float(d.get("a", 1.0) or 1.0),
-            b=float(d.get("b", 0.0) or 0.0),
-            eps=float(d.get("eps", 1e-6) or 1e-6),
+            a=float(d.get("a", 1.0) or 1.0)
+            b=float(d.get("b", 0.0) or 0.0)
+            eps=float(d.get("eps", 1e-6) or 1e-6)
         )
 
 

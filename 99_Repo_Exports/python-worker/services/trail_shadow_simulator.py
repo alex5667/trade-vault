@@ -56,11 +56,11 @@ class ShadowSimConfig:
     @classmethod
     def from_env(cls) -> "ShadowSimConfig":
         return cls(
-            enabled=_env_bool("TRAIL_SHADOW_ENABLED", True),
-            atr_fallback_bps=float(os.getenv("TRAIL_SHADOW_ATR_FALLBACK_BPS", "50") or 50),
-            key_prefix=os.getenv("TRAIL_SHADOW_KEY_PREFIX", "trail:shadow") or "trail:shadow",
-            calib_prefix=os.getenv("TRAIL_CALIB_KEY_PREFIX", "trail:calib") or "trail:calib",
-            ttl_sec=int(os.getenv("TRAIL_CALIB_TTL_SEC", str(48 * 3600)) or 48 * 3600),
+            enabled=_env_bool("TRAIL_SHADOW_ENABLED", True)
+            atr_fallback_bps=float(os.getenv("TRAIL_SHADOW_ATR_FALLBACK_BPS", "50") or 50)
+            key_prefix=os.getenv("TRAIL_SHADOW_KEY_PREFIX", "trail:shadow") or "trail:shadow"
+            calib_prefix=os.getenv("TRAIL_CALIB_KEY_PREFIX", "trail:calib") or "trail:calib"
+            ttl_sec=int(os.getenv("TRAIL_CALIB_TTL_SEC", str(48 * 3600)) or 48 * 3600)
         )
 
 
@@ -69,21 +69,21 @@ class ShadowSimConfig:
 # ---------------------------------------------------------------------------
 
 DEFAULT_ATR_BPS: Dict[str, float] = {
-    "BTCUSDT": 30.0,
-    "ETHUSDT": 45.0,
-    "SOLUSDT": 80.0,
-    "XRPUSDT": 60.0,
-    "BNBUSDT": 40.0,
-    "DOGEUSDT": 100.0,
-    "1000PEPEUSDT": 120.0,
-    "1000BONKUSDT": 110.0,
-    "1000SHIBUSDT": 90.0,
-    "1000FLOKIUSDT": 95.0,
-    "XAUUSDT": 25.0,
-    "WIFUSDT": 100.0,
-    "SUIUSDT": 85.0,
-    "APTUSDT": 75.0,
-    "ARBUSDT": 70.0,
+    "BTCUSDT": 30.0
+    "ETHUSDT": 45.0
+    "SOLUSDT": 80.0
+    "XRPUSDT": 60.0
+    "BNBUSDT": 40.0
+    "DOGEUSDT": 100.0
+    "1000PEPEUSDT": 120.0
+    "1000BONKUSDT": 110.0
+    "1000SHIBUSDT": 90.0
+    "1000FLOKIUSDT": 95.0
+    "XAUUSDT": 25.0
+    "WIFUSDT": 100.0
+    "SUIUSDT": 85.0
+    "APTUSDT": 75.0
+    "ARBUSDT": 70.0
 }
 
 
@@ -129,11 +129,11 @@ class _TradeForSim:
 # ---------------------------------------------------------------------------
 
 def simulate_shadow_exit_r(
-    mfe_r: float,
-    actual_pnl_r: float,
-    callback_r: float,
-    min_profit_lock_r: float,
-    activate_offset_r: float,
+    mfe_r: float
+    actual_pnl_r: float
+    callback_r: float
+    min_profit_lock_r: float
+    activate_offset_r: float
 ) -> float:
     """
     Simulate where calibrated trailing stop would have exited.
@@ -160,11 +160,11 @@ def simulate_shadow_exit_r(
 
 
 def compute_shadow_results(
-    trades: List[_TradeForSim],
-    callback_atr_mult: float,
-    activate_offset_bps: float,
-    min_profit_lock_r: float,
-    atr_bps: float,
+    trades: List[_TradeForSim]
+    callback_atr_mult: float
+    activate_offset_bps: float
+    min_profit_lock_r: float
+    atr_bps: float
 ) -> Optional[ShadowSimResult]:
     """
     Compute shadow simulation for a bucket of trades.
@@ -202,11 +202,11 @@ def compute_shadow_results(
         activate_offset_r = activate_offset_bps / one_r_bps
 
         shadow_exit_r = simulate_shadow_exit_r(
-            mfe_r=mfe_r,
-            actual_pnl_r=actual_pnl_r,
-            callback_r=callback_r,
-            min_profit_lock_r=min_profit_lock_r,
-            activate_offset_r=activate_offset_r,
+            mfe_r=mfe_r
+            actual_pnl_r=actual_pnl_r
+            callback_r=callback_r
+            min_profit_lock_r=min_profit_lock_r
+            activate_offset_r=activate_offset_r
         )
 
         actual_pnl_r_list.append(actual_pnl_r)
@@ -241,17 +241,17 @@ def compute_shadow_results(
         recommendation = "NEUTRAL"
 
     return ShadowSimResult(
-        symbol=symbol,
-        regime=regime,
-        n_trades=n,
-        actual_avg_pnl_r=round(actual_avg, 6),
-        shadow_avg_pnl_r=round(shadow_avg, 6),
-        delta_pnl_r=round(delta, 6),
-        actual_win_rate=round(actual_wins / n, 4),
-        shadow_win_rate=round(shadow_wins / n, 4),
-        shadow_sharpe=round(sharpe, 4),
-        recommendation=recommendation,
-        computed_at_ms=get_ny_time_millis(),
+        symbol=symbol
+        regime=regime
+        n_trades=n
+        actual_avg_pnl_r=round(actual_avg, 6)
+        shadow_avg_pnl_r=round(shadow_avg, 6)
+        delta_pnl_r=round(delta, 6)
+        actual_win_rate=round(actual_wins / n, 4)
+        shadow_win_rate=round(shadow_wins / n, 4)
+        shadow_sharpe=round(sharpe, 4)
+        recommendation=recommendation
+        computed_at_ms=get_ny_time_millis()
     )
 
 
@@ -271,8 +271,8 @@ class TrailShadowSimulator:
         self.cfg = cfg or ShadowSimConfig.from_env()
 
     def run(
-        self,
-        trades_by_bucket: Dict[str, List[Any]],
+        self
+        trades_by_bucket: Dict[str, List[Any]]
     ) -> List[ShadowSimResult]:
         """
         Run shadow simulation for all buckets.
@@ -306,25 +306,25 @@ class TrailShadowSimulator:
             sim_trades = []
             for t in raw_trades:
                 sim_trades.append(_TradeForSim(
-                    symbol=getattr(t, "symbol", symbol),
-                    regime=getattr(t, "regime", regime),
-                    pnl_net=getattr(t, "pnl_net", 0.0),
-                    one_r_money=getattr(t, "one_r_money", 0.0),
-                    mfe_pnl=getattr(t, "mfe_pnl", 0.0),
-                    giveback=getattr(t, "giveback", 0.0),
-                    entry_price=getattr(t, "entry_price", 0.0),
-                    notional=getattr(t, "notional", 0.0),
-                    trailing_started=getattr(t, "trailing_started", False),
+                    symbol=getattr(t, "symbol", symbol)
+                    regime=getattr(t, "regime", regime)
+                    pnl_net=getattr(t, "pnl_net", 0.0)
+                    one_r_money=getattr(t, "one_r_money", 0.0)
+                    mfe_pnl=getattr(t, "mfe_pnl", 0.0)
+                    giveback=getattr(t, "giveback", 0.0)
+                    entry_price=getattr(t, "entry_price", 0.0)
+                    notional=getattr(t, "notional", 0.0)
+                    trailing_started=getattr(t, "trailing_started", False)
                 ))
 
             atr_bps = DEFAULT_ATR_BPS.get(symbol, self.cfg.atr_fallback_bps)
 
             result = compute_shadow_results(
-                trades=sim_trades,
-                callback_atr_mult=calib["callback_atr_mult"],
-                activate_offset_bps=calib["activate_offset_bps"],
-                min_profit_lock_r=calib["min_profit_lock_r"],
-                atr_bps=atr_bps,
+                trades=sim_trades
+                callback_atr_mult=calib["callback_atr_mult"]
+                activate_offset_bps=calib["activate_offset_bps"]
+                min_profit_lock_r=calib["min_profit_lock_r"]
+                atr_bps=atr_bps
             )
 
             if result:
@@ -347,9 +347,9 @@ class TrailShadowSimulator:
             if cb < EPS:
                 return None
             return {
-                "callback_atr_mult": cb,
-                "activate_offset_bps": _sf(h.get("activate_offset_bps"), 5.0),
-                "min_profit_lock_r": _sf(h.get("min_profit_lock_r"), 0.1),
+                "callback_atr_mult": cb
+                "activate_offset_bps": _sf(h.get("activate_offset_bps"), 5.0)
+                "min_profit_lock_r": _sf(h.get("min_profit_lock_r"), 0.1)
             }
         except Exception as e:
             logger.error("Failed to read calib params %s: %s", key, e)

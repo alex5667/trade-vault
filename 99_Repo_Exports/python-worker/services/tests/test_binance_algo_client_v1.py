@@ -22,11 +22,11 @@ def test_post_order_routes_algo_and_maps_compat_fields(monkeypatch):
     monkeypatch.setattr(client, "_request", fake_request)
 
     client.post_order({
-        "symbol": "BTCUSDT",
-        "side": "SELL",
-        "type": "STOP_MARKET",
-        "stopPrice": "100.0",
-        "newClientOrderId": "cid-1",
+        "symbol": "BTCUSDT"
+        "side": "SELL"
+        "type": "STOP_MARKET"
+        "stopPrice": "100.0"
+        "newClientOrderId": "cid-1"
     })
 
     assert calls
@@ -49,10 +49,10 @@ def test_post_order_routes_plain_market(monkeypatch):
     monkeypatch.setattr(client, "_request", fake_request)
 
     client.post_order({
-        "symbol": "BTCUSDT",
-        "side": "BUY",
-        "type": "MARKET",
-        "quantity": "0.01",
+        "symbol": "BTCUSDT"
+        "side": "BUY"
+        "type": "MARKET"
+        "quantity": "0.01"
     })
 
     method, path, params, signed = calls[0]

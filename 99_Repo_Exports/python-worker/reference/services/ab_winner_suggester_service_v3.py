@@ -88,8 +88,8 @@ class ABWinnerSuggesterV3:
         self.events_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
         self.audit_stream = os.getenv("AB_SUGGEST_STREAM", "cfg:suggestions:entry_policy:stream")
         self.latest_prefix = os.getenv(
-            "AB_LATEST_PREFIX",
-            "cfg:suggestions:entry_policy:latest:ab_winner",
+            "AB_LATEST_PREFIX"
+            "cfg:suggestions:entry_policy:latest:ab_winner"
         )
         self.meta_prefix = os.getenv("AB_META_PREFIX", "cfg:suggestions:entry_policy:meta")
         self.approvals_required = int(os.getenv("ENTRY_POLICY_APPROVALS_REQUIRED", "2"))
@@ -174,23 +174,23 @@ class ABWinnerSuggesterV3:
         sid = _sha1(f"abwinner|v3|{ctx.symbol}|{ctx.regime}|{ctx.group}|{ctx.scenario}|{winner}|{int(now/1000/60)}")
 
         meta = EntryPolicySuggestionMetaV1(
-            v=1,
-            sid=sid,
-            created_ts_ms=now,
-            updated_ts_ms=now,
+            v=1
+            sid=sid
+            created_ts_ms=now
+            updated_ts_ms=now
             expires_ts_ms=now + int(os.getenv("AB_SUGGEST_EXPIRE_MS", "604800000")),  # 7d
-            symbol=ctx.symbol,
-            regime=ctx.regime,
-            group=ctx.group,
-            scenario=ctx.scenario,
-            winner_arm=winner,
-            baseline_arm="A",
-            min_n=min_n,
-            alpha=float(alpha),
-            min_edge_r=float(min_edge_r),
-            reason=str(reason),
-            arm_metrics=metrics,
-            approvals_required=int(self.approvals_required),
+            symbol=ctx.symbol
+            regime=ctx.regime
+            group=ctx.group
+            scenario=ctx.scenario
+            winner_arm=winner
+            baseline_arm="A"
+            min_n=min_n
+            alpha=float(alpha)
+            min_edge_r=float(min_edge_r)
+            reason=str(reason)
+            arm_metrics=metrics
+            approvals_required=int(self.approvals_required)
         )
         ok, why = meta.validate()
         if not ok:
@@ -205,20 +205,20 @@ class ABWinnerSuggesterV3:
             pipe.set(latest_key, sid, ex=int(os.getenv("AB_LATEST_TTL_SEC", "1209600")))
             # audit stream
             pipe.xadd(
-                self.audit_stream,
+                self.audit_stream
                 {
-                    "type": "entry_policy_suggestion",
-                    "ts_ms": str(now),
-                    "sid": sid,
-                    "symbol": ctx.symbol,
-                    "regime": ctx.regime,
-                    "group": ctx.group,
-                    "scenario": ctx.scenario,
-                    "winner": winner,
-                    "payload": meta.to_json(),
-                },
-                maxlen=50000,
-                approximate=True,
+                    "type": "entry_policy_suggestion"
+                    "ts_ms": str(now)
+                    "sid": sid
+                    "symbol": ctx.symbol
+                    "regime": ctx.regime
+                    "group": ctx.group
+                    "scenario": ctx.scenario
+                    "winner": winner
+                    "payload": meta.to_json()
+                }
+                maxlen=50000
+                approximate=True
             )
             await pipe.execute()
         except Exception:
@@ -272,11 +272,11 @@ class ABWinnerSuggesterV3:
                     pass
 
                 winner, res, reason = evaluate_winner_lcb(
-                    stats_by_arm=per_arm,
-                    baseline_arm="A",
-                    min_n=min_n,
-                    alpha=alpha,
-                    min_edge_r=min_edge_r,
+                    stats_by_arm=per_arm
+                    baseline_arm="A"
+                    min_n=min_n
+                    alpha=alpha
+                    min_edge_r=min_edge_r
                 )
                 if not winner:
                     continue
@@ -285,11 +285,11 @@ class ABWinnerSuggesterV3:
                 m: Dict[str, Any] = {}
                 for arm, rr in (res or {}).items():
                     m[arm] = {
-                        "n": rr.n,
-                        "mean_r": round(float(rr.mean_r), 4),
-                        "lcb_r": round(float(rr.lcb_r), 4),
-                        "winrate": round(float(rr.winrate), 4),
-                        "std_r": round(float(rr.std_r), 4),
+                        "n": rr.n
+                        "mean_r": round(float(rr.mean_r), 4)
+                        "lcb_r": round(float(rr.lcb_r), 4)
+                        "winrate": round(float(rr.winrate), 4)
+                        "std_r": round(float(rr.std_r), 4)
                     }
 
                 ctx = KeyCtx(symbol=sym, regime=rg, group=grp, scenario=scn)

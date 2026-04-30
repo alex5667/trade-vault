@@ -21,11 +21,11 @@ from services.atr_program_closure_service import ATRProgramClosureService
 logger = setup_logger("atr_weekly_scorecard_service")
 
 DOMAINS = [
-    "signal_gates",
-    "dispatch_runtime",
-    "execution",
-    "protective_lifecycle",
-    "control_plane_graph",
+    "signal_gates"
+    "dispatch_runtime"
+    "execution"
+    "protective_lifecycle"
+    "control_plane_graph"
     "audit_hygiene"
 ]
 
@@ -51,39 +51,39 @@ class ATRWeeklyScorecardService:
         metrics = {}
         if domain == "signal_gates":
             metrics = {
-                "signals_total": 1284,
-                "tradeable_total": 213,
-                "veto_total": 1071,
-                "top_veto_reasons": {"book_stale": 241, "negative_ev": 198, "spread_too_wide": 114},
+                "signals_total": 1284
+                "tradeable_total": 213
+                "veto_total": 1071
+                "top_veto_reasons": {"book_stale": 241, "negative_ev": 198, "spread_too_wide": 114}
                 "veto_drift_detected": False
             }
         elif domain == "dispatch_runtime":
             metrics = {
-                "raw_publish_ok_rate": 0.999,
-                "order_queue_publish_ok_rate": 0.998,
+                "raw_publish_ok_rate": 0.999
+                "order_queue_publish_ok_rate": 0.998
                 "runtime_critical_drifts": 0
             }
         elif domain == "execution":
             metrics = {
-                "slippage_ema_shift_symbols": 0,
+                "slippage_ema_shift_symbols": 0
                 "mt5_requotes_total": 5
             }
         elif domain == "protective_lifecycle":
             metrics = {
-                "be_before_tp1_violations": 0,
-                "sl_ratchet_backwards_violations": 0,
+                "be_before_tp1_violations": 0
+                "sl_ratchet_backwards_violations": 0
                 "protective_critical_drifts": 0
             }
         elif domain == "control_plane_graph":
             metrics = {
-                "graph_consistency_cert": "passed",
-                "projection_drifts_open": 0,
+                "graph_consistency_cert": "passed"
+                "projection_drifts_open": 0
                 "authority_violations": 0
             }
         elif domain == "audit_hygiene":
             metrics = {
-                "overdue_actions_p1": 0,
-                "expired_overrides_active": 0,
+                "overdue_actions_p1": 0
+                "expired_overrides_active": 0
                 "hidden_dependency_findings": 0
             }
         return metrics
@@ -160,15 +160,15 @@ class ATRWeeklyScorecardService:
                     reason_code = "mt5_requote_spike"
                     
                 actions.append({
-                    "action_id": self.generate_id("act"),
-                    "scorecard_id": scorecard_id,
-                    "domain": domain,
+                    "action_id": self.generate_id("act")
+                    "scorecard_id": scorecard_id
+                    "domain": domain
                     "owner": "trade_bot", # default assignment
-                    "priority": priority,
-                    "status": "open",
-                    "title": f"Investigate {domain} degradation",
-                    "reason_code": reason_code,
-                    "due_at": datetime.now(timezone.utc) + due_delta,
+                    "priority": priority
+                    "status": "open"
+                    "title": f"Investigate {domain} degradation"
+                    "reason_code": reason_code
+                    "due_at": datetime.now(timezone.utc) + due_delta
                     "action_json": json.dumps({"source_metrics": mets})
                 })
         return actions
@@ -198,7 +198,7 @@ class ATRWeeklyScorecardService:
         domains_json = {}
         for domain in DOMAINS:
             domains_json[domain] = {
-                "status": domain_statuses[domain],
+                "status": domain_statuses[domain]
                 "metrics": all_metrics[domain]
             }
             
@@ -231,8 +231,8 @@ class ATRWeeklyScorecardService:
                         action_id, scorecard_id, domain, owner, priority, status, title, reason_code, due_at, action_json
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    act["action_id"], act["scorecard_id"], act["domain"], act["owner"],
-                    act["priority"], act["status"], act["title"], act["reason_code"],
+                    act["action_id"], act["scorecard_id"], act["domain"], act["owner"]
+                    act["priority"], act["status"], act["title"], act["reason_code"]
                     act["due_at"], act["action_json"]
                 ))
                 
@@ -248,9 +248,9 @@ class ATRWeeklyScorecardService:
     def emit_telegram_digest(self, scorecard_id, week_start, week_end, decision, domains_json, actions, closure_info=None):
         """Builds and emits the Telegram UX text."""
         msg = [
-            "ATR Weekly Operating Scorecard",
-            f"Week: {week_start.strftime('%Y-%m-%d')} → {week_end.strftime('%Y-%m-%d')}",
-            f"Overall: {decision}",
+            "ATR Weekly Operating Scorecard"
+            f"Week: {week_start.strftime('%Y-%m-%d')} → {week_end.strftime('%Y-%m-%d')}"
+            f"Overall: {decision}"
             ""
         ]
         

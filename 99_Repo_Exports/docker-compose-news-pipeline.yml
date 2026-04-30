@@ -87,7 +87,7 @@ services:
     - TZ=UTC
     env_file:
     - ./news-pipeline.env
-    working_dir: /app/services/news_ingestor_py
+    working_dir: /app/python-worker/services/news_ingestor_py
     command:
     - sh
     - -c

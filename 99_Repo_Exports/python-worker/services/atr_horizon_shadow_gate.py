@@ -56,8 +56,8 @@ def compute_horizon_dq_shadow(ctx: Any, cand: Any = None) -> Dict[str, Any]:
 
         hold_target_ms = _safe_int(
             getattr(ctx, "hold_target_ms", 0)
-            or getattr(ctx, "max_hold_target_ms", 0),
-            0,
+            or getattr(ctx, "max_hold_target_ms", 0)
+            0
         )
         alpha_half_life_ms = _safe_int(getattr(ctx, "alpha_half_life_ms", 0), 0)
         max_signal_age_ms = _safe_int(getattr(ctx, "max_signal_age_ms", 0), 0)
@@ -65,8 +65,8 @@ def compute_horizon_dq_shadow(ctx: Any, cand: Any = None) -> Dict[str, Any]:
         # Prefer atr_value / atr — follow same priority as horizon_contract.py
         atr_selected_value = _safe_float(
             getattr(ctx, "atr_value", None)
-            or getattr(ctx, "atr", None),
-            0.0,
+            or getattr(ctx, "atr", None)
+            0.0
         )
         atr_selected_tf_ms = _safe_int(getattr(ctx, "atr_tf_ms", 0), 0)
         atr_selected_age_ms = _safe_int(getattr(ctx, "atr_age_ms", 0), 0)
@@ -74,8 +74,8 @@ def compute_horizon_dq_shadow(ctx: Any, cand: Any = None) -> Dict[str, Any]:
 
         book_ts_ms = _safe_int(getattr(ctx, "book_ts_ms", 0), 0)
         signal_ts_ms = _safe_int(
-            getattr(ctx, "ts", 0) or getattr(ctx, "ts_ms", 0),
-            0,
+            getattr(ctx, "ts", 0) or getattr(ctx, "ts_ms", 0)
+            0
         )
         book_age_ms = max(0, now_ms - book_ts_ms) if book_ts_ms > 0 else 0
         signal_age_ms = max(0, now_ms - signal_ts_ms) if signal_ts_ms > 0 else 0
@@ -117,34 +117,34 @@ def compute_horizon_dq_shadow(ctx: Any, cand: Any = None) -> Dict[str, Any]:
             reason = "DQ_SIGNAL_TOO_OLD_FOR_HORIZON"
 
         return asdict(HorizonDQShadow(
-            allow_shadow=allow_shadow,
-            shadow_reason_code=reason,
-            atr_selected_value=atr_selected_value,
-            atr_selected_tf_ms=atr_selected_tf_ms,
-            atr_selected_age_ms=atr_selected_age_ms,
-            atr_age_budget_ms=atr_age_budget_ms,
-            book_age_budget_ms=book_age_budget_ms,
-            signal_age_budget_ms=signal_age_budget_ms,
-            selector_reason_code=selector_reason_code,
+            allow_shadow=allow_shadow
+            shadow_reason_code=reason
+            atr_selected_value=atr_selected_value
+            atr_selected_tf_ms=atr_selected_tf_ms
+            atr_selected_age_ms=atr_selected_age_ms
+            atr_age_budget_ms=atr_age_budget_ms
+            book_age_budget_ms=book_age_budget_ms
+            signal_age_budget_ms=signal_age_budget_ms
+            selector_reason_code=selector_reason_code
             reason_details={
-                "hold_target_ms": hold_target_ms,
-                "alpha_half_life_ms": alpha_half_life_ms,
-                "max_signal_age_ms": max_signal_age_ms,
-                "book_age_ms": book_age_ms,
-                "signal_age_ms": signal_age_ms,
-            },
+                "hold_target_ms": hold_target_ms
+                "alpha_half_life_ms": alpha_half_life_ms
+                "max_signal_age_ms": max_signal_age_ms
+                "book_age_ms": book_age_ms
+                "signal_age_ms": signal_age_ms
+            }
         ))
     except Exception:
         # Absolute fail-open: never raise into caller's hot path
         return {
-            "allow_shadow": True,
-            "shadow_reason_code": "DQ_HZ_INTERNAL_ERROR",
-            "atr_selected_value": 0.0,
-            "atr_selected_tf_ms": 0,
-            "atr_selected_age_ms": 0,
-            "atr_age_budget_ms": 0,
-            "book_age_budget_ms": 0,
-            "signal_age_budget_ms": 0,
-            "selector_reason_code": "",
-            "reason_details": {},
+            "allow_shadow": True
+            "shadow_reason_code": "DQ_HZ_INTERNAL_ERROR"
+            "atr_selected_value": 0.0
+            "atr_selected_tf_ms": 0
+            "atr_selected_age_ms": 0
+            "atr_age_budget_ms": 0
+            "book_age_budget_ms": 0
+            "signal_age_budget_ms": 0
+            "selector_reason_code": ""
+            "reason_details": {}
         }

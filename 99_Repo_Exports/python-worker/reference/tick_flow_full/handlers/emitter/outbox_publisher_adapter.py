@@ -210,15 +210,15 @@ class OutboxPublisherAdapter:
             pub = self.outbox_publisher
             try:
                 return pub.publish(
-                    source=source,
-                    strategy=strategy,
-                    symbol=symbol,
-                    side=side,
-                    kind=kind,
-                    level_key=level_key,
-                    ts_ms=ts_ms,
-                    envelope=envelope,
-                    dedup_ttl_ms=int(self.dedup_ttl_ms),
+                    source=source
+                    strategy=strategy
+                    symbol=symbol
+                    side=side
+                    kind=kind
+                    level_key=level_key
+                    ts_ms=ts_ms
+                    envelope=envelope
+                    dedup_ttl_ms=int(self.dedup_ttl_ms)
                 )
             except TypeError:
                 pass

@@ -52,15 +52,15 @@ def _concat_ndjson(files: List[Path], out_path: Path, limit: int) -> int:
 
 def _run_parity(inp: Path, outdir: Path, fail_on_mismatch: bool, evidence: str) -> int:
     cmd = [
-        sys.executable,
-        "-m",
-        "ml_analysis.tools.golden_replay_parity_v1",
-        "--input",
-        str(inp),
-        "--outdir",
-        str(outdir),
-        "--evidence",
-        str(evidence),
+        sys.executable
+        "-m"
+        "ml_analysis.tools.golden_replay_parity_v1"
+        "--input"
+        str(inp)
+        "--outdir"
+        str(outdir)
+        "--evidence"
+        str(evidence)
     ]
     if fail_on_mismatch:
         cmd.append("--fail-on-mismatch")

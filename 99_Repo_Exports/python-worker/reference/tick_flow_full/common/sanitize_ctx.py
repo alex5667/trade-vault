@@ -6,8 +6,8 @@ from __future__ import annotations
 Задачи:
   1) Не допускать NaN/Inf в "горячих" числах (spread/obi/microprice/cancel_to_trade/...).
   2) При плохих значениях не падать, а:
-       - заменить на None (или нейтральное значение для score-полей),
-       - добавить data_quality_flags (для логов/метрик/дебага),
+       - заменить на None (или нейтральное значение для score-полей)
+       - добавить data_quality_flags (для логов/метрик/дебага)
        - продолжить (fail-open), если возможно.
 
 Это ровно то, что нужно для property-based тестов 6.3:
@@ -23,33 +23,33 @@ from common.strict_mode import strict_contracts_enabled
 # "Горячие" поля ctx, которые часто используются в сравнениях/скоринге/валидации.
 # Список намеренно короткий и практичный: меньше риск повредить редкие поля.
 _HOT_FLOAT_FIELDS: tuple[str, ...] = (
-    "price",
-    "last_price",
-    "bid",
-    "ask",
-    "atr",
-    "atr_14_bps",
-    "atr_quantile",
-    "spread_bps",
-    "obi",
-    "obi_avg",
-    "obi_5",
-    "obi_20",
-    "obi_50",
-    "microprice_shift_bps_20",
-    "cancel_to_trade_bid_5s",
-    "cancel_to_trade_ask_5s",
-    "cancel_to_trade_bid_20s",
-    "cancel_to_trade_ask_20s",
-    "taker_rate_ema",
-    "weak_progress",
-    "weak_progress_raw",
-    "weak_progress_ratio",
-    "regime_trend_score",
-    "regime_range_score",
-    "market_regime_score",
-    "geometry_score",
-    "htf_level_dist_bps",
+    "price"
+    "last_price"
+    "bid"
+    "ask"
+    "atr"
+    "atr_14_bps"
+    "atr_quantile"
+    "spread_bps"
+    "obi"
+    "obi_avg"
+    "obi_5"
+    "obi_20"
+    "obi_50"
+    "microprice_shift_bps_20"
+    "cancel_to_trade_bid_5s"
+    "cancel_to_trade_ask_5s"
+    "cancel_to_trade_bid_20s"
+    "cancel_to_trade_ask_20s"
+    "taker_rate_ema"
+    "weak_progress"
+    "weak_progress_raw"
+    "weak_progress_ratio"
+    "regime_trend_score"
+    "regime_range_score"
+    "market_regime_score"
+    "geometry_score"
+    "htf_level_dist_bps"
 )
 
 

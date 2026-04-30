@@ -26,16 +26,16 @@ logger = setup_logger("atr_policy_enforcement_router")
 
 # Enforcement Action Priority (Higher index = higher priority)
 ENFORCEMENT_PRIORITY = [
-    "DIAG_ONLY",
-    "WARN",
-    "CLIP_NEW_RISK",
-    "BLOCK_PROMOTION",
-    "BLOCK_RELEASE",
-    "DENY_NEW_RISK",
-    "FREEZE_RELEASES",
-    "FREEZE_SCOPE",
-    "OPEN_QUARANTINE",
-    "REQUIRE_ROLLBACK_REVIEW",
+    "DIAG_ONLY"
+    "WARN"
+    "CLIP_NEW_RISK"
+    "BLOCK_PROMOTION"
+    "BLOCK_RELEASE"
+    "DENY_NEW_RISK"
+    "FREEZE_RELEASES"
+    "FREEZE_SCOPE"
+    "OPEN_QUARANTINE"
+    "REQUIRE_ROLLBACK_REVIEW"
     "REQUIRE_DR_RESTORE"
 ]
 
@@ -112,9 +112,9 @@ class ATRPolicyEnforcementRouter:
             if not rule_mappings:
                 # Default behavior if no mapping: WAARN?
                 triggered_actions.append({
-                    "rule_id": rule_id,
-                    "action": "WARN",
-                    "severity": "info",
+                    "rule_id": rule_id
+                    "action": "WARN"
+                    "severity": "info"
                     "target_layer": "L9", # Audit Only
                     "reason_code": "NO_ENFORCEMENT_MAPPING"
                 })
@@ -128,19 +128,19 @@ class ATRPolicyEnforcementRouter:
                     action = "WARN"
                 
                 triggered_actions.append({
-                    "rule_id": rule_id,
-                    "action": action,
-                    "severity": m["severity"],
-                    "target_layer": m["target_layer"],
-                    "reason_code": m["map_json"].get("reason_codes", {}).get("fail", f"FAIL_{rule_id}"),
+                    "rule_id": rule_id
+                    "action": action
+                    "severity": m["severity"]
+                    "target_layer": m["target_layer"]
+                    "reason_code": m["map_json"].get("reason_codes", {}).get("fail", f"FAIL_{rule_id}")
                     "map_json": m["map_json"]
                 })
 
         if not triggered_actions:
             return {
-                "overall_action": "allow",
-                "triggered_actions": [],
-                "context_kind": context_kind,
+                "overall_action": "allow"
+                "triggered_actions": []
+                "context_kind": context_kind
                 "context_ref": context_ref
             }
 
@@ -148,10 +148,10 @@ class ATRPolicyEnforcementRouter:
         overall_action = self._aggregate_actions([a["action"] for a in triggered_actions])
         
         decision = {
-            "overall_action": overall_action,
-            "triggered_actions": triggered_actions,
-            "context_kind": context_kind,
-            "context_ref": context_ref,
+            "overall_action": overall_action
+            "triggered_actions": triggered_actions
+            "context_kind": context_kind
+            "context_ref": context_ref
             "timestamp": datetime.now().isoformat()
         }
 
@@ -205,11 +205,11 @@ class ATRPolicyEnforcementRouter:
                         event_id = f"evt_{uuid_short()}"
                         cur.execute("""
                             INSERT INTO atr_policy_enforcement_events (
-                                event_id, context_kind, context_ref, rule_id, target_layer,
+                                event_id, context_kind, context_ref, rule_id, target_layer
                                 action, severity, reason_code, evidence_json
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """, (event_id, decision["context_kind"], decision["context_ref"],
-                              a["rule_id"], a["target_layer"], a["action"], a["severity"],
+                        """, (event_id, decision["context_kind"], decision["context_ref"]
+                              a["rule_id"], a["target_layer"], a["action"], a["severity"]
                               a["reason_code"], json.dumps(a.get("map_json", {}))))
                 conn.commit()
         except Exception as e:

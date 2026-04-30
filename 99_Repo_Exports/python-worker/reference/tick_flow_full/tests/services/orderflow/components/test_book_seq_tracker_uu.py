@@ -92,7 +92,7 @@ def test_gap_step_with_threshold_triggers_resync():
     rt.config = {
         "book_resync_ema_threshold": 0.3,  # EMA=0.5 >= thr=0.3 → arm
         "book_resync_cooldown_ms": 0,       # no cooldown
-        "book_gap_min_missing_updates": 1,
+        "book_gap_min_missing_updates": 1
     }
     _update_book_seq_uu_dq(rt, ingest_ts_ms=4000, book_raw={"U": 162, "u": 200})
     assert rt.book_seq_last_reason == "gap"

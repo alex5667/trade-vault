@@ -106,13 +106,13 @@ def _loads(value: Any) -> Dict[str, Any]:
 
 
 def _quarantine(
-    redis_client: Any,
-    *,
-    sid: str,
-    mismatch: Dict[str, Any],
-    state_doc: Dict[str, Any],
-    prefix: str,
-    ledger: Any = None,
+    redis_client: Any
+    *
+    sid: str
+    mismatch: Dict[str, Any]
+    state_doc: Dict[str, Any]
+    prefix: str
+    ledger: Any = None
 ) -> None:
     """Write Redis quarantine entries and optionally the SQL ledger.
 
@@ -130,14 +130,14 @@ def _quarantine(
     try:
         if ledger is not None:
             ledger.record_quarantine_event({
-                'sid': sid,
-                'symbol': str((state_doc or {}).get('symbol') or ''),
-                'action': 'REPLAY_MISMATCH_QUARANTINED',
-                'severity': 'critical' if any(k in {'status', 'fsm_state'} for k in mismatch) else 'warning',
-                'reason': 'replay_mismatch',
-                'source': 'replay_consistency_checker',
-                'quarantine_key': f'{qprefix}{sid}',
-                'state': payload,
+                'sid': sid
+                'symbol': str((state_doc or {}).get('symbol') or '')
+                'action': 'REPLAY_MISMATCH_QUARANTINED'
+                'severity': 'critical' if any(k in {'status', 'fsm_state'} for k in mismatch) else 'warning'
+                'reason': 'replay_mismatch'
+                'source': 'replay_consistency_checker'
+                'quarantine_key': f'{qprefix}{sid}'
+                'state': payload
             })
     except Exception:
         pass
@@ -156,11 +156,11 @@ def main() -> int:
     # P3.3-ops-complete: ledger DSN for structured event recording
     parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
     # Performance: batch size and max runtime
-    parser.add_argument('--batch-size', type=int,
-                        default=int(os.getenv('EXEC_REPLAY_BATCH_SIZE', '100')),
+    parser.add_argument('--batch-size', type=int
+                        default=int(os.getenv('EXEC_REPLAY_BATCH_SIZE', '100'))
                         help='Max SIDs to check per run (default 100)')
-    parser.add_argument('--max-runtime-sec', type=int,
-                        default=int(os.getenv('EXEC_REPLAY_MAX_RUNTIME_SEC', '300')),
+    parser.add_argument('--max-runtime-sec', type=int
+                        default=int(os.getenv('EXEC_REPLAY_MAX_RUNTIME_SEC', '300'))
                         help='Hard cap on wall-clock time per run in seconds (default 300)')
     args = parser.parse_args()
     if redis is None:
@@ -214,26 +214,26 @@ def main() -> int:
             redis_state = _loads(r.get(key))
             checkpoint_id = str(r.get(f'{cprefix}{sid}') or '')
             replayed = rebuild_state_with_fallback(
-                r,
-                exec_stream=args.exec_stream,
-                sid=sid,
-                scan_count=args.scan_count,
-                checkpoint_id=checkpoint_id,
+                r
+                exec_stream=args.exec_stream
+                sid=sid
+                scan_count=args.scan_count
+                checkpoint_id=checkpoint_id
             )
             diff = compare_replayed_state(redis_state, replayed.state_doc)
             if diff:
                 severity = 'critical' if any(k in {'status', 'fsm_state'} for k in diff) else 'warning'
                 item = {
-                    'sid': sid,
-                    'severity': severity,
-                    'mismatches': diff,
-                    'fsm_state': replayed.state_doc.get('fsm_state'),
-                    'replay_source': replayed.source,
-                    'replay_truncated': bool(replayed.truncated),
-                    'checkpoint_id': replayed.checkpoint_id,
+                    'sid': sid
+                    'severity': severity
+                    'mismatches': diff
+                    'fsm_state': replayed.state_doc.get('fsm_state')
+                    'replay_source': replayed.source
+                    'replay_truncated': bool(replayed.truncated)
+                    'checkpoint_id': replayed.checkpoint_id
                     # P3.3-ops-complete: retention guard + latency fields
-                    'retention_guard_triggered': bool(replayed.retention_guard_triggered),
-                    'replay_latency_ms': int(replayed.latency_ms),
+                    'retention_guard_triggered': bool(replayed.retention_guard_triggered)
+                    'replay_latency_ms': int(replayed.latency_ms)
                 }
                 mismatches.append(item)
                 if severity == 'critical' and args.quarantine_on_critical:
@@ -248,14 +248,14 @@ def main() -> int:
 
     elapsed_total = time.monotonic() - start_time
     out = {
-        'checked_state_keys': processed,
-        'mismatches_total': len(mismatches),
-        'critical_threshold': args.critical_threshold,
-        'elapsed_sec': round(elapsed_total, 1),
-        'batch_limit': batch_limit,
-        'cursor_completed': str(cursor) == '0',
-        'stopped_by_time': skipped_by_time,
-        'items': mismatches,
+        'checked_state_keys': processed
+        'mismatches_total': len(mismatches)
+        'critical_threshold': args.critical_threshold
+        'elapsed_sec': round(elapsed_total, 1)
+        'batch_limit': batch_limit
+        'cursor_completed': str(cursor) == '0'
+        'stopped_by_time': skipped_by_time
+        'items': mismatches
     }
     print(json.dumps(out, ensure_ascii=False, indent=2))
     crit = sum(1 for x in mismatches if x['severity'] == 'critical')

@@ -70,23 +70,23 @@ def test_load_order_state_prefers_exec_stream_over_stale_cache():
     ex = _mk_exec()
     sid = 'sid-1'
     stale = {
-        'sid': sid,
-        'symbol': 'BTCUSDT',
-        'action': 'open',
-        'fsm_state': 'FAILED',
-        'status': 'failed',
+        'sid': sid
+        'symbol': 'BTCUSDT'
+        'action': 'open'
+        'fsm_state': 'FAILED'
+        'status': 'failed'
     }
     ex.r.set(f'orders:state:{sid}', json.dumps(stale))
     ex._exec_event({
-        'sid': sid,
-        'symbol': 'BTCUSDT',
-        'action': 'open',
-        'event_type': 'state_transition',
-        'status': 'ok',
-        'fsm_state': 'PROTECTED',
-        'prev_state': 'ENTRY_FILLED',
-        'binance_order_id': 101,
-        'sl_algo_id': 202,
+        'sid': sid
+        'symbol': 'BTCUSDT'
+        'action': 'open'
+        'event_type': 'state_transition'
+        'status': 'ok'
+        'fsm_state': 'PROTECTED'
+        'prev_state': 'ENTRY_FILLED'
+        'binance_order_id': 101
+        'sl_algo_id': 202
     })
     state = ex._load_order_state(sid)
     assert state['fsm_state'] == 'PROTECTED'
@@ -98,11 +98,11 @@ def test_transition_state_is_journal_first_and_updates_cache():
     ex = _mk_exec()
     sid = 'sid-2'
     out = ex._transition_state(
-        sid,
-        symbol='ETHUSDT',
-        action='open',
-        next_state='ENTRY_ACKED',
-        details={'entry_client_order_id': 'cid-1', 'binance_order_id': 777},
+        sid
+        symbol='ETHUSDT'
+        action='open'
+        next_state='ENTRY_ACKED'
+        details={'entry_client_order_id': 'cid-1', 'binance_order_id': 777}
     )
     assert out['fsm_state'] == 'ENTRY_ACKED'
     cache = json.loads(ex.r.get(f'orders:state:{sid}'))
@@ -115,15 +115,15 @@ def test_save_order_state_merges_patch_on_top_of_journal_state():
     ex = _mk_exec()
     sid = 'sid-3'
     ex._exec_event({
-        'sid': sid,
-        'symbol': 'SOLUSDT',
-        'action': 'open',
-        'event_type': 'state_transition',
-        'status': 'ok',
-        'fsm_state': 'PROTECTED',
-        'binance_order_id': 501,
-        'tp1_algo_id': 601,
-        'tp1_client_algo_id': 'tp1-a',
+        'sid': sid
+        'symbol': 'SOLUSDT'
+        'action': 'open'
+        'event_type': 'state_transition'
+        'status': 'ok'
+        'fsm_state': 'PROTECTED'
+        'binance_order_id': 501
+        'tp1_algo_id': 601
+        'tp1_client_algo_id': 'tp1-a'
     })
     ex._save_order_state(sid, {'trail_algo_id': 701, 'trail_client_algo_id': 'trail-a'})
     state = json.loads(ex.r.get(f'orders:state:{sid}'))

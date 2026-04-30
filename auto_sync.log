@@ -38,3 +38,64 @@ fatal: Could not read from remote repository.
 Please make sure you have the correct access rights
 and the repository exists.
 2026-04-28 05:45:03 - Синхронизация завершена успешно.
+[main 8aa451e4] Auto-sync vault notes 2026-04-29 05:45:01
+ 120 files changed, 13876 insertions(+), 334 deletions(-)
+ create mode 100644 99_Automation/logs/update_2026-04-29_03-37-29.log
+ create mode 100644 99_Repo_Exports/python-worker/core/contracts.py
+ create mode 100644 99_Repo_Exports/python-worker/migrations/054_create_tca_and_ml_tables.sql
+ create mode 100644 99_Repo_Exports/python-worker/runners/decision_snapshot_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/runners/ml_predictions_writer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/config_loader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/decision_cache.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/decision_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/dto.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/facade.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/feature_builder.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/metrics_emitter.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/model_loader.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/rewrite_decision.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate/rewrite_decision2.py
+ create mode 100644 99_Repo_Exports/python-worker/services/ml_confirm_gate_old.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/__init__.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/book_rate_tracker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/facade.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/iceberg_tracker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/lob_pressure_tracker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/obi_tracker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/ofi_tracker.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/components/book_processor/state_updater.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/deribit_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/deribit_context_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/metrics_sentiment_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/provider_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/provider_context_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/redis_write_buffer.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/sentiment_context.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/sentiment_context_gate.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_deribit_context_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_deribit_context_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_provider_context_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_provider_context_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_sentiment_context_gate_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_sentiment_context_v1.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_tick_processor_dedup.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_tick_processor_time_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/orderflow/tests/test_unknown_side_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tests/test_execution_intent_v2.py
+ create mode 100644 99_Repo_Exports/python-worker/services/time_be_exit_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/services/tp_hit_trailing_orchestrator.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/orderflow/test_crypto_orderflow_service_lifecycle.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/orderflow/test_ml_gate_bootstrap_fail_policy.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/orderflow/test_service_config_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/orderflow/test_time_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_enum_normalization.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_normalization_tick_contract.py
+ create mode 100644 99_Repo_Exports/python-worker/tests/test_time_be_exit_policy.py
+ create mode 100755 99_Repo_Exports/python-worker/tools/crossvenue_gate_calibrator.py
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+2026-04-29 05:45:02 - Синхронизация завершена успешно.

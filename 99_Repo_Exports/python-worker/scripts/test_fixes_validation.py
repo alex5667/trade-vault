@@ -148,10 +148,10 @@ def test_short_direction():
 
 if __name__ == "__main__":
     results = [
-        test_fix1_tp_count_preserved(),
-        test_fix2_slippage_adjusts_sltp(),
-        test_fix3_tp_bps_floor(),
-        test_short_direction(),
+        test_fix1_tp_count_preserved()
+        test_fix2_slippage_adjusts_sltp()
+        test_fix3_tp_bps_floor()
+        test_short_direction()
     ]
     print("\n" + "="*50)
     passed = sum(results)

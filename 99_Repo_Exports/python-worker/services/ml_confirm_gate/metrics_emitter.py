@@ -46,23 +46,23 @@ def _json_safe(x: Any) -> Any:
 
 
 def emit_metrics(
-    r: redis.Redis,
-    dec: MLConfirmDecision,
-    *,
-    symbol: str,
-    ts_ms: int,
-    direction: str,
-    scenario: str,
-    rule_score: float,
-    rule_have: int,
-    rule_need: int,
-    cancel_spike_veto: int,
-    ok_rule: int,
-    sid: str,
-    indicators: Dict[str, Any],
-    metrics_stream: str,
-    metrics_enable: bool,
-    metrics_sample: float,
+    r: redis.Redis
+    dec: MLConfirmDecision
+    *
+    symbol: str
+    ts_ms: int
+    direction: str
+    scenario: str
+    rule_score: float
+    rule_have: int
+    rule_need: int
+    cancel_spike_veto: int
+    ok_rule: int
+    sid: str
+    indicators: Dict[str, Any]
+    metrics_stream: str
+    metrics_enable: bool
+    metrics_sample: float
 ) -> None:
     if not metrics_enable or not r:
         return
@@ -73,48 +73,48 @@ def emit_metrics(
             return
 
     payload = {
-        "event_time": int(time.time() * 1000),
-        "symbol": str(symbol).upper(),
-        "ts_ms": int(ts_ms),
-        "direction": str(direction).upper(),
-        "scenario": str(scenario),
-        "sid": sid,
+        "event_time": int(time.time() * 1000)
+        "symbol": str(symbol).upper()
+        "ts_ms": int(ts_ms)
+        "direction": str(direction).upper()
+        "scenario": str(scenario)
+        "sid": sid
 
-        "rule_score": float(rule_score),
-        "rule_have": int(rule_have),
-        "rule_need": int(rule_need),
-        "cancel_spike_veto": int(cancel_spike_veto),
-        "ok_rule": int(ok_rule),
+        "rule_score": float(rule_score)
+        "rule_have": int(rule_have)
+        "rule_need": int(rule_need)
+        "cancel_spike_veto": int(cancel_spike_veto)
+        "ok_rule": int(ok_rule)
 
-        "ml_mode": dec.effective_mode,
-        "ml_kind": dec.kind,
-        "ml_allow": int(dec.allow),
-        "ml_status": dec.status,
-        "ml_p_edge": float(dec.p_edge),
-        "ml_p_min": float(dec.p_min),
-        "ml_conf": float(dec.conf),
-        "ml_p_margin": float(dec.p_margin),
-        "ml_score": float(dec.score),
-        "ml_floor": float(dec.floor),
-        "ml_bucket": str(dec.bucket),
-        "ml_model_run_id": dec.model_run_id,
-        "ml_reason": dec.reason,
-        "ml_error": dec.error,
-        "ml_missing": ",".join(dec.missing) if dec.missing else "",
-        "ml_latency_us": int(dec.latency_us),
+        "ml_mode": dec.effective_mode
+        "ml_kind": dec.kind
+        "ml_allow": int(dec.allow)
+        "ml_status": dec.status
+        "ml_p_edge": float(dec.p_edge)
+        "ml_p_min": float(dec.p_min)
+        "ml_conf": float(dec.conf)
+        "ml_p_margin": float(dec.p_margin)
+        "ml_score": float(dec.score)
+        "ml_floor": float(dec.floor)
+        "ml_bucket": str(dec.bucket)
+        "ml_model_run_id": dec.model_run_id
+        "ml_reason": dec.reason
+        "ml_error": dec.error
+        "ml_missing": ",".join(dec.missing) if dec.missing else ""
+        "ml_latency_us": int(dec.latency_us)
 
-        "cfg_key_used": str(dec.cfg_key_used),
-        "cfg_source": str(dec.cfg_source),
+        "cfg_key_used": str(dec.cfg_key_used)
+        "cfg_source": str(dec.cfg_source)
         
-        "ml_p_edge_raw": float(dec.p_edge_raw),
-        "ml_p_edge_cal": float(dec.p_edge_cal),
-        "ml_calib_type": str(dec.calib_type),
+        "ml_p_edge_raw": float(dec.p_edge_raw)
+        "ml_p_edge_cal": float(dec.p_edge_cal)
+        "ml_calib_type": str(dec.calib_type)
         
-        "ml_exec_risk_ref_bps": float(dec.exec_risk_ref_bps),
-        "ml_exec_risk_bps": float(dec.exec_risk_bps),
-        "ml_exec_risk_norm": float(dec.exec_risk_norm),
-        "ml_exec_pen": float(dec.exec_pen),
-        "ml_score_breakdown_json": str(dec.score_breakdown_json),
+        "ml_exec_risk_ref_bps": float(dec.exec_risk_ref_bps)
+        "ml_exec_risk_bps": float(dec.exec_risk_bps)
+        "ml_exec_risk_norm": float(dec.exec_risk_norm)
+        "ml_exec_pen": float(dec.exec_pen)
+        "ml_score_breakdown_json": str(dec.score_breakdown_json)
     }
 
     try:
@@ -125,23 +125,23 @@ def emit_metrics(
 
 
 def capture_replay_input(
-    r: redis.Redis,
-    dec: MLConfirmDecision,
-    *,
-    symbol: str,
-    ts_ms: int,
-    direction: str,
-    scenario: str,
-    indicators: Dict[str, Any],
-    rule_score: float,
-    rule_have: int,
-    rule_need: int,
-    cancel_spike_veto: int,
-    ok_rule: int,
-    replay_capture: bool,
-    replay_stream: str,
-    replay_sample: float,
-    replay_maxlen: int,
+    r: redis.Redis
+    dec: MLConfirmDecision
+    *
+    symbol: str
+    ts_ms: int
+    direction: str
+    scenario: str
+    indicators: Dict[str, Any]
+    rule_score: float
+    rule_have: int
+    rule_need: int
+    cancel_spike_veto: int
+    ok_rule: int
+    replay_capture: bool
+    replay_stream: str
+    replay_sample: float
+    replay_maxlen: int
 ) -> None:
     if not replay_capture or not r:
         return
@@ -154,21 +154,21 @@ def capture_replay_input(
     safe_inds = _json_safe(indicators)
 
     payload = {
-        "event_time": int(time.time() * 1000),
-        "symbol": str(symbol).upper(),
-        "ts_ms": int(ts_ms),
-        "direction": str(direction).upper(),
-        "scenario": str(scenario),
-        "rule_score": float(rule_score),
-        "rule_have": int(rule_have),
-        "rule_need": int(rule_need),
-        "cancel_spike_veto": int(cancel_spike_veto),
-        "ok_rule": int(ok_rule),
-        "indicators_json": json.dumps(safe_inds, separators=(',', ':')),
-        "ml_p_edge": float(dec.p_edge),
-        "ml_p_min": float(dec.p_min),
-        "ml_allow": int(dec.allow),
-        "ml_status": dec.status,
+        "event_time": int(time.time() * 1000)
+        "symbol": str(symbol).upper()
+        "ts_ms": int(ts_ms)
+        "direction": str(direction).upper()
+        "scenario": str(scenario)
+        "rule_score": float(rule_score)
+        "rule_have": int(rule_have)
+        "rule_need": int(rule_need)
+        "cancel_spike_veto": int(cancel_spike_veto)
+        "ok_rule": int(ok_rule)
+        "indicators_json": json.dumps(safe_inds, separators=(',', ':'))
+        "ml_p_edge": float(dec.p_edge)
+        "ml_p_min": float(dec.p_min)
+        "ml_allow": int(dec.allow)
+        "ml_status": dec.status
     }
     
     try:

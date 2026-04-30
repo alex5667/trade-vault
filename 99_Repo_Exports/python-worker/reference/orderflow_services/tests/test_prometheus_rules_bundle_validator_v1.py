@@ -2,8 +2,8 @@ import pytest
 from pathlib import Path
 
 from orderflow_services.validate_prometheus_rules_bundle_v1 import (
-    _validate_rules_yaml_doc,
-    validate_repo_rules,
+    _validate_rules_yaml_doc
+    validate_repo_rules
 )
 
 def test_validate_rules_yaml_doc_valid():
@@ -12,10 +12,10 @@ def test_validate_rules_yaml_doc_valid():
             {
                 "rules": [
                     {
-                        "alert": "TestAlert",
-                        "expr": "vector(1)",
-                        "labels": {"severity": "page"},
-                        "annotations": {"summary": "Test alert"},
+                        "alert": "TestAlert"
+                        "expr": "vector(1)"
+                        "labels": {"severity": "page"}
+                        "annotations": {"summary": "Test alert"}
                     }
                 ]
             }
@@ -40,12 +40,12 @@ def test_validate_rules_yaml_doc_duplicate_alerts():
             {
                 "rules": [
                     {
-                        "alert": "DuplicateAlert",
-                        "expr": "vector(1)",
-                    },
+                        "alert": "DuplicateAlert"
+                        "expr": "vector(1)"
+                    }
                     {
-                        "alert": "DuplicateAlert",
-                        "expr": "vector(2)",
+                        "alert": "DuplicateAlert"
+                        "expr": "vector(2)"
                     }
                 ]
             }

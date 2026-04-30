@@ -31,13 +31,13 @@ class L3Thresholds:
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "L3Thresholds":
         return cls(
-            spread_max_ok_bps=float(d["spread_max_ok_bps"]),
-            spread_hard_limit_bps=float(d["spread_hard_limit_bps"]),
-            cancel_soft=float(d["cancel_soft"]),
-            cancel_hard=float(d["cancel_hard"]),
-            obi_good_min=float(d["obi_good_min"]),
-            obi_bad_max=float(d["obi_bad_max"]),
-            mp_drift_max_bps=float(d["mp_drift_max_bps"]),
+            spread_max_ok_bps=float(d["spread_max_ok_bps"])
+            spread_hard_limit_bps=float(d["spread_hard_limit_bps"])
+            cancel_soft=float(d["cancel_soft"])
+            cancel_hard=float(d["cancel_hard"])
+            obi_good_min=float(d["obi_good_min"])
+            obi_bad_max=float(d["obi_bad_max"])
+            mp_drift_max_bps=float(d["mp_drift_max_bps"])
         )
 
 
@@ -66,7 +66,7 @@ class CryptoConfScorerConfig:
         default_cfg = cfg.get("default", {})
         default_l3_cfg = default_cfg.get("l3", {})
         default_profile = L3Profile(
-            l3=L3Thresholds.from_dict(default_l3_cfg),
+            l3=L3Thresholds.from_dict(default_l3_cfg)
         )
 
         by_symbol: Dict[str, Dict[str, Dict[str, L3Profile]]] = {}
@@ -80,16 +80,16 @@ class CryptoConfScorerConfig:
                 for dir_key, dir_val in fam_val.items():
                     l3_cfg = dir_val.get("l3", {})
                     by_symbol[symbol][family][dir_key] = L3Profile(
-                        l3=L3Thresholds.from_dict(l3_cfg),
+                        l3=L3Thresholds.from_dict(l3_cfg)
                     )
 
         return cls(default_profile=default_profile, by_symbol=by_symbol)
 
     def resolve_profile(
-        self,
-        symbol: str,
-        signal_family: str,
-        direction: Direction,
+        self
+        symbol: str
+        signal_family: str
+        direction: Direction
     ) -> L3Profile:
         """
         Пытаемся найти максимально специфичный профиль:
@@ -134,9 +134,9 @@ class CryptoConfScorer:
     """
 
     def __init__(
-        self,
-        yaml_path: str,
-        reload_interval_sec: int = 60,
+        self
+        yaml_path: str
+        reload_interval_sec: int = 60
     ) -> None:
         self.yaml_path = yaml_path
         self.reload_interval_sec = reload_interval_sec
@@ -150,29 +150,29 @@ class CryptoConfScorer:
     # --- публичный API ---
 
     def score_l3(
-        self,
-        *,
-        symbol: str,
-        signal_family: str,
-        direction: Direction,
-        l3_spread_bps: float,
-        l3_obi_persistence_score: float,
-        l3_microprice_shift_bps_20: float,
-        l3_cancel_to_trade_bid_5s: float,
-        l3_cancel_to_trade_ask_5s: float,
-        l3_cancel_to_trade_bid_20s: float,
-        l3_cancel_to_trade_ask_20s: float,
+        self
+        *
+        symbol: str
+        signal_family: str
+        direction: Direction
+        l3_spread_bps: float
+        l3_obi_persistence_score: float
+        l3_microprice_shift_bps_20: float
+        l3_cancel_to_trade_bid_5s: float
+        l3_cancel_to_trade_ask_5s: float
+        l3_cancel_to_trade_bid_20s: float
+        l3_cancel_to_trade_ask_20s: float
     ) -> Dict[str, Any]:
         """
         Основной метод: возвращает dict со структурой:
           {
-            "l3_score": float,
+            "l3_score": float
             "terms": {
-                "spread_ok_score": float,
-                "cancel_to_trade_score": float,
-                "obi_persistence_score": float,
-                "microprice_drift_score": float,
-            },
+                "spread_ok_score": float
+                "cancel_to_trade_score": float
+                "obi_persistence_score": float
+                "microprice_drift_score": float
+            }
             "profile": { ...debug thresholds... }
           }
         """
@@ -183,32 +183,32 @@ class CryptoConfScorer:
 
         # --- spread term ---
         spread_ok_score = self._spread_ok_term(
-            spread_bps=l3_spread_bps,
-            max_ok=t.spread_max_ok_bps,
-            hard=t.spread_hard_limit_bps,
+            spread_bps=l3_spread_bps
+            max_ok=t.spread_max_ok_bps
+            hard=t.spread_hard_limit_bps
         )
 
         # --- cancel-to-trade term ---
         cancel_to_trade_score = self._cancel_to_trade_term(
-            bid5=l3_cancel_to_trade_bid_5s,
-            ask5=l3_cancel_to_trade_ask_5s,
-            bid20=l3_cancel_to_trade_bid_20s,
-            ask20=l3_cancel_to_trade_ask_20s,
-            soft=t.cancel_soft,
-            hard=t.cancel_hard,
+            bid5=l3_cancel_to_trade_bid_5s
+            ask5=l3_cancel_to_trade_ask_5s
+            bid20=l3_cancel_to_trade_bid_20s
+            ask20=l3_cancel_to_trade_ask_20s
+            soft=t.cancel_soft
+            hard=t.cancel_hard
         )
 
         # --- OBI persistence term ---
         obi_persistence_score = self._obi_persistence_term(
-            obi_persistence=l3_obi_persistence_score,
-            good_min=t.obi_good_min,
-            bad_max=t.obi_bad_max,
+            obi_persistence=l3_obi_persistence_score
+            good_min=t.obi_good_min
+            bad_max=t.obi_bad_max
         )
 
         # --- microprice drift term ---
         microprice_drift_score = self._microprice_drift_term(
-            mp_shift_bps=l3_microprice_shift_bps_20,
-            max_bps=t.mp_drift_max_bps,
+            mp_shift_bps=l3_microprice_shift_bps_20
+            max_bps=t.mp_drift_max_bps
         )
 
         # агрегируем в финальный l3_score
@@ -231,32 +231,32 @@ class CryptoConfScorer:
         l3_score = max(0.0, min(1.0, float(l3_score)))
 
         return {
-            "l3_score": l3_score,
+            "l3_score": l3_score
             "terms": {
-                "spread_ok_score": spread_ok_score,
-                "cancel_to_trade_score": cancel_to_trade_score,
-                "obi_persistence_score": obi_persistence_score,
-                "microprice_drift_score": microprice_drift_score,
-            },
+                "spread_ok_score": spread_ok_score
+                "cancel_to_trade_score": cancel_to_trade_score
+                "obi_persistence_score": obi_persistence_score
+                "microprice_drift_score": microprice_drift_score
+            }
             "profile": {
-                "spread_max_ok_bps": t.spread_max_ok_bps,
-                "spread_hard_limit_bps": t.spread_hard_limit_bps,
-                "cancel_soft": t.cancel_soft,
-                "cancel_hard": t.cancel_hard,
-                "obi_good_min": t.obi_good_min,
-                "obi_bad_max": t.obi_bad_max,
-                "mp_drift_max_bps": t.mp_drift_max_bps,
-            },
+                "spread_max_ok_bps": t.spread_max_ok_bps
+                "spread_hard_limit_bps": t.spread_hard_limit_bps
+                "cancel_soft": t.cancel_soft
+                "cancel_hard": t.cancel_hard
+                "obi_good_min": t.obi_good_min
+                "obi_bad_max": t.obi_bad_max
+                "mp_drift_max_bps": t.mp_drift_max_bps
+            }
         }
 
     # --- приватные helpers для термов ---
 
     @staticmethod
     def _spread_ok_term(
-        *,
-        spread_bps: float,
-        max_ok: float,
-        hard: float,
+        *
+        spread_bps: float
+        max_ok: float
+        hard: float
     ) -> float:
         """
         Идея:
@@ -281,27 +281,27 @@ class CryptoConfScorer:
 
     @staticmethod
     def _cancel_to_trade_term(
-        *,
-        bid5: float,
-        ask5: float,
-        bid20: float,
-        ask20: float,
-        soft: float,
-        hard: float,
+        *
+        bid5: float
+        ask5: float
+        bid20: float
+        ask20: float
+        soft: float
+        hard: float
     ) -> float:
         """
         Cancel-to-Trade ratio:
 
-        - агрегируем bid/ask и 5/20s в одну метрику,
+        - агрегируем bid/ask и 5/20s в одну метрику
         - если cancel <= soft → ok = 1
         - если soft < cancel < hard → спадаем линейно до 0
         - если >= hard → 0
         """
         vals = [
-            float(bid5),
-            float(ask5),
-            float(bid20),
-            float(ask20),
+            float(bid5)
+            float(ask5)
+            float(bid20)
+            float(ask20)
         ]
         # берём max (наихудший сценарий)
         c = max(v for v in vals if v == v)  # фильтр NaN: v == v
@@ -315,10 +315,10 @@ class CryptoConfScorer:
 
     @staticmethod
     def _obi_persistence_term(
-        *,
-        obi_persistence: float,
-        good_min: float,
-        bad_max: float,
+        *
+        obi_persistence: float
+        good_min: float
+        bad_max: float
     ) -> float:
         """
         OBI persistence score:
@@ -342,9 +342,9 @@ class CryptoConfScorer:
 
     @staticmethod
     def _microprice_drift_term(
-        *,
-        mp_shift_bps: float,
-        max_bps: float,
+        *
+        mp_shift_bps: float
+        max_bps: float
     ) -> float:
         """
         Microprice/fair-value drift:

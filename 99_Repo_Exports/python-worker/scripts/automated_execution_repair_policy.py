@@ -44,13 +44,13 @@ def run_policy(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stre
     repaired = None
     if before.critical_mismatches <= int(max_auto_repair_critical):
         repaired = repair_mod.run_repair(
-            redis_url=redis_url,
-            journal_dsn=journal_dsn,
-            state_prefix=state_prefix,
-            exec_stream=exec_stream,
-            stream_count=stream_count,
-            dry_run=dry_run,
-            ledger_dsn=ledger_dsn,
+            redis_url=redis_url
+            journal_dsn=journal_dsn
+            state_prefix=state_prefix
+            exec_stream=exec_stream
+            stream_count=stream_count
+            dry_run=dry_run
+            ledger_dsn=ledger_dsn
         )
     after = consistency.run_check(redis_url=redis_url, journal_dsn=journal_dsn, state_prefix=state_prefix, exec_stream=exec_stream, stream_count=stream_count)
     mismatches = [consistency.ConsistencyMismatch(**m) for m in after.mismatches]
@@ -62,31 +62,31 @@ def run_policy(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stre
         ledger = QuarantineLedgerSink(dsn=ledger_dsn) if QuarantineLedgerSink and ledger_dsn else None
         for item in targets:
             quarantine_results.append(quarantine_mod.quarantine_sid(
-                r,
-                item['sid'],
-                state_prefix=state_prefix,
-                quarantine_prefix=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'),
-                reason=item['reason'],
-                severity=str(item.get('severity') or quarantine_min_severity),
-                dry_run=dry_run,
-                ledger=ledger,
-                source='automated_repair_policy',
+                r
+                item['sid']
+                state_prefix=state_prefix
+                quarantine_prefix=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:')
+                reason=item['reason']
+                severity=str(item.get('severity') or quarantine_min_severity)
+                dry_run=dry_run
+                ledger=ledger
+                source='automated_repair_policy'
             ))
     summary = {
-        'before': before.to_dict(),
-        'repaired': repaired,
-        'after': after.to_dict(),
-        'quarantine_results': quarantine_results,
+        'before': before.to_dict()
+        'repaired': repaired
+        'after': after.to_dict()
+        'quarantine_results': quarantine_results
     }
     finished_at_ms = get_ny_time_millis()
     if ledger_dsn and QuarantineLedgerSink is not None:
         QuarantineLedgerSink(dsn=ledger_dsn).record_repair_run({
-            'run_kind': 'automated_repair_policy',
-            'source': 'automated_execution_repair_policy',
-            'status': 'dry_run' if dry_run else 'applied',
-            'summary': summary,
-            'started_at_ms': started_at_ms,
-            'finished_at_ms': finished_at_ms,
+            'run_kind': 'automated_repair_policy'
+            'source': 'automated_execution_repair_policy'
+            'status': 'dry_run' if dry_run else 'applied'
+            'summary': summary
+            'started_at_ms': started_at_ms
+            'finished_at_ms': finished_at_ms
         })
     return summary
 
@@ -106,15 +106,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.journal_dsn:
         raise SystemExit('EXECUTION_JOURNAL_DSN/--journal-dsn is required')
     print(json.dumps(run_policy(
-        redis_url=args.redis_url,
-        journal_dsn=args.journal_dsn,
-        state_prefix=args.state_prefix,
-        exec_stream=args.exec_stream,
-        stream_count=args.stream_count,
-        max_auto_repair_critical=args.max_auto_repair_critical,
-        quarantine_min_severity=args.quarantine_min_severity,
-        dry_run=args.dry_run,
-        ledger_dsn=args.ledger_dsn,
+        redis_url=args.redis_url
+        journal_dsn=args.journal_dsn
+        state_prefix=args.state_prefix
+        exec_stream=args.exec_stream
+        stream_count=args.stream_count
+        max_auto_repair_critical=args.max_auto_repair_critical
+        quarantine_min_severity=args.quarantine_min_severity
+        dry_run=args.dry_run
+        ledger_dsn=args.ledger_dsn
     ), ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

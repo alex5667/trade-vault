@@ -43,11 +43,11 @@ def test_feature_registry_v5_of_stable_filters_denylist(tmp_path, monkeypatch):
     assert num_key is not None
 
     deny = {
-        "ver": "v1",
-        "updated_utc": "",
-        "deny_num": [num_key],
-        "deny_bool": [bool_key] if bool_key else [],
-        "notes": "test",
+        "ver": "v1"
+        "updated_utc": ""
+        "deny_num": [num_key]
+        "deny_bool": [bool_key] if bool_key else []
+        "notes": "test"
     }
     deny_path = tmp_path / "feature_denylist_v1.json"
     deny_path.write_text(json.dumps(deny, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -85,24 +85,24 @@ def test_autogen_denylist_proposal_writes_diff_and_dedups(tmp_path, monkeypatch)
     deny_path = tmp_path / "feature_denylist_v1.json"
     deny_path.write_text(
         json.dumps({"ver": "v1", "updated_utc": "", "deny_num": [], "deny_bool": [], "notes": ""}, indent=2)
-        + "\n",
-        encoding="utf-8",
+        + "\n"
+        encoding="utf-8"
     )
 
     proposals_dir = tmp_path / "proposals"
     monkeypatch.chdir(tmp_path)
 
     argv = [
-        "--fs-run-dir",
-        str(fs_dir),
-        "--denylist-path",
-        str(deny_path),
-        "--proposals-dir",
-        str(proposals_dir),
-        "--dedup-days",
-        "30",
-        "--max-features",
-        "5",
+        "--fs-run-dir"
+        str(fs_dir)
+        "--denylist-path"
+        str(deny_path)
+        "--proposals-dir"
+        str(proposals_dir)
+        "--dedup-days"
+        "30"
+        "--max-features"
+        "5"
     ]
 
     import sys as _sys

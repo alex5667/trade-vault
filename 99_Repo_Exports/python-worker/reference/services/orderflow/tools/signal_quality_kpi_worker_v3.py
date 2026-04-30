@@ -256,11 +256,11 @@ def compute_once() -> None:
 
     # Write cfg2
     cfg_map = {
-        "signal_quality_expectancy_r_24h": f"{g_expect:.6f}" if g_expect is not None else "",
-        "signal_quality_precision_top5p_24h": f"{g_prec:.6f}" if g_prec is not None else "",
-        "signal_quality_ece_24h": f"{g_ece:.6f}" if g_ece is not None else "",
-        "signal_quality_n_24h": str(n),
-        "signal_quality_last_ts_ms": str(last_ts),
+        "signal_quality_expectancy_r_24h": f"{g_expect:.6f}" if g_expect is not None else ""
+        "signal_quality_precision_top5p_24h": f"{g_prec:.6f}" if g_prec is not None else ""
+        "signal_quality_ece_24h": f"{g_ece:.6f}" if g_ece is not None else ""
+        "signal_quality_n_24h": str(n)
+        "signal_quality_last_ts_ms": str(last_ts)
     }
     cli.hset(dyn_cfg_key, mapping={k:v for k,v in cfg_map.items() if v != ""})
 
@@ -272,11 +272,11 @@ def compute_once() -> None:
         prec = _precision_top_p(binobj["scores"], binobj["ys"], top_p)
         ece = _ece(binobj["probs"], binobj["ys"][:len(binobj["probs"])], ece_bins) if len(binobj["probs"]) == binobj["n"] else None
         out = {
-            "n": binobj["n"],
-            "expectancy_r": exp,
-            "precision_top5p": prec,
-            "ece": ece,
-            "last_ts_ms": binobj["last_ts"],
+            "n": binobj["n"]
+            "expectancy_r": exp
+            "precision_top5p": prec
+            "ece": ece
+            "last_ts_ms": binobj["last_ts"]
         }
         return json.dumps(out, ensure_ascii=False)
 

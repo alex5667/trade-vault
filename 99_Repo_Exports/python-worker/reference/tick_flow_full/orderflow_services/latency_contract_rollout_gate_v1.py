@@ -5,7 +5,7 @@ from utils.time_utils import get_ny_time_millis
 """Rollout/apply blocker for latency-contract coverage (P4.2).
 
 Blocks sensitive rollout/apply paths when:
-- external required stages are missing (`go_ingest/ingest_to_redis`,
+- external required stages are missing (`go_ingest/ingest_to_redis`
   `nest_gateway/emit_to_ws`, `nest_gateway/end_to_end_event`)
 - or `budget_breach_total` stays above threshold for N minutes.
 
@@ -68,13 +68,13 @@ class Cfg:
 
 def load_cfg() -> Cfg:
     return Cfg(
-        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
-        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
-        state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last'),
-        gate_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1'),
-        interval_s=float(_env('LATENCY_CONTRACT_ROLLOUT_GATE_INTERVAL_S', '10') or 10),
-        budget_hold_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S', '300'), 300),
-        gate_ttl_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_TTL_S', '900'), 900),
+        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0')
+        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last')
+        state_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY', 'metrics:latency_contract:rollout_gate:last')
+        gate_key=_env('LATENCY_CONTRACT_ROLLOUT_GATE_KEY', 'cfg:orderflow:latency_contract:rollout_gate:v1')
+        interval_s=float(_env('LATENCY_CONTRACT_ROLLOUT_GATE_INTERVAL_S', '10') or 10)
+        budget_hold_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S', '300'), 300)
+        gate_ttl_s=_i(_env('LATENCY_CONTRACT_ROLLOUT_GATE_TTL_S', '900'), 900)
     )
 
 
@@ -92,21 +92,21 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
         # Missing SLO summary is treated as rollout-blocking because coverage is unknown.
         # Safer-than-open: safer to block than to allow apply without known SLO state.
         mapping = {
-            'schema_version': '1',
-            'last_ts_ms': str(now_ms),
-            'summary_present': '0',
-            'external_missing_total': '999999',
-            'budget_breach_total': '0',
-            'budget_breach_since_ts_ms': str(_i(prev.get('budget_breach_since_ts_ms'), 0)),
-            'budget_breach_hold_s': '0',
-            'budget_hold_reached': '0',
-            'gate_active': '1',
-            'gate_reason_code': 'summary_missing',
-            'gate_reason_codes': 'summary_missing',
+            'schema_version': '1'
+            'last_ts_ms': str(now_ms)
+            'summary_present': '0'
+            'external_missing_total': '999999'
+            'budget_breach_total': '0'
+            'budget_breach_since_ts_ms': str(_i(prev.get('budget_breach_since_ts_ms'), 0))
+            'budget_breach_hold_s': '0'
+            'budget_hold_reached': '0'
+            'gate_active': '1'
+            'gate_reason_code': 'summary_missing'
+            'gate_reason_codes': 'summary_missing'
         }
         return mapping
 
-    # P4.2 blocks on missing *external* stages only (go_ingest + nest_gateway),
+    # P4.2 blocks on missing *external* stages only (go_ingest + nest_gateway)
     # not on Python-side coverage.  external_missing_total is written by the P4.1
     # SLO gate after it was extended in this patch.
     external_missing_total = _i(raw.get('external_missing_total'), 0)
@@ -130,17 +130,17 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
     reason_code = reasons[0] if reasons else 'ok'
 
     mapping = {
-        'schema_version': '1',
-        'last_ts_ms': str(now_ms),
-        'summary_present': '1',
-        'external_missing_total': str(external_missing_total),
-        'budget_breach_total': str(budget_breach_total),
-        'budget_breach_since_ts_ms': str(since_ms),
-        'budget_breach_hold_s': str(hold_s),
-        'budget_hold_reached': str(hold_reached),
-        'gate_active': str(gate_active),
-        'gate_reason_code': reason_code,
-        'gate_reason_codes': ','.join(reasons) if reasons else 'ok',
+        'schema_version': '1'
+        'last_ts_ms': str(now_ms)
+        'summary_present': '1'
+        'external_missing_total': str(external_missing_total)
+        'budget_breach_total': str(budget_breach_total)
+        'budget_breach_since_ts_ms': str(since_ms)
+        'budget_breach_hold_s': str(hold_s)
+        'budget_hold_reached': str(hold_reached)
+        'gate_active': str(gate_active)
+        'gate_reason_code': reason_code
+        'gate_reason_codes': ','.join(reasons) if reasons else 'ok'
     }
     return mapping
 

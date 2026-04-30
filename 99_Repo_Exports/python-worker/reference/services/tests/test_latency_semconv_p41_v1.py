@@ -27,20 +27,20 @@ def test_required_stage_owner_matrix_has_five_entries():
 
 def test_build_external_state_mapping_includes_external_ts_fields():
     payload = {
-        'ts_event_ms': 1000,
-        'ts_ingest_source_ms': 1100,
-        'ts_redis_xadd_ms': 1200,
-        'ts_emit_ms': 1300,
-        'ts_ws_emit_ms': 1500,
+        'ts_event_ms': 1000
+        'ts_ingest_source_ms': 1100
+        'ts_redis_xadd_ms': 1200
+        'ts_emit_ms': 1300
+        'ts_ws_emit_ms': 1500
     }
     m = build_external_state_mapping(
-        service='nest_gateway',
-        stage='end_to_end_event',
-        symbol='BTCUSDT',
-        duration_ms=500,
-        payload=payload,
-        instance_id='n1',
-        source='test',
+        service='nest_gateway'
+        stage='end_to_end_event'
+        symbol='BTCUSDT'
+        duration_ms=500
+        payload=payload
+        instance_id='n1'
+        source='test'
     )
     assert m['service'] == 'nest_gateway'
     assert m['stage'] == 'end_to_end_event'
@@ -55,8 +55,8 @@ def test_build_external_state_mapping_includes_external_ts_fields():
 
 def test_build_external_state_mapping_schema_version():
     m = build_external_state_mapping(
-        service='go_ingest', stage='ingest_to_redis', symbol='ethusdt',
-        duration_ms=20, payload={},
+        service='go_ingest', stage='ingest_to_redis', symbol='ethusdt'
+        duration_ms=20, payload={}
     )
     assert m['schema_version'] == '1'
     assert m['symbol'] == 'ETHUSDT'  # normalised to upper

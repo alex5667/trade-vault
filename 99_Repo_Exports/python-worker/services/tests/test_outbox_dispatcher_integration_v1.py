@@ -9,7 +9,7 @@ Tests the full path:
   → updates schema_version counter
   → records dispatch latency histogram
 
-Uses an in-process fake Redis (no network) so the test is deterministic,
+Uses an in-process fake Redis (no network) so the test is deterministic
 fast (<50ms per case), and runnable in CI without a live Redis.
 
 Invariants verified per signal:
@@ -158,33 +158,33 @@ class _FakePipeline:
 
 
 def _make_envelope(
-    sid: str,
-    schema_version: str = "1",
-    is_virtual: bool = False,
-    signal_stream: str = "stream:signals:live",
-    audit_stream: str = "stream:signals:audit",
+    sid: str
+    schema_version: str = "1"
+    is_virtual: bool = False
+    signal_stream: str = "stream:signals:live"
+    audit_stream: str = "stream:signals:audit"
 ) -> Dict[str, str]:
     env = {
-        "sid": sid,
-        "schema_version": schema_version,
-        "symbol": "BTCUSDT",
+        "sid": sid
+        "schema_version": schema_version
+        "symbol": "BTCUSDT"
         "targets": {
-            "notify": {"text": f"Signal {sid}", "sid": sid},
-            "signal_stream_payload": {"symbol": "BTCUSDT", "side": "LONG", "is_virtual": int(is_virtual)},
-            "audit_payload": {"sid": sid, "reason": "test"},
-        },
+            "notify": {"text": f"Signal {sid}", "sid": sid}
+            "signal_stream_payload": {"symbol": "BTCUSDT", "side": "LONG", "is_virtual": int(is_virtual)}
+            "audit_payload": {"sid": sid, "reason": "test"}
+        }
         "meta": {
-            "signal_stream": signal_stream,
-            "audit_stream": audit_stream,
-            "is_virtual": int(is_virtual),
-        },
+            "signal_stream": signal_stream
+            "audit_stream": audit_stream
+            "is_virtual": int(is_virtual)
+        }
     }
     return {"data": json.dumps(env)}
 
 
 def _build_dispatcher_with_delivery_store(
-    outbox_redis: _FakeOutboxRedis,
-    delivery_store: _AtomicDeliveryStore,
+    outbox_redis: _FakeOutboxRedis
+    delivery_store: _AtomicDeliveryStore
 ):
     """
     Build SignalDispatcher with:
@@ -192,15 +192,15 @@ def _build_dispatcher_with_delivery_store(
     - delivery_store: records actual per-target deliveries (idempotent)
     """
     with (
-        patch("services.signal_outbox_dispatcher.get_redis", return_value=outbox_redis),
-        patch("services.signal_outbox_dispatcher.get_dual_signals_redis", return_value=outbox_redis),
-        patch("services.signal_outbox_dispatcher.SyncRedisStreamHelper"),
-        patch("services.signal_outbox_dispatcher.OutboxRetryQueue") as _rq_cls,
-        patch("services.signal_outbox_dispatcher.DeliveryAtomic") as _da_cls,
-        patch("services.signal_outbox_dispatcher.SidLease") as _lease_cls,
-        patch("services.signal_outbox_dispatcher.NotifyGate") as _ng_cls,
+        patch("services.signal_outbox_dispatcher.get_redis", return_value=outbox_redis)
+        patch("services.signal_outbox_dispatcher.get_dual_signals_redis", return_value=outbox_redis)
+        patch("services.signal_outbox_dispatcher.SyncRedisStreamHelper")
+        patch("services.signal_outbox_dispatcher.OutboxRetryQueue") as _rq_cls
+        patch("services.signal_outbox_dispatcher.DeliveryAtomic") as _da_cls
+        patch("services.signal_outbox_dispatcher.SidLease") as _lease_cls
+        patch("services.signal_outbox_dispatcher.NotifyGate") as _ng_cls
         # Patch the actual source module since it's imported locally in dispatcher
-        patch("services.dispatcher.target_registry.TargetRegistry") as _tr,
+        patch("services.dispatcher.target_registry.TargetRegistry") as _tr
     ):
         rq = MagicMock()
         rq.sizes.return_value = (0, 0)
@@ -391,10 +391,10 @@ class TestOutboxDispatcherVirtualSignal:
 
         sid = f"SID-VIRT-{uuid.uuid4().hex[:6]}"
         result = d._handle_one(
-            "1700000000020-0",
-            _make_envelope(sid, is_virtual=True),
-            helper=helper,
-            attempt_hint=0,
+            "1700000000020-0"
+            _make_envelope(sid, is_virtual=True)
+            helper=helper
+            attempt_hint=0
         )
 
         assert result is True
@@ -411,10 +411,10 @@ class TestOutboxDispatcherVirtualSignal:
         msg_id = "1700000000021-0"
         sid = f"SID-VIRT-{uuid.uuid4().hex[:6]}"
         result = d._handle_one(
-            msg_id,
-            _make_envelope(sid, is_virtual=True),
-            helper=helper,
-            attempt_hint=0,
+            msg_id
+            _make_envelope(sid, is_virtual=True)
+            helper=helper
+            attempt_hint=0
         )
 
         assert result is True
@@ -456,10 +456,10 @@ class TestOutboxDispatcherIdempotency:
 
         for i in range(3):
             d._handle_one(
-                f"1700000000040-{i}",
-                _make_envelope(f"SID-MULTI-{i}"),
-                helper=helper,
-                attempt_hint=0,
+                f"1700000000040-{i}"
+                _make_envelope(f"SID-MULTI-{i}")
+                helper=helper
+                attempt_hint=0
             )
 
         # 3 distinct sids → 3 notify deliveries

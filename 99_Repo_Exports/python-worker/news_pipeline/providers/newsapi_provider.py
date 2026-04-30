@@ -27,12 +27,12 @@ def fetch_newsapi(cfg: Dict[str, Any]) -> List[NewsRawItem]:
         return []
 
     params: Dict[str, Any] = {
-        "q": q,
-        "language": cfg.get("language") or "en",
-        "sortBy": cfg.get("sortBy") or "publishedAt",
-        "pageSize": int(cfg.get("pageSize") or 50),
-        "page": int(cfg.get("page") or 1),
-        "apiKey": api_key,
+        "q": q
+        "language": cfg.get("language") or "en"
+        "sortBy": cfg.get("sortBy") or "publishedAt"
+        "pageSize": int(cfg.get("pageSize") or 50)
+        "page": int(cfg.get("page") or 1)
+        "apiKey": api_key
     }
 
     js, err = http_get_json(NEWSAPI_BASE, params=params)
@@ -60,15 +60,15 @@ def fetch_newsapi(cfg: Dict[str, Any]) -> List[NewsRawItem]:
         uid = f"na:{hash(url)}"
         out.append(
             NewsRawItem(
-                uid=uid,
-                ts_ms=now,
-                source=f"newsapi:{src_name}"[:48],
-                title=title[:280],
-                url=url[:700],
-                summary=str(it.get("description") or "")[:600],
+                uid=uid
+                ts_ms=now
+                source=f"newsapi:{src_name}"[:48]
+                title=title[:280]
+                url=url[:700]
+                summary=str(it.get("description") or "")[:600]
                 symbols=[],  # tags/assets определит LLM
-                importance=0.0,
-                payload=it,
+                importance=0.0
+                payload=it
             )
         )
 

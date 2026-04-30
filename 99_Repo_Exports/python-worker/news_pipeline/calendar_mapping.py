@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import List
 
 _FIAT_CCY = {
-    "USD","EUR","GBP","JPY","CHF","AUD","CAD","NZD","CNY",
-    "SEK","NOK","DKK","PLN","CZK","HUF","TRY","MXN","BRL","ZAR","INR","KRW","SGD","HKD",
+    "USD","EUR","GBP","JPY","CHF","AUD","CAD","NZD","CNY"
+    "SEK","NOK","DKK","PLN","CZK","HUF","TRY","MXN","BRL","ZAR","INR","KRW","SGD","HKD"
 }
 
 def map_calendar_asset_classes(*, country: str, currency: str, title: str, importance: int) -> List[str]:

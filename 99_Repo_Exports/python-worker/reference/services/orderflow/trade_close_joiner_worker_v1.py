@@ -60,16 +60,16 @@ except Exception:  # pragma: no cover
 from services.orderflow.utils import _fields_to_dict, _normalize_epoch_ms
 from services.orderflow.probability_utils_v1 import extract_prob_with_source
 from services.orderflow.metrics import (
-    log_silent_error,
-    trade_close_joiner_seen_total,
-    trade_close_joiner_join_ok_total,
-    trade_close_joiner_missing_decision_total,
-    trade_close_joiner_written_total,
-    trade_close_joiner_dedup_skipped_total,
-    trade_close_joiner_backfill_ok_total,
-    trade_close_joiner_backfill_drop_total,
-    trade_close_joiner_prob_missing_total,
-    trade_close_joiner_prob_source_total,
+    log_silent_error
+    trade_close_joiner_seen_total
+    trade_close_joiner_join_ok_total
+    trade_close_joiner_missing_decision_total
+    trade_close_joiner_written_total
+    trade_close_joiner_dedup_skipped_total
+    trade_close_joiner_backfill_ok_total
+    trade_close_joiner_backfill_drop_total
+    trade_close_joiner_prob_missing_total
+    trade_close_joiner_prob_source_total
 )
 
 
@@ -223,21 +223,21 @@ async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
 
 
 async def _xadd_payload(
-    r: Any,
-    *,
-    stream: str,
-    fields: Dict[str, str],
-    maxlen: int,
+    r: Any
+    *
+    stream: str
+    fields: Dict[str, str]
+    maxlen: int
 ) -> None:
     await r.xadd(stream, fields=fields, maxlen=maxlen, approximate=True)
 
 
 async def _write_outputs(
-    r: Any,
-    *,
-    decision: Dict[str, Any],
-    close_ev: Dict[str, Any],
-    label: Dict[str, Any],
+    r: Any
+    *
+    decision: Dict[str, Any]
+    close_ev: Dict[str, Any]
+    label: Dict[str, Any]
 ) -> None:
     trades_stream = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
     trades_maxlen = _env_int("TRADES_CLOSED_MAXLEN", "200000")
@@ -259,43 +259,43 @@ async def _write_outputs(
     model_ver = str((decision.get("ml", {}) or {}).get("model_ver") or "")
 
     out_trades = {
-        "version": 1,
-        "sid": sid,
-        "symbol": symbol,
-        "close_ts_ms": int(close_ts_ms),
-        "r_mult": None if r_mult is None else float(r_mult),
-        "y": label.get("y"),
-        "p": label.get("p"),
-        "brier": label.get("brier"),
-        "bucket": bucket,
-        "model_ver": model_ver,
-        "decision": decision,
-        "close": close_ev,
+        "version": 1
+        "sid": sid
+        "symbol": symbol
+        "close_ts_ms": int(close_ts_ms)
+        "r_mult": None if r_mult is None else float(r_mult)
+        "y": label.get("y")
+        "p": label.get("p")
+        "brier": label.get("brier")
+        "bucket": bucket
+        "model_ver": model_ver
+        "decision": decision
+        "close": close_ev
         "join": {
-            "decision_ts_ms": int(decision_ts_ms),
-            "decision_age_ms": int(max(0, close_ts_ms - decision_ts_ms)) if decision_ts_ms else None,
-            "win_r_min": label.get("win_r_min"),
-        },
+            "decision_ts_ms": int(decision_ts_ms)
+            "decision_age_ms": int(max(0, close_ts_ms - decision_ts_ms)) if decision_ts_ms else None
+            "win_r_min": label.get("win_r_min")
+        }
     }
 
     out_ml = {
-        "version": 1,
-        "sid": sid,
-        "symbol": symbol,
-        "ts_ms": int(decision_ts_ms or close_ts_ms),
-        "decision": decision,
+        "version": 1
+        "sid": sid
+        "symbol": symbol
+        "ts_ms": int(decision_ts_ms or close_ts_ms)
+        "decision": decision
         "label": {
-            "close_ts_ms": int(close_ts_ms),
-            "r_mult": None if r_mult is None else float(r_mult),
-            "y": label.get("y"),
-            "p": label.get("p"),
-            "brier": label.get("brier"),
-            "win_r_min": label.get("win_r_min"),
-        },
+            "close_ts_ms": int(close_ts_ms)
+            "r_mult": None if r_mult is None else float(r_mult)
+            "y": label.get("y")
+            "p": label.get("p")
+            "brier": label.get("brier")
+            "win_r_min": label.get("win_r_min")
+        }
         "meta": {
-            "bucket": bucket,
-            "model_ver": model_ver,
-        },
+            "bucket": bucket
+            "model_ver": model_ver
+        }
     }
 
     payload_trades = json.dumps(out_trades, ensure_ascii=False, separators=(",", ":"), default=str)
@@ -307,38 +307,38 @@ async def _write_outputs(
         signal_payload_str = json.dumps(decision, ensure_ascii=False, separators=(",", ":"), default=str)
 
         pipe.xadd(
-            trades_stream,
+            trades_stream
             fields={
-                "sid": sid,
-                "symbol": symbol,
-                "ts_ms": str(close_ts_ms),
-                "r_mult": "" if r_mult is None else str(r_mult),
-                "y": "" if label.get("y") is None else str(label.get("y")),
-                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
-                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
-                "bucket": bucket,
-                "model_ver": model_ver,
-                "payload": payload_trades,
-                "signal_payload": signal_payload_str,
-            },
-            maxlen=trades_maxlen,
-            approximate=True,
+                "sid": sid
+                "symbol": symbol
+                "ts_ms": str(close_ts_ms)
+                "r_mult": "" if r_mult is None else str(r_mult)
+                "y": "" if label.get("y") is None else str(label.get("y"))
+                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}"
+                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}"
+                "bucket": bucket
+                "model_ver": model_ver
+                "payload": payload_trades
+                "signal_payload": signal_payload_str
+            }
+            maxlen=trades_maxlen
+            approximate=True
         )
         pipe.xadd(
-            ml_stream,
+            ml_stream
             fields={
-                "sid": sid,
-                "symbol": symbol,
-                "ts_ms": str(int(decision_ts_ms or close_ts_ms)),
-                "y": "" if label.get("y") is None else str(label.get("y")),
-                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
-                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
-                "bucket": bucket,
-                "model_ver": model_ver,
-                "payload": payload_ml,
-            },
-            maxlen=ml_maxlen,
-            approximate=True,
+                "sid": sid
+                "symbol": symbol
+                "ts_ms": str(int(decision_ts_ms or close_ts_ms))
+                "y": "" if label.get("y") is None else str(label.get("y"))
+                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}"
+                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}"
+                "bucket": bucket
+                "model_ver": model_ver
+                "payload": payload_ml
+            }
+            maxlen=ml_maxlen
+            approximate=True
         )
         await pipe.execute()
     except Exception:
@@ -346,38 +346,38 @@ async def _write_outputs(
         signal_payload_str = json.dumps(decision, ensure_ascii=False, separators=(",", ":"), default=str)
         
         await _xadd_payload(
-            r,
-            stream=trades_stream,
+            r
+            stream=trades_stream
             fields={
-                "sid": sid,
-                "symbol": symbol,
-                "ts_ms": str(close_ts_ms),
-                "r_mult": "" if r_mult is None else str(r_mult),
-                "y": "" if label.get("y") is None else str(label.get("y")),
-                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
-                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
-                "bucket": bucket,
-                "model_ver": model_ver,
-                "payload": payload_trades,
-                "signal_payload": signal_payload_str,
-            },
-            maxlen=trades_maxlen,
+                "sid": sid
+                "symbol": symbol
+                "ts_ms": str(close_ts_ms)
+                "r_mult": "" if r_mult is None else str(r_mult)
+                "y": "" if label.get("y") is None else str(label.get("y"))
+                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}"
+                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}"
+                "bucket": bucket
+                "model_ver": model_ver
+                "payload": payload_trades
+                "signal_payload": signal_payload_str
+            }
+            maxlen=trades_maxlen
         )
         await _xadd_payload(
-            r,
-            stream=ml_stream,
+            r
+            stream=ml_stream
             fields={
-                "sid": sid,
-                "symbol": symbol,
-                "ts_ms": str(int(decision_ts_ms or close_ts_ms)),
-                "y": "" if label.get("y") is None else str(label.get("y")),
-                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
-                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
-                "bucket": bucket,
-                "model_ver": model_ver,
-                "payload": payload_ml,
-            },
-            maxlen=ml_maxlen,
+                "sid": sid
+                "symbol": symbol
+                "ts_ms": str(int(decision_ts_ms or close_ts_ms))
+                "y": "" if label.get("y") is None else str(label.get("y"))
+                "p": "" if label.get("p") is None else f"{float(label['p']):.6f}"
+                "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}"
+                "bucket": bucket
+                "model_ver": model_ver
+                "payload": payload_ml
+            }
+            maxlen=ml_maxlen
         )
 
     trade_close_joiner_written_total.labels(stream=trades_stream, symbol=symbol).inc()
@@ -385,10 +385,10 @@ async def _write_outputs(
 
 
 async def process_close_event(
-    r: Any,
-    *,
-    close_ev: Dict[str, Any],
-    from_backfill: bool = False,
+    r: Any
+    *
+    close_ev: Dict[str, Any]
+    from_backfill: bool = False
 ) -> bool:
     """Attempt join. Returns True if joined+written, False otherwise."""
 
@@ -438,16 +438,16 @@ async def process_close_event(
             payload = json.dumps(close_ev, ensure_ascii=False, separators=(",", ":"), default=str)
             try:
                 await r.xadd(
-                    wait_stream,
+                    wait_stream
                     fields={
-                        "sid": sid,
-                        "symbol": symbol,
-                        "close_ts_ms": str(close_ts_ms or 0),
-                        "first_seen_ms": str(_now_ms()),
-                        "payload": payload,
-                    },
-                    maxlen=wait_maxlen,
-                    approximate=True,
+                        "sid": sid
+                        "symbol": symbol
+                        "close_ts_ms": str(close_ts_ms or 0)
+                        "first_seen_ms": str(_now_ms())
+                        "payload": payload
+                    }
+                    maxlen=wait_maxlen
+                    approximate=True
                 )
             except Exception as e:
                 log_silent_error(e, kind="joiner_wait_xadd_failed", symbol=symbol, where="trade_close_joiner")
@@ -534,8 +534,8 @@ async def backfill_wait_stream(r: Any) -> None:
 
 async def run() -> None:
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level=logging.INFO
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
 
     if aioredis is None:
@@ -582,11 +582,11 @@ async def run() -> None:
                 last_backfill = now
 
             res = await r.xreadgroup(
-                groupname=group,
-                consumername=consumer,
-                streams={stream: ">"},
-                count=count,
-                block=block_ms,
+                groupname=group
+                consumername=consumer
+                streams={stream: ">"}
+                count=count
+                block=block_ms
             )
 
             if not res:

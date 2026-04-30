@@ -62,28 +62,28 @@ AUDIT_SIGNAL_STREAM = os.getenv("SIGNAL_AUDIT_STREAM", f"signals:audit:{SYMBOL}"
 
 # Параметры обработчика
 CFG = {
-    "delta_window_ticks": int(os.getenv("XAU_DELTA_WINDOW", "120")),
-    "delta_z_threshold": float(os.getenv("XAU_DELTA_Z_THRESHOLD", "3.0")),
-    "weak_progress_atr": float(os.getenv("XAU_WEAK_PROGRESS_ATR", "0.10")),
-    "obi_threshold": float(os.getenv("XAU_OBI_THRESHOLD", "0.5")),
-    "obi_min_duration": float(os.getenv("XAU_OBI_MIN_DURATION", "2.0")),
-    "iceberg_refresh_count": int(os.getenv("XAU_ICEBERG_REFRESH", "2")),
-    "iceberg_min_duration": float(os.getenv("XAU_ICEBERG_DURATION", "1.5")),
-    "iceberg_refresh_min_abs": float(os.getenv("XAU_ICEBERG_REFRESH_MIN_ABS", "1.0")),
-    "dist_atr_threshold": float(os.getenv("XAU_DIST_ATR_THRESHOLD", "0.5")),
+    "delta_window_ticks": int(os.getenv("XAU_DELTA_WINDOW", "120"))
+    "delta_z_threshold": float(os.getenv("XAU_DELTA_Z_THRESHOLD", "3.0"))
+    "weak_progress_atr": float(os.getenv("XAU_WEAK_PROGRESS_ATR", "0.10"))
+    "obi_threshold": float(os.getenv("XAU_OBI_THRESHOLD", "0.5"))
+    "obi_min_duration": float(os.getenv("XAU_OBI_MIN_DURATION", "2.0"))
+    "iceberg_refresh_count": int(os.getenv("XAU_ICEBERG_REFRESH", "2"))
+    "iceberg_min_duration": float(os.getenv("XAU_ICEBERG_DURATION", "1.5"))
+    "iceberg_refresh_min_abs": float(os.getenv("XAU_ICEBERG_REFRESH_MIN_ABS", "1.0"))
+    "dist_atr_threshold": float(os.getenv("XAU_DIST_ATR_THRESHOLD", "0.5"))
     "dist_bp_threshold": float(val) if (val := os.getenv("XAU_DIST_BP_THRESHOLD")) else None, 
-    "dist_mode": os.getenv("XAU_DIST_MODE", "or"),
+    "dist_mode": os.getenv("XAU_DIST_MODE", "or")
     "min_signal_interval_sec": int(os.getenv("XAU_MIN_SIGNAL_INTERVAL", "60")),  # 1 минута между сигналами
-    "read_count": int(os.getenv("XAU_READ_COUNT", "100")),
-    "read_block_ms": int(os.getenv("XAU_READ_BLOCK_MS", "1000")),
+    "read_count": int(os.getenv("XAU_READ_COUNT", "100"))
+    "read_block_ms": int(os.getenv("XAU_READ_BLOCK_MS", "1000"))
     # v5.1: SL/TP configuration
-    "stop_mode": os.getenv("STOP_MODE", "ATR"),
+    "stop_mode": os.getenv("STOP_MODE", "ATR")
     "stop_atr_mult": float(os.getenv("STOP_ATR_MULT", "1.0")),  # was 0.6
-    "stop_pct": float(os.getenv("STOP_PCT", "0.2")),
-    "stop_points": float(os.getenv("STOP_POINTS", "1.0")),
-    "tp_mode": os.getenv("TP_MODE", "RR"),
-    "tp_rr": os.getenv("TP_RR", "1,2,3"),
-    "tp_atr_mults": os.getenv("TP_ATR_MULTS", "0.6,1.0,1.5"),
+    "stop_pct": float(os.getenv("STOP_PCT", "0.2"))
+    "stop_points": float(os.getenv("STOP_POINTS", "1.0"))
+    "tp_mode": os.getenv("TP_MODE", "RR")
+    "tp_rr": os.getenv("TP_RR", "1,2,3")
+    "tp_atr_mults": os.getenv("TP_ATR_MULTS", "0.6,1.0,1.5")
 }
 
 
@@ -124,9 +124,9 @@ class XAUOrderFlowHandler:
         
         # Состояние для детекции iceberg
         self.best_level_state = {
-            "price": None,
-            "since": None,
-            "refresh": 0,
+            "price": None
+            "since": None
+            "refresh": 0
             "side": None
         }
         
@@ -147,18 +147,18 @@ class XAUOrderFlowHandler:
         
         # v3: Best Level Tracker для реальной iceberg детекции
         self.best_level_tracker = BestLevelTracker(
-            min_duration_ms=int(CFG["iceberg_min_duration"] * 1000),
-            refresh_min_abs=CFG["iceberg_refresh_min_abs"],
+            min_duration_ms=int(CFG["iceberg_min_duration"] * 1000)
+            refresh_min_abs=CFG["iceberg_refresh_min_abs"]
             refresh_count_target=CFG["iceberg_refresh_count"]
         )
 
         # Regime gate configuration (single source for XAU)
         self.regime_gate = RegimeGateCfg(
-            breakout_min_score=float(getattr(self, "regime_breakout_min_score", 0.0)),
-            extreme_min_score=float(getattr(self, "regime_extreme_min_score", 0.0)),
-            obi_spike_min_score=float(getattr(self, "regime_obi_spike_min_score", 0.0)),
-            absorption_max_score=float(getattr(self, "regime_absorption_max_score", 0.0)),
-            allow_sweep_any=bool(getattr(self, "regime_allow_sweep_any", True)),
+            breakout_min_score=float(getattr(self, "regime_breakout_min_score", 0.0))
+            extreme_min_score=float(getattr(self, "regime_extreme_min_score", 0.0))
+            obi_spike_min_score=float(getattr(self, "regime_obi_spike_min_score", 0.0))
+            absorption_max_score=float(getattr(self, "regime_absorption_max_score", 0.0))
+            allow_sweep_any=bool(getattr(self, "regime_allow_sweep_any", True))
         )
         
         print("✅ XAUOrderFlowHandler v3 инициализирован")
@@ -194,9 +194,9 @@ class XAUOrderFlowHandler:
             """Создаёт consumer group для стрима, возвращает True если успешно."""
             try:
                 self.redis_client.xgroup_create(
-                    stream_name,
-                    GROUP,
-                    id='$',
+                    stream_name
+                    GROUP
+                    id='$'
                     mkstream=True
                 )
                 print(f"✅ Consumer group {GROUP} создана для {stream_name}")
@@ -230,10 +230,10 @@ class XAUOrderFlowHandler:
                 try:
                     # ВОССТАНОВЛЕНО: Читаем оба стрима, но Order Book обработка временно отключена
                     messages = self.redis_client.xreadgroup(
-                        GROUP,
-                        consumer_name,
+                        GROUP
+                        consumer_name
                         {TICK_STREAM: '>', BOOK_STREAM: '>'},  # Оба стрима как изначально
-                        count=CFG["read_count"],
+                        count=CFG["read_count"]
                         block=CFG["read_block_ms"]
                     )
                     
@@ -247,12 +247,12 @@ class XAUOrderFlowHandler:
                                 if stream == TICK_STREAM:
                                     # Обработка тика (данные напрямую в fields, не в JSON)
                                     tick_data = {
-                                        'ts': int(fields.get('ts', 0)),
-                                        'bid': float(fields.get('bid', 0)),
-                                        'ask': float(fields.get('ask', 0)),
-                                        'last': float(fields.get('last', 0)),
-                                        'volume': float(fields.get('volume', 0)),
-                                        'flags': int(fields.get('flags', 0)),
+                                        'ts': int(fields.get('ts', 0))
+                                        'bid': float(fields.get('bid', 0))
+                                        'ask': float(fields.get('ask', 0))
+                                        'last': float(fields.get('last', 0))
+                                        'volume': float(fields.get('volume', 0))
+                                        'flags': int(fields.get('flags', 0))
                                     }
                                     tick = Tick(**tick_data)
                                     self._process_tick(tick)
@@ -618,8 +618,8 @@ class XAUOrderFlowHandler:
         # Если цена изменилась
         if st["price"] != price:
             st.update({
-                "price": price,
-                "since": now,
+                "price": price
+                "since": now
                 "refresh": 0
             })
             return
@@ -724,7 +724,7 @@ class XAUOrderFlowHandler:
             
             # Читаем тики из Redis stream (последние ~2000 тиков)
             ticks = self.redis_client.xrevrange(
-                TICK_STREAM,
+                TICK_STREAM
                 max="+",  # Самые новые
                 min="-",  # До самых старых
                 count=2000  # Достаточно для 24 часов при ~1-2 тика/сек
@@ -772,7 +772,7 @@ class XAUOrderFlowHandler:
             if not prices:
                 print("⚠️ Не удалось извлечь цены из тиков")
                 return {
-                    "H": 3980.0,
+                    "H": 3980.0
                     "L": 3930.0, 
                     "C": 3955.0
                 }
@@ -785,8 +785,8 @@ class XAUOrderFlowHandler:
             print(f"📊 H/L/C из {len(prices)} тиков: H={high:.2f}, L={low:.2f}, C={close:.2f}")
             
             return {
-                "H": high,
-                "L": low,
+                "H": high
+                "L": low
                 "C": close
             }
             
@@ -794,8 +794,8 @@ class XAUOrderFlowHandler:
             print(f"❌ Ошибка расчета H/L/C из тиков: {e}")
             # Последний fallback - актуальные значения для XAUUSD
             return {
-                "H": 3980.0,
-                "L": 3930.0,
+                "H": 3980.0
+                "L": 3930.0
                 "C": 3955.0
             }
     
@@ -831,8 +831,8 @@ class XAUOrderFlowHandler:
             # v3.1: Enhanced pivot proximity check (ATR + bps)
             # Check only if other conditions met (optimization)
             piv_cfg = PivotProximityCfg(
-                dist_atr_threshold=CFG["dist_atr_threshold"],
-                dist_bp_threshold=CFG.get("dist_bp_threshold"),
+                dist_atr_threshold=CFG["dist_atr_threshold"]
+                dist_bp_threshold=CFG.get("dist_bp_threshold")
                 mode=CFG.get("dist_mode", "or")
             )
             is_near, piv_details = check_pivot_proximity(price, self.daily_pivots, atr, piv_cfg, return_details=True)
@@ -905,7 +905,7 @@ class XAUOrderFlowHandler:
             self._publish_signal(
                 "LONG", 
                 price, 
-                f"Iceberg @ bid (hold {duration:.1f}s, refresh={refresh})",
+                f"Iceberg @ bid (hold {duration:.1f}s, refresh={refresh})"
                 "🧊"
             )
             self.last_signal_ts = ts
@@ -918,9 +918,9 @@ class XAUOrderFlowHandler:
             duration = best_metrics["ask"]["duration"]
             refresh = best_metrics["ask"]["refresh"]
             self._publish_signal(
-                "SHORT",
-                price,
-                f"Iceberg @ ask (hold {duration:.1f}s, refresh={refresh})",
+                "SHORT"
+                price
+                f"Iceberg @ ask (hold {duration:.1f}s, refresh={refresh})"
                 "🧊"
             )
             self.last_signal_ts = ts
@@ -992,38 +992,38 @@ class XAUOrderFlowHandler:
         trail_profile = "rocket_v1"  # Дефолт для XAUUSD
         
         levels = compute_levels(price, atr, side, {
-            "STOP_MODE": CFG["stop_mode"],
-            "STOP_ATR_MULT": CFG["stop_atr_mult"],
-            "STOP_PCT": CFG["stop_pct"],
-            "STOP_POINTS": CFG["stop_points"],
+            "STOP_MODE": CFG["stop_mode"]
+            "STOP_ATR_MULT": CFG["stop_atr_mult"]
+            "STOP_PCT": CFG["stop_pct"]
+            "STOP_POINTS": CFG["stop_points"]
             "TP_MODE": "ATR",  # Для rocket_v1 используем ATR режим
-            "TP_RR": CFG["tp_rr"],
+            "TP_RR": CFG["tp_rr"]
             "TP_ATR_MULTS": "0.78",  # TP1 = 0.78 ATR для rocket_v1
             "trail_profile": trail_profile,  # Передаем профиль для правильного расчета
         })
         
         # ✅ ИСПОЛЬЗУЕМ ЕДИНЫЙ ФОРМАТИРОВЩИК XAUUSD
         xauusd_signal = XAUUSDSignal(
-            sid=XAUUSDSignalFormatter.create_signal_id(side, price, ts),
-            symbol=SYMBOL,
-            side=side,
-            entry=price,
-            sl=levels['sl'],
-            tp_levels=levels['tp_levels'],
-            lot=lot,
-            source="OrderFlow",
-            reason=note,
+            sid=XAUUSDSignalFormatter.create_signal_id(side, price, ts)
+            symbol=SYMBOL
+            side=side
+            entry=price
+            sl=levels['sl']
+            tp_levels=levels['tp_levels']
+            lot=lot
+            source="OrderFlow"
+            reason=note
             confidence=85.0,  # OrderFlow signals have high confidence
-            atr=atr,
-            ts=ts,
+            atr=atr
+            ts=ts
             indicators={
-                "z_delta": self.current_z_delta or 0.0,
-                "obi": obi,
-                "weak_progress": weak_progress,
-                "atr": round(atr, 4),
-                "delta_window_len": len(self.delta_window),
+                "z_delta": self.current_z_delta or 0.0
+                "obi": obi
+                "weak_progress": weak_progress
+                "atr": round(atr, 4)
+                "delta_window_len": len(self.delta_window)
                 "pivot_proximity": pivot_details
-            },
+            }
             trail_after_tp1=True,  # Включаем трейлинг по умолчанию для XAUUSD
             trail_profile="rocket_v1"  # Дефолт rocket_v1 для XAUUSD
         )
@@ -1035,13 +1035,13 @@ class XAUOrderFlowHandler:
         if USE_TG_BTNS:
             redis_payload["buttons"] = json.dumps([
                 [
-                    {"text": "Открыть", "callback": f"open:{side}:{lot:.2f}:{xauusd_signal.sid}"},
-                    {"text": "SL/TP", "callback": f"sltp:set:{xauusd_signal.sid}"},
+                    {"text": "Открыть", "callback": f"open:{side}:{lot:.2f}:{xauusd_signal.sid}"}
+                    {"text": "SL/TP", "callback": f"sltp:set:{xauusd_signal.sid}"}
                     {"text": "Отменить", "callback": f"cancel::{xauusd_signal.sid}"}
-                ],
+                ]
                 [
-                    {"text": "x0.5", "callback": f"size:0.5:{xauusd_signal.sid}"},
-                    {"text": "x1", "callback": f"size:1:{xauusd_signal.sid}"},
+                    {"text": "x0.5", "callback": f"size:0.5:{xauusd_signal.sid}"}
+                    {"text": "x1", "callback": f"size:1:{xauusd_signal.sid}"}
                     {"text": "x2", "callback": f"size:2:{xauusd_signal.sid}"}
                 ]
             ])
@@ -1057,17 +1057,17 @@ class XAUOrderFlowHandler:
             
             # Публикуем в notify:telegram через dual redis для надежности
             self.dual_redis.xadd(
-                NOTIFY_STREAM,
-                redis_data,
-                maxlen=500,
+                NOTIFY_STREAM
+                redis_data
+                maxlen=500
                 approximate=True
             )
             
             # v4.1: Также публикуем в signals:orderflow:XAUUSD для aggregated-hub
             signal_payload = XAUUSDSignalFormatter.format_audit_payload(
-                xauusd_signal,
+                xauusd_signal
                 extra_context={
-                    "obi": obi,
+                    "obi": obi
                     "weak_progress": weak_progress
                 }
             )
@@ -1077,9 +1077,9 @@ class XAUOrderFlowHandler:
                 simple_redis = get_redis()
                 # from core.redis_client import ...
                 simple_redis.xadd(
-                    ORDERFLOW_SIGNAL_STREAM,
-                    {"data": to_json(signal_payload)},
-                    maxlen=1000,
+                    ORDERFLOW_SIGNAL_STREAM
+                    {"data": to_json(signal_payload)}
+                    maxlen=1000
                     approximate=True
                 )
             except Exception as e:
@@ -1088,46 +1088,46 @@ class XAUOrderFlowHandler:
             # v6: Store signal snapshot for orders router
             snap_key = SNAP_PREFIX + xauusd_signal.sid
             self.redis_client.setex(
-                snap_key,
-                SNAP_TTL,
+                snap_key
+                SNAP_TTL
                 json.dumps(redis_data)
             )
 
             # v7: Audit stream — сохраняем полный контекст сигнала для обучения
             try:
                 audit_env = {
-                    "ATR_SOURCE": os.getenv("ATR_SOURCE", ""),
-                    "ATR_TF": os.getenv("ATR_TF", ""),
-                    "USE_TELEGRAM_BUTTONS": os.getenv("USE_TELEGRAM_BUTTONS", ""),
-                    "ACCOUNT_DEPOSIT_USD": os.getenv("ACCOUNT_DEPOSIT_USD", ""),
-                    "ACCOUNT_LEVERAGE": os.getenv("ACCOUNT_LEVERAGE", ""),
-                    "RISK_PERCENT": os.getenv("RISK_PERCENT", ""),
-                    "XAU_CONTRACT_SIZE": os.getenv("XAU_CONTRACT_SIZE", ""),
-                    "XAU_LOT_STEP": os.getenv("XAU_LOT_STEP", ""),
-                    "STOP_MODE": os.getenv("STOP_MODE", ""),
-                    "STOP_ATR_MULT": os.getenv("STOP_ATR_MULT", ""),
-                    "STOP_PCT": os.getenv("STOP_PCT", ""),
-                    "STOP_POINTS": os.getenv("STOP_POINTS", ""),
-                    "TP_MODE": os.getenv("TP_MODE", ""),
-                    "TP_RR": os.getenv("TP_RR", ""),
-                    "TP_ATR_MULTS": os.getenv("TP_ATR_MULTS", ""),
+                    "ATR_SOURCE": os.getenv("ATR_SOURCE", "")
+                    "ATR_TF": os.getenv("ATR_TF", "")
+                    "USE_TELEGRAM_BUTTONS": os.getenv("USE_TELEGRAM_BUTTONS", "")
+                    "ACCOUNT_DEPOSIT_USD": os.getenv("ACCOUNT_DEPOSIT_USD", "")
+                    "ACCOUNT_LEVERAGE": os.getenv("ACCOUNT_LEVERAGE", "")
+                    "RISK_PERCENT": os.getenv("RISK_PERCENT", "")
+                    "XAU_CONTRACT_SIZE": os.getenv("XAU_CONTRACT_SIZE", "")
+                    "XAU_LOT_STEP": os.getenv("XAU_LOT_STEP", "")
+                    "STOP_MODE": os.getenv("STOP_MODE", "")
+                    "STOP_ATR_MULT": os.getenv("STOP_ATR_MULT", "")
+                    "STOP_PCT": os.getenv("STOP_PCT", "")
+                    "STOP_POINTS": os.getenv("STOP_POINTS", "")
+                    "TP_MODE": os.getenv("TP_MODE", "")
+                    "TP_RR": os.getenv("TP_RR", "")
+                    "TP_ATR_MULTS": os.getenv("TP_ATR_MULTS", "")
                 }
                 
                 # Используем единый формат для audit
                 audit_payload = XAUUSDSignalFormatter.format_audit_payload(
-                    xauusd_signal,
+                    xauusd_signal
                     extra_context={
-                        "obi": obi,
-                        "weak_progress": weak_progress,
+                        "obi": obi
+                        "weak_progress": weak_progress
                         "env": audit_env
                     }
                 )
                 
                 self.redis_client.xadd(
-                    AUDIT_SIGNAL_STREAM,
-                    {"data": json.dumps(audit_payload)},
-                    maxlen=200000,
-                    approximate=True,
+                    AUDIT_SIGNAL_STREAM
+                    {"data": json.dumps(audit_payload)}
+                    maxlen=200000
+                    approximate=True
                 )
             except Exception as _:
                 pass

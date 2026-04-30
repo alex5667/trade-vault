@@ -162,10 +162,10 @@ class Split:
 
 
 def time_split(
-    ts_ms: np.ndarray,
-    *,
-    val_frac: float = 0.2,
-    purge_ms: int = 300_000,
+    ts_ms: np.ndarray
+    *
+    val_frac: float = 0.2
+    purge_ms: int = 300_000
 ) -> Split:
     """Deterministic time split with a purge band around the boundary."""
     t = np.asarray(ts_ms, dtype=np.int64)
@@ -184,11 +184,11 @@ def time_split(
 
 
 def _fit_model(
-    model_name: str,
-    X_tr: np.ndarray,
-    y_tr: np.ndarray,
-    *,
-    random_state: int = 7,
+    model_name: str
+    X_tr: np.ndarray
+    y_tr: np.ndarray
+    *
+    random_state: int = 7
 ):
     if LogisticRegression is None or HistGradientBoostingClassifier is None:
         raise SystemExit("scikit-learn is required (LogisticRegression, HistGradientBoostingClassifier)")
@@ -197,22 +197,22 @@ def _fit_model(
     if m in ("lr", "logreg", "logit"):
         # Balanced makes it more robust across symbols.
         model = LogisticRegression(
-            solver="lbfgs",
-            max_iter=500,
-            n_jobs=None,
-            class_weight="balanced",
-            random_state=random_state,
+            solver="lbfgs"
+            max_iter=500
+            n_jobs=None
+            class_weight="balanced"
+            random_state=random_state
         )
         model.fit(X_tr, y_tr)
         return model
 
     if m in ("gbdt", "hgb", "hist"):
         model = HistGradientBoostingClassifier(
-            max_depth=6,
-            max_leaf_nodes=31,
-            learning_rate=0.06,
-            max_iter=300,
-            random_state=random_state,
+            max_depth=6
+            max_leaf_nodes=31
+            learning_rate=0.06
+            max_iter=300
+            random_state=random_state
         )
         model.fit(X_tr, y_tr)
         return model
@@ -233,14 +233,14 @@ def _predict_proba(model: Any, X: np.ndarray) -> np.ndarray:
 
 
 def permutation_importance_auc_drop(
-    model: Any,
-    X: np.ndarray,
-    y: np.ndarray,
-    *,
-    feature_names: Sequence[str],
-    n_repeats: int = 3,
-    max_features: Optional[int] = None,
-    seed: int = 7,
+    model: Any
+    X: np.ndarray
+    y: np.ndarray
+    *
+    feature_names: Sequence[str]
+    n_repeats: int = 3
+    max_features: Optional[int] = None
+    seed: int = 7
 ) -> Dict[str, float]:
     """Permutation importance as AUC drop.
 
@@ -273,12 +273,12 @@ def permutation_importance_auc_drop(
 
 
 def _try_shap_importance(
-    model: Any,
-    X: np.ndarray,
-    *,
-    feature_names: Sequence[str],
-    max_rows: int = 20000,
-    seed: int = 7,
+    model: Any
+    X: np.ndarray
+    *
+    feature_names: Sequence[str]
+    max_rows: int = 20000
+    seed: int = 7
 ) -> Optional[Dict[str, float]]:
     """Return mean(|SHAP|) per feature if shap is available; otherwise None."""
     try:
@@ -341,10 +341,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ap.add_argument("--data_path", required=True, help=".parquet/.csv/.ndjson/.jsonl")
     ap.add_argument("--meta_json", default="", help="sidecar meta.json; optional if --schema_ver is set")
     ap.add_argument(
-        "--schema_ver",
-        default="",
-        choices=_schema_choices(include_empty=True),
-        help="use FeatureRegistry schema if meta_json not provided (e.g. v7_of_stable)",
+        "--schema_ver"
+        default=""
+        choices=_schema_choices(include_empty=True)
+        help="use FeatureRegistry schema if meta_json not provided (e.g. v7_of_stable)"
     )
     ap.add_argument("--out_dir", required=True)
 
@@ -481,13 +481,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         global_imp_kind = "shap_mean_abs"
     else:
         global_imp = permutation_importance_auc_drop(
-            model,
-            X_va,
-            y_va,
-            feature_names=feature_names,
-            n_repeats=int(args.n_repeats),
-            max_features=(int(args.max_features) if int(args.max_features) > 0 else None),
-            seed=int(args.seed),
+            model
+            X_va
+            y_va
+            feature_names=feature_names
+            n_repeats=int(args.n_repeats)
+            max_features=(int(args.max_features) if int(args.max_features) > 0 else None)
+            seed=int(args.seed)
         )
         global_imp_kind = "perm_auc_drop"
 
@@ -512,11 +512,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             perf_regime.append({"group": g, "n": n, "pos_rate": float(y_va[m].mean()) if n else 0.0, "auc": None, "brier": None})
             continue
         perf_regime.append({
-            "group": g,
-            "n": n,
-            "pos_rate": float(y_va[m].mean()),
-            "auc": float(_auc(y_va[m], p_va[m])),
-            "brier": float(_brier(y_va[m], p_va[m])),
+            "group": g
+            "n": n
+            "pos_rate": float(y_va[m].mean())
+            "auc": float(_auc(y_va[m], p_va[m]))
+            "brier": float(_brier(y_va[m], p_va[m]))
         })
 
     perf_hour: List[Dict[str, Any]] = []
@@ -527,11 +527,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             perf_hour.append({"hour": h, "n": n, "pos_rate": float(y_va[m].mean()) if n else 0.0, "auc": None, "brier": None})
             continue
         perf_hour.append({
-            "hour": h,
-            "n": n,
-            "pos_rate": float(y_va[m].mean()),
-            "auc": float(_auc(y_va[m], p_va[m])),
-            "brier": float(_brier(y_va[m], p_va[m])),
+            "hour": h
+            "n": n
+            "pos_rate": float(y_va[m].mean())
+            "auc": float(_auc(y_va[m], p_va[m]))
+            "brier": float(_brier(y_va[m], p_va[m]))
         })
 
     # Per-group importance (permutation, stable + comparable)
@@ -542,13 +542,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         if n < int(args.min_group_rows):
             continue
         regime_imp[g] = permutation_importance_auc_drop(
-            model,
-            X_va[m],
-            y_va[m],
-            feature_names=feature_names,
-            n_repeats=max(1, int(args.n_repeats)),
-            max_features=(int(args.max_features) if int(args.max_features) > 0 else None),
-            seed=int(args.seed),
+            model
+            X_va[m]
+            y_va[m]
+            feature_names=feature_names
+            n_repeats=max(1, int(args.n_repeats))
+            max_features=(int(args.max_features) if int(args.max_features) > 0 else None)
+            seed=int(args.seed)
         )
 
     hour_imp: Dict[int, Dict[str, float]] = {}
@@ -558,13 +558,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         if n < int(args.min_group_rows):
             continue
         hour_imp[h] = permutation_importance_auc_drop(
-            model,
-            X_va[m],
-            y_va[m],
-            feature_names=feature_names,
-            n_repeats=max(1, int(args.n_repeats)),
-            max_features=(int(args.max_features) if int(args.max_features) > 0 else None),
-            seed=int(args.seed) + h,
+            model
+            X_va[m]
+            y_va[m]
+            feature_names=feature_names
+            n_repeats=max(1, int(args.n_repeats))
+            max_features=(int(args.max_features) if int(args.max_features) > 0 else None)
+            seed=int(args.seed) + h
         )
 
     # Tables
@@ -612,13 +612,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     # Choose global importance column (comparable units may differ; we keep both global and perm_mean)
     # For stability we always use permutation-based aggregates.
     perm_global = permutation_importance_auc_drop(
-        model,
-        X_va,
-        y_va,
-        feature_names=feature_names,
-        n_repeats=max(1, int(args.n_repeats)),
-        max_features=(int(args.max_features) if int(args.max_features) > 0 else None),
-        seed=int(args.seed) + 101,
+        model
+        X_va
+        y_va
+        feature_names=feature_names
+        n_repeats=max(1, int(args.n_repeats))
+        max_features=(int(args.max_features) if int(args.max_features) > 0 else None)
+        seed=int(args.seed) + 101
     )
 
     for fn in feature_names:
@@ -633,36 +633,36 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         strong = int(pg >= 0.005)
 
         stab_rows.append({
-            "feature": fn,
-            "global_importance": g_imp,
-            "global_perm_auc_drop": pg,
-            "regime_mean": r_mu,
-            "regime_std": r_sd,
-            "regime_cv": r_cv,
-            "hour_mean": h_mu,
-            "hour_std": h_sd,
-            "hour_cv": h_cv,
-            "flag_noise": noise,
-            "flag_strong": strong,
+            "feature": fn
+            "global_importance": g_imp
+            "global_perm_auc_drop": pg
+            "regime_mean": r_mu
+            "regime_std": r_sd
+            "regime_cv": r_cv
+            "hour_mean": h_mu
+            "hour_std": h_sd
+            "hour_cv": h_cv
+            "flag_noise": noise
+            "flag_strong": strong
         })
 
     stab_rows = sorted(stab_rows, key=lambda r: (-float(r.get("global_perm_auc_drop", 0.0)), -float(r.get("regime_mean", 0.0)), str(r.get("feature"))))
     _write_csv(
-        os.path.join(out_dir, "stability_table.csv"),
-        stab_rows,
+        os.path.join(out_dir, "stability_table.csv")
+        stab_rows
         [
-            "feature",
-            "global_importance",
-            "global_perm_auc_drop",
-            "regime_mean",
-            "regime_std",
-            "regime_cv",
-            "hour_mean",
-            "hour_std",
-            "hour_cv",
-            "flag_noise",
-            "flag_strong",
-        ],
+            "feature"
+            "global_importance"
+            "global_perm_auc_drop"
+            "regime_mean"
+            "regime_std"
+            "regime_cv"
+            "hour_mean"
+            "hour_std"
+            "hour_cv"
+            "flag_noise"
+            "flag_strong"
+        ]
     )
 
     # perf tables
@@ -671,25 +671,25 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     # summary
     summary = {
-        "ts": int(_now_ms()),
-        "data_path": str(args.data_path),
-        "meta_json": str(args.meta_json),
-        "schema_ver": str(meta.get("ver") or ""),
-        "schema_hash": str(meta.get("schema_hash") or ""),
-        "n_rows": int(len(df)),
-        "n_train": int(len(split.train_idx)),
-        "n_val": int(len(split.val_idx)),
-        "n_val_used": int(len(y_va)),
-        "pos_rate_val": float(y_va.mean()),
-        "model": str(args.model),
-        "auc_val": float(auc_va),
-        "brier_val": float(brier_va),
-        "importance_kind": global_imp_kind,
-        "n_features": int(len(feature_names)),
-        "regime_groups": {"available": regime_keys, "min_group_rows": int(args.min_group_rows)},
-        "hour_groups": {"available": hour_keys, "min_group_rows": int(args.min_group_rows)},
-        "top_features": _topk(perm_global, k=30),
-        "noise_examples": [r["feature"] for r in stab_rows if int(r.get("flag_noise", 0)) == 1][:50],
+        "ts": int(_now_ms())
+        "data_path": str(args.data_path)
+        "meta_json": str(args.meta_json)
+        "schema_ver": str(meta.get("ver") or "")
+        "schema_hash": str(meta.get("schema_hash") or "")
+        "n_rows": int(len(df))
+        "n_train": int(len(split.train_idx))
+        "n_val": int(len(split.val_idx))
+        "n_val_used": int(len(y_va))
+        "pos_rate_val": float(y_va.mean())
+        "model": str(args.model)
+        "auc_val": float(auc_va)
+        "brier_val": float(brier_va)
+        "importance_kind": global_imp_kind
+        "n_features": int(len(feature_names))
+        "regime_groups": {"available": regime_keys, "min_group_rows": int(args.min_group_rows)}
+        "hour_groups": {"available": hour_keys, "min_group_rows": int(args.min_group_rows)}
+        "top_features": _topk(perm_global, k=30)
+        "noise_examples": [r["feature"] for r in stab_rows if int(r.get("flag_noise", 0)) == 1][:50]
     }
     with open(os.path.join(out_dir, "summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)

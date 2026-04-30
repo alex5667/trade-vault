@@ -25,56 +25,56 @@ _REASON_CODE_U16: dict[str, int] = {
     #   распределения outcome по kind/symbol без парсинга текста.
     #
     # Правило:
-    # - OK/soft коды живут в том же реестре, что и VETO_*,
+    # - OK/soft коды живут в том же реестре, что и VETO_*
     #   чтобы не плодить 2 несовместимых справочника.
     # ------------------------------------------------------------
-    "OK": 1,
+    "OK": 1
     # soft-penalty: не запрещаем сигнал, но явно маркируем ухудшение качества
-    "SOFT_QUALITY": 10,
-    "SOFT_L2_MISSING_FAIL_OPEN": 12,
-    "SOFT_GEO_MISSING": 13,
+    "SOFT_QUALITY": 10
+    "SOFT_L2_MISSING_FAIL_OPEN": 12
+    "SOFT_GEO_MISSING": 13
 
     # Common veto
-    "VETO_SPREAD_WIDE": 100,
-    "VETO_L2_MISSING": 101,
-    "VETO_L2_STALE": 102,
-    "VETO_WALL_NEAR": 103,
-    "VETO_L3_SPOOF_RISK": 104,
-    "VETO_REGIME_RANGE_BREAKOUT": 105,
-    "VETO_TAKER_RATE_LOW": 106,
-    "VETO_NO_WALL_OR_REFILL": 107,
-    "VETO_NO_BLOCKING_CONFIRM": 108,
+    "VETO_SPREAD_WIDE": 100
+    "VETO_L2_MISSING": 101
+    "VETO_L2_STALE": 102
+    "VETO_WALL_NEAR": 103
+    "VETO_L3_SPOOF_RISK": 104
+    "VETO_REGIME_RANGE_BREAKOUT": 105
+    "VETO_TAKER_RATE_LOW": 106
+    "VETO_NO_WALL_OR_REFILL": 107
+    "VETO_NO_BLOCKING_CONFIRM": 108
 
     # Generic / scoring gates
-    "CONF_BELOW_MIN_VETO": 200,
-    "VETO_CONF_BELOW_MIN": 220,
+    "CONF_BELOW_MIN_VETO": 200
+    "VETO_CONF_BELOW_MIN": 220
 
     # Veto codes
-    "VETO_BAD_NUMERIC": 201,
-    "VETO_COOLDOWN": 202,
-    "VETO_GENERIC": 203,
-    "VETO_INTERNAL_ERROR": 204,
-    "VETO_MP_CONTRA": 205,
-    "VETO_TOPN_ALERT_COUNT": 206,
-    "VETO_TOPN_ALERT_SHARE": 207,
-    "VETO_TOPN_CHANGE_COOLDOWN_MS": 208,
-    "VETO_TOPN_CHANGE_MIN_SHARE": 209,
-    "VETO_TOPN_COOLDOWN_MS": 210,
-    "VETO_TOPN_FAMILY_CHANGE_COOLDOWN_MS": 211,
-    "VETO_TOPN_FAMILY_CHANGE_MIN_DELTA": 212,
-    "VETO_TOPN_FAMILY_CHANGE_MIN_SHARE": 213,
-    "VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_DELTA": 214,
-    "VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_RATIO": 215,
-    "VETO_TOPN_MIN_TOTAL": 216,
-    "VETO_TOPN_N": 217,
-    "VETO_TOPN_WINDOW_MS": 218,
-    "VETO_TOUCH_SUPPRESSED": 219,
+    "VETO_BAD_NUMERIC": 201
+    "VETO_COOLDOWN": 202
+    "VETO_GENERIC": 203
+    "VETO_INTERNAL_ERROR": 204
+    "VETO_MP_CONTRA": 205
+    "VETO_TOPN_ALERT_COUNT": 206
+    "VETO_TOPN_ALERT_SHARE": 207
+    "VETO_TOPN_CHANGE_COOLDOWN_MS": 208
+    "VETO_TOPN_CHANGE_MIN_SHARE": 209
+    "VETO_TOPN_COOLDOWN_MS": 210
+    "VETO_TOPN_FAMILY_CHANGE_COOLDOWN_MS": 211
+    "VETO_TOPN_FAMILY_CHANGE_MIN_DELTA": 212
+    "VETO_TOPN_FAMILY_CHANGE_MIN_SHARE": 213
+    "VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_DELTA": 214
+    "VETO_TOPN_FAMILY_CHANGE_MIN_TOTAL_RATIO": 215
+    "VETO_TOPN_MIN_TOTAL": 216
+    "VETO_TOPN_N": 217
+    "VETO_TOPN_WINDOW_MS": 218
+    "VETO_TOUCH_SUPPRESSED": 219
 
     # --- SOFT (non-veto) codes: keep in separate numeric band (1000+) to avoid collisions ---
-    "SOFT_L3_MISSING": 1001,
-    "SOFT_HTF_MISSING": 1002,
-    "SOFT_L2_STALE_EXTREME": 1003,
-    "SOFT_REASON_MAX": 1004,
+    "SOFT_L3_MISSING": 1001
+    "SOFT_HTF_MISSING": 1002
+    "SOFT_L2_STALE_EXTREME": 1003
+    "SOFT_REASON_MAX": 1004
 
     # Legacy aliases (preserve old u16 values for compatibility)
     "SOFT_L3_MISSING_LEGACY": 11,  # старый id для SOFT_L3_MISSING
@@ -118,39 +118,39 @@ for u, rc in _CANONICAL_BY_U16_OVERRIDE.items():
 # -----------------------------------------------------------------------------
 # Legacy mapping (строки из старых веток/обёрток) -> structured reason_code
 #
-# Важно: этот слой позволяет постепенно унифицировать причины,
+# Важно: этот слой позволяет постепенно унифицировать причины
 # даже если часть кода пока возвращает "near_big_wall"/"bo_l2_stale" и т.п.
 # -----------------------------------------------------------------------------
 _LEGACY_TO_STRUCT: dict[str, str] = {
     # breakout / L2
-    "bo_l2_missing": "VETO_L2_MISSING",
-    "bo_l2_stale": "VETO_L2_STALE",
-    "l2_missing": "VETO_L2_MISSING",
-    "l2_stale": "VETO_L2_STALE",
+    "bo_l2_missing": "VETO_L2_MISSING"
+    "bo_l2_stale": "VETO_L2_STALE"
+    "l2_missing": "VETO_L2_MISSING"
+    "l2_stale": "VETO_L2_STALE"
     # унификация "wall near" (после вашего решения: это veto)
-    "near_big_wall": "VETO_WALL_NEAR",
-    "wall_near": "VETO_WALL_NEAR",
-    "VETO_WALL_NEAR": "VETO_WALL_NEAR",
+    "near_big_wall": "VETO_WALL_NEAR"
+    "wall_near": "VETO_WALL_NEAR"
+    "VETO_WALL_NEAR": "VETO_WALL_NEAR"
 
     # spread
-    "spread_wide": "VETO_SPREAD_WIDE",
-    "VETO_SPREAD_WIDE": "VETO_SPREAD_WIDE",
+    "spread_wide": "VETO_SPREAD_WIDE"
+    "VETO_SPREAD_WIDE": "VETO_SPREAD_WIDE"
 
     # absorption
-    "taker_rate_low": "VETO_TAKER_RATE_LOW",
-    "VETO_TAKER_RATE_LOW": "VETO_TAKER_RATE_LOW",
-    "no_wall_or_refill": "VETO_NO_WALL_OR_REFILL",
-    "VETO_NO_WALL_OR_REFILL": "VETO_NO_WALL_OR_REFILL",
-    "no_blocking_confirm": "VETO_NO_BLOCKING_CONFIRM",
-    "VETO_NO_BLOCKING_CONFIRM": "VETO_NO_BLOCKING_CONFIRM",
+    "taker_rate_low": "VETO_TAKER_RATE_LOW"
+    "VETO_TAKER_RATE_LOW": "VETO_TAKER_RATE_LOW"
+    "no_wall_or_refill": "VETO_NO_WALL_OR_REFILL"
+    "VETO_NO_WALL_OR_REFILL": "VETO_NO_WALL_OR_REFILL"
+    "no_blocking_confirm": "VETO_NO_BLOCKING_CONFIRM"
+    "VETO_NO_BLOCKING_CONFIRM": "VETO_NO_BLOCKING_CONFIRM"
 
     # scoring gate
-    "conf_below_min_veto": "CONF_BELOW_MIN_VETO",
-    "CONF_BELOW_MIN_VETO": "CONF_BELOW_MIN_VETO",
+    "conf_below_min_veto": "CONF_BELOW_MIN_VETO"
+    "CONF_BELOW_MIN_VETO": "CONF_BELOW_MIN_VETO"
 
     # decision/outcome legacy (на будущее; сейчас почти не используется)
-    "ok": "OK",
-    "soft_quality": "SOFT_QUALITY",
+    "ok": "OK"
+    "soft_quality": "SOFT_QUALITY"
 }
 
 
@@ -269,9 +269,9 @@ def check_all_reason_codes_registered() -> None:
 
     # ripgrep all string literals with VETO_/SOFT_
     rg = subprocess.run(
-        ["rg", "-n", r'["\'](VETO_[A-Z0-9_]+|SOFT_[A-Z0-9_]+)["\']', str(REPO_ROOT)],
-        capture_output=True,
-        text=True,
+        ["rg", "-n", r'["\'](VETO_[A-Z0-9_]+|SOFT_[A-Z0-9_]+)["\']', str(REPO_ROOT)]
+        capture_output=True
+        text=True
     )
 
     if rg.returncode not in (0, 1):  # 1 = nothing found

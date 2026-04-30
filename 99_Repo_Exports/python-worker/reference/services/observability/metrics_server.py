@@ -9,12 +9,12 @@ from prometheus_client import start_http_server
 
 from core.streams import list_microbar_symbols, microbar_legacy_stream, microbar_stream_for_symbol, microbar_symbols_set
 from services.observability.metrics_registry import (
-    atr_bad_active,
-    cvd_quarantine_active,
-    delta_fallback_mode,
-    microbar_stream_xlen,
-    microbar_symbols_active,
-    redis_used_memory_mb,
+    atr_bad_active
+    cvd_quarantine_active
+    delta_fallback_mode
+    microbar_stream_xlen
+    microbar_symbols_active
+    redis_used_memory_mb
 )
 
 
@@ -37,13 +37,13 @@ def main() -> None:
     redis_url = os.getenv("REPORTS_REDIS_URL") or os.getenv("REDIS_URL") or "redis://localhost:6379/0"
     max_connections = int(os.getenv("METRICS_REDIS_MAX_CONNECTIONS", "10"))
     r = redis.Redis.from_url(
-        redis_url,
-        decode_responses=False,
-        max_connections=max_connections,
-        socket_connect_timeout=5,
-        socket_timeout=15,
-        socket_keepalive=True,
-        health_check_interval=30,
+        redis_url
+        decode_responses=False
+        max_connections=max_connections
+        socket_connect_timeout=5
+        socket_timeout=15
+        socket_keepalive=True
+        health_check_interval=30
     )
 
     bind = os.getenv("METRICS_BIND", "0.0.0.0")

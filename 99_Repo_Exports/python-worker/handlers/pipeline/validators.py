@@ -56,10 +56,10 @@ class BreakoutValidator(KindValidator):
         taker = _f(getattr(ctx, "taker_rate_ema", None), 0.0)
         mp_shift = abs(_f(getattr(ctx, "microprice_shift_bps_20", None), 0.0))
         c2t = max(
-            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0),
-            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0),
-            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0),
-            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0)
         )
 
         parts["bo_taker_rate"] = taker
@@ -140,10 +140,10 @@ class OBISpikeValidator(KindValidator):
 
         obi_sust = bool(getattr(ctx, "obi_sustained", False))
         c2t = max(
-            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0),
-            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0),
-            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0),
-            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0)
         )
         sp = _f(getattr(ctx, "spread_bps", None), 0.0)
 

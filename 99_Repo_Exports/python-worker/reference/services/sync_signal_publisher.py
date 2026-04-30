@@ -60,10 +60,10 @@ class SyncSignalPublisher:
         ser = _json_dumps_safe(payload)
         try:
             self.r.xadd(
-                sink.name,
-                {str(sink.field or "payload"): ser},
-                maxlen=int(sink.maxlen),
-                approximate=bool(approximate),
+                sink.name
+                {str(sink.field or "payload"): ser}
+                maxlen=int(sink.maxlen)
+                approximate=bool(approximate)
             )
             return SyncPublishResult(ok=True, busy_loading=False, errors=0)
         except redis.exceptions.BusyLoadingError:

@@ -33,17 +33,17 @@ class SignalThresholdsManager:
     на её основе возвращает динамические пороги (квантильный автотюнинг).
 
     Используется как мягкая надстройка над статическим SignalTypeConf:
-      - не ломает ваши конфиги,
+      - не ломает ваши конфиги
       - просто подправляет пороги под конкретный инструмент.
     """
 
     def __init__(
-        self,
-        history_size: int = 1000,
-        warmup_min_samples: int = 200,
-        raw_quantile: float = 0.70,
-        final_quantile: float = 0.70,
-        golden_quantile: float = 0.85,
+        self
+        history_size: int = 1000
+        warmup_min_samples: int = 200
+        raw_quantile: float = 0.70
+        final_quantile: float = 0.70
+        golden_quantile: float = 0.85
     ) -> None:
         self._history_size = history_size
         self._warmup_min_samples = warmup_min_samples
@@ -53,11 +53,11 @@ class SignalThresholdsManager:
 
         self._store: Dict[Tuple[Hashable, SignalKind], ObservedScores] = defaultdict(
             lambda: ObservedScores(
-                raw_scores=deque(maxlen=self._history_size),
-                final_scores=deque(maxlen=self._history_size),
-                regime_scores=deque(maxlen=self._history_size),
-                geo_scores=deque(maxlen=self._history_size),
-                liq_scores=deque(maxlen=self._history_size),
+                raw_scores=deque(maxlen=self._history_size)
+                final_scores=deque(maxlen=self._history_size)
+                regime_scores=deque(maxlen=self._history_size)
+                geo_scores=deque(maxlen=self._history_size)
+                liq_scores=deque(maxlen=self._history_size)
             )
         )
 
@@ -72,14 +72,14 @@ class SignalThresholdsManager:
         return float(arr[idx])
 
     def observe(
-        self,
-        symbol: Hashable,
-        kind: SignalKind,
-        raw_score: float,
-        final_score: float,
-        regime_score_norm: float,
-        geometry_score: float,
-        liq_score: float,
+        self
+        symbol: Hashable
+        kind: SignalKind
+        raw_score: float
+        final_score: float
+        regime_score_norm: float
+        geometry_score: float
+        liq_score: float
     ) -> None:
         """
         Записываем только уже "осмысленные" сигналы — те, что прошли basic-фильтры
@@ -98,10 +98,10 @@ class SignalThresholdsManager:
         bucket.liq_scores.append(max(0.0, min(1.0, liq_score)))
 
     def get_thresholds(
-        self,
-        symbol: Hashable,
-        kind: SignalKind,
-        base_conf: SignalTypeConf,
+        self
+        symbol: Hashable
+        kind: SignalKind
+        base_conf: SignalTypeConf
     ) -> Optional[DynamicThresholds]:
         key = (symbol, kind)
         bucket = self._store.get(key)
@@ -148,10 +148,10 @@ class SignalThresholdsManager:
         )
 
         return DynamicThresholds(
-            min_raw_score=min_raw,
-            min_final_score=min_final,
-            golden_regime_min=golden_regime_min,
-            golden_geometry_min=golden_geometry_min,
-            golden_liquidity_min=golden_liquidity_min,
-            source="dynamic",
+            min_raw_score=min_raw
+            min_final_score=min_final
+            golden_regime_min=golden_regime_min
+            golden_geometry_min=golden_geometry_min
+            golden_liquidity_min=golden_liquidity_min
+            source="dynamic"
         )

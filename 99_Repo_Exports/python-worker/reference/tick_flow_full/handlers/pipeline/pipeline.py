@@ -44,14 +44,14 @@ class SignalPipeline:
             v: Validation = self._conf.validate(kind=cand.kind, ctx=ctx, l2=l2, l3=l3, level_price=cand.level_price)
         try:
             trace_gate(
-                ctx,
-                stage="gates",
-                name="confirmations_engine",
-                passed=bool(not v.veto),
-                veto=bool(v.veto),
-                reason_code=str(getattr(v, "reason_code", "") or ("VETO" if v.veto else "OK")),
-                metrics=dict(getattr(v, "parts", {}) or {}),
-                duration_ms=sp_val.ms,
+                ctx
+                stage="gates"
+                name="confirmations_engine"
+                passed=bool(not v.veto)
+                veto=bool(v.veto)
+                reason_code=str(getattr(v, "reason_code", "") or ("VETO" if v.veto else "OK"))
+                metrics=dict(getattr(v, "parts", {}) or {})
+                duration_ms=sp_val.ms
             )
         except Exception:
             pass
@@ -65,22 +65,22 @@ class SignalPipeline:
         # ГДЕ: CandidatePipeline.validate_and_score() для score_model (score)
         with Span() as sp_score:
             out = self._score.score(
-                raw_score=float(cand.raw_score),
-                conf_factor01=float(v.conf_factor01),
-                kind=cand.kind,
-                ctx=ctx,
-                parts_in=dict(v.parts),
+                raw_score=float(cand.raw_score)
+                conf_factor01=float(v.conf_factor01)
+                kind=cand.kind
+                ctx=ctx
+                parts_in=dict(v.parts)
             )
         try:
             trace_gate(
-                ctx,
-                stage="scoring",
-                name="score_model",
-                passed=True,
-                veto=False,
-                reason_code="OK",
-                metrics=dict(getattr(out, "parts", {}) or {}),
-                duration_ms=sp_score.ms,
+                ctx
+                stage="scoring"
+                name="score_model"
+                passed=True
+                veto=False
+                reason_code="OK"
+                metrics=dict(getattr(out, "parts", {}) or {})
+                duration_ms=sp_score.ms
             )
         except Exception:
             pass

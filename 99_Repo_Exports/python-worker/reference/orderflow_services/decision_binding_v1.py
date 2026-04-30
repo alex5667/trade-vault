@@ -12,12 +12,12 @@ def _env_bool(name: str, default: str = "0") -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 def bind_rule_ml_v1(
-    *,
-    rule_ok: int,
-    rule_ok_soft: int,
-    ml_state: str,
-    dq_state: str,
-    drift_state: str,
+    *
+    rule_ok: int
+    rule_ok_soft: int
+    ml_state: str
+    dq_state: str
+    drift_state: str
 ) -> Dict[str, Any]:
     """Explicit binding matrix between Rule and ML.
 
@@ -66,16 +66,16 @@ def bind_rule_ml_v1(
     if dq_state in {"bad", "fail", "veto"}:
         if rule_strength == "strong" and allow_rule_strong_on_bad_dq:
             return {
-                "action": "allow",
-                "source": "rule",
-                "reason_code": "DQ_BAD__RULE_STRONG_OVERRIDE",
-                "soft": 0,
+                "action": "allow"
+                "source": "rule"
+                "reason_code": "DQ_BAD__RULE_STRONG_OVERRIDE"
+                "soft": 0
             }
         return {
-            "action": "deny",
-            "source": "dq",
-            "reason_code": "DQ_BAD__DENY",
-            "soft": 0,
+            "action": "deny"
+            "source": "dq"
+            "reason_code": "DQ_BAD__DENY"
+            "soft": 0
         }
 
     # Drift fail-closed (P51)
@@ -105,16 +105,16 @@ def bind_rule_ml_v1(
         check_override = _env_bool("BIND_ALLOW_RULE_STRONG_ON_BAD_DRIFT", "0")
         if rule_strength == "strong" and check_override:
              return {
-                "action": "allow",
-                "source": "rule",
-                "reason_code": "DRIFT_BLOCK__RULE_STRONG_OVERRIDE",
-                "soft": 0,
+                "action": "allow"
+                "source": "rule"
+                "reason_code": "DRIFT_BLOCK__RULE_STRONG_OVERRIDE"
+                "soft": 0
             }
         return {
-            "action": "deny",
-            "source": "drift",
-            "reason_code": "DRIFT_BLOCK",
-            "soft": 0,
+            "action": "deny"
+            "source": "drift"
+            "reason_code": "DRIFT_BLOCK"
+            "soft": 0
         }
 
     # Main matrix
@@ -167,18 +167,18 @@ class BindingInput:
 def recommend_binding(i: BindingInput) -> Dict[str, Any]:
     """Adapter for P62 to use bind_rule_ml_v1."""
     res = bind_rule_ml_v1(
-        rule_ok=int(i.rule_ok),
-        rule_ok_soft=int(i.rule_ok_soft),
-        ml_state=i.ml_state,
-        dq_state=i.dq_state,
-        drift_state=i.drift_state,
+        rule_ok=int(i.rule_ok)
+        rule_ok_soft=int(i.rule_ok_soft)
+        ml_state=i.ml_state
+        dq_state=i.dq_state
+        drift_state=i.drift_state
     )
     # Map back to P62 expected keys if needed
     # P62 expects: "recommended_action", "recommended_reason_code"
     # bind_rule_ml_v1 returns: "action", "reason_code"
     return {
-        "recommended_action": res["action"],
-        "recommended_reason_code": res["reason_code"],
-        "soft": res["soft"],
+        "recommended_action": res["action"]
+        "recommended_reason_code": res["reason_code"]
+        "soft": res["soft"]
         "source": res["source"]
     }

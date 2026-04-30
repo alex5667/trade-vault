@@ -179,7 +179,7 @@ async def _ensure_group(r: aioredis.Redis) -> None:
 
 async def main() -> None:
     """
-    Main loop: consume POSITION_CLOSED events, update Welford stats,
+    Main loop: consume POSITION_CLOSED events, update Welford stats
     evaluate threshold combinations, publish suggestions.
     """
     r = aioredis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
@@ -197,10 +197,10 @@ async def main() -> None:
             for nbp in (8.0, 12.0, 15.0):  # Zone distance (bp)
                 for obi in (1.0, 1.5):  # OBI stability (sec)
                     grid.append({
-                        "ENTRY_MIN_OF_SCORE": mos,
-                        "ENTRY_MAX_SPREAD_Z": mspr,
-                        "ENTRY_NEAR_ZONE_BP": nbp,
-                        "ENTRY_OBI_MIN_SEC": obi,
+                        "ENTRY_MIN_OF_SCORE": mos
+                        "ENTRY_MAX_SPREAD_Z": mspr
+                        "ENTRY_NEAR_ZONE_BP": nbp
+                        "ENTRY_OBI_MIN_SEC": obi
                     })
 
     while True:
@@ -234,11 +234,11 @@ async def main() -> None:
 
                         # Build event with decision-time features
                         ev = {
-                            "r_mult": r_mult,
-                            "of_confirm_score": float(f.get("of_confirm_score") or 0.0),
-                            "spread_z": float(f.get("spread_z") or 0.0),
-                            "zone_dist_bp": float(f.get("zone_dist_bp") or 1e9),
-                            "obi_stable_sec": float(f.get("obi_stable_sec") or 0.0),
+                            "r_mult": r_mult
+                            "of_confirm_score": float(f.get("of_confirm_score") or 0.0)
+                            "spread_z": float(f.get("spread_z") or 0.0)
+                            "zone_dist_bp": float(f.get("zone_dist_bp") or 1e9)
+                            "obi_stable_sec": float(f.get("obi_stable_sec") or 0.0)
                         }
                         
                         # Add to rolling window
@@ -319,10 +319,10 @@ async def main() -> None:
                             if cur_obj is not None:
                                 # Recompute current LCB on same window using current thresholds
                                 cur_th = {
-                                    "ENTRY_MIN_OF_SCORE": cur_obj.entry_min_of_score if cur_obj.entry_min_of_score is not None else base["ENTRY_MIN_OF_SCORE"],
-                                    "ENTRY_MAX_SPREAD_Z": cur_obj.entry_max_spread_z if cur_obj.entry_max_spread_z is not None else base["ENTRY_MAX_SPREAD_Z"],
-                                    "ENTRY_NEAR_ZONE_BP": cur_obj.entry_near_zone_bp if cur_obj.entry_near_zone_bp is not None else base["ENTRY_NEAR_ZONE_BP"],
-                                    "ENTRY_OBI_MIN_SEC": cur_obj.entry_obi_min_sec if cur_obj.entry_obi_min_sec is not None else base["ENTRY_OBI_MIN_SEC"],
+                                    "ENTRY_MIN_OF_SCORE": cur_obj.entry_min_of_score if cur_obj.entry_min_of_score is not None else base["ENTRY_MIN_OF_SCORE"]
+                                    "ENTRY_MAX_SPREAD_Z": cur_obj.entry_max_spread_z if cur_obj.entry_max_spread_z is not None else base["ENTRY_MAX_SPREAD_Z"]
+                                    "ENTRY_NEAR_ZONE_BP": cur_obj.entry_near_zone_bp if cur_obj.entry_near_zone_bp is not None else base["ENTRY_NEAR_ZONE_BP"]
+                                    "ENTRY_OBI_MIN_SEC": cur_obj.entry_obi_min_sec if cur_obj.entry_obi_min_sec is not None else base["ENTRY_OBI_MIN_SEC"]
                                 }
                                 cur_st = Welford()
                                 for e in arr:
@@ -354,34 +354,34 @@ async def main() -> None:
                             # Publish suggestion only if passes all checks
                             if best and ok_gain_vs_base and ok_gain_vs_cur:
                                 meta = {
-                                    "kind": "entry_policy_thresholds_lcb_v1",
-                                    "ts_ms": now_ms,
-                                    "symbol": sym,
-                                    "regime": rg,
-                                    "scenario": scn,
-                                    "z": z,
-                                    "base": {"th": base, "n": base_st.n, "lcb": base_lcb, "mean": base_st.mean},
-                                    "best": {"th": best, "n": best_n, "lcb": best_lcb},
+                                    "kind": "entry_policy_thresholds_lcb_v1"
+                                    "ts_ms": now_ms
+                                    "symbol": sym
+                                    "regime": rg
+                                    "scenario": scn
+                                    "z": z
+                                    "base": {"th": base, "n": base_st.n, "lcb": base_lcb, "mean": base_st.mean}
+                                    "best": {"th": best, "n": best_n, "lcb": best_lcb}
                                     "apply": {
-                                        "override_key": f"cfg:entry_policy:overrides:{sym}:{rg}",
+                                        "override_key": f"cfg:entry_policy:overrides:{sym}:{rg}"
                                         "value": {
-                                            "ver": 1,
-                                            "entry_min_of_score": best["ENTRY_MIN_OF_SCORE"],
-                                            "entry_max_spread_z": best["ENTRY_MAX_SPREAD_Z"],
-                                            "entry_near_zone_bp": best["ENTRY_NEAR_ZONE_BP"],
-                                            "entry_obi_min_sec": best["ENTRY_OBI_MIN_SEC"],
+                                            "ver": 1
+                                            "entry_min_of_score": best["ENTRY_MIN_OF_SCORE"]
+                                            "entry_max_spread_z": best["ENTRY_MAX_SPREAD_Z"]
+                                            "entry_near_zone_bp": best["ENTRY_NEAR_ZONE_BP"]
+                                            "entry_obi_min_sec": best["ENTRY_OBI_MIN_SEC"]
                                             "applied_ts_ms": 0,  # Will be set on apply
-                                            "hold_down_ms": _hold_down_default_ms(rg),
-                                            "hysteresis_impr": hyst,
-                                            "src": "thresh_lcb",
-                                        },
-                                    },
+                                            "hold_down_ms": _hold_down_default_ms(rg)
+                                            "hysteresis_impr": hyst
+                                            "src": "thresh_lcb"
+                                        }
+                                    }
                                     "switch_gate": {
-                                        "max_per_day": max_sw,
-                                        "min_gap_ms": gap_ms,
-                                        "state_key": st_key,
-                                        "state": st.to_dict(),
-                                    },
+                                        "max_per_day": max_sw
+                                        "min_gap_ms": gap_ms
+                                        "state_key": st_key
+                                        "state": st.to_dict()
+                                    }
                                 }
                                 
                                 sid = _sha1(json.dumps(meta, sort_keys=True, separators=(",", ":")))

@@ -7,7 +7,7 @@ def dist_bps(price: float, level: float) -> float:
     bps = |price - level| / price * 10_000
 
     Why normalize by price:
-    - stable and intuitive for trading thresholds,
+    - stable and intuitive for trading thresholds
     - avoids surprises if 'level' is far away or (theoretically) near zero.
     """
     if price <= 0:

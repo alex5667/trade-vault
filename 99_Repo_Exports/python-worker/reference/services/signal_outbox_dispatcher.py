@@ -63,15 +63,15 @@ class SignalDispatcher:
 
         # Initialize retry queue
         self._retryq = OutboxRetryQueue(
-            self.redis,
+            self.redis
             settings=RetryQueueSettings(
-                ready_zset=self.retry_ready_zset,
-                inflight_zset=self.retry_inflight_zset,
-                due_hash=self.retry_due_hash,
-                owner_hash=self.retry_owner_hash,
-                meta_prefix=os.getenv("SIGNAL_OUTBOX_RETRY_META_PREFIX", f"sig:outbox:retry_meta:{self.group}"),
-                meta_ttl_sec=self.retry_meta_ttl_sec,
-            ),
+                ready_zset=self.retry_ready_zset
+                inflight_zset=self.retry_inflight_zset
+                due_hash=self.retry_due_hash
+                owner_hash=self.retry_owner_hash
+                meta_prefix=os.getenv("SIGNAL_OUTBOX_RETRY_META_PREFIX", f"sig:outbox:retry_meta:{self.group}")
+                meta_ttl_sec=self.retry_meta_ttl_sec
+            )
         )
 
         # Delivery settings
@@ -80,10 +80,10 @@ class SignalDispatcher:
 
         # Initialize delivery components
         self._delivery = DeliveryAtomic(
-            self.dual,
+            self.dual
             settings=DeliveryAtomicSettings(
-                marker_ttl_sec=int(os.getenv("SIGNAL_DELIVERY_MARKER_TTL_SEC", "86400")),
-            ),
+                marker_ttl_sec=int(os.getenv("SIGNAL_DELIVERY_MARKER_TTL_SEC", "86400"))
+            )
         )
         
         self.signal_notify_stream = os.getenv("SIGNAL_NOTIFY_STREAM", "stream:notify:telegram")
@@ -93,10 +93,10 @@ class SignalDispatcher:
 
 
         self._lease = SidLease(
-            self.redis,
+            self.redis
             settings=SidLeaseSettings(
-                prefix=os.getenv("SIGNAL_SID_LEASE_PREFIX", "lease:sid:"),
-            ),
+                prefix=os.getenv("SIGNAL_SID_LEASE_PREFIX", "lease:sid:")
+            )
         )
 
         self.sid_lease_renew_every_target = os.getenv("SIGNAL_SID_LEASE_RENEW_EVERY_TARGET", "1") == "1"
@@ -105,13 +105,13 @@ class SignalDispatcher:
         self.notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
         self.notify_signal_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", "notify:telegram:signal_counter")
         self._notify_gate = NotifyGate(
-            self.redis,
+            self.redis
             settings=NotifyGateSettings(
-                mode=os.getenv("NOTIFY_GATE_MODE", "hash"),
-                every_n=int(os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", os.getenv("NOTIFY_SIGNAL_EVERY_N", "1")) or 1),
-                ttl_sec=int(os.getenv("NOTIFY_GATE_TTL_SEC", "86400") or 86400),
-                counter_key=self.notify_signal_counter_key,
-            ),
+                mode=os.getenv("NOTIFY_GATE_MODE", "hash")
+                every_n=int(os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", os.getenv("NOTIFY_SIGNAL_EVERY_N", "1")) or 1)
+                ttl_sec=int(os.getenv("NOTIFY_GATE_TTL_SEC", "86400") or 86400)
+                counter_key=self.notify_signal_counter_key
+            )
         )
 
         # Claim settings (prevent early steal while message is scheduled for retry)
@@ -142,22 +142,22 @@ class SignalDispatcher:
         due_ms = now_ms + int(delay_ms)
         # fields не сохраняем отдельно: сообщение остаётся в PEL, заберём через XCLAIM по msg_id
         self._retryq.schedule(
-            str(msg_id),
-            due_ms=due_ms,
-            owner=str(self.consumer),
+            str(msg_id)
+            due_ms=due_ms
+            owner=str(self.consumer)
             meta={
-                "ts": now_ms,
-                "due": due_ms,
-                "attempt": int(attempt),
-                "err": str(err),
-                "consumer": str(self.consumer),
-            },
+                "ts": now_ms
+                "due": due_ms
+                "attempt": int(attempt)
+                "err": str(err)
+                "consumer": str(self.consumer)
+            }
         )
 
     def _requeue_expired_retry_leases_tick(self) -> None:
         """
         Crash-safety for retry queue:
-          if dispatcher popped msg_id into inflight and died before processing,
+          if dispatcher popped msg_id into inflight and died before processing
           lease expires => msg_id moves back to ready and will be retried by any dispatcher.
         """
         try:
@@ -174,8 +174,8 @@ class SignalDispatcher:
           - поля берём через XCLAIM (сообщение остаётся pending, re-enqueue не нужен)
         """
         ids = self._retryq.pop_due_to_inflight(
-            limit=int(self.retry_pop_limit),
-            lease_ms=int(self.retry_lease_ms),
+            limit=int(self.retry_pop_limit)
+            lease_ms=int(self.retry_lease_ms)
         )
         if not ids:
             return
@@ -185,23 +185,23 @@ class SignalDispatcher:
             claimed = None
             try:
                 claimed = self.redis.execute_command(
-                    "XCLAIM",
-                    self.outbox_stream,
-                    self.group,
-                    self.consumer,
-                    0,
-                    msg_id,
-                    "IDLE",
-                    0,
+                    "XCLAIM"
+                    self.outbox_stream
+                    self.group
+                    self.consumer
+                    0
+                    msg_id
+                    "IDLE"
+                    0
                 )
             except Exception as e:
                 if self._is_transient(e):
                     # reschedule (also clears inflight)
                     self._retryq.schedule(
-                        str(msg_id),
-                        due_ms=get_ny_time_millis() + 250,
-                        owner=str(self.consumer),
-                        meta={"err": str(e), "phase": "xclaim"},
+                        str(msg_id)
+                        due_ms=get_ny_time_millis() + 250
+                        owner=str(self.consumer)
+                        meta={"err": str(e), "phase": "xclaim"}
                     )
                     continue
                 raise
@@ -229,10 +229,10 @@ class SignalDispatcher:
 
         start_id = self._claim_start_id
         next_id, msgs = helper.claim_pending(
-            self.outbox_stream,
-            min_idle_ms=int(self.claim_min_idle_ms),
-            start_id=start_id,
-            count=self.claim_count,
+            self.outbox_stream
+            min_idle_ms=int(self.claim_min_idle_ms)
+            start_id=start_id
+            count=self.claim_count
         )
         self._claim_start_id = next_id
 
@@ -341,11 +341,11 @@ class SignalDispatcher:
         """Send failed message to DLQ"""
         try:
             payload = {
-                "original_msg_id": msg_id,
-                "reason": reason,
-                "envelope": envelope,
-                "ts": get_ny_time_millis(),
-                "consumer": self.consumer,
+                "original_msg_id": msg_id
+                "reason": reason
+                "envelope": envelope
+                "ts": get_ny_time_millis()
+                "consumer": self.consumer
             }
             self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload)}, maxlen=200000)
         except Exception:
@@ -385,10 +385,10 @@ class SignalDispatcher:
             symbol = env.get("symbol") or env.get("sym") or ""
             if self._notify_gate.should_send(sid, symbol=str(symbol)):
                 ok, _ = self._delivery.xadd_once(
-                    marker_key=marker_key,
-                    stream=self.signal_notify_stream,
-                    payload=notify_payload,
-                    maxlen=self.signal_notify_maxlen,
+                    marker_key=marker_key
+                    stream=self.signal_notify_stream
+                    payload=notify_payload
+                    maxlen=self.signal_notify_maxlen
                 )
 
         # 2) strategy stream
@@ -399,10 +399,10 @@ class SignalDispatcher:
             _renew_or_raise()
             marker_key = self._delivery.marker_key("signal_stream", sid)
             ok, _ = self._delivery.xadd_once(
-                marker_key=marker_key,
-                stream=signal_stream,
-                payload={"data": json.dumps(signal_payload, ensure_ascii=False)},
-                maxlen=1000,
+                marker_key=marker_key
+                stream=signal_stream
+                payload={"data": json.dumps(signal_payload, ensure_ascii=False)}
+                maxlen=1000
             )
 
         # 3) audit stream
@@ -428,10 +428,10 @@ class SignalDispatcher:
                 # But if existing contract result is ignored by consumers (because of field mismatch), I MUST change it.
                 # For now, let's just log result.
                 ok, res_id = self._delivery.xadd_once(
-                    marker_key=marker_key,
-                    stream=audit_stream,
-                    payload={"data": json.dumps(audit_payload, ensure_ascii=False)},
-                    maxlen=200000,
+                    marker_key=marker_key
+                    stream=audit_stream
+                    payload={"data": json.dumps(audit_payload, ensure_ascii=False)}
+                    maxlen=200000
                 )
                 print(f"[OUTBOX] Audit delivery result ok={ok} id={res_id}", flush=True)
             except Exception as e:
@@ -445,10 +445,10 @@ class SignalDispatcher:
             _renew_or_raise()
             marker_key = self._delivery.marker_key("manual", sid)
             ok, _ = self._delivery.xadd_once(
-                marker_key=marker_key,
-                stream=self.signal_manual_stream,
-                payload={"data": json.dumps(manual_payload, ensure_ascii=False)},
-                maxlen=self.signal_manual_maxlen,
+                marker_key=marker_key
+                stream=self.signal_manual_stream
+                payload={"data": json.dumps(manual_payload, ensure_ascii=False)}
+                maxlen=self.signal_manual_maxlen
             )
 
         # 5) mt5 plans (new)
@@ -466,10 +466,10 @@ class SignalDispatcher:
             payload_json = json.dumps(wrapper, ensure_ascii=False)
             
             ok, _ = self._delivery.xadd_once(
-                marker_key=marker_key,
-                stream=self.mt5_plans_stream,
-                payload={"payload": payload_json},
-                maxlen=1000,
+                marker_key=marker_key
+                stream=self.mt5_plans_stream
+                payload={"payload": payload_json}
+                maxlen=1000
             )
 
         # 5) snapshot
@@ -481,10 +481,10 @@ class SignalDispatcher:
             _renew_or_raise()
             marker_key = self._delivery.marker_key("snapshot", sid)
             ok = self._delivery.setex_once(
-                marker_key=marker_key,
-                key=snap_key,
-                ttl_sec=snap_ttl,
-                payload=snap_payload,
+                marker_key=marker_key
+                key=snap_key
+                ttl_sec=snap_ttl
+                payload=snap_payload
             )
 
     def _handle_one(self, msg_id: str, fields: Dict[str, Any], *, helper: SyncRedisStreamHelper, attempt_hint: int = 0) -> bool:

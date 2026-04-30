@@ -30,14 +30,14 @@ class _FakeAsyncRedis:
 def _snap(*, ts_ms: int, symbol: str, window: str) -> bytes:
     return json.dumps(
         {
-            "v": 1,
-            "ts_ms": int(ts_ms),
-            "symbol": str(symbol),
-            "window": str(window),
+            "v": 1
+            "ts_ms": int(ts_ms)
+            "symbol": str(symbol)
+            "window": str(window)
             "levels": [
-                {"side": "ask", "price": 101.0, "usd": 400_000.0, "cnt": 10},
-                {"side": "bid", "price": 99.5, "usd": 500_000.0, "cnt": 12},
-            ],
+                {"side": "ask", "price": 101.0, "usd": 400_000.0, "cnt": 10}
+                {"side": "bid", "price": 99.5, "usd": 500_000.0, "cnt": 12}
+            ]
         }
     ).encode("utf-8")
 
@@ -79,20 +79,20 @@ def test_mini_replay_liqmap_shadow_smoke():
         last_fp_edge = None
 
     indicators: Dict[str, Any] = {
-        "price": 100.0,
-        "atr_bps": 50.0,
-        "tick_time_age_ms": 0.0,
-        "data_health": 1.0,
-        "book_health_ok": 1.0,
+        "price": 100.0
+        "atr_bps": 50.0
+        "tick_time_age_ms": 0.0
+        "data_health": 1.0
+        "book_health_ok": 1.0
     }
 
     # 1) Inject liqmap_* from Redis snapshot.
     asyncio.run(
         tp._inject_liqmap_features(
-            runtime=_Runtime(),
-            now_ms=1_000_000,
-            price=100.0,
-            indicators=indicators,
+            runtime=_Runtime()
+            now_ms=1_000_000
+            price=100.0
+            indicators=indicators
         )
     )
 
@@ -102,22 +102,22 @@ def test_mini_replay_liqmap_shadow_smoke():
     # 2) Run the engine with liqmap gate in SHADOW.
     engine = OFConfirmEngine()
     cfg = {
-        "liqmap_gate_mode": "shadow",
-        "liqmap_gate_window": "1h",
-        "liqmap_gate_peak_min_usd": 250_000.0,
-        "liqmap_gate_sl_band_mult": 2.0,
+        "liqmap_gate_mode": "shadow"
+        "liqmap_gate_window": "1h"
+        "liqmap_gate_peak_min_usd": 250_000.0
+        "liqmap_gate_sl_band_mult": 2.0
     }
     _confirm, _gate = engine.build(
-        symbol="BTCUSDT",
-        tf="1m",
-        direction="LONG",
-        tick_ts_ms=1_000_000,
-        price=100.0,
-        delta_z=1.2,
-        runtime=_Runtime(),
-        cfg=cfg,
-        indicators=indicators,
-        absorption=None,
+        symbol="BTCUSDT"
+        tf="1m"
+        direction="LONG"
+        tick_ts_ms=1_000_000
+        price=100.0
+        delta_z=1.2
+        runtime=_Runtime()
+        cfg=cfg
+        indicators=indicators
+        absorption=None
     )
 
     assert "liqmap_gate_shadow_veto" in indicators

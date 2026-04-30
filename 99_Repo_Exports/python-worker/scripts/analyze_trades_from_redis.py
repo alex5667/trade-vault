@@ -59,11 +59,11 @@ def _to_bool(value) -> bool:
 
 
 def load_trades_from_redis(
-    redis_url: str,
-    stream: str,
-    limit: int,
-    source: Optional[str] = None,
-    symbol: Optional[str] = None,
+    redis_url: str
+    stream: str
+    limit: int
+    source: Optional[str] = None
+    symbol: Optional[str] = None
 ) -> List[Trade]:
     """
     Читает последние `limit` записей из stream, фильтрует по source / symbol.
@@ -84,21 +84,21 @@ def load_trades_from_redis(
             continue
 
         trade = Trade(
-            source=s_source,
-            symbol=s_symbol,
-            exit_ts_ms=int(_to_float(fields.get("exit_ts_ms"), 0)),
-            pnl_net=_to_float(fields.get("pnl_net"), 0.0),
-            pnl_if_fixed_exit=_to_float(fields.get("pnl_if_fixed_exit"), 0.0),
-            one_r_money=_to_float(fields.get("one_r_money"), 0.0),
-            giveback=_to_float(fields.get("giveback"), 0.0),
-            missed_profit=_to_float(fields.get("missed_profit"), 0.0),
-            mfe_pnl=_to_float(fields.get("mfe_pnl"), 0.0),
-            mae_pnl=_to_float(fields.get("mae_pnl"), 0.0),
-            trailing_started=_to_bool(fields.get("trailing_started")),
-            trailing_active=_to_bool(fields.get("trailing_active")),
-            close_reason=str(fields.get("close_reason") or ""),
-            close_reason_raw=str(fields.get("close_reason_raw") or ""),
-            entry_tag=str(fields.get("entry_tag") or ""),
+            source=s_source
+            symbol=s_symbol
+            exit_ts_ms=int(_to_float(fields.get("exit_ts_ms"), 0))
+            pnl_net=_to_float(fields.get("pnl_net"), 0.0)
+            pnl_if_fixed_exit=_to_float(fields.get("pnl_if_fixed_exit"), 0.0)
+            one_r_money=_to_float(fields.get("one_r_money"), 0.0)
+            giveback=_to_float(fields.get("giveback"), 0.0)
+            missed_profit=_to_float(fields.get("missed_profit"), 0.0)
+            mfe_pnl=_to_float(fields.get("mfe_pnl"), 0.0)
+            mae_pnl=_to_float(fields.get("mae_pnl"), 0.0)
+            trailing_started=_to_bool(fields.get("trailing_started"))
+            trailing_active=_to_bool(fields.get("trailing_active"))
+            close_reason=str(fields.get("close_reason") or "")
+            close_reason_raw=str(fields.get("close_reason_raw") or "")
+            entry_tag=str(fields.get("entry_tag") or "")
         )
         trades.append(trade)
 
@@ -110,7 +110,7 @@ def load_trades_from_redis(
 
 
 def _split_r(
-    trades: List[Trade],
+    trades: List[Trade]
 ) -> Tuple[List[float], List[float], List[float], List[float]]:
     """
     Возвращает:
@@ -241,26 +241,26 @@ def compute_global_metrics(trades: List[Trade]) -> Dict[str, float]:
     trailing_delta_expectancy_r = trailing_expectancy_r - trailing_expectancy_fixed_r
 
     return {
-        "n": total,
-        "pnl_net_sum": sum(pnl),
-        "pnl_net_avg": _mean(pnl),
-        "wr_managed": wr_managed,
-        "wr_baseline": wr_baseline,
-        "expectancy_r": expectancy_r,
-        "expectancy_fixed_r": expectancy_fixed_r,
-        "delta_expectancy_r": delta_expectancy_r,
-        "payoff_r": payoff_r,
-        "payoff_usd": payoff_usd,
-        "payoff_fixed_r": payoff_fixed_r,
-        "payoff_fixed_usd": payoff_fixed_usd,
-        "std_r": std_r,
-        "sharpe": sharpe,
-        "mdd_usd": mdd,
-        "trailing_share": trailing_total / total if total > 0 else 0.0,
-        "trailing_wr": trailing_wr,
-        "trailing_expectancy_r": trailing_expectancy_r,
-        "trailing_expectancy_fixed_r": trailing_expectancy_fixed_r,
-        "trailing_delta_expectancy_r": trailing_delta_expectancy_r,
+        "n": total
+        "pnl_net_sum": sum(pnl)
+        "pnl_net_avg": _mean(pnl)
+        "wr_managed": wr_managed
+        "wr_baseline": wr_baseline
+        "expectancy_r": expectancy_r
+        "expectancy_fixed_r": expectancy_fixed_r
+        "delta_expectancy_r": delta_expectancy_r
+        "payoff_r": payoff_r
+        "payoff_usd": payoff_usd
+        "payoff_fixed_r": payoff_fixed_r
+        "payoff_fixed_usd": payoff_fixed_usd
+        "std_r": std_r
+        "sharpe": sharpe
+        "mdd_usd": mdd
+        "trailing_share": trailing_total / total if total > 0 else 0.0
+        "trailing_wr": trailing_wr
+        "trailing_expectancy_r": trailing_expectancy_r
+        "trailing_expectancy_fixed_r": trailing_expectancy_fixed_r
+        "trailing_delta_expectancy_r": trailing_delta_expectancy_r
     }
 
 
@@ -308,11 +308,11 @@ def main() -> None:
     args = parser.parse_args()
 
     trades = load_trades_from_redis(
-        redis_url=args.redis_url,
-        stream=args.stream,
-        limit=args.limit,
-        source=args.source,
-        symbol=args.symbol,
+        redis_url=args.redis_url
+        stream=args.stream
+        limit=args.limit
+        source=args.source
+        symbol=args.symbol
     )
 
     metrics = compute_global_metrics(trades)

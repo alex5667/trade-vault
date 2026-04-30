@@ -76,12 +76,12 @@ def get_reason_distribution(r: redis.Redis, symbols: List[str]) -> Dict[str, int
 def get_symbol_details(r: redis.Redis, symbol: str) -> Dict[str, any]:
     """Get detailed info about a symbol's ATR bad status."""
     details: Dict[str, any] = {
-        "symbol": symbol,
-        "bad_active": False,
-        "current_reason": "unknown",
-        "reason_counts": {},
-        "total_count": 0,
-        "bad_info": None,
+        "symbol": symbol
+        "bad_active": False
+        "current_reason": "unknown"
+        "reason_counts": {}
+        "total_count": 0
+        "bad_info": None
     }
     
     # Check if currently bad

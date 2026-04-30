@@ -124,8 +124,8 @@ class SignalEgressRelay:
         self._sha_finalize: Optional[str] = None
 
         self._pending_start: Dict[str, str] = {
-            self.egress_notify_stream: "0-0",
-            self.egress_manual_stream: "0-0",
+            self.egress_notify_stream: "0-0"
+            self.egress_manual_stream: "0-0"
         }
 
         self._last_diag = 0.0
@@ -172,19 +172,19 @@ class SignalEgressRelay:
         sha = self._ensure_finalize_sha()
         try:
             res = self.main.evalsha(
-                sha, 2,
-                self._env_done_key(sid),
-                self._env_req_key(sid),
-                str(self.env_state_ttl_sec),
-                self._env_done_prefix(sid),
+                sha, 2
+                self._env_done_key(sid)
+                self._env_req_key(sid)
+                str(self.env_state_ttl_sec)
+                self._env_done_prefix(sid)
             )
         except Exception:
             res = self.main.eval(
-                _LUA_ENV_FINALIZE, 2,
-                self._env_done_key(sid),
-                self._env_req_key(sid),
-                str(self.env_state_ttl_sec),
-                self._env_done_prefix(sid),
+                _LUA_ENV_FINALIZE, 2
+                self._env_done_key(sid)
+                self._env_req_key(sid)
+                str(self.env_state_ttl_sec)
+                self._env_done_prefix(sid)
             )
         try:
             return bool(int(res[0]) == 1)
@@ -214,10 +214,10 @@ class SignalEgressRelay:
 
         # Build ARGV: marker_ttl, maxlen, every_n, use_counter, field/value...
         argv: List[str] = [
-            str(self.marker_ttl_sec),
-            "500",
-            str(max(1, every_n)),
-            "1",
+            str(self.marker_ttl_sec)
+            "500"
+            str(max(1, every_n))
+            "1"
         ]
         for k, v in payload.items():
             argv.append(str(k))
@@ -298,10 +298,10 @@ class SignalEgressRelay:
                 for s in streams:
                     try:
                         nxt, pend = helper.claim_pending(
-                            s,
-                            min_idle_ms=self.claim_min_idle_ms,
-                            start_id=self._pending_start.get(s, "0-0"),
-                            count=self.claim_count,
+                            s
+                            min_idle_ms=self.claim_min_idle_ms
+                            start_id=self._pending_start.get(s, "0-0")
+                            count=self.claim_count
                         )
                         if (not pend) and (nxt == "0-0"):
                             pass

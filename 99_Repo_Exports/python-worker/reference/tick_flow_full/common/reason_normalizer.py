@@ -7,8 +7,8 @@ common/reason_normalizer.py
 
 1) Нормализуем reason -> reason_norm (малый фиксированный словарь).
    Это:
-     - делает signals_veto{reason} пригодным для дашборда,
-     - позволяет топ-N агрегацию без explosion по тегам,
+     - делает signals_veto{reason} пригодным для дашборда
+     - позволяет топ-N агрегацию без explosion по тегам
      - упрощает алерты в Telegram (вместо тысячи уникальных reason'ов).
 
 2) Правила intentionally "lossy":
@@ -89,7 +89,7 @@ def reason_family(reason_norm: str) -> str:
     - reason_norm = конкретная стабильная причина (bo_l2_fail_closed, conf_below_min_veto, ...)
     - reason_family = ещё более грубый "класс" (book_l2_gate, confidence_gate, spread_gate, ...)
     Это позволяет:
-      - строить дешёвые дашборды по family (низкая кардинальность),
+      - строить дешёвые дашборды по family (низкая кардинальность)
       - алертить "поменялась доминирующая семейство/причина" после релиза.
     """
     r = _clean(reason_norm or "")

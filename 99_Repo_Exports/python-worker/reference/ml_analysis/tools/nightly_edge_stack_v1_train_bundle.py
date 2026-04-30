@@ -40,12 +40,12 @@ except Exception:
     from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
 
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
-    atomic_copy,
-    atomic_write_json,
-    now_ms,
-    validate_dataset_report,
-    validate_train_report,
-    write_train_metrics,
+    atomic_copy
+    atomic_write_json
+    now_ms
+    validate_dataset_report
+    validate_train_report
+    write_train_metrics
 )
 
 
@@ -182,38 +182,38 @@ def main(argv: Optional[list] = None) -> int:
     start_ms = end_ms - int(args.window_hours) * 3600 * 1000
 
     build_args = [
-        "--redis_url", str(args.redis_url),
+        "--redis_url", str(args.redis_url)
         # NOTE: --signal_stream is intentionally NOT passed here.
         # build_edge_stack_dataset_from_redis's --signal_stream accepts a schema version
         # (e.g. "v5_of"), NOT a Redis stream name. The actual Redis stream ("signals:of:inputs")
         # comes from ML_REPLAY_STREAM env or the hardcoded default in that script.
-        "--closed_stream", str(args.closed_stream),
-        "--signals_count", str(args.signals_count),
-        "--closes_count", str(args.closes_count),
-        "--since_ms", str(start_ms),
-        "--until_ms", str(end_ms),
-        "--y_min_r", str(args.y_min_r),
-        "--out_jsonl", dataset_jsonl,
-        "--out_report_json", dataset_report,
-        "--out_quarantine_jsonl", quarantine_jsonl,
-        "--emit_feature_cols_json", feature_cols_json,
+        "--closed_stream", str(args.closed_stream)
+        "--signals_count", str(args.signals_count)
+        "--closes_count", str(args.closes_count)
+        "--since_ms", str(start_ms)
+        "--until_ms", str(end_ms)
+        "--y_min_r", str(args.y_min_r)
+        "--out_jsonl", dataset_jsonl
+        "--out_report_json", dataset_report
+        "--out_quarantine_jsonl", quarantine_jsonl
+        "--emit_feature_cols_json", feature_cols_json
         # v9_of: pinned snapshot covering 100% of actual signal indicators
         # builder writes feature_registry.feature_cols_hash → validated by trainer
-        "--feature_schema_ver", str(feature_schema_ver or "").strip(),
-        "--scenario_prefix", str(args.scenario_prefix),
-        "--include_time_onehot", str(int(args.include_time_onehot)),
-        "--strict_feature_cols", str(int(args.strict_feature_cols)),
-        "--forbid_scenario_v4_onehot", str(int(args.forbid_scenario_v4_onehot)),
+        "--feature_schema_ver", str(feature_schema_ver or "").strip()
+        "--scenario_prefix", str(args.scenario_prefix)
+        "--include_time_onehot", str(int(args.include_time_onehot))
+        "--strict_feature_cols", str(int(args.strict_feature_cols))
+        "--forbid_scenario_v4_onehot", str(int(args.forbid_scenario_v4_onehot))
     ]
     ok_build, _, _ = _run("ml_analysis.tools.build_edge_stack_dataset_from_redis", build_args, timeout=3600)
     if not ok_build or not os.path.exists(dataset_report):
         # Metrics: fail_build
         mapping = {
-            "status": "fail_build",
-            "reason": "dataset_build_failed",
-            "success": 0,
-            "run_id": run_id,
-            "updated_ts_ms": now_ms(),
+            "status": "fail_build"
+            "reason": "dataset_build_failed"
+            "success": 0
+            "run_id": run_id
+            "updated_ts_ms": now_ms()
         }
         try:
             write_train_metrics(str(args.redis_url), str(args.metrics_key), mapping)
@@ -228,13 +228,13 @@ def main(argv: Optional[list] = None) -> int:
     dv = validate_dataset_report(rep, min_joined=int(args.min_joined), pos_rate_min=float(args.pos_rate_min), pos_rate_max=float(args.pos_rate_max))
     if not dv.ok:
         mapping = {
-            "status": "fail_validate",
-            "reason": dv.reason,
-            "success": 0,
-            "run_id": run_id,
-            "joined": dv.joined,
-            "pos_rate": dv.pos_rate,
-            "updated_ts_ms": now_ms(),
+            "status": "fail_validate"
+            "reason": dv.reason
+            "success": 0
+            "run_id": run_id
+            "joined": dv.joined
+            "pos_rate": dv.pos_rate
+            "updated_ts_ms": now_ms()
         }
         # Include feature registry hashes if available
         fr = rep.get("feature_registry") if isinstance(rep, dict) else None
@@ -252,37 +252,37 @@ def main(argv: Optional[list] = None) -> int:
 
     # --- Step 3: Train OOF model
     train_args = [
-        "--data_jsonl", dataset_jsonl,
-        "--out_model", model_path,
-        "--run_id", run_id,
-        "--n_splits", str(args.n_splits),
-        "--purge_ms", str(args.purge_ms),
-        "--embargo_ms", str(args.embargo_ms),
-        "--min_train", str(args.min_train),
-        "--lr_C", str(args.lr_C),
-        "--gbdt_max_depth", str(args.gbdt_max_depth),
-        "--gbdt_learning_rate", str(args.gbdt_lr),
-        "--gbdt_max_iter", str(args.gbdt_max_iter),
-        "--calibrate", str(int(args.calibrate)),
+        "--data_jsonl", dataset_jsonl
+        "--out_model", model_path
+        "--run_id", run_id
+        "--n_splits", str(args.n_splits)
+        "--purge_ms", str(args.purge_ms)
+        "--embargo_ms", str(args.embargo_ms)
+        "--min_train", str(args.min_train)
+        "--lr_C", str(args.lr_C)
+        "--gbdt_max_depth", str(args.gbdt_max_depth)
+        "--gbdt_learning_rate", str(args.gbdt_lr)
+        "--gbdt_max_iter", str(args.gbdt_max_iter)
+        "--calibrate", str(int(args.calibrate))
         # --feature_cols_json is intentionally NOT passed: when --feature_schema_ver=v9_of
         # is set, trainer derives feature_cols from registry directly.
         # Passing both triggers strict_registry_match check which fails due to session_* one-hots.
-        "--feature_schema_ver", str(feature_schema_ver or "").strip(),
-        "--scenario_prefix", str(args.scenario_prefix),
-        "--include_time_onehot", str(int(args.include_time_onehot)),
-        "--require_feature_registry", "0",
-        "--dataset_report_json", dataset_report,
+        "--feature_schema_ver", str(feature_schema_ver or "").strip()
+        "--scenario_prefix", str(args.scenario_prefix)
+        "--include_time_onehot", str(int(args.include_time_onehot))
+        "--require_feature_registry", "0"
+        "--dataset_report_json", dataset_report
     ]
     ok_train, out, _ = _run("ml_analysis.tools.train_edge_stack_v1_oof", train_args, timeout=3600)
     if not ok_train or not os.path.exists(model_path):
         mapping = {
-            "status": "fail_train",
-            "reason": "train_failed",
-            "success": 0,
-            "run_id": run_id,
-            "joined": dv.joined,
-            "pos_rate": dv.pos_rate,
-            "updated_ts_ms": now_ms(),
+            "status": "fail_train"
+            "reason": "train_failed"
+            "success": 0
+            "run_id": run_id
+            "joined": dv.joined
+            "pos_rate": dv.pos_rate
+            "updated_ts_ms": now_ms()
         }
         try:
             write_train_metrics(str(args.redis_url), str(args.metrics_key), mapping)
@@ -349,22 +349,22 @@ def main(argv: Optional[list] = None) -> int:
 
     # --- Step 7: Write Redis metrics (best-effort, non-blocking)
     mapping = {
-        "status": "ok" if dv.ok else "fail_validate",
-        "reason": "ok" if dv.ok else dv.reason,
-        "success": 1 if dv.ok else 0,
-        "run_id": run_id,
-        "joined": dv.joined,
-        "pos_rate": dv.pos_rate,
-        "oof_meta_brier": tv.brier,
-        "oof_meta_ece": tv.ece,
-        "train_ok": 1 if tv.ok else 0,
-        "train_reason": tv.reason,
-        "feature_schema_ver": str(feature_schema_ver or ""),
-        "candidate_path": candidate_path,
-        "champion_path": champion_path if promoted else "",
-        "promote_applied": 1 if promoted else 0,
-        "promote_reason": promote_reason,
-        "updated_ts_ms": now_ms(),
+        "status": "ok" if dv.ok else "fail_validate"
+        "reason": "ok" if dv.ok else dv.reason
+        "success": 1 if dv.ok else 0
+        "run_id": run_id
+        "joined": dv.joined
+        "pos_rate": dv.pos_rate
+        "oof_meta_brier": tv.brier
+        "oof_meta_ece": tv.ece
+        "train_ok": 1 if tv.ok else 0
+        "train_reason": tv.reason
+        "feature_schema_ver": str(feature_schema_ver or "")
+        "candidate_path": candidate_path
+        "champion_path": champion_path if promoted else ""
+        "promote_applied": 1 if promoted else 0
+        "promote_reason": promote_reason
+        "updated_ts_ms": now_ms()
     }
     # Pin hashes from dataset/train reports for Prometheus alerts
     fr = rep.get("feature_registry") if isinstance(rep, dict) else None
@@ -380,34 +380,34 @@ def main(argv: Optional[list] = None) -> int:
 
     # --- Step 8: Persist bundle manifest (versioned + latest symlink)
     manifest = {
-        "run_id": run_id,
-        "status": "ok",
+        "run_id": run_id
+        "status": "ok"
         "dataset": {
-            "signals_stream": str(args.signals_stream),
-            "closed_stream": str(args.closed_stream),
-            "window_hours": int(args.window_hours),
-            "since_ms": int(start_ms),
-            "until_ms": int(end_ms),
-            "y_min_r": float(args.y_min_r),
-            "report": rep,
-        },
+            "signals_stream": str(args.signals_stream)
+            "closed_stream": str(args.closed_stream)
+            "window_hours": int(args.window_hours)
+            "since_ms": int(start_ms)
+            "until_ms": int(end_ms)
+            "y_min_r": float(args.y_min_r)
+            "report": rep
+        }
         "train": {
-            "report": tr,
-            "train_ok": bool(tv.ok),
-            "train_reason": tv.reason,
-            "thresholds": {"brier_max": float(args.brier_max), "ece_max": float(args.ece_max)},
-        },
+            "report": tr
+            "train_ok": bool(tv.ok)
+            "train_reason": tv.reason
+            "thresholds": {"brier_max": float(args.brier_max), "ece_max": float(args.ece_max)}
+        }
         "artifacts": {
-            "model_path": model_path,
-            "candidate_path": candidate_path,
-            "champion_path": champion_path,
-            "promoted": promoted,
-            "promote_reason": promote_reason,
-            "candidate_sha256": _sha256_file(candidate_path) if os.path.exists(candidate_path) else "",
-            "champion_sha256": _sha256_file(champion_path) if promoted and os.path.exists(champion_path) else "",
-        },
-        "cfg": {"cfg_hash_key": str(args.cfg_hash_key)},
-        "generated_ms": now_ms(),
+            "model_path": model_path
+            "candidate_path": candidate_path
+            "champion_path": champion_path
+            "promoted": promoted
+            "promote_reason": promote_reason
+            "candidate_sha256": _sha256_file(candidate_path) if os.path.exists(candidate_path) else ""
+            "champion_sha256": _sha256_file(champion_path) if promoted and os.path.exists(champion_path) else ""
+        }
+        "cfg": {"cfg_hash_key": str(args.cfg_hash_key)}
+        "generated_ms": now_ms()
     }
     atomic_write_json(version_json, manifest)
     atomic_write_json(bundle_latest, manifest)

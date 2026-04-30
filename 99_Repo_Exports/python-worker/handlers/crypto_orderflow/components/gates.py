@@ -19,9 +19,9 @@ try:
     from prometheus_client import Counter
 
     _GATES_ERROR = Counter(
-        "gates_error_total",
-        "Number of gate errors (fail-open activations) per gate",
-        ["gate", "reason"],
+        "gates_error_total"
+        "Number of gate errors (fail-open activations) per gate"
+        ["gate", "reason"]
     )
     _GATES_METRICS = True
 except Exception:  # pragma: no cover
@@ -46,12 +46,12 @@ class CryptoSignalGates:
     """
 
     def __init__(
-        self,
-        entry_policy: Optional[EntryPolicyGate],
-        cost_gate: Optional[EdgeCostGate],
-        consistency_gate: Any = None,
-        regime_liquidity_gate: Any = None,
-        smt_gate: Any = None,
+        self
+        entry_policy: Optional[EntryPolicyGate]
+        cost_gate: Optional[EdgeCostGate]
+        consistency_gate: Any = None
+        regime_liquidity_gate: Any = None
+        smt_gate: Any = None
     ):
         self._entry_policy = entry_policy
         self._cost_gate = cost_gate
@@ -212,10 +212,10 @@ class CryptoSignalGates:
 
         try:
             return self._smt_gate.evaluate(
-                ctx=ctx,
-                symbol=str(getattr(ctx, "symbol", "") or ""),
-                kind=str(kind),
-                direction=direction,
+                ctx=ctx
+                symbol=str(getattr(ctx, "symbol", "") or "")
+                kind=str(kind)
+                direction=direction
             )
         except Exception as exc:
             log.exception("check_smt failed, fail-open: %s", exc)

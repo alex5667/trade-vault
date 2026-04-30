@@ -34,56 +34,56 @@ class DummyClient:
 
     def __init__(self):
         self._acct = {
-            "totalWalletBalance": "1000.00",
-            "totalMarginBalance": "1100.00",
-            "availableBalance": "800.00",
-            "totalUnrealizedProfit": "25.50",
-            "totalInitialMargin": "250.00",
-            "totalMaintMargin": "15.00",
+            "totalWalletBalance": "1000.00"
+            "totalMarginBalance": "1100.00"
+            "availableBalance": "800.00"
+            "totalUnrealizedProfit": "25.50"
+            "totalInitialMargin": "250.00"
+            "totalMaintMargin": "15.00"
         }
         self._pos = [
             {
-                "symbol": "BTCUSDT",
-                "positionAmt": "0.010",
-                "entryPrice": "50000",
-                "markPrice": "51000",
-                "unRealizedProfit": "10",
-                "notional": "510",
-                "liquidationPrice": "42000",
-                "initialMargin": "51",
-                "maintMargin": "3",
-                "isolatedMargin": "0",
-                "marginType": "cross",
-                "leverage": "10",
-            },
+                "symbol": "BTCUSDT"
+                "positionAmt": "0.010"
+                "entryPrice": "50000"
+                "markPrice": "51000"
+                "unRealizedProfit": "10"
+                "notional": "510"
+                "liquidationPrice": "42000"
+                "initialMargin": "51"
+                "maintMargin": "3"
+                "isolatedMargin": "0"
+                "marginType": "cross"
+                "leverage": "10"
+            }
             {
-                "symbol": "ETHUSDT",
-                "positionAmt": "-0.20",
-                "entryPrice": "3000",
-                "markPrice": "2900",
-                "unRealizedProfit": "-5",
-                "notional": "-580",
-                "liquidationPrice": "0",
-                "initialMargin": "58",
-                "maintMargin": "4",
-                "isolatedMargin": "0",
-                "marginType": "cross",
-                "leverage": "10",
-            },
+                "symbol": "ETHUSDT"
+                "positionAmt": "-0.20"
+                "entryPrice": "3000"
+                "markPrice": "2900"
+                "unRealizedProfit": "-5"
+                "notional": "-580"
+                "liquidationPrice": "0"
+                "initialMargin": "58"
+                "maintMargin": "4"
+                "isolatedMargin": "0"
+                "marginType": "cross"
+                "leverage": "10"
+            }
             {
-                "symbol": "XRPUSDT",
-                "positionAmt": "100",
-                "entryPrice": "0.50",
-                "markPrice": "0.51",
-                "unRealizedProfit": "0.2",
-                "notional": "51",
-                "liquidationPrice": "0",
-                "initialMargin": "5",
-                "maintMargin": "0.3",
-                "isolatedMargin": "0",
-                "marginType": "cross",
-                "leverage": "10",
-            },
+                "symbol": "XRPUSDT"
+                "positionAmt": "100"
+                "entryPrice": "0.50"
+                "markPrice": "0.51"
+                "unRealizedProfit": "0.2"
+                "notional": "51"
+                "liquidationPrice": "0"
+                "initialMargin": "5"
+                "maintMargin": "0.3"
+                "isolatedMargin": "0"
+                "marginType": "cross"
+                "leverage": "10"
+            }
         ]
 
     def get_account(self):

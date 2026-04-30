@@ -20,8 +20,8 @@ def test_edge_cost_once_calls_handler_once():
     ctx = DummyCtx()
     cand = DummyCand()
     f = CandidateFrame(
-        handler=h, ctx=ctx, cand=cand,
-        kind_str="breakout", kind_key="breakout",
+        handler=h, ctx=ctx, cand=cand
+        kind_str="breakout", kind_key="breakout"
         side_int=1, ctx_symbol="BTCUSDT", ctx_ts=1, ctx_price=1.0
     )
     gates = GateRunner()

@@ -36,16 +36,16 @@ def test_world_practice_alerts_contains_expected_alerts(tick_flow_full: bool):
     rules = doc["groups"][0]["rules"]
     names = [r.get("alert") for r in rules if "alert" in r]
     expected = {
-        "OF_WP_VolRatioZHighInNormalBucket_Warn",
-        "OF_WP_FillProbLowHVLL_Warn",
-        "OF_WP_EtaFillHighHVLL_Warn",
-        "OF_WP_VolTrackersStuckZero_Crit",
+        "OF_WP_VolRatioZHighInNormalBucket_Warn"
+        "OF_WP_FillProbLowHVLL_Warn"
+        "OF_WP_EtaFillHighHVLL_Warn"
+        "OF_WP_VolTrackersStuckZero_Crit"
         # v16: exec-risk / spread P95 alerts (ungated)
-        "OFExecPenaltyP95High",
-        "OFSpreadP95High",
+        "OFExecPenaltyP95High"
+        "OFSpreadP95High"
         # v17: gated variants (require active allow decisions)
-        "OF_WP_ExecPenP95High_Warn",
-        "OF_WP_SpreadP95High_Warn",
+        "OF_WP_ExecPenP95High_Warn"
+        "OF_WP_SpreadP95High_Warn"
     }
     missing = expected - set(names)
     assert not missing, f"Missing alerts: {sorted(missing)}; found={names}"

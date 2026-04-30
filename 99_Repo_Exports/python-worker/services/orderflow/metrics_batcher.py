@@ -53,13 +53,13 @@ class MetricsBatcher:
     """
 
     def __init__(
-        self,
-        redis: Any,
-        *,
-        maxsize: int = 10_000,
-        batch_size: int = _BATCH_SIZE,
-        poll_timeout_s: float = _POLL_TIMEOUT_S,
-        worker_label: str = "orderflow",
+        self
+        redis: Any
+        *
+        maxsize: int = 10_000
+        batch_size: int = _BATCH_SIZE
+        poll_timeout_s: float = _POLL_TIMEOUT_S
+        worker_label: str = "orderflow"
     ) -> None:
         self._redis = redis
         self._queue: asyncio.Queue[Tuple] = asyncio.Queue(maxsize=maxsize)
@@ -102,7 +102,7 @@ class MetricsBatcher:
     async def run(self) -> None:
         """Background worker. Run as a single asyncio.Task for the service lifetime."""
         self._running = True
-        logger.info("MetricsBatcher[%s] started (maxsize=%d, batch=%d)",
+        logger.info("MetricsBatcher[%s] started (maxsize=%d, batch=%d)"
                     self._worker_label, self._queue.maxsize, self._batch_size)
         while self._running:
             try:
@@ -158,15 +158,15 @@ class MetricsBatcher:
                 import redis.exceptions
                 if isinstance(exc, (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError)) and attempt < 3:
                     logger.debug(
-                        "MetricsBatcher[%s] transient error on flush (attempt %d/3): %r, retrying...",
+                        "MetricsBatcher[%s] transient error on flush (attempt %d/3): %r, retrying..."
                         self._worker_label, attempt, exc
                     )
                     await asyncio.sleep(0.5 * attempt)
                     continue
                 else:
                     logger.warning(
-                        "MetricsBatcher[%s] pipeline flush failed (%d ops) after %d attempts: %r",
-                        self._worker_label, len(batch), attempt, exc,
+                        "MetricsBatcher[%s] pipeline flush failed (%d ops) after %d attempts: %r"
+                        self._worker_label, len(batch), attempt, exc
                     )
                     return
 

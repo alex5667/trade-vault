@@ -136,11 +136,11 @@ def _std_sample(xs: List[float], mu: float) -> float:
 
 
 def compute_arm_stats(
-    *,
-    arm_to_r: Mapping[str, List[float]],
-    alpha: float,
-    winsor_lo: float = -5.0,
-    winsor_hi: float = +5.0,
+    *
+    arm_to_r: Mapping[str, List[float]]
+    alpha: float
+    winsor_lo: float = -5.0
+    winsor_hi: float = +5.0
 ) -> Dict[str, ArmStats]:
     z = z_for_alpha(alpha)
     out: Dict[str, ArmStats] = {}
@@ -160,15 +160,15 @@ def compute_arm_stats(
 
 
 def choose_winner_lcb(
-    *,
-    regime: str,
-    arm_to_r: Mapping[str, List[float]],
-    min_n: int,
+    *
+    regime: str
+    arm_to_r: Mapping[str, List[float]]
+    min_n: int
     # regime-bucket thresholds (LCB gate)
-    min_edge_by_bucket: Mapping[str, float],
-    alpha_by_bucket: Mapping[str, float],
+    min_edge_by_bucket: Mapping[str, float]
+    alpha_by_bucket: Mapping[str, float]
     # safety
-    require_lcb_gt0_for_non_a: bool = True,
+    require_lcb_gt0_for_non_a: bool = True
 ) -> WinnerDecision:
     rb = regime_bucket(regime)
     alpha = float(alpha_by_bucket.get(rb, 0.10))
@@ -205,14 +205,14 @@ def choose_winner_lcb(
 
 
 def aggregate_scenario_winners(
-    *,
-    regime: str,
-    pooled: WinnerDecision,
-    per_scn: Mapping[str, WinnerDecision],
+    *
+    regime: str
+    pooled: WinnerDecision
+    per_scn: Mapping[str, WinnerDecision]
     # "ещё выше" safety knobs
-    require_same_winner_when_non_a: bool = True,
+    require_same_winner_when_non_a: bool = True
     # if scenarios disagree, allow non-A only when pooled LCB margin is very strong
-    disagree_allow_margin_r: float = 0.18,
+    disagree_allow_margin_r: float = 0.18
 ) -> WinnerDecision:
     """
     Политика объединения continuation/reversal:
@@ -281,13 +281,13 @@ def aggregate_scenario_winners(
 
 
 def hysteresis_should_publish(
-    *,
-    now_ms: int,
-    prev_meta: Optional[Mapping[str, Any]],
-    new_winner: WinnerDecision,
-    hold_down_ms: int,
+    *
+    now_ms: int
+    prev_meta: Optional[Mapping[str, Any]]
+    new_winner: WinnerDecision
+    hold_down_ms: int
     # stronger requirement when switching A->(B/C)
-    switch_min_margin_r: float,
+    switch_min_margin_r: float
 ) -> Tuple[bool, str]:
     """
     "Ещё выше": hold-down + hysteresis чтобы latest pointer не дёргался.
@@ -336,51 +336,51 @@ def build_suggestion_sid(meta: Mapping[str, Any]) -> str:
       - include key axes: symbol/regime/group + winner_arm + thresholds bucket
     """
     key = {
-        "symbol": str(meta.get("symbol") or ""),
-        "regime": str(meta.get("regime") or ""),
-        "group": str(meta.get("group") or ""),
-        "winner_arm": str(meta.get("winner_arm") or ""),
-        "arm_ver": int(meta.get("arm_ver") or 0),
-        "bucket": str(meta.get("bucket") or ""),
-        "min_n": int(meta.get("min_n") or 0),
+        "symbol": str(meta.get("symbol") or "")
+        "regime": str(meta.get("regime") or "")
+        "group": str(meta.get("group") or "")
+        "winner_arm": str(meta.get("winner_arm") or "")
+        "arm_ver": int(meta.get("arm_ver") or 0)
+        "bucket": str(meta.get("bucket") or "")
+        "min_n": int(meta.get("min_n") or 0)
     }
     return _sha1(json.dumps(key, separators=(",", ":"), ensure_ascii=False))
 
 
 def make_meta_payload(
-    *,
-    now_ms: int,
-    symbol: str,
-    regime: str,
-    group: str,
-    arm_ver: int,
-    window_sec: int,
-    min_n: int,
-    decision: WinnerDecision,
-    rbucket: str,
-    min_edge: float,
-    alpha: float,
+    *
+    now_ms: int
+    symbol: str
+    regime: str
+    group: str
+    arm_ver: int
+    window_sec: int
+    min_n: int
+    decision: WinnerDecision
+    rbucket: str
+    min_edge: float
+    alpha: float
 ) -> Dict[str, Any]:
     st = decision.stats
     meta = {
-        "ts_ms": int(now_ms),
-        "symbol": str(symbol).upper(),
-        "regime": norm_regime(regime),
-        "group": str(group).strip().lower(),
-        "bucket": str(rbucket),
-        "winner_arm": str(decision.winner),
-        "arm_ver": int(arm_ver),
-        "reason": str(decision.reason),
-        "window_sec": int(window_sec),
-        "min_n": int(min_n),
-        "alpha": float(alpha),
-        "min_edge_lcb": float(min_edge),
+        "ts_ms": int(now_ms)
+        "symbol": str(symbol).upper()
+        "regime": norm_regime(regime)
+        "group": str(group).strip().lower()
+        "bucket": str(rbucket)
+        "winner_arm": str(decision.winner)
+        "arm_ver": int(arm_ver)
+        "reason": str(decision.reason)
+        "window_sec": int(window_sec)
+        "min_n": int(min_n)
+        "alpha": float(alpha)
+        "min_edge_lcb": float(min_edge)
         "stats": {
             a: {"n": int(st[a].n), "mean": float(st[a].mean), "std": float(st[a].std), "lcb": float(st[a].lcb)}
             for a in ARMS
-        },
-        "schema": "entry_policy_ab_winner_meta_v1",
-        "evaluator": "lcb_v1",
+        }
+        "schema": "entry_policy_ab_winner_meta_v1"
+        "evaluator": "lcb_v1"
     }
     meta["sid"] = build_suggestion_sid(meta)
     return meta

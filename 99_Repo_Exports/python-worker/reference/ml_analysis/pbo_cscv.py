@@ -115,7 +115,7 @@ def compute_pbo(matrix: Mapping[str, Sequence[float]], *, n_folds: int = 8) -> D
     negative = sum(1 for x in lambdas if x <= 0.0)
     pbo = negative / float(len(lambdas)) if lambdas else 0.0
     return {
-        'pbo': float(pbo),
-        'cscv_splits': float(len(lambdas)),
-        'chosen_variant_unique': 1.0 if unique_train_picks == len(lambdas) and len(lambdas) > 0 else 0.0,
+        'pbo': float(pbo)
+        'cscv_splits': float(len(lambdas))
+        'chosen_variant_unique': 1.0 if unique_train_picks == len(lambdas) and len(lambdas) > 0 else 0.0
     }

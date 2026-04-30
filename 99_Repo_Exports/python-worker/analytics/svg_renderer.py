@@ -100,11 +100,11 @@ def _axis(width: int, height: int, pad: int = 40) -> str:
 
 
 def roc_svg(
-    points: List[Dict[str, float]],
-    auc: float,
-    width: int = 640,
-    height: int = 420,
-    pad: int = 40,
+    points: List[Dict[str, float]]
+    auc: float
+    width: int = 640
+    height: int = 420
+    pad: int = 40
     color: str = "#2a7"
 ) -> str:
     """
@@ -174,11 +174,11 @@ def roc_svg(
 
 
 def confusion_svg(
-    tp: int,
-    fp: int,
-    tn: int,
-    fn: int,
-    width: int = 420,
+    tp: int
+    fp: int
+    tn: int
+    fn: int
+    width: int = 420
     height: int = 320
 ) -> str:
     """

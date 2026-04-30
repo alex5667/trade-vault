@@ -127,11 +127,11 @@ class InlineExecDims:
 
     def norm(self) -> "InlineExecDims":
         return InlineExecDims(
-            symbol=_s(self.symbol).upper(),
-            side=_side(self.side),
-            session=_sess(self.session),
-            kind=_kind(self.kind),
-            tf=_tf(self.tf),
+            symbol=_s(self.symbol).upper()
+            side=_side(self.side)
+            session=_sess(self.session)
+            kind=_kind(self.kind)
+            tf=_tf(self.tf)
         )
 
 
@@ -214,10 +214,10 @@ def inline_is_from_cumulative_state(*, decision_mid: float, side: str, cum_notio
     if math.isfinite(fee_usd) and fee_usd > 0:
         fee_bps = float(fee_usd) / float(notional) * 10_000.0
     v = implementation_shortfall_bps(
-        vwap_fill_px=float(vwap),
-        decision_mid=float(mid0),
-        side=_side(side),
-        fee_bps=float(fee_bps),
+        vwap_fill_px=float(vwap)
+        decision_mid=float(mid0)
+        side=_side(side)
+        fee_bps=float(fee_bps)
     )
     if v is None or not math.isfinite(float(v)):
         return None
@@ -225,18 +225,18 @@ def inline_is_from_cumulative_state(*, decision_mid: float, side: str, cum_notio
 
 
 async def update_inline_exec_from_fill(
-    *,
-    redis: Any,
-    sid: str,
-    dims: InlineExecDims,
-    decision_mid: float,
-    fill_px: float,
-    fill_qty: float,
-    fee_bps: float,
-    ts_fill_ms: int,
-    ttl_sec: int = 86_400,
-    max_samples: int = 128,
-    ema_alpha: float = 0.2,
+    *
+    redis: Any
+    sid: str
+    dims: InlineExecDims
+    decision_mid: float
+    fill_px: float
+    fill_qty: float
+    fee_bps: float
+    ts_fill_ms: int
+    ttl_sec: int = 86_400
+    max_samples: int = 128
+    ema_alpha: float = 0.2
 ) -> Dict[str, float]:
     """Update bounded Redis state from one entry fill and return current rollup.
 
@@ -264,29 +264,29 @@ async def update_inline_exec_from_fill(
     cum_notional = _f(state.get("cum_notional"), 0.0) + (float(px) * float(qty))
     cum_fee_usd = _f(state.get("cum_fee_usd"), 0.0) + (max(0.0, float(fee)) * float(px) * float(qty) / 10_000.0)
     inline_is = inline_is_from_cumulative_state(
-        decision_mid=float(mid0),
-        side=d.side,
-        cum_notional=float(cum_notional),
-        cum_qty=float(cum_qty),
-        cum_fee_usd=float(cum_fee_usd),
+        decision_mid=float(mid0)
+        side=d.side
+        cum_notional=float(cum_notional)
+        cum_qty=float(cum_qty)
+        cum_fee_usd=float(cum_fee_usd)
     )
     if inline_is is None:
         return {}
 
     sid_state = {
-        "sid": sid_s,
-        "symbol": d.symbol,
-        "side": d.side,
-        "session": d.session,
-        "kind": d.kind,
-        "tf": d.tf,
-        "decision_mid": float(mid0),
-        "cum_qty": float(cum_qty),
-        "cum_notional": float(cum_notional),
-        "cum_fee_usd": float(cum_fee_usd),
-        "last_fill_ms": int(ts_fill_ms),
-        "last_inline_is_bps": float(inline_is),
-        "updated_at_ms": _now_ms(),
+        "sid": sid_s
+        "symbol": d.symbol
+        "side": d.side
+        "session": d.session
+        "kind": d.kind
+        "tf": d.tf
+        "decision_mid": float(mid0)
+        "cum_qty": float(cum_qty)
+        "cum_notional": float(cum_notional)
+        "cum_fee_usd": float(cum_fee_usd)
+        "last_fill_ms": int(ts_fill_ms)
+        "last_inline_is_bps": float(inline_is)
+        "updated_at_ms": _now_ms()
     }
     await redis.hset(sid_key, mapping={k: str(v) for k, v in sid_state.items()})
     await redis.expire(sid_key, int(ttl_sec))
@@ -294,9 +294,9 @@ async def update_inline_exec_from_fill(
     samples_key = make_samples_key(d)
     index_key = make_index_key(d)
     sample_payload = {
-        "sid": sid_s,
-        "is_bps": float(inline_is),
-        "ts_ms": int(ts_fill_ms),
+        "sid": sid_s
+        "is_bps": float(inline_is)
+        "ts_ms": int(ts_fill_ms)
     }
     await redis.hset(samples_key, mapping={sid_s: _json_dump(sample_payload)})
     await redis.expire(samples_key, int(ttl_sec))
@@ -335,19 +335,19 @@ async def update_inline_exec_from_fill(
 
     vals_sorted = sorted(vals)
     stats = {
-        "ema_bps": float(_ema_from_ordered(vals, alpha=float(ema_alpha))),
-        "p50_bps": float(_percentile(vals_sorted, 0.50)),
-        "p95_bps": float(_percentile(vals_sorted, 0.95)),
-        "count": int(count),
-        "last_is_bps": float(vals[-1]),
-        "last_sid": sid_s,
-        "updated_at_ms": _now_ms(),
-        "last_fill_ms": int(ts_fill_ms),
-        "session": d.session,
-        "kind": d.kind,
-        "tf": d.tf,
-        "side": d.side,
-        "symbol": d.symbol,
+        "ema_bps": float(_ema_from_ordered(vals, alpha=float(ema_alpha)))
+        "p50_bps": float(_percentile(vals_sorted, 0.50))
+        "p95_bps": float(_percentile(vals_sorted, 0.95))
+        "count": int(count)
+        "last_is_bps": float(vals[-1])
+        "last_sid": sid_s
+        "updated_at_ms": _now_ms()
+        "last_fill_ms": int(ts_fill_ms)
+        "session": d.session
+        "kind": d.kind
+        "tf": d.tf
+        "side": d.side
+        "symbol": d.symbol
     }
 
     for key in (make_rollup_key(d, include_session=True), make_rollup_key(d, include_session=False)):
@@ -366,14 +366,14 @@ def _try_hash(redis_client: Any, key: str) -> Dict[str, Any]:
 
 
 def read_inline_exec_rollup_sync(
-    redis_client: Any,
-    *,
-    symbol: str,
-    side: str,
-    session: str,
-    kind: str,
-    tf: str,
-    min_count: int = 1,
+    redis_client: Any
+    *
+    symbol: str
+    side: str
+    session: str
+    kind: str
+    tf: str
+    min_count: int = 1
 ) -> Dict[str, float]:
     """Read latest inline IS rollup using session-aware key with aggregate fallback."""
     if redis_client is None:
@@ -406,15 +406,15 @@ def read_inline_exec_rollup_sync(
 
 
 def read_perm_impact_rollup_sync(
-    redis_client: Any,
-    *,
-    symbol: str,
-    side: str,
-    session: str,
-    kind: str,
-    tf: str,
-    venue: str = "binance",
-    delta_sec: int = 1,
+    redis_client: Any
+    *
+    symbol: str
+    side: str
+    session: str
+    kind: str
+    tf: str
+    venue: str = "binance"
+    delta_sec: int = 1
 ) -> Optional[float]:
     """Read post-trade permanent impact p95 from canonical TCA Redis keys."""
     if redis_client is None:
@@ -426,9 +426,9 @@ def read_perm_impact_rollup_sync(
     kindv = _kind(kind)
     sidev = _side(side)
     keys = [
-        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:{sess}:{tfv}:{kindv}:{sidev}",
-        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:{sess}:{tfv}:all:{sidev}",
-        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:all:all:all:{sidev}",
+        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:{sess}:{tfv}:{kindv}:{sidev}"
+        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:{sess}:{tfv}:all:{sidev}"
+        f"tca:perm_impact_p95_bps:{int(delta_sec)}:{sym}:{ven}:all:all:all:{sidev}"
     ]
     for key in keys:
         try:

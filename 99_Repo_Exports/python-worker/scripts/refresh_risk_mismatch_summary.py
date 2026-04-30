@@ -4,7 +4,7 @@ from utils.time_utils import get_ny_time_millis
 
 """P4.8/P4.9: Refresh risk_mismatch_summary_mv materialized view and export JSON report.
 
-P4.9 addition: export Prometheus textfile metrics (freshness, stale flag, avg_rate,
+P4.9 addition: export Prometheus textfile metrics (freshness, stale flag, avg_rate
 quarantine_count per window/tier) so node-exporter textfile_collector can scrape them.
 
 Calls REFRESH MATERIALIZED VIEW risk_mismatch_summary_mv and exports the rows
@@ -54,13 +54,13 @@ def _connect_with_retry(dsn: str, *, max_retries: int = _MAX_RETRIES) -> "psycop
             if attempt < max_retries:
                 delay = _BACKOFF_SECONDS[min(attempt, len(_BACKOFF_SECONDS) - 1)]
                 log.warning(
-                    'PG connect attempt %d/%d failed (%s), retrying in %ds …',
-                    attempt + 1, max_retries + 1, exc, delay,
+                    'PG connect attempt %d/%d failed (%s), retrying in %ds …'
+                    attempt + 1, max_retries + 1, exc, delay
                 )
                 time.sleep(delay)
             else:
                 log.error(
-                    'PG connect failed after %d attempts: %s', max_retries + 1, exc,
+                    'PG connect failed after %d attempts: %s', max_retries + 1, exc
                 )
     raise last_exc  # type: ignore[misc]
 
@@ -88,19 +88,19 @@ def render_textfile(report: dict) -> str:
     stale_threshold = int(report.get('freshness_stale_threshold_sec') or 1800)
     rows = list(report.get('rows') or [])
     lines = [
-        '# HELP trade_risk_mismatch_summary_freshness_seconds Freshness of the latest materialized mismatch summary report.',
-        '# TYPE trade_risk_mismatch_summary_freshness_seconds gauge',
-        f'trade_risk_mismatch_summary_freshness_seconds {freshness_seconds}',
-        '# HELP trade_risk_mismatch_summary_stale Whether the mismatch summary report is stale.',
-        '# TYPE trade_risk_mismatch_summary_stale gauge',
-        f"trade_risk_mismatch_summary_stale {1 if freshness_seconds > float(stale_threshold) else 0}",
-        '# HELP trade_risk_mismatch_summary_row_count Number of rows emitted by risk_mismatch_summary_mv.',
-        '# TYPE trade_risk_mismatch_summary_row_count gauge',
-        f"trade_risk_mismatch_summary_row_count {int(report.get('row_count') or 0)}",
-        '# HELP trade_risk_mismatch_summary_avg_rate Average mismatch rate aggregated from risk_mismatch_summary_mv.',
-        '# TYPE trade_risk_mismatch_summary_avg_rate gauge',
-        '# HELP trade_risk_mismatch_summary_quarantine_count Quarantine count aggregated from risk_mismatch_summary_mv.',
-        '# TYPE trade_risk_mismatch_summary_quarantine_count gauge',
+        '# HELP trade_risk_mismatch_summary_freshness_seconds Freshness of the latest materialized mismatch summary report.'
+        '# TYPE trade_risk_mismatch_summary_freshness_seconds gauge'
+        f'trade_risk_mismatch_summary_freshness_seconds {freshness_seconds}'
+        '# HELP trade_risk_mismatch_summary_stale Whether the mismatch summary report is stale.'
+        '# TYPE trade_risk_mismatch_summary_stale gauge'
+        f"trade_risk_mismatch_summary_stale {1 if freshness_seconds > float(stale_threshold) else 0}"
+        '# HELP trade_risk_mismatch_summary_row_count Number of rows emitted by risk_mismatch_summary_mv.'
+        '# TYPE trade_risk_mismatch_summary_row_count gauge'
+        f"trade_risk_mismatch_summary_row_count {int(report.get('row_count') or 0)}"
+        '# HELP trade_risk_mismatch_summary_avg_rate Average mismatch rate aggregated from risk_mismatch_summary_mv.'
+        '# TYPE trade_risk_mismatch_summary_avg_rate gauge'
+        '# HELP trade_risk_mismatch_summary_quarantine_count Quarantine count aggregated from risk_mismatch_summary_mv.'
+        '# TYPE trade_risk_mismatch_summary_quarantine_count gauge'
     ]
     for row in rows:
         window_name = str(row.get('window_name') or '')
@@ -114,42 +114,42 @@ def render_textfile(report: dict) -> str:
 
 def main() -> int:
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+        level=logging.INFO
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s'
     )
 
     parser = argparse.ArgumentParser(description='Refresh materialized risk mismatch summary.')
     parser.add_argument(
-        '--dsn',
-        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),
-        help='PostgreSQL DSN for risk_mismatch_quarantine_ledger',
+        '--dsn'
+        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', ''))
+        help='PostgreSQL DSN for risk_mismatch_quarantine_ledger'
     )
     parser.add_argument(
-        '--out',
+        '--out'
         default=os.getenv(
-            'RISK_MISMATCH_SUMMARY_REPORT_PATH',
-            '/var/lib/trade-runbook/reports/latest_risk_mismatch_summary.json',
-        ),
-        help='Output JSON report path (written atomically)',
+            'RISK_MISMATCH_SUMMARY_REPORT_PATH'
+            '/var/lib/trade-runbook/reports/latest_risk_mismatch_summary.json'
+        )
+        help='Output JSON report path (written atomically)'
     )
     parser.add_argument(
-        '--textfile-output',
-        default=os.getenv('RISK_MISMATCH_SUMMARY_TEXTFILE_PATH', ''),
-        help='If set, also write a Prometheus textfile to this path (for node-exporter textfile_collector)',
+        '--textfile-output'
+        default=os.getenv('RISK_MISMATCH_SUMMARY_TEXTFILE_PATH', '')
+        help='If set, also write a Prometheus textfile to this path (for node-exporter textfile_collector)'
     )
     parser.add_argument(
-        '--freshness-stale-threshold-sec',
-        type=int,
-        default=int(os.getenv('RISK_MISMATCH_SUMMARY_STALE_SEC', '1800')),
-        help='Seconds after generation before report is considered stale (default: 1800)',
+        '--freshness-stale-threshold-sec'
+        type=int
+        default=int(os.getenv('RISK_MISMATCH_SUMMARY_STALE_SEC', '1800'))
+        help='Seconds after generation before report is considered stale (default: 1800)'
     )
     args = parser.parse_args()
     if not args.dsn or psycopg is None:
         raise RuntimeError('psycopg + DSN required. Set RISK_AUDIT_SQL_DSN or EXECUTION_JOURNAL_DSN.')
     report: dict = {
-        'generated_at_ms': get_ny_time_millis(),
-        'rows': [],
-        'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec),
+        'generated_at_ms': get_ny_time_millis()
+        'rows': []
+        'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec)
     }
     with _connect_with_retry(args.dsn) as conn:
         with conn.cursor() as cur:
@@ -158,8 +158,8 @@ def main() -> int:
             cur.execute('refresh materialized view risk_mismatch_summary_mv')
             cur.execute(
                 '''
-                select window_name, tier, quarantine_count, distinct_sid_count,
-                       avg_repeated_count, max_repeated_count, avg_mismatch_rate,
+                select window_name, tier, quarantine_count, distinct_sid_count
+                       avg_repeated_count, max_repeated_count, avg_mismatch_rate
                        latest_created_ts_ms, refreshed_ts_ms
                 from risk_mismatch_summary_mv
                 order by window_name, tier

@@ -35,24 +35,24 @@ class DummyDiag:
     def incident_bundle_symbol(self, symbol, include_exchange=False):
         return {
             'summary': {
-                'symbol': str(symbol).upper(),
-                'sid': 'sid-1',
-                'classification': 'stale_tombstone',
-                'severity': 'warning',
-                'hotness': {'5m': 4, '1h': 7},
-                'race_chain_count': 2,
-            },
+                'symbol': str(symbol).upper()
+                'sid': 'sid-1'
+                'classification': 'stale_tombstone'
+                'severity': 'warning'
+                'hotness': {'5m': 4, '1h': 7}
+                'race_chain_count': 2
+            }
             'exchange_truth': {
-                'has_live_position': True,
-                'has_open_orders': False,
-                'is_reliable': True,
-                'is_flat': False,
-            },
+                'has_live_position': True
+                'has_open_orders': False
+                'is_reliable': True
+                'is_flat': False
+            }
             'suspicious_writer_race_chains': [
-                {'chain_type': 'resurrection_attempt'},
-                {'chain_type': 'multi_writer_conflict_burst'},
-            ],
-            'telegram_text': 'incident text',
+                {'chain_type': 'resurrection_attempt'}
+                {'chain_type': 'multi_writer_conflict_burst'}
+            ]
+            'telegram_text': 'incident text'
         }
 
     def incident_bundle_sid(self, sid, include_exchange=False):

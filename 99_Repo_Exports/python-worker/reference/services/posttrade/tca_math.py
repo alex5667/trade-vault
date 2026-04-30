@@ -83,11 +83,11 @@ def permanent_impact_bps(*, mid_t: float, mid_t_delta: float, side: str) -> Opti
 
 
 def implementation_shortfall_bps(
-    *,
-    vwap_fill_px: float,
-    decision_mid: float,
-    side: str,
-    fee_bps: float = 0.0,
+    *
+    vwap_fill_px: float
+    decision_mid: float
+    side: str
+    fee_bps: float = 0.0
 ) -> Optional[float]:
     """Implementation Shortfall (IS) in bps.
 

@@ -34,8 +34,8 @@ except Exception:
 def main():
     """Main entry point."""
     ap = argparse.ArgumentParser(
-        description="Join exported features with trade labels",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Join exported features with trade labels"
+        formatter_class=argparse.RawDescriptionHelpFormatter
         epilog="""
 Examples:
   # Join Parquet files
@@ -55,10 +55,10 @@ Examples:
     ap.add_argument("--labels", required=True, help="Labels file (parquet/csv)")
     ap.add_argument("--out", required=True, help="Output file (parquet/csv)")
     ap.add_argument(
-        "--use-gpu",
-        action="store_true",
-        default=False,
-        help="Enable GPU acceleration with cuDF (fallback to pandas).",
+        "--use-gpu"
+        action="store_true"
+        default=False
+        help="Enable GPU acceleration with cuDF (fallback to pandas)."
     )
     args = ap.parse_args()
     

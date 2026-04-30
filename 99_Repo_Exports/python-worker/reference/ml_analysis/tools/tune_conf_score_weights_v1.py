@@ -70,16 +70,16 @@ def _parse_regime(row: Dict[str, Any]) -> str:
 
 
 _ALLOW = {
-    "reclaim",
-    "obi_stable",
-    "ice_strict",
-    "iceberg_strict",
-    "fp_edge_absorb",
-    "rsi_agree",
-    "div_match",
-    "sweep",
-    "sweep_eqh",
-    "sweep_eql",
+    "reclaim"
+    "obi_stable"
+    "ice_strict"
+    "iceberg_strict"
+    "fp_edge_absorb"
+    "rsi_agree"
+    "div_match"
+    "sweep"
+    "sweep_eqh"
+    "sweep_eql"
 }
 
 
@@ -158,11 +158,11 @@ class TuneCfg:
     max_w: float = 0.08
     base_scale: float = 0.25
     synergy_pairs: Tuple[Tuple[str, str], ...] = (
-        ("sweep", "reclaim"),
-        ("sweep_eqh", "reclaim"),
-        ("sweep_eql", "reclaim"),
-        ("iceberg_strict", "fp_edge_absorb"),
-        ("sweep", "div_match"),
+        ("sweep", "reclaim")
+        ("sweep_eqh", "reclaim")
+        ("sweep_eql", "reclaim")
+        ("iceberg_strict", "fp_edge_absorb")
+        ("sweep", "div_match")
     )
 
 
@@ -215,10 +215,10 @@ def tune(df: pd.DataFrame, cfg: TuneCfg) -> Dict[str, Any]:
     out: Dict[str, Any] = {"by_regime": {}, "meta": {}}
     out["meta"].update(
         {
-            "min_n_key": cfg.min_n_key,
-            "min_n_regime": cfg.min_n_regime,
-            "uplift_min": cfg.uplift_min,
-            "max_w": cfg.max_w,
+            "min_n_key": cfg.min_n_key
+            "min_n_regime": cfg.min_n_regime
+            "uplift_min": cfg.uplift_min
+            "max_w": cfg.max_w
         }
     )
 
@@ -325,10 +325,10 @@ def main() -> None:
         df = pd.DataFrame(rows)
 
     cfg = TuneCfg(
-        min_n_key=int(args.min_n_key),
-        min_n_regime=int(args.min_n_regime),
-        uplift_min=float(args.uplift_min),
-        max_w=float(args.max_w),
+        min_n_key=int(args.min_n_key)
+        min_n_regime=int(args.min_n_regime)
+        uplift_min=float(args.uplift_min)
+        max_w=float(args.max_w)
     )
     out = tune(df, cfg)
 

@@ -8,8 +8,8 @@ import os
 
 def test_book_processor_prom_wiring_v1():
     paths = [
-        "services/orderflow/components/book_processor.py",
-        "tick_flow_full/services/orderflow/components/book_processor.py",
+        "services/orderflow/components/book_processor.py"
+        "tick_flow_full/services/orderflow/components/book_processor.py"
     ]
     for p in paths:
         if os.path.exists(p):
@@ -22,8 +22,8 @@ def test_book_processor_prom_wiring_v1():
 
 def test_tick_processor_prom_wiring_v1():
     paths = [
-        "services/orderflow/components/tick_processor.py",
-        "tick_flow_full/services/orderflow/components/tick_processor.py",
+        "services/orderflow/components/tick_processor.py"
+        "tick_flow_full/services/orderflow/components/tick_processor.py"
     ]
     for p in paths:
         if os.path.exists(p):

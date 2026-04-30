@@ -18,10 +18,10 @@ class LocalExtremeEvent:
 
 class LocalExtremaConfig:
     def __init__(
-        self,
-        lookback_left: int = 2,
-        lookback_right: int = 2,
-        min_bars_between_extremes: int = 5,
+        self
+        lookback_left: int = 2
+        lookback_right: int = 2
+        min_bars_between_extremes: int = 5
         min_move_bps: float = 20.0,   # минимальный ход от предыдущего экстремума
     ) -> None:
         self.lookback_left = lookback_left
@@ -114,15 +114,15 @@ class LocalExtremaService:
         kind: ExtremumKind = "high" if is_local_max else "low"
 
         event = LocalExtremeEvent(
-            ts=ts_mid,
-            price=price_mid,
-            kind=kind,
-            move_from_prev_bps=move_bps,
+            ts=ts_mid
+            price=price_mid
+            kind=kind
+            move_from_prev_bps=move_bps
             bars_since_prev=(
                 self._bars_since_last_extreme
                 if self._bars_since_last_extreme < 10**8
                 else None
-            ),
+            )
         )
 
         # обновляем состояние

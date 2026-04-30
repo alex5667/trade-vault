@@ -11,9 +11,9 @@ if ROOT not in sys.path:
 
 
 from services.orderflow.book_geometry import (
-    calc_book_slope,
-    calc_depth_weighted_spread,
-    calc_cost_to_cross,
+    calc_book_slope
+    calc_depth_weighted_spread
+    calc_cost_to_cross
 )
 
 

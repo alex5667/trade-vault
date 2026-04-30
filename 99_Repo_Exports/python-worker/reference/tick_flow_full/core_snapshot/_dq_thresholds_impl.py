@@ -125,13 +125,13 @@ def resolve_dq_thresholds(cfg: Mapping[str, Any] | None) -> DQThresholds:
 
     # Book stream cadence (used for derived book thresholds + alpha).
     interval_raw = _first(
-        c,
+        c
         [
-            "book_stream_interval_ms",
-            "BOOK_STREAM_INTERVAL_MS",
-            "book_interval_ms",
-            "BOOK_INTERVAL_MS",
-        ],
+            "book_stream_interval_ms"
+            "BOOK_STREAM_INTERVAL_MS"
+            "book_interval_ms"
+            "BOOK_INTERVAL_MS"
+        ]
     )
     book_stream_interval_ms = _safe_int(interval_raw, 100)
     if book_stream_interval_ms <= 0:
@@ -157,23 +157,23 @@ def resolve_dq_thresholds(cfg: Mapping[str, Any] | None) -> DQThresholds:
     # Accept several aliases to keep migrations painless.
     gap_soft_ms = _safe_int(
         _first(c, ["dq_gap_p95_soft_ms", "dq_gap_soft_ms", "DQ_GAP_P95_SOFT_MS", "DQ_GAP_SOFT_MS"])
-        or gap_soft_ms,
-        gap_soft_ms,
+        or gap_soft_ms
+        gap_soft_ms
     )
     gap_hard_ms = _safe_int(
         _first(c, ["dq_gap_p95_hard_ms", "dq_gap_hard_ms", "DQ_GAP_P95_HARD_MS", "DQ_GAP_HARD_MS"])
-        or gap_hard_ms,
-        gap_hard_ms,
+        or gap_hard_ms
+        gap_hard_ms
     )
     gap_extreme_ms = _safe_int(
         _first(c, ["dq_gap_p95_extreme_ms", "dq_gap_extreme_ms", "DQ_GAP_P95_EXTREME_MS", "DQ_GAP_EXTREME_MS"])
-        or gap_extreme_ms,
-        gap_extreme_ms,
+        or gap_extreme_ms
+        gap_extreme_ms
     )
     min_samples = _safe_int(
         _first(c, ["dq_gap_p95_min_samples", "dq_gap_min_samples", "DQ_GAP_P95_MIN_SAMPLES", "DQ_GAP_MIN_SAMPLES"])
-        or min_samples,
-        min_samples,
+        or min_samples
+        min_samples
     )
 
     tick_hard = float(
@@ -193,8 +193,8 @@ def resolve_dq_thresholds(cfg: Mapping[str, Any] | None) -> DQThresholds:
     book_hard = float(
         _safe_float(
             _first(c, ["dq_book_missing_seq_ema_hard", "DQ_BOOK_MISSING_SEQ_EMA_HARD", "dq_book_hard"])
-            or book_hard_default,
-            book_hard_default,
+            or book_hard_default
+            book_hard_default
         )
     )
 
@@ -209,8 +209,8 @@ def resolve_dq_thresholds(cfg: Mapping[str, Any] | None) -> DQThresholds:
     book_soft = float(
         _safe_float(
             _first(c, ["dq_book_missing_seq_ema_soft", "DQ_BOOK_MISSING_SEQ_EMA_SOFT", "dq_book_soft"])
-            or book_soft_default,
-            book_soft_default,
+            or book_soft_default
+            book_soft_default
         )
     )
 
@@ -238,15 +238,15 @@ def resolve_dq_thresholds(cfg: Mapping[str, Any] | None) -> DQThresholds:
     book_hard = float(max(book_soft, min(1.0, book_hard)))
 
     return DQThresholds(
-        mode=str(mode),
-        gap_soft_ms=int(gap_soft_ms),
-        gap_hard_ms=int(gap_hard_ms),
-        gap_extreme_ms=int(gap_extreme_ms),
-        min_samples=int(min_samples),
-        tick_soft=float(tick_soft),
-        tick_hard=float(tick_hard),
-        book_soft=float(book_soft),
-        book_hard=float(book_hard),
-        book_stream_interval_ms=int(book_stream_interval_ms),
-        book_seq_ema_alpha=float(book_seq_ema_alpha),
+        mode=str(mode)
+        gap_soft_ms=int(gap_soft_ms)
+        gap_hard_ms=int(gap_hard_ms)
+        gap_extreme_ms=int(gap_extreme_ms)
+        min_samples=int(min_samples)
+        tick_soft=float(tick_soft)
+        tick_hard=float(tick_hard)
+        book_soft=float(book_soft)
+        book_hard=float(book_hard)
+        book_stream_interval_ms=int(book_stream_interval_ms)
+        book_seq_ema_alpha=float(book_seq_ema_alpha)
     )

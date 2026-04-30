@@ -128,10 +128,10 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
     # 1) Export
     from tools.export_trade_closed_ndjson import export_stream
     exp_n, scanned = export_stream(
-        r=r,
-        stream=trade_stream,
-        since_ms=now - int(since_hours * 3600 * 1000),
-        out_path=tmp_path,
+        r=r
+        stream=trade_stream
+        since_ms=now - int(since_hours * 3600 * 1000)
+        out_path=tmp_path
     )
 
     # 2) Tune
@@ -140,15 +140,15 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
     grouped = group_rows_by_context(rows, window_days=window_days)
     
     min_samples_by_regime = {
-        "thin": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n))),
-        "news": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n))),
-        "illiquid": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n))),
+        "thin": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n)))
+        "news": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n)))
+        "illiquid": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n)))
     }
     winners = pick_winners(
-        grouped,
-        min_samples_default=min_n,
-        min_edge_r=min_edge_r,
-        min_samples_by_regime=min_samples_by_regime,
+        grouped
+        min_samples_default=min_n
+        min_edge_r=min_edge_r
+        min_samples_by_regime=min_samples_by_regime
     )
     
     # 3) Optional proposal (with 24h guard)
@@ -201,13 +201,13 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
                         winner = winners_map.get((sym, rg, scn, grp))
                         if winner:
                             save_autopilot_proposal(
-                                sid=p["sid"],
-                                group=grp,
-                                symbol=sym,
-                                regime=rg,
-                                scenario=scn,
-                                winner_arm=winner["winner_arm"],
-                                edge_lcb_r=float(winner.get("edge_lcb_r") or 0.0),
+                                sid=p["sid"]
+                                group=grp
+                                symbol=sym
+                                regime=rg
+                                scenario=scn
+                                winner_arm=winner["winner_arm"]
+                                edge_lcb_r=float(winner.get("edge_lcb_r") or 0.0)
                                 proposal_json=p["overrides_v1_json"]
                             )
             except Exception as e:

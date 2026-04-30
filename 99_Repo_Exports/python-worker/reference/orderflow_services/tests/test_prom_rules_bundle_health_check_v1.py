@@ -114,7 +114,7 @@ def test_main_ok(monkeypatch, capsys):
 
     fake_result = SimpleNamespace(ok=True, files_checked=7, errors=[])
 
-    with patch("orderflow_services.prom_rules_bundle_health_check_v1.validate_repo_rules",
+    with patch("orderflow_services.prom_rules_bundle_health_check_v1.validate_repo_rules"
                return_value=fake_result), \
          patch.object(mod, "_write_state") as mock_write, \
          patch.object(mod, "_get_repo_root", return_value=Path("/fake")):
@@ -132,11 +132,11 @@ def test_main_fail(monkeypatch, capsys):
     mod = _import_module()
 
     fake_result = SimpleNamespace(
-        ok=False, files_checked=4,
+        ok=False, files_checked=4
         errors=["file1.yml: group has no rules", "file2.yml: empty expr"]
     )
 
-    with patch("orderflow_services.prom_rules_bundle_health_check_v1.validate_repo_rules",
+    with patch("orderflow_services.prom_rules_bundle_health_check_v1.validate_repo_rules"
                return_value=fake_result), \
          patch.object(mod, "_write_state") as mock_write, \
          patch.object(mod, "_get_repo_root", return_value=Path("/fake")):
@@ -158,10 +158,10 @@ def test_exporter_v12_gauges_declared():
     import orderflow_services.enforce_bucket_state_exporter_v1 as mod
 
     for name in (
-        "of_prom_rules_bundle_last_ok",
-        "of_prom_rules_bundle_last_ok_age_sec",
-        "of_prom_rules_bundle_last_files_checked",
-        "of_prom_rules_bundle_last_error_n",
+        "of_prom_rules_bundle_last_ok"
+        "of_prom_rules_bundle_last_ok_age_sec"
+        "of_prom_rules_bundle_last_files_checked"
+        "of_prom_rules_bundle_last_error_n"
     ):
         assert hasattr(mod, name), f"V12 gauge {name!r} not found in exporter module"
         gauge = getattr(mod, name)
@@ -194,10 +194,10 @@ def test_exporter_export_prom_rules_bundle_health_with_redis(monkeypatch):
 
     def fake_get(key):
         mapping = {
-            "state:prom_rules_bundle:last_ok": "1",
-            "state:prom_rules_bundle:last_ok_ts_ms": str(ok_ts_ms),
-            "state:prom_rules_bundle:last_files_checked": "5",
-            "state:prom_rules_bundle:last_error_n": "0",
+            "state:prom_rules_bundle:last_ok": "1"
+            "state:prom_rules_bundle:last_ok_ts_ms": str(ok_ts_ms)
+            "state:prom_rules_bundle:last_files_checked": "5"
+            "state:prom_rules_bundle:last_error_n": "0"
         }
         return mapping.get(key)
 
@@ -217,13 +217,13 @@ def test_exporter_export_prom_rules_bundle_health_with_redis(monkeypatch):
     original_set_files = mod.of_prom_rules_bundle_last_files_checked.set
     original_set_err = mod.of_prom_rules_bundle_last_error_n.set
 
-    monkeypatch.setattr(mod.of_prom_rules_bundle_last_ok, "set",
+    monkeypatch.setattr(mod.of_prom_rules_bundle_last_ok, "set"
                         lambda v: (last_ok_val.append(v), original_set_ok(v)))
-    monkeypatch.setattr(mod.of_prom_rules_bundle_last_ok_age_sec, "set",
+    monkeypatch.setattr(mod.of_prom_rules_bundle_last_ok_age_sec, "set"
                         lambda v: (last_age_val.append(v), original_set_age(v)))
-    monkeypatch.setattr(mod.of_prom_rules_bundle_last_files_checked, "set",
+    monkeypatch.setattr(mod.of_prom_rules_bundle_last_files_checked, "set"
                         lambda v: (last_files_val.append(v), original_set_files(v)))
-    monkeypatch.setattr(mod.of_prom_rules_bundle_last_error_n, "set",
+    monkeypatch.setattr(mod.of_prom_rules_bundle_last_error_n, "set"
                         lambda v: (last_err_val.append(v), original_set_err(v)))
 
     ex._export_prom_rules_bundle_health()

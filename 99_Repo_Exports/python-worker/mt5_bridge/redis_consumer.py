@@ -24,17 +24,17 @@ class PlansStreamConsumer:
 
     Формат сообщений в stream:
     {
-        "signal_id": "XAUUSD-breakout-123",
-        "symbol": "XAUUSD",
-        "setup_type": "breakout_R1",
-        "side": "long",
-        "ts_signal": "2025-12-15T12:34:56.123456+00:00",
+        "signal_id": "XAUUSD-breakout-123"
+        "symbol": "XAUUSD"
+        "setup_type": "breakout_R1"
+        "side": "long"
+        "ts_signal": "2025-12-15T12:34:56.123456+00:00"
         "payload": "{ \"ctx\": {...}, \"plan\": {...} }"
     }
 
     Где payload - JSON строка с:
     {
-        "ctx": { ... SignalContext.to_dict() ... },
+        "ctx": { ... SignalContext.to_dict() ... }
         "plan": { ... ExecutionPlan dict ... }
     }
     """
@@ -63,9 +63,9 @@ class PlansStreamConsumer:
         """
         # XREAD BLOCK <ms> COUNT <count> STREAMS key last_id
         resp = self._r.xread(
-            {self.stream_key: self._last_id},
-            block=block_ms,
-            count=count,
+            {self.stream_key: self._last_id}
+            block=block_ms
+            count=count
         )
 
         plans: List[Mt5ExecutionPlan] = []

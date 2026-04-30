@@ -74,25 +74,25 @@ def test_build_dataset_wide_cols_v7_smoke(tmp_path: Path) -> None:
     # minimal signal/input row; indicators are taken from the whole object
     inputs_rows = [
         {
-            "sid": sid,
-            "ts_ms": ts_ms,
-            "symbol": "BTCUSDT",
-            "direction": "LONG",
-            "scenario_v4": "trend",
+            "sid": sid
+            "ts_ms": ts_ms
+            "symbol": "BTCUSDT"
+            "direction": "LONG"
+            "scenario_v4": "trend"
             # a few indicator keys that exist in v5/v6/v7
-            "delta_z": 0.1,
-            "ofi_z": 0.2,
-            "spread_bps": 3.0,
-            "cancel_spike_veto": False,
+            "delta_z": 0.1
+            "ofi_z": 0.2
+            "spread_bps": 3.0
+            "cancel_spike_veto": False
         }
     ]
     closed_rows = [
         {
-            "sid": sid,
-            "event_type": "POSITION_CLOSED",
-            "pnl": 1.0,
-            "risk_usd": 1.0,
-            "exit_ts_ms": ts_ms + 60_000,
+            "sid": sid
+            "event_type": "POSITION_CLOSED"
+            "pnl": 1.0
+            "risk_usd": 1.0
+            "exit_ts_ms": ts_ms + 60_000
         }
     ]
 
@@ -100,7 +100,7 @@ def test_build_dataset_wide_cols_v7_smoke(tmp_path: Path) -> None:
     closed_path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in closed_rows) + "\n", encoding="utf-8")
 
     # Ensure tick_flow_full and repo root are discoverable for imports in the tool.
-    # conftest already inserts tick_flow_full into sys.path for the test process,
+    # conftest already inserts tick_flow_full into sys.path for the test process
     # but the tool itself relies on optional imports; keep env consistent.
     env_backup = dict(os.environ)
     os.environ["ML_FEATURE_SCHEMA_VER"] = "v7_of"
@@ -109,19 +109,19 @@ def test_build_dataset_wide_cols_v7_smoke(tmp_path: Path) -> None:
         old_argv = list(sys.argv)
         try:
             sys.argv = [
-                old_argv[0],
-                "--inputs",
-                str(inputs_path),
-                "--closed",
-                str(closed_path),
-                "--out",
-                str(out_path),
-                "--emit-wide-cols",
-                "1",
-                "--schema-ver",
-                "v7_of",
-                "--out-format",
-                "csv",
+                old_argv[0]
+                "--inputs"
+                str(inputs_path)
+                "--closed"
+                str(closed_path)
+                "--out"
+                str(out_path)
+                "--emit-wide-cols"
+                "1"
+                "--schema-ver"
+                "v7_of"
+                "--out-format"
+                "csv"
             ]
             t_build.main()
         finally:

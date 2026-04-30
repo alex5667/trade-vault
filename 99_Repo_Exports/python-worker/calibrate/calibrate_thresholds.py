@@ -175,9 +175,9 @@ def write_env_file(thresholds: Dict[str, float], path: str) -> None:
         path: Output file path
     """
     lines = [
-        "# Auto-calibrated thresholds for XAUUSD",
-        f"# Generated: {pd.Timestamp.now().isoformat()}",
-        "",
+        "# Auto-calibrated thresholds for XAUUSD"
+        f"# Generated: {pd.Timestamp.now().isoformat()}"
+        ""
     ]
     
     for key in sorted(thresholds.keys()):
@@ -196,8 +196,8 @@ def write_env_file(thresholds: Dict[str, float], path: str) -> None:
 def main():
     """Main entry point."""
     ap = argparse.ArgumentParser(
-        description="Auto-calibrate XAUUSD signal thresholds from historical data",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Auto-calibrate XAUUSD signal thresholds from historical data"
+        formatter_class=argparse.RawDescriptionHelpFormatter
         epilog="""
 Examples:
   # Calibrate from Parquet
@@ -210,13 +210,13 @@ Examples:
         """
     )
     ap.add_argument("--data", required=True, help="Features file (.parquet or .csv)")
-    ap.add_argument("--out-env", default="config/calibrated_gold.env",
+    ap.add_argument("--out-env", default="config/calibrated_gold.env"
                     help="Output .env file (default: config/calibrated_gold.env)")
     ap.add_argument(
-        "--use-gpu",
-        action="store_true",
-        default=False,
-        help="Enable GPU quantiles if available (fallback to CPU).",
+        "--use-gpu"
+        action="store_true"
+        default=False
+        help="Enable GPU quantiles if available (fallback to CPU)."
     )
     args = ap.parse_args()
     

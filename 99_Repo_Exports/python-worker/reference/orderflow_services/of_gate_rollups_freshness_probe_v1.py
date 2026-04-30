@@ -118,9 +118,9 @@ def main() -> None:
     view_1h = env("OF_GATE_ROLLUPS_VIEW_1H", default="of_gate_ok_rate_1h")
 
     payload: Dict[str, Any] = {
-        "last_run_ts_ms": now_ms(),
-        "view_5m": view_5m,
-        "view_1h": view_1h,
+        "last_run_ts_ms": now_ms()
+        "view_5m": view_5m
+        "view_1h": view_1h
     }
 
     ok = 1
@@ -130,10 +130,10 @@ def main() -> None:
             b5, a5 = query_max_bucket(conn, view_5m)
             b1, a1 = query_max_bucket(conn, view_1h)
             payload.update({
-                "bucket_5m_ts_ms": b5,
-                "bucket_1h_ts_ms": b1,
-                "age_5m_s": a5,
-                "age_1h_s": a1,
+                "bucket_5m_ts_ms": b5
+                "bucket_1h_ts_ms": b1
+                "age_5m_s": a5
+                "age_1h_s": a1
             })
             # Both views must have at least one bucket for probe to be OK
             if b5 <= 0 or b1 <= 0:

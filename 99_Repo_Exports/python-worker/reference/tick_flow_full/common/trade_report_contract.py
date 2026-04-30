@@ -38,13 +38,13 @@ def _safe_quarantine_push(quarantine: Any, reason: str, data: Dict[str, Any]) ->
 
 
 def compute_hold_ms_with_quarantine(
-    *,
-    entry_ts_ms: int,
-    exit_ts_ms: int,
-    quarantine: Any = None,
-    metrics: Any = None,
-    max_back_ms: int = 0,
-    unit_mismatch_guard: bool = True,
+    *
+    entry_ts_ms: int
+    exit_ts_ms: int
+    quarantine: Any = None
+    metrics: Any = None
+    max_back_ms: int = 0
+    unit_mismatch_guard: bool = True
 ) -> Tuple[int, bool]:
     """
     Контракт:
@@ -73,9 +73,9 @@ def compute_hold_ms_with_quarantine(
         _safe_inc(metrics, "trade.bad_time.unit_mismatch", 1)
         _safe_inc(metrics, "trade.bad_time.quarantined", 1)
         _safe_quarantine_push(
-            quarantine,
-            "ts_unit_mismatch",
-            {"entry_ts_ms": entry, "exit_ts_ms": exit_, "raw": raw},
+            quarantine
+            "ts_unit_mismatch"
+            {"entry_ts_ms": entry, "exit_ts_ms": exit_, "raw": raw}
         )
         return 0, True
 
@@ -83,9 +83,9 @@ def compute_hold_ms_with_quarantine(
         _safe_inc(metrics, "trade.bad_time.exit_before_entry", 1)
         _safe_inc(metrics, "trade.bad_time.quarantined", 1)
         _safe_quarantine_push(
-            quarantine,
-            "exit_before_entry",
-            {"entry_ts_ms": entry, "exit_ts_ms": exit_, "raw": raw, "max_back_ms": int(max_back_ms)},
+            quarantine
+            "exit_before_entry"
+            {"entry_ts_ms": entry, "exit_ts_ms": exit_, "raw": raw, "max_back_ms": int(max_back_ms)}
         )
         return 0, True
 
@@ -95,14 +95,14 @@ def compute_hold_ms_with_quarantine(
 
 
 def normalize_close_bucket(
-    *,
-    close_reason_raw_bucket: str,
-    pnl_net: float,
-    tp_hits: int,
-    trailing_started: bool,
-    trailing_active: bool,
-    sl_moved_to_be: bool,
-    time_quarantined: bool = False,
+    *
+    close_reason_raw_bucket: str
+    pnl_net: float
+    tp_hits: int
+    trailing_started: bool
+    trailing_active: bool
+    sl_moved_to_be: bool
+    time_quarantined: bool = False
 ) -> str:
     """
     Нормализованный close_bucket:
@@ -133,24 +133,24 @@ def normalize_close_bucket(
 
 def extract_tp_flags_from_pos(pos: Any) -> Dict[str, Any]:
     return {
-        "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
-        "tp2_hit": bool(getattr(pos, "tp2_hit", False)),
-        "tp3_hit": bool(getattr(pos, "tp3_hit", False)),
-        "tp_hits": int(getattr(pos, "tp_hits", 0) or 0),
-        "trailing_started": bool(getattr(pos, "trailing_started", False)),
-        "trailing_active": bool(getattr(pos, "trailing_active", False)),
-        "trailing_moves": int(getattr(pos, "trailing_moves_count", 0) or 0),
+        "tp1_hit": bool(getattr(pos, "tp1_hit", False))
+        "tp2_hit": bool(getattr(pos, "tp2_hit", False))
+        "tp3_hit": bool(getattr(pos, "tp3_hit", False))
+        "tp_hits": int(getattr(pos, "tp_hits", 0) or 0)
+        "trailing_started": bool(getattr(pos, "trailing_started", False))
+        "trailing_active": bool(getattr(pos, "trailing_active", False))
+        "trailing_moves": int(getattr(pos, "trailing_moves_count", 0) or 0)
     }
 
 
 def compute_baseline_pnl_net_usd(
-    *,
-    entry_price: float,
-    baseline_exit_price: float,
-    is_long: bool,
-    lot: float,
-    contract_size: float,
-    fees_usd: float,
+    *
+    entry_price: float
+    baseline_exit_price: float
+    is_long: bool
+    lot: float
+    contract_size: float
+    fees_usd: float
 ) -> float:
     sign = 1.0 if bool(is_long) else -1.0
     cs = float(contract_size) if float(contract_size) != 0.0 else 1.0
@@ -159,12 +159,12 @@ def compute_baseline_pnl_net_usd(
 
 
 def clamp_one_r_money(
-    *,
-    one_r_money: float,
-    fees_usd: float,
-    min_risk_usd: float,
-    fees_risk_mult: float,
-    metrics: Any = None,
+    *
+    one_r_money: float
+    fees_usd: float
+    min_risk_usd: float
+    fees_risk_mult: float
+    metrics: Any = None
 ) -> Tuple[float, bool]:
     """
     one_r_money — ден. риск на 1R. Если он слишком мал, R-метрики становятся мусорными.
@@ -187,11 +187,11 @@ def clamp_one_r_money(
 
 
 def infer_trailing_started(
-    *,
-    trailing_started: bool,
-    trailing_active: bool,
-    trailing_moves: int,
-    trailing_profile: str,
+    *
+    trailing_started: bool
+    trailing_active: bool
+    trailing_moves: int
+    trailing_profile: str
 ) -> bool:
     """
     Fix для кейса: rocket_v1 заполнен, но pos.trailing_started=False => trailing_share=0.

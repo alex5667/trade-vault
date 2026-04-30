@@ -100,13 +100,13 @@ def main() -> None:
                 break
 
     print(json.dumps({
-        "archive_dir": archive_dir,
-        "start_ts_ms": int(args.start_ts_ms),
-        "end_ts_ms": int(args.end_ts_ms),
-        "symbol": sym_filter,
-        "scanned": n,
-        "written": n_written,
-        "out": out_path,
+        "archive_dir": archive_dir
+        "start_ts_ms": int(args.start_ts_ms)
+        "end_ts_ms": int(args.end_ts_ms)
+        "symbol": sym_filter
+        "scanned": n
+        "written": n_written
+        "out": out_path
     }, ensure_ascii=False))
 
 

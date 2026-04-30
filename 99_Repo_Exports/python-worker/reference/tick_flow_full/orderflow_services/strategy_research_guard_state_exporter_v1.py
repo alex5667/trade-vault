@@ -56,8 +56,8 @@ def _redis_client():
         return None
     try:
         return redis.Redis.from_url(
-            _env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            decode_responses=True,
+            _env("REDIS_URL", "redis://redis-worker-1:6379/0")
+            decode_responses=True
         )
     except Exception:
         return None
@@ -74,14 +74,14 @@ def _read_hash(client, key: str) -> Dict[str, str]:
 
 
 KNOWN_REASON_KINDS = (
-    "none",
-    "stale",
-    "pbo_high",
-    "psr_low",
-    "dsr_low",
-    "metric_low",
-    "manual",
-    "unknown",
+    "none"
+    "stale"
+    "pbo_high"
+    "psr_low"
+    "dsr_low"
+    "metric_low"
+    "manual"
+    "unknown"
 )
 
 
@@ -153,25 +153,25 @@ def _compute_state(summary: Mapping[str, str], blocker: Mapping[str, str], now_m
     chosen_variant_unique = 1.0 if _to_int(summary.get("chosen_variant_unique", "0"), 0) > 0 else 0.0
 
     return ExportState(
-        summary_present=summary_present,
-        blocker_present=blocker_present,
-        last_success=last_success,
-        report_only=report_only,
-        blocker_active=blocker_active,
-        blocker_reason_kind=reason_kind,
-        updated_ts_ms=updated_ts_ms,
-        report_age_seconds=report_age_seconds,
-        primary_metric_value=_to_float(summary.get("primary_metric_value", 0.0)),
-        net_expectancy=_to_float(summary.get("net_expectancy", 0.0)),
-        precision_at_top_x=_to_float(summary.get("precision_at_top_x", 0.0)),
-        mean_r=_to_float(summary.get("mean_r", 0.0)),
-        downside_adjusted_return=_to_float(summary.get("downside_adjusted_return", 0.0)),
-        hit_rate_conditioned_on_cost=_to_float(summary.get("hit_rate_conditioned_on_cost", 0.0)),
-        psr=_to_float(summary.get("psr", 0.0)),
-        dsr=_to_float(summary.get("dsr", 0.0)),
-        pbo=_to_float(summary.get("pbo", 0.0)),
-        cscv_splits=_to_float(summary.get("cscv_splits", 0.0)),
-        chosen_variant_unique=chosen_variant_unique,
+        summary_present=summary_present
+        blocker_present=blocker_present
+        last_success=last_success
+        report_only=report_only
+        blocker_active=blocker_active
+        blocker_reason_kind=reason_kind
+        updated_ts_ms=updated_ts_ms
+        report_age_seconds=report_age_seconds
+        primary_metric_value=_to_float(summary.get("primary_metric_value", 0.0))
+        net_expectancy=_to_float(summary.get("net_expectancy", 0.0))
+        precision_at_top_x=_to_float(summary.get("precision_at_top_x", 0.0))
+        mean_r=_to_float(summary.get("mean_r", 0.0))
+        downside_adjusted_return=_to_float(summary.get("downside_adjusted_return", 0.0))
+        hit_rate_conditioned_on_cost=_to_float(summary.get("hit_rate_conditioned_on_cost", 0.0))
+        psr=_to_float(summary.get("psr", 0.0))
+        dsr=_to_float(summary.get("dsr", 0.0))
+        pbo=_to_float(summary.get("pbo", 0.0))
+        cscv_splits=_to_float(summary.get("cscv_splits", 0.0))
+        chosen_variant_unique=chosen_variant_unique
     )
 
 

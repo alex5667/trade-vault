@@ -29,7 +29,7 @@ class CalibrationService:
     # default thresholds when cfg is missing (metric-specific)
     # mode: "abs" | "gt" | "lt"
     _DEFAULT_METRIC_DEFAULTS: Dict[str, Tuple[str, float]] = {
-        "deltaSpike_z": ("abs", 2.0),
+        "deltaSpike_z": ("abs", 2.0)
         "obi": ("abs", 0.8),                 # if OBI is normalized [-1..1]
         "absorption_score": ("gt", 0.15),    # tune per your scale
         "liquidity_score": ("gt", 0.15),     # tune per your scale
@@ -40,14 +40,14 @@ class CalibrationService:
     _CAL_KEYS = ("value", "mode", "is_extreme", "threshold", "quantile", "q90", "q95", "q98")
 
     def __init__(
-        self,
-        symbol: str,
-        local_calibration: Any = None,
-        redis_client: Any = None,
-        config_manager: Any = None,
-        *,
-        quantile_fn: Optional[Callable[[Any, float], float]] = None,
-        cfg_cache_ttl_ms: Optional[int] = None,
+        self
+        symbol: str
+        local_calibration: Any = None
+        redis_client: Any = None
+        config_manager: Any = None
+        *
+        quantile_fn: Optional[Callable[[Any, float], float]] = None
+        cfg_cache_ttl_ms: Optional[int] = None
     ):
         self.symbol = symbol
         self.local_calibration = local_calibration
@@ -92,27 +92,27 @@ class CalibrationService:
         return cfg
 
     def _cal_payload(
-        self,
-        *,
-        value: Any,
-        mode: str,
-        is_extreme: bool,
-        threshold: float,
-        quantile: Optional[float],
-        q90: Any,
-        q95: Any,
-        q98: Any,
+        self
+        *
+        value: Any
+        mode: str
+        is_extreme: bool
+        threshold: float
+        quantile: Optional[float]
+        q90: Any
+        q95: Any
+        q98: Any
     ) -> Dict[str, Any]:
         """Stable calibrated payload (always the same keys)."""
         out = {
-            "value": value,
-            "mode": mode,
-            "is_extreme": bool(is_extreme),
-            "threshold": float(threshold),
-            "quantile": quantile,
-            "q90": q90,
-            "q95": q95,
-            "q98": q98,
+            "value": value
+            "mode": mode
+            "is_extreme": bool(is_extreme)
+            "threshold": float(threshold)
+            "quantile": quantile
+            "q90": q90
+            "q95": q95
+            "q98": q98
         }
         # hard guarantee of stable keys (defensive)
         for k in self._CAL_KEYS:
@@ -120,11 +120,11 @@ class CalibrationService:
         return out
 
     def _apply_metric_calibration(
-        self,
-        ctx: "CoreSignalContext",
-        metric_name: str,
-        *,
-        default_extreme_z: float = 2.0,
+        self
+        ctx: "CoreSignalContext"
+        metric_name: str
+        *
+        default_extreme_z: float = 2.0
     ) -> None:
         """
         Calibrate a single metric using local calibration data.
@@ -144,12 +144,12 @@ class CalibrationService:
         # Flags/bools are NOT numeric-calibrated
         if isinstance(raw_value, bool):
             ctx.calibrated[metric_name] = self._cal_payload(
-                value=bool(raw_value),
-                mode="flag",
-                is_extreme=bool(raw_value),
-                threshold=1.0,
-                quantile=None,
-                q90=None, q95=None, q98=None,
+                value=bool(raw_value)
+                mode="flag"
+                is_extreme=bool(raw_value)
+                threshold=1.0
+                quantile=None
+                q90=None, q95=None, q98=None
             )
             return
 
@@ -208,8 +208,8 @@ class CalibrationService:
                 if now_ms - self._last_quantile_warn_ms > 60_000:
                     self._last_quantile_warn_ms = now_ms
                     self.logger.warning(
-                        "Quantile function missing; metric=%s will be calibrated without quantile",
-                        metric_name,
+                        "Quantile function missing; metric=%s will be calibrated without quantile"
+                        metric_name
                     )
 
         # Extreme logic
@@ -222,14 +222,14 @@ class CalibrationService:
 
         # Store calibrated results
         ctx.calibrated[metric_name] = self._cal_payload(
-            value=v,
-            mode=mode,
-            is_extreme=is_extreme,
-            threshold=threshold,
-            quantile=quantile,
-            q90=getattr(cfg, "q90", None) if cfg else None,
-            q95=getattr(cfg, "q95", None) if cfg else None,
-            q98=getattr(cfg, "q98", None) if cfg else None,
+            value=v
+            mode=mode
+            is_extreme=is_extreme
+            threshold=threshold
+            quantile=quantile
+            q90=getattr(cfg, "q90", None) if cfg else None
+            q95=getattr(cfg, "q95", None) if cfg else None
+            q98=getattr(cfg, "q98", None) if cfg else None
         )
 
     def _apply_local_calibration(self, ctx: "CoreSignalContext") -> None:
@@ -240,11 +240,11 @@ class CalibrationService:
 
         # Numeric metrics
         metrics_to_calibrate = [
-            "deltaSpike_z",
-            "obi",
-            "absorption_score",
-            "liquidity_score",
-            "atr_quantile",
+            "deltaSpike_z"
+            "obi"
+            "absorption_score"
+            "liquidity_score"
+            "atr_quantile"
         ]
 
         for metric_name in metrics_to_calibrate:
@@ -265,8 +265,8 @@ class CalibrationService:
         """
         def _fallback() -> Dict[str, Any]:
             return {
-                "stop_atr_mult": 2.0,
-                "rr_levels": [2.0, 3.0, 5.0],
+                "stop_atr_mult": 2.0
+                "rr_levels": [2.0, 3.0, 5.0]
             }
 
         # config_manager is not required for Redis trailing (keep it optional)
@@ -326,7 +326,7 @@ class CalibrationService:
             age_ms = max(0, now_ms - ts_ms) if ts_ms > 0 else 0
             if ts_ms > 0 and age_ms > max_age_ms:
                 self.logger.warning(
-                    "symbol_specs stale for %s: age_ms=%d > max_age_ms=%d (ts_ms=%d)",
+                    "symbol_specs stale for %s: age_ms=%d > max_age_ms=%d (ts_ms=%d)"
                     self.symbol, age_ms, max_age_ms, ts_ms
                 )
                 return _fallback()
@@ -352,8 +352,8 @@ class CalibrationService:
                 rr_levels = [2.0, 3.0, 5.0]
 
             return {
-                "stop_atr_mult": stop_atr_mult,
-                "rr_levels": rr_levels,
+                "stop_atr_mult": stop_atr_mult
+                "rr_levels": rr_levels
             }
         except Exception as e:
             self.logger.warning("Failed to get calibrated trailing params: %s", e)

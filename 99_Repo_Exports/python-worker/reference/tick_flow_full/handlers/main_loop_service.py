@@ -53,11 +53,11 @@ class MainLoopService:
     """
 
     def __init__(
-        self,
-        *args: Any,
-        symbol: Optional[str] = None,
-        health_metrics: Optional["HealthMetrics"] = None,
-        **kwargs: Any,
+        self
+        *args: Any
+        symbol: Optional[str] = None
+        health_metrics: Optional["HealthMetrics"] = None
+        **kwargs: Any
     ) -> None:
         super().__init__()  # in case of mixins
         self.symbol = symbol or getattr(self, "symbol", None)  # сохраняем обратную совместимость
@@ -88,15 +88,15 @@ class MainLoopService:
             self._init_old(*args, **kwargs)
 
     def _init_old(
-        self,
-        symbol: str,
-        tick_stream: str,
-        book_stream: str,
-        l3_stream: str,
-        message_handler: Any,
-        error_handler: Any,
-        config: Any,
-        health_metrics: Any = None,
+        self
+        symbol: str
+        tick_stream: str
+        book_stream: str
+        l3_stream: str
+        message_handler: Any
+        error_handler: Any
+        config: Any
+        health_metrics: Any = None
     ):
         self.symbol = symbol or self.symbol
         self.tick_stream = tick_stream
@@ -202,9 +202,9 @@ class MainLoopService:
             return
 
         for stream, kind in [
-            (self.book_stream, "book"),
-            (self.l3_stream, "l3"),
-            (self.tick_stream, "ticks"),
+            (self.book_stream, "book")
+            (self.l3_stream, "l3")
+            (self.tick_stream, "ticks")
         ]:
             if not stream:
                 continue
@@ -274,16 +274,16 @@ class MainLoopService:
              return
 
         backoff_new = Backoff(
-            base_delay=float(getattr(self.config, "backoff_base", 0.25)) if self.config else 0.25,
-            multiplier=float(getattr(self.config, "backoff_multiplier", 2.0)) if self.config else 2.0,
-            max_delay=float(getattr(self.config, "backoff_max", 5.0)) if self.config else 5.0,
-            jitter=bool(getattr(self.config, "backoff_jitter", True)) if self.config else True,
+            base_delay=float(getattr(self.config, "backoff_base", 0.25)) if self.config else 0.25
+            multiplier=float(getattr(self.config, "backoff_multiplier", 2.0)) if self.config else 2.0
+            max_delay=float(getattr(self.config, "backoff_max", 5.0)) if self.config else 5.0
+            jitter=bool(getattr(self.config, "backoff_jitter", True)) if self.config else True
         )
         backoff_pending = Backoff(
-            base_delay=float(getattr(self.config, "backoff_pending_base", 0.25)) if self.config else 0.25,
-            multiplier=float(getattr(self.config, "backoff_pending_multiplier", 2.0)) if self.config else 2.0,
-            max_delay=float(getattr(self.config, "backoff_pending_max", 5.0)) if self.config else 5.0,
-            jitter=bool(getattr(self.config, "backoff_jitter", True)) if self.config else True,
+            base_delay=float(getattr(self.config, "backoff_pending_base", 0.25)) if self.config else 0.25
+            multiplier=float(getattr(self.config, "backoff_pending_multiplier", 2.0)) if self.config else 2.0
+            max_delay=float(getattr(self.config, "backoff_pending_max", 5.0)) if self.config else 5.0
+            jitter=bool(getattr(self.config, "backoff_jitter", True)) if self.config else True
         )
 
         idle_sleep = float(getattr(self.config, "idle_sleep_s", 0.05)) if self.config else 0.05
@@ -412,10 +412,10 @@ class MainLoopService:
                 self._log_stats()
                 self.last_stat_mono_s = time.monotonic()
 
-    def _claim_and_process_pending(self, consumer: Any, streams: List[str],
-                                  start_ids: Dict[str, str],
-                                  fail_counts: Dict[Tuple[str, str], int],
-                                  backoff: Backoff,
+    def _claim_and_process_pending(self, consumer: Any, streams: List[str]
+                                  start_ids: Dict[str, str]
+                                  fail_counts: Dict[Tuple[str, str], int]
+                                  backoff: Backoff
                                   stop_event: Any) -> bool:
         """
         Wrapper вокруг message_handler.claim_and_process_pending с защитой от transient error
@@ -437,7 +437,7 @@ class MainLoopService:
             raise
 
     def _log_stats(self) -> None:
-        self.logger.info("Статистика обработки: ticks=%d, books=%d (последние 60с для %s)",
+        self.logger.info("Статистика обработки: ticks=%d, books=%d (последние 60с для %s)"
                          self.tick_cnt, self.book_cnt, self.symbol)
         self.tick_cnt = 0
         self.book_cnt = 0

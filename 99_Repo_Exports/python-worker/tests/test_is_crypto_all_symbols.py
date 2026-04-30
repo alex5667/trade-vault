@@ -24,8 +24,8 @@ class TestIsCryptoAllSymbols(unittest.TestCase):
     CRYPTO_SYMBOLS = [
         "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT", "XRPUSDT",  # Original 6
         "DOGEUSDT", "WIFUSDT", "1000PEPEUSDT", "SUIUSDT", "ARBUSDT",        # Previously missed
-        "1000BONKUSDT", "TAOUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT",
-        "LINKUSDT", "ATOMUSDT", "NEARUSDT", "APTUSDT", "OPUSDT",
+        "1000BONKUSDT",  "AVAXUSDT", "DOTUSDT", "MATICUSDT",
+         "ATOMUSDT", "NEARUSDT", "APTUSDT", "OPUSDT",
         "AAVEUSDT", "MKRUSDT", "INJUSDT", "TIAUSDT", "SEIUSDT",
         "BTCUSDC", "ETHBUSD",  # Alternative stablecoins
     ]

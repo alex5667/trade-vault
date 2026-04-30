@@ -7,8 +7,8 @@ from ..utils.helpers import _f
 
 
 def _crypto_conf_factor(
-    ctx: "SignalContext",
-    signal_kind: str,
+    ctx: "SignalContext"
+    signal_kind: str
 ) -> tuple[float, dict[str, float] | None]:
     """
     Возвращает conf_factor ∈ [0..1] (НЕ pct).
@@ -42,13 +42,13 @@ def _crypto_conf_factor(
     # -------------------------------------------------
     atr_q = float(
         getattr(
-            ctx,
-            "atr_q_main",
+            ctx
+            "atr_q_main"
             getattr(
-                ctx,
-                "atr_q_lookback",
-                getattr(ctx, "atr_quantile", getattr(ctx, "atrQ", 0.5)),
-            ),
+                ctx
+                "atr_q_lookback"
+                getattr(ctx, "atr_quantile", getattr(ctx, "atrQ", 0.5))
+            )
         )
     )
     atr_q = _clamp01(atr_q)
@@ -83,13 +83,13 @@ def _crypto_conf_factor(
     main_z = float(
         abs(
             getattr(
-                ctx,
-                "main_z",
+                ctx
+                "main_z"
                 getattr(
-                    ctx,
-                    "deltaSpikeZ",
-                    getattr(ctx, "cluster_z", 0.0),
-                ),
+                    ctx
+                    "deltaSpikeZ"
+                    getattr(ctx, "cluster_z", 0.0)
+                )
             )
         )
     )
@@ -110,13 +110,13 @@ def _crypto_conf_factor(
     # 3) OBI_windowLevels / микроструктура (персистентность дисбаланса)
     # -------------------------------------------------
     obi_levels = getattr(
-        ctx,
-        "OBI_windowLevels",
+        ctx
+        "OBI_windowLevels"
         getattr(
-            ctx,
-            "obi_windowLevels",
-            getattr(ctx, "obi_window_levels", []),
-        ),
+            ctx
+            "obi_windowLevels"
+            getattr(ctx, "obi_window_levels", [])
+        )
     )
 
     obi_persist_score = 0.0
@@ -133,9 +133,9 @@ def _crypto_conf_factor(
         obi_z = float(
             abs(
                 getattr(
-                    ctx,
-                    "obi_z",
-                    getattr(ctx, "obi_window_imbalance_z", 0.0),
+                    ctx
+                    "obi_z"
+                    getattr(ctx, "obi_window_imbalance_z", 0.0)
                 )
             )
         )
@@ -159,9 +159,9 @@ def _crypto_conf_factor(
     weak_flag = bool(getattr(ctx, "weakProgress", False))
     weak_ratio = float(
         getattr(
-            ctx,
-            "weakProgress_ratio",
-            getattr(ctx, "range_vs_atr", 1.0),
+            ctx
+            "weakProgress_ratio"
+            getattr(ctx, "range_vs_atr", 1.0)
         )
     )
 

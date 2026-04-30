@@ -77,15 +77,15 @@ class ATRPolicyResolver:
     def _candidates(self, source: str, symbol: str, scenario: str, regime: str, bucket: str) -> List[Tuple[str, str, str]]:
         """Returns (level, active_key, last_good_key) tuples in resolve priority order."""
         return [
-            ("exact",
-             self._key(source, symbol, scenario, regime, bucket),
-             self._last_good_key(source, symbol, scenario, regime, bucket)),
-            ("fallback_scenario",
-             self._key(source, symbol, scenario, "na", bucket),
-             self._last_good_key(source, symbol, scenario, "na", bucket)),
-            ("fallback_default",
-             self._key(source, symbol, "default", "na", bucket),
-             self._last_good_key(source, symbol, "default", "na", bucket)),
+            ("exact"
+             self._key(source, symbol, scenario, regime, bucket)
+             self._last_good_key(source, symbol, scenario, regime, bucket))
+            ("fallback_scenario"
+             self._key(source, symbol, scenario, "na", bucket)
+             self._last_good_key(source, symbol, scenario, "na", bucket))
+            ("fallback_default"
+             self._key(source, symbol, "default", "na", bucket)
+             self._last_good_key(source, symbol, "default", "na", bucket))
         ]
 
     def _is_kill_switched(self, r: redis.Redis, source: str, symbol: str, scenario: str, regime: str, bucket: str) -> bool:
@@ -116,29 +116,29 @@ class ATRPolicyResolver:
         return None
 
     def _build_resolution(
-        self, *,
-        hit: bool, level: str, active_key: str,
-        source: str, symbol: str, scenario: str, regime: str, risk_horizon_bucket: str,
-        stop_ttl_mode: str, trailing_mode: str, reason_code: str, policy_ver: int,
-        updated_at_ms: int, kill_switch_active: bool = False, last_good_used: bool = False,
+        self, *
+        hit: bool, level: str, active_key: str
+        source: str, symbol: str, scenario: str, regime: str, risk_horizon_bucket: str
+        stop_ttl_mode: str, trailing_mode: str, reason_code: str, policy_ver: int
+        updated_at_ms: int, kill_switch_active: bool = False, last_good_used: bool = False
     ) -> Dict[str, Any]:
         return asdict(ATRPolicyResolution(
-            hit=hit, level=level, active_key=active_key,
-            source=source, symbol=symbol, scenario=scenario,
-            regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-            stop_ttl_mode=stop_ttl_mode, trailing_mode=trailing_mode,
-            reason_code=reason_code, policy_ver=policy_ver, updated_at_ms=updated_at_ms,
-            kill_switch_active=kill_switch_active, last_good_used=last_good_used,
+            hit=hit, level=level, active_key=active_key
+            source=source, symbol=symbol, scenario=scenario
+            regime=regime, risk_horizon_bucket=risk_horizon_bucket
+            stop_ttl_mode=stop_ttl_mode, trailing_mode=trailing_mode
+            reason_code=reason_code, policy_ver=policy_ver, updated_at_ms=updated_at_ms
+            kill_switch_active=kill_switch_active, last_good_used=last_good_used
         ))
 
     def resolve(
-        self,
-        *,
-        source: str,
-        symbol: str,
-        scenario: str,
-        regime: str,
-        risk_horizon_bucket: str,
+        self
+        *
+        source: str
+        symbol: str
+        scenario: str
+        regime: str
+        risk_horizon_bucket: str
     ) -> Dict[str, Any]:
         source = str(source or "CryptoOrderFlow")
         symbol = str(symbol or "").upper()
@@ -155,12 +155,12 @@ class ATRPolicyResolver:
         r = self._redis()
         if r is None:
             out = self._build_resolution(
-                hit=False, level="miss", active_key="",
-                source=source, symbol=symbol, scenario=scenario,
-                regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                stop_ttl_mode="canary", trailing_mode="canary",
-                reason_code="ATR_POLICY_RESOLVER_DISABLED",
-                policy_ver=0, updated_at_ms=0,
+                hit=False, level="miss", active_key=""
+                source=source, symbol=symbol, scenario=scenario
+                regime=regime, risk_horizon_bucket=risk_horizon_bucket
+                stop_ttl_mode="canary", trailing_mode="canary"
+                reason_code="ATR_POLICY_RESOLVER_DISABLED"
+                policy_ver=0, updated_at_ms=0
             )
             self._cache[cache_key] = (now_ms, out)
             return out
@@ -168,13 +168,13 @@ class ATRPolicyResolver:
         # ── Phase 3.8: kill_switch check (exact cohort only) ──────────────
         if self._is_kill_switched(r, source, symbol, scenario, regime, risk_horizon_bucket):
             out = self._build_resolution(
-                hit=False, level="canary_shadow", active_key="",
-                source=source, symbol=symbol, scenario=scenario,
-                regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                stop_ttl_mode="canary", trailing_mode="canary",
-                reason_code="KILL_SWITCH_ACTIVE",
-                policy_ver=0, updated_at_ms=0,
-                kill_switch_active=True, last_good_used=False,
+                hit=False, level="canary_shadow", active_key=""
+                source=source, symbol=symbol, scenario=scenario
+                regime=regime, risk_horizon_bucket=risk_horizon_bucket
+                stop_ttl_mode="canary", trailing_mode="canary"
+                reason_code="KILL_SWITCH_ACTIVE"
+                policy_ver=0, updated_at_ms=0
+                kill_switch_active=True, last_good_used=False
             )
             self._cache[cache_key] = (now_ms, out)
             logger.debug("resolver: KILL_SWITCH_ACTIVE for %s:%s", source, symbol)
@@ -190,23 +190,23 @@ class ATRPolicyResolver:
                     invalid = self._validate_policy_obj(obj)
                     if invalid is None:
                         out = self._build_resolution(
-                            hit=True, level=level, active_key=active_key,
-                            source=source, symbol=symbol, scenario=scenario,
-                            regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                            stop_ttl_mode=str(obj.get("stop_ttl_mode") or "canary"),
-                            trailing_mode=str(obj.get("trailing_mode") or "canary"),
-                            reason_code=str(obj.get("reason_code") or "ATR_POLICY_ACTIVE"),
-                            policy_ver=_safe_int(obj.get("policy_ver"), 0),
-                            updated_at_ms=_safe_int(obj.get("updated_at_ms"), 0),
-                            kill_switch_active=False, last_good_used=False,
+                            hit=True, level=level, active_key=active_key
+                            source=source, symbol=symbol, scenario=scenario
+                            regime=regime, risk_horizon_bucket=risk_horizon_bucket
+                            stop_ttl_mode=str(obj.get("stop_ttl_mode") or "canary")
+                            trailing_mode=str(obj.get("trailing_mode") or "canary")
+                            reason_code=str(obj.get("reason_code") or "ATR_POLICY_ACTIVE")
+                            policy_ver=_safe_int(obj.get("policy_ver"), 0)
+                            updated_at_ms=_safe_int(obj.get("updated_at_ms"), 0)
+                            kill_switch_active=False, last_good_used=False
                         )
                         self._cache[cache_key] = (now_ms, out)
                         return out
                     else:
                         # Active key is corrupted — try last_good
                         logger.warning(
-                            "resolver: active key corrupted (%s) — falling back to last_good: %s",
-                            invalid, active_key,
+                            "resolver: active key corrupted (%s) — falling back to last_good: %s"
+                            invalid, active_key
                         )
                         raw_lg = r.get(lg_key)
                         if raw_lg:
@@ -215,15 +215,15 @@ class ATRPolicyResolver:
                                 lg_invalid = self._validate_policy_obj(lg_obj)
                                 if lg_invalid is None:
                                     out = self._build_resolution(
-                                        hit=True, level=level + "_last_good", active_key=lg_key,
-                                        source=source, symbol=symbol, scenario=scenario,
-                                        regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                                        stop_ttl_mode=str(lg_obj.get("stop_ttl_mode") or "canary"),
-                                        trailing_mode=str(lg_obj.get("trailing_mode") or "canary"),
-                                        reason_code="ACTIVE_CORRUPTED_FALLBACK_LAST_GOOD",
-                                        policy_ver=_safe_int(lg_obj.get("policy_ver"), 0),
-                                        updated_at_ms=_safe_int(lg_obj.get("updated_at_ms"), 0),
-                                        kill_switch_active=False, last_good_used=True,
+                                        hit=True, level=level + "_last_good", active_key=lg_key
+                                        source=source, symbol=symbol, scenario=scenario
+                                        regime=regime, risk_horizon_bucket=risk_horizon_bucket
+                                        stop_ttl_mode=str(lg_obj.get("stop_ttl_mode") or "canary")
+                                        trailing_mode=str(lg_obj.get("trailing_mode") or "canary")
+                                        reason_code="ACTIVE_CORRUPTED_FALLBACK_LAST_GOOD"
+                                        policy_ver=_safe_int(lg_obj.get("policy_ver"), 0)
+                                        updated_at_ms=_safe_int(lg_obj.get("updated_at_ms"), 0)
+                                        kill_switch_active=False, last_good_used=True
                                     )
                                     self._cache[cache_key] = (now_ms, out)
                                     return out
@@ -242,15 +242,15 @@ class ATRPolicyResolver:
                     lg_invalid = self._validate_policy_obj(lg_obj)
                     if lg_invalid is None:
                         out = self._build_resolution(
-                            hit=True, level=level + "_last_good", active_key=lg_key,
-                            source=source, symbol=symbol, scenario=scenario,
-                            regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                            stop_ttl_mode=str(lg_obj.get("stop_ttl_mode") or "canary"),
-                            trailing_mode=str(lg_obj.get("trailing_mode") or "canary"),
-                            reason_code="ACTIVE_MISSING_FALLBACK_LAST_GOOD",
-                            policy_ver=_safe_int(lg_obj.get("policy_ver"), 0),
-                            updated_at_ms=_safe_int(lg_obj.get("updated_at_ms"), 0),
-                            kill_switch_active=False, last_good_used=True,
+                            hit=True, level=level + "_last_good", active_key=lg_key
+                            source=source, symbol=symbol, scenario=scenario
+                            regime=regime, risk_horizon_bucket=risk_horizon_bucket
+                            stop_ttl_mode=str(lg_obj.get("stop_ttl_mode") or "canary")
+                            trailing_mode=str(lg_obj.get("trailing_mode") or "canary")
+                            reason_code="ACTIVE_MISSING_FALLBACK_LAST_GOOD"
+                            policy_ver=_safe_int(lg_obj.get("policy_ver"), 0)
+                            updated_at_ms=_safe_int(lg_obj.get("updated_at_ms"), 0)
+                            kill_switch_active=False, last_good_used=True
                         )
                         self._cache[cache_key] = (now_ms, out)
                         return out
@@ -259,13 +259,13 @@ class ATRPolicyResolver:
 
         # ── 3. Full miss → canary/shadow ──────────────────────────────────
         out = self._build_resolution(
-            hit=False, level="miss", active_key="",
-            source=source, symbol=symbol, scenario=scenario,
-            regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-            stop_ttl_mode="canary", trailing_mode="canary",
-            reason_code="ATR_POLICY_MISS",
-            policy_ver=0, updated_at_ms=0,
-            kill_switch_active=False, last_good_used=False,
+            hit=False, level="miss", active_key=""
+            source=source, symbol=symbol, scenario=scenario
+            regime=regime, risk_horizon_bucket=risk_horizon_bucket
+            stop_ttl_mode="canary", trailing_mode="canary"
+            reason_code="ATR_POLICY_MISS"
+            policy_ver=0, updated_at_ms=0
+            kill_switch_active=False, last_good_used=False
         )
         self._cache[cache_key] = (now_ms, out)
         return out

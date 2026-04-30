@@ -32,12 +32,12 @@ def find_blocks_by_pattern(pattern, kind, max_results=5):
 
 # Patterns to find
 patterns = [
-    ('persist_book_rate_regime', 'persist_failure', 2),
-    ('ensure_book_rate_loaded', 'calib_load_failure', 2),
-    ('persist_atr_tf_regime', 'persist_failure', 1),
-    ('persist_calibration_regime', 'persist_failure', 3),
-    ('persist_burst_calibration', 'persist_failure', 1),
-    ('await helper.ack(stream_name, msg_id)', 'ack_failure', 2),
+    ('persist_book_rate_regime', 'persist_failure', 2)
+    ('ensure_book_rate_loaded', 'calib_load_failure', 2)
+    ('persist_atr_tf_regime', 'persist_failure', 1)
+    ('persist_calibration_regime', 'persist_failure', 3)
+    ('persist_burst_calibration', 'persist_failure', 1)
+    ('await helper.ack(stream_name, msg_id)', 'ack_failure', 2)
 ]
 
 # Collect all blocks to modify

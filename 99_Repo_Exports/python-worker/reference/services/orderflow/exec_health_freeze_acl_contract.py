@@ -28,15 +28,15 @@ from typing import Dict, List, Tuple
 
 # These are the users that MUST exist.  The order is the rollout order.
 EXPECTED_USERS: Tuple[str, ...] = (
-    "exec_health_freeze_reader",
-    "exec_health_freeze_writer",
-    "exec_health_freeze_audit",
-    "exec_health_freeze_bootstrap",
-    "go_gateway",
-    "exec_projection",
-    "entry_policy_safety",
-    "liqmap_snapshot",
-    "default",
+    "exec_health_freeze_reader"
+    "exec_health_freeze_writer"
+    "exec_health_freeze_audit"
+    "exec_health_freeze_bootstrap"
+    "go_gateway"
+    "exec_projection"
+    "entry_policy_safety"
+    "liqmap_snapshot"
+    "default"
 )
 
 DEFAULT_USER = "default"
@@ -67,120 +67,120 @@ GO_GATEWAY_USER = "go_gateway"
 EXPECTED_ACL_PROFILES: Dict[str, List[str]] = {
     # default must be disabled — no password auth via default user allowed
     "default": [
-        "reset", "off", "nopass", "nocommands",
-    ],
+        "reset", "off", "nopass", "nocommands"
+    ]
 
     # reader: read-only access to freeze-control keys, no write/scripting surface
     "exec_health_freeze_reader": [
-        "reset", "on", "%REPLACE_ME_READER_PASS",
-        "%R~cfg:orderflow:exec_health:*",
-        "%R~metrics:exec_health:slo:autoguard:state",
-        "%R~metrics:exec_health:freeze_tamper_guard:last",
-        "%R~ops:exec_health:freeze_*",
-        "+multi", "+exec", "+discard", "+get", "+hgetall", "+xrevrange", "+xrange", "+ping", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
-    ],
+        "reset", "on", "%REPLACE_ME_READER_PASS"
+        "%R~cfg:orderflow:exec_health:*"
+        "%R~metrics:exec_health:slo:autoguard:state"
+        "%R~metrics:exec_health:freeze_tamper_guard:last"
+        "%R~ops:exec_health:freeze_*"
+        "+multi", "+exec", "+discard", "+get", "+hgetall", "+xrevrange", "+xrange", "+ping", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list"
+        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha"
+    ]
 
     # writer: FCALL + read/write on freeze-control surfaces, no direct hash ops
     "exec_health_freeze_writer": [
-        "reset", "on", "%REPLACE_ME_WRITER_PASS",
-        "%R~cfg:orderflow:exec_health:*", "%W~cfg:orderflow:exec_health:*",
-        "%R~metrics:exec_health:*", "%W~metrics:exec_health:*",
-        "%R~ops:exec_health:freeze_*", "%W~ops:exec_health:freeze_*",
-        "%W~notify:telegram",
-        "+multi", "+exec", "+discard", "+get", "+set", "+expire", "+pexpire", "+hgetall",
-        "+xadd", "+xrevrange", "+xrange", "+fcall", "+ping", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
-    ],
+        "reset", "on", "%REPLACE_ME_WRITER_PASS"
+        "%R~cfg:orderflow:exec_health:*", "%W~cfg:orderflow:exec_health:*"
+        "%R~metrics:exec_health:*", "%W~metrics:exec_health:*"
+        "%R~ops:exec_health:freeze_*", "%W~ops:exec_health:freeze_*"
+        "%W~notify:telegram"
+        "+multi", "+exec", "+discard", "+get", "+set", "+expire", "+pexpire", "+hgetall"
+        "+xadd", "+xrevrange", "+xrange", "+fcall", "+ping", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list"
+        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha"
+    ]
 
     # audit: read-only audit surface — ACL LOG, CLIENT LIST, CONFIG GET aclfile
     "exec_health_freeze_audit": [
-        "reset", "on", "%REPLACE_ME_AUDIT_PASS",
-        "%R~metrics:exec_health:freeze_acl_*",
-        "+multi", "+exec", "+discard", "+acl|log", "+client|list", "+config|get", "+ping", "+select", "+client|setname", "+client|setinfo", "+client|id", "+client|info",
-    ],
+        "reset", "on", "%REPLACE_ME_AUDIT_PASS"
+        "%R~metrics:exec_health:freeze_acl_*"
+        "+multi", "+exec", "+discard", "+acl|log", "+client|list", "+config|get", "+ping", "+select", "+client|setname", "+client|setinfo", "+client|id", "+client|info"
+    ]
 
     # bootstrap: loads Function Libraries, full key access during rollout only
     "exec_health_freeze_bootstrap": [
-        "reset", "on", "%REPLACE_ME_BOOTSTRAP_PASS",
-        "allkeys",
-        "+multi", "+exec", "+discard", "+fcall", "+function", "+get", "+hgetall",
-        "+set", "+expire", "+pexpire",
-        "+xadd", "+xrevrange", "+xrange", "+ping",
-        "+acl|setuser", "+acl|save", "+acl|load", "+acl|list", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha",
-    ],
+        "reset", "on", "%REPLACE_ME_BOOTSTRAP_PASS"
+        "allkeys"
+        "+multi", "+exec", "+discard", "+fcall", "+function", "+get", "+hgetall"
+        "+set", "+expire", "+pexpire"
+        "+xadd", "+xrevrange", "+xrange", "+ping"
+        "+acl|setuser", "+acl|save", "+acl|load", "+acl|list", "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list"
+        "-hset", "-hdel", "-del", "-unlink", "-eval", "-evalsha"
+    ]
 
     # exec_projection: full read/write access for the execution projection cluster.
-    # Used by: execution-state-projection-worker, execution-state-projection-health,
+    # Used by: execution-state-projection-worker, execution-state-projection-health
     #           execution-bootstrap-health, binance-executor-supervised, binance-executor.
     # Needs: get/set/incr/expire/pexpire/xrange/xrevrange/xread/xadd/scan/del for
     #   cursor, lease, fencing-token, state-keys, orders:exec stream, user-stream status.
     # Needs: rpush/lpush/rpop/brpoplpush for binance-executor at-least-once queue delivery.
     "exec_projection": [
-        "reset", "on", "%REPLACE_ME_EXEC_PROJECTION_PASS",
-        "allkeys",
-        "+multi", "+exec", "+discard", "+ping",
-        "+get", "+set", "+incr", "+expire", "+pexpire",
-        "+hgetall", "+hset", "+hdel", "+lrange", "+llen",
-        "+lpush", "+rpush", "+rpop", "+brpoplpush", "+lmpop",
-        "+zadd", "+zrem", "+zrange", "+zrangebyscore", "+zrevrange", "+zrevrangebyscore", "+zremrangebyscore", "+zremrangebyrank", "+zscore", "+zcard",
-        "+xadd", "+xrevrange", "+xrange", "+xread",
-        "+scan", "+del", "+unlink",
-        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-eval", "-evalsha", "-flushdb", "-flushall",
-    ],
+        "reset", "on", "%REPLACE_ME_EXEC_PROJECTION_PASS"
+        "allkeys"
+        "+multi", "+exec", "+discard", "+ping"
+        "+get", "+set", "+incr", "+expire", "+pexpire"
+        "+hgetall", "+hset", "+hdel", "+lrange", "+llen"
+        "+lpush", "+rpush", "+rpop", "+brpoplpush", "+lmpop"
+        "+zadd", "+zrem", "+zrange", "+zrangebyscore", "+zrevrange", "+zrevrangebyscore", "+zremrangebyscore", "+zremrangebyrank", "+zscore", "+zcard"
+        "+xadd", "+xrevrange", "+xrange", "+xread"
+        "+scan", "+del", "+unlink"
+        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list"
+        "-eval", "-evalsha", "-flushdb", "-flushall"
+    ]
 
-    # entry_policy_safety: safety guard that reads events:trades stream (consumer group),
-    # writes stats hashes (hincrby/hincrbyfloat/hgetall), maintains context sets (sadd/smembers),
+    # entry_policy_safety: safety guard that reads events:trades stream (consumer group)
+    # writes stats hashes (hincrby/hincrbyfloat/hgetall), maintains context sets (sadd/smembers)
     # reads/writes active_arm keys (get/set), xadd to ledger and notify streams.
     "entry_policy_safety": [
-        "reset", "on", "%REPLACE_ME_ENTRY_POLICY_SAFETY_PASS",
-        "allkeys",
-        "+multi", "+exec", "+discard", "+ping",
-        "+get", "+set", "+expire", "+pexpire",
-        "+hgetall", "+hincrby", "+hincrbyfloat",
-        "+sadd", "+smembers",
-        "+xadd", "+xread", "+xreadgroup", "+xack", "+xgroup",
-        "+xrevrange", "+xrange",
-        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-eval", "-evalsha", "-flushdb", "-flushall",
-    ],
+        "reset", "on", "%REPLACE_ME_ENTRY_POLICY_SAFETY_PASS"
+        "allkeys"
+        "+multi", "+exec", "+discard", "+ping"
+        "+get", "+set", "+expire", "+pexpire"
+        "+hgetall", "+hincrby", "+hincrbyfloat"
+        "+sadd", "+smembers"
+        "+xadd", "+xread", "+xreadgroup", "+xack", "+xgroup"
+        "+xrevrange", "+xrange"
+        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list"
+        "-eval", "-evalsha", "-flushdb", "-flushall"
+    ]
 
     # liqmap_snapshot: liquidation-map snapshot service.
-    # Reads stream:liq_evt via consumer group (xreadgroup/xack/xgroup/xclaim),
+    # Reads stream:liq_evt via consumer group (xreadgroup/xack/xgroup/xclaim)
     # writes liqmap:snapshot:* keys (set/expire/hset), optionally publishes to
     # stream:liqmap_snapshot.  allkeys used for operational simplicity.
     "liqmap_snapshot": [
-        "reset", "on", "%REPLACE_ME_LIQMAP_SNAPSHOT_PASS",
-        "allkeys",
-        "+multi", "+exec", "+discard", "+ping",
-        "+get", "+set", "+expire", "+pexpire",
-        "+hgetall", "+hset", "+hdel",
-        "+xadd", "+xread", "+xreadgroup", "+xack", "+xgroup", "+xclaim",
-        "+xrevrange", "+xrange", "+xlen", "+xpending",
-        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "-eval", "-evalsha", "-flushdb", "-flushall",
-    ],
+        "reset", "on", "%REPLACE_ME_LIQMAP_SNAPSHOT_PASS"
+        "allkeys"
+        "+multi", "+exec", "+discard", "+ping"
+        "+get", "+set", "+expire", "+pexpire"
+        "+hgetall", "+hset", "+hdel"
+        "+xadd", "+xread", "+xreadgroup", "+xack", "+xgroup", "+xclaim"
+        "+xrevrange", "+xrange", "+xlen", "+xpending"
+        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list"
+        "-eval", "-evalsha", "-flushdb", "-flushall"
+    ]
 
-    # go_gateway: read/write access for order queue (lpush/rpush/rpop),
+    # go_gateway: read/write access for order queue (lpush/rpush/rpop)
     # event stream (xadd), runtime data (get/hgetall/xrevrange/xrange).
     # Scoped to allkeys — gateway writes to orders:queue, stream:*, ta:*, book:*, pivots:* etc.
     "go_gateway": [
-        "reset", "on", "%REPLACE_ME_GO_GATEWAY_PASS",
-        "allkeys",
-        "+multi", "+exec", "+discard",
-        "+ping", "+mget", "+get", "+set", "+setex", "+getex", "+psetex",
-        "+expire", "+pexpire", "+ttl", "+pttl", "+del", "+unlink", "+exists", "+type", "+keys", "+scan",
-        "+hget", "+hset", "+hgetall", "+hdel", "+hincrby", "+hincrbyfloat", "+hkeys", "+hvals", "+hlen", "+hmget", "+hmset",
-        "+lrange", "+llen", "+lpush", "+rpush", "+rpop", "+lmpop",
-        "+zadd", "+zrem", "+zrange", "+zrangebyscore", "+zrevrange", "+zrevrangebyscore", "+zscore", "+zcard",
-        "+sadd", "+smembers", "+scard", "+srem", "+sismember",
-        "+incr", "+incrby", "+incrbyfloat", "+decr", "+decrby",
-        "+xadd", "+xrevrange", "+xrange", "+xread", "+xreadgroup", "+xack", "+xclaim", "+xautoclaim", "+xgroup", "+xlen", "+xtrim", "+xinfo|stream", "+xinfo|groups", "+xinfo|consumers", "+xpending",
-        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list",
-        "+eval", "+evalsha", "+script|load", "+script|exists", "-flushdb", "-flushall",
-    ],
+        "reset", "on", "%REPLACE_ME_GO_GATEWAY_PASS"
+        "allkeys"
+        "+multi", "+exec", "+discard"
+        "+ping", "+mget", "+get", "+set", "+setex", "+getex", "+psetex"
+        "+expire", "+pexpire", "+ttl", "+pttl", "+del", "+unlink", "+exists", "+type", "+keys", "+scan"
+        "+hget", "+hset", "+hgetall", "+hdel", "+hincrby", "+hincrbyfloat", "+hkeys", "+hvals", "+hlen", "+hmget", "+hmset"
+        "+lrange", "+llen", "+lpush", "+rpush", "+rpop", "+lmpop"
+        "+zadd", "+zrem", "+zrange", "+zrangebyscore", "+zrevrange", "+zrevrangebyscore", "+zscore", "+zcard"
+        "+sadd", "+smembers", "+scard", "+srem", "+sismember"
+        "+incr", "+incrby", "+incrbyfloat", "+decr", "+decrby"
+        "+xadd", "+xrevrange", "+xrange", "+xread", "+xreadgroup", "+xack", "+xclaim", "+xautoclaim", "+xgroup", "+xlen", "+xtrim", "+xinfo|stream", "+xinfo|groups", "+xinfo|consumers", "+xpending"
+        "+client|setname", "+client|setinfo", "+client|id", "+client|info", "+client|list"
+        "+eval", "+evalsha", "+script|load", "+script|exists", "-flushdb", "-flushall"
+    ]
 }
 
 

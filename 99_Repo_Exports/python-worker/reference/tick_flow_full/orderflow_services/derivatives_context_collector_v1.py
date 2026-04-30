@@ -24,10 +24,10 @@ import redis.asyncio as aioredis
 
 from services.binance_futures_client import BinanceFuturesPublicREST
 from services.orderflow.derivatives_context import (
-    DEFAULT_CTX_PREFIX,
-    aread_derivatives_context,
-    awrite_derivatives_context,
-    build_snapshot,
+    DEFAULT_CTX_PREFIX
+    aread_derivatives_context
+    awrite_derivatives_context
+    build_snapshot
 )
 from services.orderflow.metrics_derivatives_context import deriv_ctx_collector_errors_total, deriv_ctx_collector_up
 
@@ -43,8 +43,8 @@ class DerivativesContextCollector:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = aioredis.from_url(self.redis_url, decode_responses=True)
         self.public = BinanceFuturesPublicREST(
-            base_url=(os.getenv("BINANCE_FUTURES_BASE_URL") or "https://fapi.binance.com").strip(),
-            timeout_s=float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0") or 8.0),
+            base_url=(os.getenv("BINANCE_FUTURES_BASE_URL") or "https://fapi.binance.com").strip()
+            timeout_s=float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0") or 8.0)
         )
         self.interval_s = float(os.getenv("DERIV_CTX_POLL_INTERVAL_S", "30") or 30.0)
         self.ttl_s = int(os.getenv("DERIV_CTX_TTL_S", "180") or 180)
@@ -117,19 +117,19 @@ class DerivativesContextCollector:
         prev_oi = float(prev.open_interest if prev else 0.0)
 
         snap = build_snapshot(
-            symbol=symbol,
-            ts_ms=now_ms,
-            venue="binance",
-            funding_rate=float(funding_rate or 0.0),
-            funding_history=funding_hist,
-            premium_index=float(premium_index or 0.0),
-            mark_price=float(mark_price or 0.0),
-            index_price=float(index_price or 0.0),
-            open_interest=float(open_interest or 0.0),
-            previous_open_interest=float(prev_oi),
-            funding_extreme_abs=self.funding_extreme_abs,
-            basis_extreme_abs_bps=self.basis_extreme_abs_bps,
-            oi_accel_abs_usd=self.oi_accel_abs_usd,
+            symbol=symbol
+            ts_ms=now_ms
+            venue="binance"
+            funding_rate=float(funding_rate or 0.0)
+            funding_history=funding_hist
+            premium_index=float(premium_index or 0.0)
+            mark_price=float(mark_price or 0.0)
+            index_price=float(index_price or 0.0)
+            open_interest=float(open_interest or 0.0)
+            previous_open_interest=float(prev_oi)
+            funding_extreme_abs=self.funding_extreme_abs
+            basis_extreme_abs_bps=self.basis_extreme_abs_bps
+            oi_accel_abs_usd=self.oi_accel_abs_usd
         )
         ok = await awrite_derivatives_context(self.r, snap, ttl_s=self.ttl_s)
         if ok:

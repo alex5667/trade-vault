@@ -24,11 +24,11 @@ TCollector = TypeVar("TCollector", bound="Collector")
 
 
 def _get_or_create(
-    name: str,
-    ctor: Type[TCollector],
-    documentation: str,
-    labelnames: Sequence[str] = (),
-    **kwargs,
+    name: str
+    ctor: Type[TCollector]
+    documentation: str
+    labelnames: Sequence[str] = ()
+    **kwargs
 ):
     if REGISTRY is None:  # pragma: no cover
         return None
@@ -43,30 +43,30 @@ def _get_or_create(
 
 
 book_crossed_total = _get_or_create(
-    "book_crossed_total",
-    Counter,
-    "Count of crossed BBO detections (best_bid >= best_ask)",
-    labelnames=("symbol",),
+    "book_crossed_total"
+    Counter
+    "Count of crossed BBO detections (best_bid >= best_ask)"
+    labelnames=("symbol",)
 )
 
 book_sanity_flags_total = _get_or_create(
-    "book_sanity_flags_total",
-    Counter,
-    "Count of any book_sanity_flags set (monitor signal)",
-    labelnames=("symbol",),
+    "book_sanity_flags_total"
+    Counter
+    "Count of any book_sanity_flags set (monitor signal)"
+    labelnames=("symbol",)
 )
 
 trade_outside_bbo_total = _get_or_create(
-    "trade_outside_bbo_total",
-    Counter,
-    "Count of trades that printed outside current BBO (stale book symptom)",
-    labelnames=("symbol",),
+    "trade_outside_bbo_total"
+    Counter
+    "Count of trades that printed outside current BBO (stale book symptom)"
+    labelnames=("symbol",)
 )
 
 trade_outside_bbo_dist_bps = _get_or_create(
-    "trade_outside_bbo_dist_bps",
-    Histogram,
-    "Distance (bps) of trade price outside BBO",
-    labelnames=("symbol",),
-    buckets=(0.5, 1, 2, 5, 10, 20, 50, 100),
+    "trade_outside_bbo_dist_bps"
+    Histogram
+    "Distance (bps) of trade price outside BBO"
+    labelnames=("symbol",)
+    buckets=(0.5, 1, 2, 5, 10, 20, 50, 100)
 )

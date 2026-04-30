@@ -49,11 +49,11 @@ class SpreadEmaConfig:
     @staticmethod
     def from_env() -> "SpreadEmaConfig":
         return SpreadEmaConfig(
-            enabled=_env_bool("EXEC_SPREAD_EMA_ENABLED", True),
-            alpha=_env_float("EXEC_SPREAD_EMA_ALPHA", 0.05),
+            enabled=_env_bool("EXEC_SPREAD_EMA_ENABLED", True)
+            alpha=_env_float("EXEC_SPREAD_EMA_ALPHA", 0.05)
             ttl_s=_env_int("EXEC_SPREAD_EMA_TTL_S", 60 * 60 * 24 * 30),  # 30 days
-            prefix=str(os.getenv("EXEC_SPREAD_EMA_PREFIX", "spreadema:") or "spreadema:"),
-            min_samples=_env_int("EXEC_SPREAD_EMA_MIN_SAMPLES", 10),
+            prefix=str(os.getenv("EXEC_SPREAD_EMA_PREFIX", "spreadema:") or "spreadema:")
+            min_samples=_env_int("EXEC_SPREAD_EMA_MIN_SAMPLES", 10)
         )
 
 
@@ -68,16 +68,16 @@ def _key(cfg: SpreadEmaConfig, *, symbol: str, venue: str, session: str, tf: str
 
 
 def update_spread_ema(
-    redis_client: Any,
-    *,
-    cfg: SpreadEmaConfig,
-    symbol: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
-    now_ms: Optional[int],
-    realized_spread_bps: Any,
+    redis_client: Any
+    *
+    cfg: SpreadEmaConfig
+    symbol: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
+    now_ms: Optional[int]
+    realized_spread_bps: Any
 ) -> None:
     """
     Update EMA in Redis hash:
@@ -134,9 +134,9 @@ def update_spread_ema(
 
         n2 = int(n + 1)
         redis_client.hset(k, mapping={
-            "samples": str(n2),
-            "ema_spread_bps": str(float(ema)),
-            "last_ts_ms": str(int(ts)),
+            "samples": str(n2)
+            "ema_spread_bps": str(float(ema))
+            "last_ts_ms": str(int(ts))
         })
         try:
             redis_client.expire(k, int(max(60, cfg.ttl_s)))

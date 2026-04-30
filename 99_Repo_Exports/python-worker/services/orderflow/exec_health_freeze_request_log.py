@@ -120,14 +120,14 @@ def _call_request_function(redis_client: Any, fn: str, control_key: str, state_k
     return -999
 
 REQUEST_LOG_VIOLATION_KINDS = [
-    "none",
-    "request_log_prepare_missing",
-    "request_log_approve_missing",
-    "request_log_commit_missing",
-    "request_log_same_operator_violation",
-    "request_log_out_of_order",
-    "request_log_nonce_mismatch",
-    "control_request_mismatch",
+    "none"
+    "request_log_prepare_missing"
+    "request_log_approve_missing"
+    "request_log_commit_missing"
+    "request_log_same_operator_violation"
+    "request_log_out_of_order"
+    "request_log_nonce_mismatch"
+    "control_request_mismatch"
 ]
 
 
@@ -195,15 +195,15 @@ def find_request_events_for_request(events: Sequence[Any], request_id: str) -> L
 
 
 def evaluate_request_log_sequence(
-    *,
-    control_raw: Mapping[str, Any] | None,
-    request_events: Sequence[Any] | None,
-    request_id: str | None = None,
+    *
+    control_raw: Mapping[str, Any] | None
+    request_events: Sequence[Any] | None
+    request_id: str | None = None
 ) -> FreezeRequestLogResult:
     """Evaluate the append-only request log sequence for a dual-control thaw request.
 
     P10: this is the source of truth for whether a thaw was properly authorised.
-    A valid sequence requires: prepare → approve → commit, with distinct operators,
+    A valid sequence requires: prepare → approve → commit, with distinct operators
     monotonically increasing event IDs, and matching nonce.
     """
     control = parse_exec_health_freeze_control(control_raw or {})
@@ -283,21 +283,21 @@ def evaluate_request_log_sequence(
         violations = ["none"]
 
     return FreezeRequestLogResult(
-        request_id=rid,
-        request_nonce=request_nonce,
-        prepare_present=prepare_present,
-        approve_present=approve_present,
-        commit_present=commit_present,
-        prepare_event_id=prepare_eid,
-        approve_event_id=approve_eid,
-        commit_event_id=commit_eid,
-        prepared_by=prepared_by,
-        approved_by=approved_by,
-        commit_by=commit_by,
-        valid_sequence=valid_sequence,
-        same_operator_violation=same_operator,
-        control_request_mismatch=control_request_mismatch,
-        violation_kinds=violations,
+        request_id=rid
+        request_nonce=request_nonce
+        prepare_present=prepare_present
+        approve_present=approve_present
+        commit_present=commit_present
+        prepare_event_id=prepare_eid
+        approve_event_id=approve_eid
+        commit_event_id=commit_eid
+        prepared_by=prepared_by
+        approved_by=approved_by
+        commit_by=commit_by
+        valid_sequence=valid_sequence
+        same_operator_violation=same_operator
+        control_request_mismatch=control_request_mismatch
+        violation_kinds=violations
     )
 
 

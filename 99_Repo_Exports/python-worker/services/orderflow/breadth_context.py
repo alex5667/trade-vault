@@ -21,11 +21,11 @@ async def aread_breadth_context(redis) -> Optional[Dict[str, Any]]:
                 return 0.0
 
         return {
-            "ret_24h": _get_float("ret_24h"),
-            "vol_z": _get_float("vol_z"),
-            "btc_ret": _get_float("btc_ret"),
-            "eth_ret": _get_float("eth_ret"),
-            "leader_confirm": _get_float("leader_confirm"),
+            "ret_24h": _get_float("ret_24h")
+            "vol_z": _get_float("vol_z")
+            "btc_ret": _get_float("btc_ret")
+            "eth_ret": _get_float("eth_ret")
+            "leader_confirm": _get_float("leader_confirm")
         }
     except Exception:
         return None

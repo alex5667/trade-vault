@@ -31,10 +31,10 @@ class MessageHandler:
     """
 
     def __init__(
-        self,
-        *args: Any,
-        health_metrics: Optional["HealthMetrics"] = None,
-        **kwargs: Any,
+        self
+        *args: Any
+        health_metrics: Optional["HealthMetrics"] = None
+        **kwargs: Any
     ) -> None:
         super().__init__()  # in case of mixins
         self.health_metrics = health_metrics
@@ -48,18 +48,18 @@ class MessageHandler:
             self._init_new(**kwargs)
 
     def _init_old(
-        self,
-        symbol: str,
-        tick_stream: str,
-        book_stream: str,
-        l3_stream: str,
-        data_parser: Any,
-        data_processor: Any,
-        config: Any = None,
-        max_fail_retries: int = 3,
-        claim_min_idle_ms: int = 60000,
-        claim_count: int = 100,
-        health_metrics: Any = None,
+        self
+        symbol: str
+        tick_stream: str
+        book_stream: str
+        l3_stream: str
+        data_parser: Any
+        data_processor: Any
+        config: Any = None
+        max_fail_retries: int = 3
+        claim_min_idle_ms: int = 60000
+        claim_count: int = 100
+        health_metrics: Any = None
     ):
         self.symbol = symbol
         self.tick_stream = tick_stream
@@ -148,17 +148,17 @@ class MessageHandler:
         return bool(is_transient_error(e))
 
     def _handle_error(
-        self,
-        e: Exception,
-        *,
-        consumer: object,
-        backoff: object,
-        fail_counts: Dict[Tuple[str, str], int],
-        stream: str,
-        msg_id: str,
-        fields: Optional[Dict[str, Any]],
-        where: str,
-        stop_event: Any = None,
+        self
+        e: Exception
+        *
+        consumer: object
+        backoff: object
+        fail_counts: Dict[Tuple[str, str], int]
+        stream: str
+        msg_id: str
+        fields: Optional[Dict[str, Any]]
+        where: str
+        stop_event: Any = None
     ) -> Tuple[bool, bool]:
         """Returns: (retry, is_transient)"""
         is_transient = self._is_transient_error(e)
@@ -200,14 +200,14 @@ class MessageHandler:
         return 9
 
     def process_message_batch(
-        self,
-        msgs: List[Any],
-        backoff: object,
-        fail_counts: Dict[Tuple[str, str], int],
-        consumer: object,
-        stop_event: Any = None,
-        *,
-        from_pending: bool = False,
+        self
+        msgs: List[Any]
+        backoff: object
+        fail_counts: Dict[Tuple[str, str], int]
+        consumer: object
+        stop_event: Any = None
+        *
+        from_pending: bool = False
     ) -> Tuple[int, int, bool]:
         """Обработка пакета сообщений из Redis streams."""
         tick_cnt = 0
@@ -334,15 +334,15 @@ class MessageHandler:
             except Exception as e:
                 # MARK: Indentation verify point (12 spaces)
                 retry, is_transient = self._handle_error(
-                    e,
-                    consumer=consumer,
-                    backoff=backoff,
-                    fail_counts=fail_counts,
-                    stream=stream,
-                    msg_id=msg_id,
-                    fields=m.fields,
-                    where="batch",
-                    stop_event=stop_event,
+                    e
+                    consumer=consumer
+                    backoff=backoff
+                    fail_counts=fail_counts
+                    stream=stream
+                    msg_id=msg_id
+                    fields=m.fields
+                    where="batch"
+                    stop_event=stop_event
                 )
                 if retry:
                     batch_had_transient = True
@@ -403,13 +403,13 @@ class MessageHandler:
         return tick_cnt, book_cnt, not batch_had_transient
 
     def claim_and_process_pending(
-        self,
-        consumer: object,
-        streams: List[str],
-        start_ids: Dict[str, str],
-        fail_counts: Dict[Tuple[str, str], int],
-        backoff: object,
-        stop_event: Any = None,
+        self
+        consumer: object
+        streams: List[str]
+        start_ids: Dict[str, str]
+        fail_counts: Dict[Tuple[str, str], int]
+        backoff: object
+        stop_event: Any = None
     ) -> bool:
         """Клейм и обработка pending сообщений."""
         streams_sorted = sorted(streams, key=self._priority)
@@ -423,10 +423,10 @@ class MessageHandler:
             start_id = start_ids.get(stream, "0-0")
             try:
                 next_id, msgs = consumer.claim_pending(
-                    stream,
-                    min_idle_ms=self.claim_min_idle_ms,
-                    start_id=start_id,
-                    count=self.claim_count,
+                    stream
+                    min_idle_ms=self.claim_min_idle_ms
+                    start_id=start_id
+                    count=self.claim_count
                 )
                 # Важно: redis-py может вернуть next_id="0-0" когда скан завершён.
                 # Если сообщений нет, НЕ сбрасываем start_id на "0-0" — иначе будем крутиться по кругу.

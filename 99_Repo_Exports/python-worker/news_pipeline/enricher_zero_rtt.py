@@ -62,29 +62,29 @@ class NewsAggCache:
     """
 
     NEWS_FIELDS = (
-        "ref",
-        "risk_ema",
-        "surprise_ema",
-        "news_grade_id",
-        "tags_mask",
-        "primary_tag_id",
-        "confidence",
-        "horizon_sec",
-        "asof_ts_ms",
+        "ref"
+        "risk_ema"
+        "surprise_ema"
+        "news_grade_id"
+        "tags_mask"
+        "primary_tag_id"
+        "confidence"
+        "horizon_sec"
+        "asof_ts_ms"
     )
 
     CAL_FIELDS = (
-        "event_tminus_sec",
-        "event_grade_id",
+        "event_tminus_sec"
+        "event_grade_id"
     )
 
     def __init__(
-        self,
-        *,
-        redis_fast,
-        poll_ms: int = 250,
-        max_symbols: int = 512,
-        enable_calendar: bool = True,
+        self
+        *
+        redis_fast
+        poll_ms: int = 250
+        max_symbols: int = 512
+        enable_calendar: bool = True
         stale_warn_ms: int = 2_000,   # если snapshot слишком старый — dq flag
         stale_drop_ms: int = 30_000,  # если слишком старый — возвращаем None (fail-open)
     ) -> None:
@@ -169,17 +169,17 @@ class NewsAggCache:
                     tminus, grade = cal
                     # создаём новый NewsFeatures (frozen=True)
                     nf = NewsFeatures(
-                        ref=nf.ref,
-                        news_risk=nf.news_risk,
-                        surprise_score=nf.surprise_score,
-                        news_grade_id=nf.news_grade_id,
-                        tags_mask=nf.tags_mask,
-                        primary_tag_id=nf.primary_tag_id,
-                        confidence=nf.confidence,
-                        horizon_sec=nf.horizon_sec,
-                        asof_ts_ms=nf.asof_ts_ms,
-                        event_tminus_sec=tminus,
-                        event_grade_id=grade,
+                        ref=nf.ref
+                        news_risk=nf.news_risk
+                        surprise_score=nf.surprise_score
+                        news_grade_id=nf.news_grade_id
+                        tags_mask=nf.tags_mask
+                        primary_tag_id=nf.primary_tag_id
+                        confidence=nf.confidence
+                        horizon_sec=nf.horizon_sec
+                        asof_ts_ms=nf.asof_ts_ms
+                        event_tminus_sec=tminus
+                        event_grade_id=grade
                     )
         return nf
 
@@ -222,15 +222,15 @@ class NewsAggCache:
 
                 m = dict(zip(self.NEWS_FIELDS, vals))
                 nf = NewsFeatures(
-                    ref=str(m.get("ref") or ""),
-                    news_risk=_f(m.get("risk_ema"), 0.0),
-                    surprise_score=_f(m.get("surprise_ema"), 0.0),
-                    news_grade_id=_i(m.get("news_grade_id"), 0),
-                    tags_mask=_i(m.get("tags_mask"), 0),
-                    primary_tag_id=_i(m.get("primary_tag_id"), 0),
-                    confidence=_f(m.get("confidence"), 0.0),
-                    horizon_sec=_i(m.get("horizon_sec"), 0),
-                    asof_ts_ms=_i(m.get("asof_ts_ms"), 0),
+                    ref=str(m.get("ref") or "")
+                    news_risk=_f(m.get("risk_ema"), 0.0)
+                    surprise_score=_f(m.get("surprise_ema"), 0.0)
+                    news_grade_id=_i(m.get("news_grade_id"), 0)
+                    tags_mask=_i(m.get("tags_mask"), 0)
+                    primary_tag_id=_i(m.get("primary_tag_id"), 0)
+                    confidence=_f(m.get("confidence"), 0.0)
+                    horizon_sec=_i(m.get("horizon_sec"), 0)
+                    asof_ts_ms=_i(m.get("asof_ts_ms"), 0)
                 )
                 new_news[s] = nf
 
@@ -250,11 +250,11 @@ class NewsAggCache:
 
             cycle_ms = int((time.perf_counter() - t0) * 1000)
             self._stats = _CacheStats(
-                last_ok_ts_ms=now_ms,
-                last_cycle_ms=cycle_ms,
-                ok_cycles=self._stats.ok_cycles + 1,
-                err_cycles=self._stats.err_cycles,
-                last_err="",
+                last_ok_ts_ms=now_ms
+                last_cycle_ms=cycle_ms
+                ok_cycles=self._stats.ok_cycles + 1
+                err_cycles=self._stats.err_cycles
+                last_err=""
             )
             self._backoff_ms = 0
 
@@ -263,11 +263,11 @@ class NewsAggCache:
             # exponential backoff up to ~2s
             self._backoff_ms = min(2000, max(50, self._backoff_ms * 2 or 50))
             self._stats = _CacheStats(
-                last_ok_ts_ms=self._stats.last_ok_ts_ms,
-                last_cycle_ms=cycle_ms,
-                ok_cycles=self._stats.ok_cycles,
-                err_cycles=self._stats.err_cycles + 1,
-                last_err=str(e)[:256],
+                last_ok_ts_ms=self._stats.last_ok_ts_ms
+                last_cycle_ms=cycle_ms
+                ok_cycles=self._stats.ok_cycles
+                err_cycles=self._stats.err_cycles + 1
+                last_err=str(e)[:256]
             )
 
     def _run(self) -> None:

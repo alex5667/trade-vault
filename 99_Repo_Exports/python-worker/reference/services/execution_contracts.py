@@ -103,12 +103,12 @@ class ExecutionEvent:
 
     def to_stream_fields(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
-            'sid': str(self.sid),
-            'symbol': str(self.symbol),
-            'action': str(self.action),
-            'event_type': str(self.event_type),
-            'status': str(self.status),
-            'ts_event_ms': int(self.ts_event_ms),
+            'sid': str(self.sid)
+            'symbol': str(self.symbol)
+            'action': str(self.action)
+            'event_type': str(self.event_type)
+            'status': str(self.status)
+            'ts_event_ms': int(self.ts_event_ms)
         }
         if self.ts_exec_start_ms is not None:
             out['ts_exec_start_ms'] = int(self.ts_exec_start_ms)
@@ -131,11 +131,11 @@ def collect_tp_algo_refs(state: Dict[str, Any]) -> List[BinanceAlgoOrderRef]:
         if algo_id is None and client_algo_id is None:
             break
         refs.append(BinanceAlgoOrderRef(
-            algo_id=algo_id,
-            client_algo_id=client_algo_id,
-            trigger_price=_f(state.get(f'tp{idx}_trigger_price')),
-            working_type=_s(state.get(f'tp{idx}_working_type')),
-            status=_s(state.get(f'tp{idx}_state')),
+            algo_id=algo_id
+            client_algo_id=client_algo_id
+            trigger_price=_f(state.get(f'tp{idx}_trigger_price'))
+            working_type=_s(state.get(f'tp{idx}_working_type'))
+            status=_s(state.get(f'tp{idx}_state'))
         ))
         idx += 1
     return refs
@@ -144,37 +144,37 @@ def collect_tp_algo_refs(state: Dict[str, Any]) -> List[BinanceAlgoOrderRef]:
 def build_materialized_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
     doc = dict(state or {})
     entry = BinancePlainOrderRef(
-        order_id=_i(doc.get('binance_order_id') or doc.get('entry_order_id')),
-        client_order_id=_s(doc.get('entry_client_order_id')),
-        status=_s(doc.get('entry_status') or doc.get('status')),
-        qty=_f(doc.get('qty')),
-        avg_price=_f(doc.get('exec_price')),
+        order_id=_i(doc.get('binance_order_id') or doc.get('entry_order_id'))
+        client_order_id=_s(doc.get('entry_client_order_id'))
+        status=_s(doc.get('entry_status') or doc.get('status'))
+        qty=_f(doc.get('qty'))
+        avg_price=_f(doc.get('exec_price'))
     ).to_dict()
     sl = BinanceAlgoOrderRef(
-        algo_id=_i(doc.get('sl_algo_id')),
-        client_algo_id=_s(doc.get('sl_client_algo_id')),
-        trigger_price=_f(doc.get('sl_trigger_price') or doc.get('sl')),
-        working_type=_s(doc.get('sl_working_type')),
-        status='ARMED' if _i(doc.get('sl_algo_id')) is not None else None,
+        algo_id=_i(doc.get('sl_algo_id'))
+        client_algo_id=_s(doc.get('sl_client_algo_id'))
+        trigger_price=_f(doc.get('sl_trigger_price') or doc.get('sl'))
+        working_type=_s(doc.get('sl_working_type'))
+        status='ARMED' if _i(doc.get('sl_algo_id')) is not None else None
     ).to_dict()
     trail = BinanceAlgoOrderRef(
-        algo_id=_i(doc.get('trail_algo_id')),
-        client_algo_id=_s(doc.get('trail_client_algo_id') or doc.get('trail_client_id')),
-        trigger_price=_f(doc.get('trail_activate_price')),
-        working_type=_s(doc.get('trail_working_type')),
-        status=_s(doc.get('trail_status')),
+        algo_id=_i(doc.get('trail_algo_id'))
+        client_algo_id=_s(doc.get('trail_client_algo_id') or doc.get('trail_client_id'))
+        trigger_price=_f(doc.get('trail_activate_price'))
+        working_type=_s(doc.get('trail_working_type'))
+        status=_s(doc.get('trail_status'))
     ).to_dict()
     tp_refs = collect_tp_algo_refs(doc)
     protective: Dict[str, Any] = {
-        'tp_algo_ids': [int(r.algo_id) for r in tp_refs if r.algo_id is not None],
-        'tp_client_algo_ids': [str(r.client_algo_id) for r in tp_refs if r.client_algo_id],
-        'tp_refs': [r.to_dict() for r in tp_refs],
+        'tp_algo_ids': [int(r.algo_id) for r in tp_refs if r.algo_id is not None]
+        'tp_client_algo_ids': [str(r.client_algo_id) for r in tp_refs if r.client_algo_id]
+        'tp_refs': [r.to_dict() for r in tp_refs]
     }
     if sl:
         protective.update({
-            'sl_algo_id': sl.get('algo_id'),
-            'sl_client_algo_id': sl.get('client_algo_id'),
-            'sl': sl,
+            'sl_algo_id': sl.get('algo_id')
+            'sl_client_algo_id': sl.get('client_algo_id')
+            'sl': sl
         })
     if trail:
         doc['trailing'] = trail

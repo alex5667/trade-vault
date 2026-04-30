@@ -85,13 +85,13 @@ class FakeRedis:
 def test_manual_admin_actions_are_forwarded_to_notify_stream(monkeypatch):
     r = FakeRedis()
     r.xadd('orders:dust_cleanup:audit', {
-        'action': 'add_denylist',
-        'symbol': 'APTUSDT',
-        'operator': 'alex',
-        'reason': 'manual hold',
-        'ticket': 'INC-42',
-        'result': 'ok',
-        'payload_json': json.dumps({'ok': True}),
+        'action': 'add_denylist'
+        'symbol': 'APTUSDT'
+        'operator': 'alex'
+        'reason': 'manual hold'
+        'ticket': 'INC-42'
+        'result': 'ok'
+        'payload_json': json.dumps({'ok': True})
     })
     svc = BinanceDustCleanupAdminNotifier(redis_client=r, notify_stream='notify:telegram:test', audit_stream='orders:dust_cleanup:audit')
     out = svc.process_manual_actions_once()
@@ -109,12 +109,12 @@ def test_old_denylist_entry_emits_reminder(monkeypatch):
     monkeypatch.setenv('BINANCE_DUST_ADMIN_OLD_DENYLIST_SEC', '1')
     monkeypatch.setenv('BINANCE_DUST_ADMIN_REMINDER_REPEAT_SEC', '60')
     payload = {
-        'symbol': 'SUIUSDT',
-        'operator': 'alex',
-        'reason': 'manual hold',
-        'ticket': 'INC-55',
-        'ts_ms': 1,
-        'ttl_sec': 3600,
+        'symbol': 'SUIUSDT'
+        'operator': 'alex'
+        'reason': 'manual hold'
+        'ticket': 'INC-55'
+        'ts_ms': 1
+        'ttl_sec': 3600
     }
     r.sadd('orders:dust_cleanup:denylist', 'SUIUSDT')
     r.set('orders:dust_cleanup:denylist:SUIUSDT', json.dumps(payload))

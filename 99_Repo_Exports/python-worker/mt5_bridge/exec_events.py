@@ -66,11 +66,11 @@ class ExecutionEvent:
         """
         payload = self._to_payload()
         return {
-            "signal_id": self.signal_id,
-            "venue": self.venue,
-            "kind": self.kind,
-            "event_type": self.event_type,
-            "payload": json.dumps(payload, separators=(",", ":")),
+            "signal_id": self.signal_id
+            "venue": self.venue
+            "kind": self.kind
+            "event_type": self.event_type
+            "payload": json.dumps(payload, separators=(",", ":"))
         }
 
 

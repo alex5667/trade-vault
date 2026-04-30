@@ -53,12 +53,12 @@ def _make_mock_conn(fetchone_sequence):
 
 
 CALL_KWARGS = dict(
-    symbol="BTCUSDT",
-    signal_type="breakout_R1",
-    side="buy",
-    session="us",
-    regime="trend",
-    feature_bucket="dz:<1.5|obi:<1.0|wp:<0.3|atr:<0.7",
+    symbol="BTCUSDT"
+    signal_type="breakout_R1"
+    side="buy"
+    session="us"
+    regime="trend"
+    feature_bucket="dz:<1.5|obi:<1.0|wp:<0.3|atr:<0.7"
 )
 
 
@@ -72,12 +72,12 @@ class TestQualityEstimate:
 
     def test_instantiation(self):
         qe = QualityEstimate(
-            offline_score=80.0,
-            online_score=70.0,
-            combined_score=77.0,
-            status="ok",
-            expectancy_r_offline=1.2,
-            expectancy_r_online=0.9,
+            offline_score=80.0
+            online_score=70.0
+            combined_score=77.0
+            status="ok"
+            expectancy_r_offline=1.2
+            expectancy_r_online=0.9
         )
         assert qe.combined_score == pytest.approx(77.0)
         assert qe.status == "ok"

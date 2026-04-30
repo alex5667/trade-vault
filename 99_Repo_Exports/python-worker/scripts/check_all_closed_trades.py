@@ -23,12 +23,12 @@ def main():
             # Get summary statistics
             cursor.execute("""
                 SELECT
-                    COUNT(*) as total,
-                    COUNT(CASE WHEN pnl_net > 0 THEN 1 END) as profitable,
-                    COUNT(CASE WHEN pnl_net < 0 THEN 1 END) as losing,
-                    AVG(pnl_net) as avg_pnl,
-                    SUM(pnl_net) as total_pnl,
-                    MIN(exit_ts) as oldest_trade,
+                    COUNT(*) as total
+                    COUNT(CASE WHEN pnl_net > 0 THEN 1 END) as profitable
+                    COUNT(CASE WHEN pnl_net < 0 THEN 1 END) as losing
+                    AVG(pnl_net) as avg_pnl
+                    SUM(pnl_net) as total_pnl
+                    MIN(exit_ts) as oldest_trade
                     MAX(exit_ts) as newest_trade
                 FROM trades_closed
             """)
@@ -49,13 +49,13 @@ def main():
             print(f"\n🔍 ПОСЛЕДНИЕ 5 СДЕЛОК:")
             cursor.execute("""
                 SELECT
-                    symbol,
-                    direction,
-                    exit_ts,
-                    pnl_net,
-                    pnl_pct,
-                    close_reason,
-                    strategy,
+                    symbol
+                    direction
+                    exit_ts
+                    pnl_net
+                    pnl_pct
+                    close_reason
+                    strategy
                     source
                 FROM trades_closed
                 ORDER BY exit_ts DESC

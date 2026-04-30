@@ -31,12 +31,12 @@ class AbsorptionRule:
         raw = max(self.min_raw, (self.weak_progress_max - wp) / max(self.weak_progress_max, 1e-9))
         return [
             Candidate(
-                kind="absorption",
-                side=side,
-                raw_score=float(raw),
-                level_price=float(level_price) if level_price is not None else None,
-                level_key=getattr(ctx, "level_key", None),
-                reasons=["weak_progress_absorption"],
-                meta={"weak_progress": float(wp)},
+                kind="absorption"
+                side=side
+                raw_score=float(raw)
+                level_price=float(level_price) if level_price is not None else None
+                level_key=getattr(ctx, "level_key", None)
+                reasons=["weak_progress_absorption"]
+                meta={"weak_progress": float(wp)}
             )
         ]

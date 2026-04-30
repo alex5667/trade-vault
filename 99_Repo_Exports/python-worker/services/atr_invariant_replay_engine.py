@@ -32,10 +32,10 @@ class InvariantReplayEngine:
         if "INV_SIGNAL_ID_STABLE_IN_REPLAY" in active_codes:
             if baseline_signal_id and baseline_signal_id != candidate_signal_id:
                 violations.append({
-                    "invariant_id": active_codes["INV_SIGNAL_ID_STABLE_IN_REPLAY"]["invariant_id"],
-                    "reason_code": "INV_SIGNAL_ID_STABLE_IN_REPLAY",
-                    "severity": active_codes["INV_SIGNAL_ID_STABLE_IN_REPLAY"]["severity"],
-                    "enforcement_mode": active_codes["INV_SIGNAL_ID_STABLE_IN_REPLAY"]["enforcement_mode"],
+                    "invariant_id": active_codes["INV_SIGNAL_ID_STABLE_IN_REPLAY"]["invariant_id"]
+                    "reason_code": "INV_SIGNAL_ID_STABLE_IN_REPLAY"
+                    "severity": active_codes["INV_SIGNAL_ID_STABLE_IN_REPLAY"]["severity"]
+                    "enforcement_mode": active_codes["INV_SIGNAL_ID_STABLE_IN_REPLAY"]["enforcement_mode"]
                     "details": f"signal_id drifted: {baseline_signal_id} -> {candidate_signal_id}"
                 })
         
@@ -62,8 +62,8 @@ class InvariantReplayEngine:
                     INSERT INTO atr_invariant_snapshots (snapshot_id, snapshot_kind, snapshot_json)
                     VALUES (%s, %s, %s)
                  """, (snapshot_id, "replay_check", json.dumps({
-                     "replay_id": replay_id,
-                     "candidate_signal": candidate.get("signal_id"),
+                     "replay_id": replay_id
+                     "candidate_signal": candidate.get("signal_id")
                      "violations": violations
                  })))
                  conn.commit()

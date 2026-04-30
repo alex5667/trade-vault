@@ -8,7 +8,7 @@ import time
 class SteadyClock:
     """
     "Стабильное" now_ms на базе time.monotonic().
-    Цель: защита от скачков системного времени (NTP/backward jumps),
+    Цель: защита от скачков системного времени (NTP/backward jumps)
     чтобы future/past guards и watermark не ломались.
 
     Идея:

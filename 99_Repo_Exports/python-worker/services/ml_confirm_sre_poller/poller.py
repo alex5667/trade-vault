@@ -12,11 +12,11 @@ from redis.asyncio import Redis
 from redis.exceptions import BusyLoadingError, ConnectionError, TimeoutError
 from services.ml_confirm.champion_cfg import validate_champion_cfg, ChampionCfgError
 from services.observability.metrics_registry import (
-    ml_confirm_cfg_present,
-    ml_confirm_cfg_valid,
-    ml_confirm_enforce_share,
-    ml_confirm_errors_total,
-    ml_missing_critical_total,
+    ml_confirm_cfg_present
+    ml_confirm_cfg_valid
+    ml_confirm_enforce_share
+    ml_confirm_errors_total
+    ml_missing_critical_total
 )
 from prometheus_client import Gauge
 

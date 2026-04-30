@@ -1,7 +1,7 @@
 """
 Commands Consumer - обработка команд из Redis Streams
 
-Слушает stream:signals:exec_events и реагирует на команды,
+Слушает stream:signals:exec_events и реагирует на команды
 такие как CLOSE_REQUEST для принудительного закрытия позиций.
 """
 
@@ -62,12 +62,12 @@ class ExecCommandsConsumer:
             # Для закрытия: открываем обратную сделку тем же объёмом
             try:
                 self._mt5.send_market_order(
-                    symbol=symbol,
+                    symbol=symbol
                     is_buy=not is_buy,  # обратное направление
-                    volume_lots=close_volume,
-                    sl_price=None,
-                    tp_price=None,
-                    comment=f"sig={signal_id} close",
+                    volume_lots=close_volume
+                    sl_price=None
+                    tp_price=None
+                    comment=f"sig={signal_id} close"
                 )
             except Exception as e:
                 # Логируем ошибку, но продолжаем

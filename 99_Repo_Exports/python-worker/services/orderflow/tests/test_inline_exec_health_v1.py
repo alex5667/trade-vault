@@ -90,16 +90,16 @@ class _FakeSyncRedis(_FakeRedis):
 
 try:
     from services.orderflow.inline_exec_health import (
-        InlineExecDims,
-        InlineExecPolicyDecision,
-        decide_inline_exec_health,
-        inline_is_from_cumulative_state,
-        make_rollup_key,
-        make_samples_key,
-        make_sid_state_key,
-        read_inline_exec_rollup_sync,
-        resolve_mode,
-        update_inline_exec_from_fill,
+        InlineExecDims
+        InlineExecPolicyDecision
+        decide_inline_exec_health
+        inline_is_from_cumulative_state
+        make_rollup_key
+        make_samples_key
+        make_sid_state_key
+        read_inline_exec_rollup_sync
+        resolve_mode
+        update_inline_exec_from_fill
     )
     SKIP_REASON = None
 except Exception as e:
@@ -125,10 +125,10 @@ class TestInlineIsFromCumulativeState(unittest.TestCase):
     def test_basic_buylong_is_positive_when_fill_above_mid(self):
         """Buy-LONG fill above decision_mid → IS should be positive (we paid more)."""
         is_bps = inline_is_from_cumulative_state(
-            decision_mid=100.0,
-            side="LONG",
+            decision_mid=100.0
+            side="LONG"
             cum_notional=5100.0,  # fill at ~102 (above mid) * 50 qty => notional 5100
-            cum_qty=50.0,
+            cum_qty=50.0
             cum_fee_usd=5.0,     # small fee
         )
         self.assertIsNotNone(is_bps)
@@ -137,43 +137,43 @@ class TestInlineIsFromCumulativeState(unittest.TestCase):
     def test_basic_sell_short_is_positive_when_fill_below_mid(self):
         """Sell-SHORT fill below decision_mid → IS should be positive (we got less)."""
         is_bps = inline_is_from_cumulative_state(
-            decision_mid=100.0,
-            side="SHORT",
+            decision_mid=100.0
+            side="SHORT"
             cum_notional=4900.0,  # fill at 98 * 50 qty
-            cum_qty=50.0,
-            cum_fee_usd=5.0,
+            cum_qty=50.0
+            cum_fee_usd=5.0
         )
         self.assertIsNotNone(is_bps)
         self.assertGreater(float(is_bps), 0.0)
 
     def test_returns_none_for_zero_qty(self):
         v = inline_is_from_cumulative_state(
-            decision_mid=100.0,
-            side="LONG",
-            cum_notional=5000.0,
-            cum_qty=0.0,
-            cum_fee_usd=0.0,
+            decision_mid=100.0
+            side="LONG"
+            cum_notional=5000.0
+            cum_qty=0.0
+            cum_fee_usd=0.0
         )
         self.assertIsNone(v)
 
     def test_returns_none_for_bad_mid(self):
         v = inline_is_from_cumulative_state(
-            decision_mid=0.0,
-            side="LONG",
-            cum_notional=5000.0,
-            cum_qty=50.0,
-            cum_fee_usd=0.0,
+            decision_mid=0.0
+            side="LONG"
+            cum_notional=5000.0
+            cum_qty=50.0
+            cum_fee_usd=0.0
         )
         self.assertIsNone(v)
 
     def test_zero_fee(self):
         """Zero fee is valid — fee_bps defaults to 0."""
         is_bps = inline_is_from_cumulative_state(
-            decision_mid=100.0,
-            side="LONG",
-            cum_notional=5050.0,
-            cum_qty=50.0,
-            cum_fee_usd=0.0,
+            decision_mid=100.0
+            side="LONG"
+            cum_notional=5050.0
+            cum_qty=50.0
+            cum_fee_usd=0.0
         )
         self.assertIsNotNone(is_bps)
         self.assertGreater(float(is_bps), 0.0)
@@ -189,14 +189,14 @@ class TestUpdateInlineExecFromFill(unittest.TestCase):
         r = _FakeRedis()
         dims = self._dims()
         stats = _run(update_inline_exec_from_fill(
-            redis=r,
-            sid="sid001",
-            dims=dims,
-            decision_mid=100.0,
+            redis=r
+            sid="sid001"
+            dims=dims
+            decision_mid=100.0
             fill_px=100.5,    # 5bps above mid
-            fill_qty=10.0,
-            fee_bps=2.0,
-            ts_fill_ms=1_700_000_000_000,
+            fill_qty=10.0
+            fee_bps=2.0
+            ts_fill_ms=1_700_000_000_000
         ))
         self.assertIn("p95_bps", stats)
         self.assertIn("count", stats)
@@ -209,24 +209,24 @@ class TestUpdateInlineExecFromFill(unittest.TestCase):
         dims = self._dims()
         ts = 1_700_000_000_000
         _run(update_inline_exec_from_fill(
-            redis=r,
-            sid="sid002",
-            dims=dims,
-            decision_mid=100.0,
-            fill_px=100.5,
-            fill_qty=5.0,
-            fee_bps=2.0,
-            ts_fill_ms=ts,
+            redis=r
+            sid="sid002"
+            dims=dims
+            decision_mid=100.0
+            fill_px=100.5
+            fill_qty=5.0
+            fee_bps=2.0
+            ts_fill_ms=ts
         ))
         stats2 = _run(update_inline_exec_from_fill(
-            redis=r,
-            sid="sid002",
-            dims=dims,
-            decision_mid=100.0,
-            fill_px=101.0,
-            fill_qty=5.0,
-            fee_bps=2.0,
-            ts_fill_ms=ts + 100,
+            redis=r
+            sid="sid002"
+            dims=dims
+            decision_mid=100.0
+            fill_px=101.0
+            fill_qty=5.0
+            fee_bps=2.0
+            ts_fill_ms=ts + 100
         ))
         # Still one sample for this sid
         self.assertEqual(int(stats2["count"]), 1)
@@ -237,39 +237,39 @@ class TestUpdateInlineExecFromFill(unittest.TestCase):
         ts = 1_700_000_000_000
         for i in range(3):
             _run(update_inline_exec_from_fill(
-                redis=r,
-                sid=f"sid{i:03d}",
-                dims=dims,
-                decision_mid=100.0,
-                fill_px=100.0 + 0.5 * (i + 1),
-                fill_qty=10.0,
-                fee_bps=2.0,
-                ts_fill_ms=ts + i * 1000,
+                redis=r
+                sid=f"sid{i:03d}"
+                dims=dims
+                decision_mid=100.0
+                fill_px=100.0 + 0.5 * (i + 1)
+                fill_qty=10.0
+                fee_bps=2.0
+                ts_fill_ms=ts + i * 1000
             ))
         # Try one more to get a final stats back
         stats = _run(update_inline_exec_from_fill(
-            redis=r,
-            sid="sid099",
-            dims=dims,
-            decision_mid=100.0,
-            fill_px=101.0,
-            fill_qty=10.0,
-            fee_bps=2.0,
-            ts_fill_ms=ts + 4000,
+            redis=r
+            sid="sid099"
+            dims=dims
+            decision_mid=100.0
+            fill_px=101.0
+            fill_qty=10.0
+            fee_bps=2.0
+            ts_fill_ms=ts + 4000
         ))
         self.assertGreaterEqual(int(stats["count"]), 4)
 
     def test_returns_empty_dict_for_none_redis(self):
         dims = self._dims()
         stats = _run(update_inline_exec_from_fill(
-            redis=None,
-            sid="sid001",
-            dims=dims,
-            decision_mid=100.0,
-            fill_px=100.5,
-            fill_qty=10.0,
-            fee_bps=2.0,
-            ts_fill_ms=1_700_000_000_000,
+            redis=None
+            sid="sid001"
+            dims=dims
+            decision_mid=100.0
+            fill_px=100.5
+            fill_qty=10.0
+            fee_bps=2.0
+            ts_fill_ms=1_700_000_000_000
         ))
         self.assertEqual(stats, {})
 
@@ -278,14 +278,14 @@ class TestUpdateInlineExecFromFill(unittest.TestCase):
         dims = self._dims()
         # fill_px = 0 → invalid
         stats = _run(update_inline_exec_from_fill(
-            redis=r,
-            sid="sid_bad",
-            dims=dims,
-            decision_mid=100.0,
-            fill_px=0.0,
-            fill_qty=10.0,
-            fee_bps=2.0,
-            ts_fill_ms=1_700_000_000_000,
+            redis=r
+            sid="sid_bad"
+            dims=dims
+            decision_mid=100.0
+            fill_px=0.0
+            fill_qty=10.0
+            fee_bps=2.0
+            ts_fill_ms=1_700_000_000_000
         ))
         self.assertEqual(stats, {})
 
@@ -293,14 +293,14 @@ class TestUpdateInlineExecFromFill(unittest.TestCase):
         r = _FakeRedis()
         dims = self._dims()
         _run(update_inline_exec_from_fill(
-            redis=r,
-            sid="sid005",
-            dims=dims,
-            decision_mid=100.0,
-            fill_px=100.5,
-            fill_qty=10.0,
-            fee_bps=2.0,
-            ts_fill_ms=1_700_000_000_000,
+            redis=r
+            sid="sid005"
+            dims=dims
+            decision_mid=100.0
+            fill_px=100.5
+            fill_qty=10.0
+            fee_bps=2.0
+            ts_fill_ms=1_700_000_000_000
         ))
         rkey = make_rollup_key(dims.norm(), include_session=True)
         h = _run(r.hgetall(rkey))
@@ -313,26 +313,26 @@ class TestUpdateInlineExecFromFill(unittest.TestCase):
         ts = 1_700_000_000_000
         for i in range(max_s + 3):  # push 8 samples
             _run(update_inline_exec_from_fill(
-                redis=r,
-                sid=f"sid{i:03d}",
-                dims=dims,
-                decision_mid=100.0,
-                fill_px=100.5,
-                fill_qty=10.0,
-                fee_bps=2.0,
-                ts_fill_ms=ts + i * 1000,
-                max_samples=max_s,
+                redis=r
+                sid=f"sid{i:03d}"
+                dims=dims
+                decision_mid=100.0
+                fill_px=100.5
+                fill_qty=10.0
+                fee_bps=2.0
+                ts_fill_ms=ts + i * 1000
+                max_samples=max_s
             ))
         stats = _run(update_inline_exec_from_fill(
-            redis=r,
-            sid="oversample_final",
-            dims=dims,
-            decision_mid=100.0,
-            fill_px=100.5,
-            fill_qty=10.0,
-            fee_bps=2.0,
-            ts_fill_ms=ts + 9000,
-            max_samples=max_s,
+            redis=r
+            sid="oversample_final"
+            dims=dims
+            decision_mid=100.0
+            fill_px=100.5
+            fill_qty=10.0
+            fee_bps=2.0
+            ts_fill_ms=ts + 9000
+            max_samples=max_s
         ))
         self.assertLessEqual(int(stats["count"]), max_s + 1)
 
@@ -354,11 +354,11 @@ class TestReadInlineExecRollupSync(unittest.TestCase):
         dims = self._dims().norm()
         key = make_rollup_key(dims, include_session=True)
         r._store[key] = {
-            "p95_bps": "7.5",
-            "p50_bps": "4.0",
-            "ema_bps": "5.0",
-            "count": "10",
-            "updated_at_ms": "1700000000000",
+            "p95_bps": "7.5"
+            "p50_bps": "4.0"
+            "ema_bps": "5.0"
+            "count": "10"
+            "updated_at_ms": "1700000000000"
         }
         result = read_inline_exec_rollup_sync(
             r, symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m"
@@ -373,12 +373,12 @@ class TestReadInlineExecRollupSync(unittest.TestCase):
         dims = self._dims().norm()
         key = make_rollup_key(dims, include_session=True)
         r._store[key] = {
-            "p95_bps": "7.5",
-            "count": "1",
+            "p95_bps": "7.5"
+            "count": "1"
         }
         result = read_inline_exec_rollup_sync(
-            r, symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m",
-            min_count=5,
+            r, symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m"
+            min_count=5
         )
         self.assertEqual(result, {})
 
@@ -388,11 +388,11 @@ class TestReadInlineExecRollupSync(unittest.TestCase):
         # Only populate aggregate (no-session) key
         agg_key = make_rollup_key(dims, include_session=False)
         r._store[agg_key] = {
-            "p95_bps": "3.0",
-            "count": "8",
+            "p95_bps": "3.0"
+            "count": "8"
         }
         result = read_inline_exec_rollup_sync(
-            r, symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m", min_count=1,
+            r, symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m", min_count=1
         )
         self.assertAlmostEqual(float(result["p95_bps"]), 3.0)
         self.assertEqual(float(result["session_exact"]), 0.0)
@@ -403,27 +403,27 @@ class TestDecideInlineExecHealth(unittest.TestCase):
 
     def test_below_warn_returns_ok(self):
         dec = decide_inline_exec_health(
-            p95_bps=2.0, warn_bps=5.0, crit_bps=10.0,
-            perm_impact_p95_bps=float("nan"), max_perm_impact_p95_bps=6.0,
-            mode="veto",
+            p95_bps=2.0, warn_bps=5.0, crit_bps=10.0
+            perm_impact_p95_bps=float("nan"), max_perm_impact_p95_bps=6.0
+            mode="veto"
         )
         self.assertFalse(dec.apply)
         self.assertFalse(dec.veto)
 
     def test_monitor_mode_no_veto(self):
         dec = decide_inline_exec_health(
-            p95_bps=12.0, warn_bps=5.0, crit_bps=10.0,
-            perm_impact_p95_bps=7.0, max_perm_impact_p95_bps=5.0,
-            mode="monitor",
+            p95_bps=12.0, warn_bps=5.0, crit_bps=10.0
+            perm_impact_p95_bps=7.0, max_perm_impact_p95_bps=5.0
+            mode="monitor"
         )
         self.assertTrue(dec.apply)
         self.assertFalse(dec.veto)
 
     def test_veto_mode_triggers_when_both_bad(self):
         dec = decide_inline_exec_health(
-            p95_bps=12.0, warn_bps=5.0, crit_bps=10.0,
-            perm_impact_p95_bps=7.0, max_perm_impact_p95_bps=5.0,
-            mode="veto",
+            p95_bps=12.0, warn_bps=5.0, crit_bps=10.0
+            perm_impact_p95_bps=7.0, max_perm_impact_p95_bps=5.0
+            mode="veto"
         )
         self.assertTrue(dec.veto)
         self.assertIn("VETO", dec.reason_code)
@@ -431,17 +431,17 @@ class TestDecideInlineExecHealth(unittest.TestCase):
     def test_veto_mode_no_veto_when_perm_ok(self):
         """Veto mode does NOT veto unless perm_impact_p95 also exceeds threshold."""
         dec = decide_inline_exec_health(
-            p95_bps=12.0, warn_bps=5.0, crit_bps=10.0,
-            perm_impact_p95_bps=1.0, max_perm_impact_p95_bps=5.0,
-            mode="veto",
+            p95_bps=12.0, warn_bps=5.0, crit_bps=10.0
+            perm_impact_p95_bps=1.0, max_perm_impact_p95_bps=5.0
+            mode="veto"
         )
         self.assertFalse(dec.veto)
 
     def test_tighten_mode_above_warn(self):
         dec = decide_inline_exec_health(
-            p95_bps=7.0, warn_bps=5.0, crit_bps=10.0,
-            perm_impact_p95_bps=float("nan"), max_perm_impact_p95_bps=0.0,
-            mode="tighten",
+            p95_bps=7.0, warn_bps=5.0, crit_bps=10.0
+            perm_impact_p95_bps=float("nan"), max_perm_impact_p95_bps=0.0
+            mode="tighten"
         )
         self.assertTrue(dec.apply)
         self.assertFalse(dec.veto)
@@ -449,9 +449,9 @@ class TestDecideInlineExecHealth(unittest.TestCase):
 
     def test_off_mode_always_pass(self):
         dec = decide_inline_exec_health(
-            p95_bps=99.0, warn_bps=5.0, crit_bps=10.0,
-            perm_impact_p95_bps=float("nan"), max_perm_impact_p95_bps=0.0,
-            mode="off",
+            p95_bps=99.0, warn_bps=5.0, crit_bps=10.0
+            perm_impact_p95_bps=float("nan"), max_perm_impact_p95_bps=0.0
+            mode="off"
         )
         self.assertFalse(dec.apply)
         self.assertFalse(dec.veto)

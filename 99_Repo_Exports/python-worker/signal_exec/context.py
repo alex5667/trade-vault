@@ -15,11 +15,11 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from .models import (
-    Side,
-    AccountState,
-    SwingPoint,
-    HTFLevel,
-    OrderBookSnapshot,
+    Side
+    AccountState
+    SwingPoint
+    HTFLevel
+    OrderBookSnapshot
 )
 
 
@@ -85,20 +85,20 @@ class SignalContext:
 
         # AccountState
         payload["account_state"] = {
-            "equity_usd": self.account_state.equity_usd,
-            "open_risk_usd": self.account_state.open_risk_usd,
-            "max_risk_per_trade_pct": self.account_state.max_risk_per_trade_pct,
-            "max_portfolio_risk_pct": self.account_state.max_portfolio_risk_pct,
+            "equity_usd": self.account_state.equity_usd
+            "open_risk_usd": self.account_state.open_risk_usd
+            "max_risk_per_trade_pct": self.account_state.max_risk_per_trade_pct
+            "max_portfolio_risk_pct": self.account_state.max_portfolio_risk_pct
         }
 
         # Swings
         payload["local_swings"] = [
             {
-                "ts": sp.ts.isoformat(),
-                "price": sp.price,
-                "type": sp.type,
-                "volume": sp.volume,
-                "delta": sp.delta,
+                "ts": sp.ts.isoformat()
+                "price": sp.price
+                "type": sp.type
+                "volume": sp.volume
+                "delta": sp.delta
             }
             for sp in self.local_swings
         ]
@@ -106,10 +106,10 @@ class SignalContext:
         # HTF levels
         payload["htf_levels"] = [
             {
-                "ts": lv.ts.isoformat(),
-                "price": lv.price,
-                "kind": lv.kind,
-                "strength": lv.strength,
+                "ts": lv.ts.isoformat()
+                "price": lv.price
+                "kind": lv.kind
+                "strength": lv.strength
             }
             for lv in self.htf_levels
         ]
@@ -118,11 +118,11 @@ class SignalContext:
         if self.orderbook is not None:
             ob = self.orderbook
             payload["orderbook"] = {
-                "ts": ob.ts.isoformat(),
-                "best_bid": ob.best_bid,
-                "best_ask": ob.best_ask,
-                "bids": ob.bids,
-                "asks": ob.asks,
+                "ts": ob.ts.isoformat()
+                "best_bid": ob.best_bid
+                "best_ask": ob.best_ask
+                "bids": ob.bids
+                "asks": ob.asks
             }
 
         # signal time
@@ -142,29 +142,29 @@ class SignalContext:
 
         acc = data["account_state"]
         account_state = AccountState(
-            equity_usd=acc["equity_usd"],
-            open_risk_usd=acc["open_risk_usd"],
-            max_risk_per_trade_pct=acc["max_risk_per_trade_pct"],
-            max_portfolio_risk_pct=acc["max_portfolio_risk_pct"],
+            equity_usd=acc["equity_usd"]
+            open_risk_usd=acc["open_risk_usd"]
+            max_risk_per_trade_pct=acc["max_risk_per_trade_pct"]
+            max_portfolio_risk_pct=acc["max_portfolio_risk_pct"]
         )
 
         swings = [
             SwingPoint(
-                ts=datetime.fromisoformat(sp["ts"]),
-                price=sp["price"],
-                type=sp["type"],
-                volume=sp.get("volume", 0.0),
-                delta=sp.get("delta", 0.0),
+                ts=datetime.fromisoformat(sp["ts"])
+                price=sp["price"]
+                type=sp["type"]
+                volume=sp.get("volume", 0.0)
+                delta=sp.get("delta", 0.0)
             )
             for sp in data.get("local_swings", [])
         ]
 
         levels = [
             HTFLevel(
-                ts=datetime.fromisoformat(lv["ts"]),
-                price=lv["price"],
-                kind=lv["kind"],
-                strength=lv.get("strength", 1.0),
+                ts=datetime.fromisoformat(lv["ts"])
+                price=lv["price"]
+                kind=lv["kind"]
+                strength=lv.get("strength", 1.0)
             )
             for lv in data.get("htf_levels", [])
         ]
@@ -173,29 +173,29 @@ class SignalContext:
         orderbook = None
         if ob_data:
             orderbook = OrderBookSnapshot(
-                ts=datetime.fromisoformat(ob_data["ts"]),
-                best_bid=ob_data["best_bid"],
-                best_ask=ob_data["best_ask"],
-                bids=ob_data.get("bids", []),
-                asks=ob_data.get("asks", []),
+                ts=datetime.fromisoformat(ob_data["ts"])
+                best_bid=ob_data["best_bid"]
+                best_ask=ob_data["best_ask"]
+                bids=ob_data.get("bids", [])
+                asks=ob_data.get("asks", [])
             )
 
         return cls(
-            signal_id=data["signal_id"],
-            symbol=data["symbol"],
-            setup_type=data["setup_type"],
-            side=side,
-            ts_signal=ts_signal,
-            price_at_signal=data["price_at_signal"],
-            atr_1m=data["atr_1m"],
-            tick_size=data["tick_size"],
-            contract_size=data["contract_size"],
-            final_score=data["final_score"],
-            account_state=account_state,
-            local_swings=swings,
-            htf_levels=levels,
-            orderbook=orderbook,
-            features=data.get("features", {}),
-            extra=data.get("extra", {}),
-            ttd_expiry_bars=data.get("ttd_expiry_bars"),
+            signal_id=data["signal_id"]
+            symbol=data["symbol"]
+            setup_type=data["setup_type"]
+            side=side
+            ts_signal=ts_signal
+            price_at_signal=data["price_at_signal"]
+            atr_1m=data["atr_1m"]
+            tick_size=data["tick_size"]
+            contract_size=data["contract_size"]
+            final_score=data["final_score"]
+            account_state=account_state
+            local_swings=swings
+            htf_levels=levels
+            orderbook=orderbook
+            features=data.get("features", {})
+            extra=data.get("extra", {})
+            ttd_expiry_bars=data.get("ttd_expiry_bars")
         )

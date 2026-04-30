@@ -13,11 +13,11 @@ class PurgedFold:
 
 
 def purged_kfold_time_series(
-    *,
-    ts_ms: np.ndarray,
-    t1_ms: np.ndarray,
-    n_splits: int = 5,
-    embargo_ms: int = 0,
+    *
+    ts_ms: np.ndarray
+    t1_ms: np.ndarray
+    n_splits: int = 5
+    embargo_ms: int = 0
 ) -> List[PurgedFold]:
     """Purged K-Fold for event-based labels (Lopez de Prado).
 

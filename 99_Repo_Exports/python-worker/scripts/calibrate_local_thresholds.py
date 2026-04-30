@@ -22,7 +22,7 @@ from core.local_calibration import LocalCalibrationManager, SignalRow
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.INFO
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -51,15 +51,15 @@ def load_signals_from_database(db_url: str, lookback_days: int) -> list[SignalRo
         # idx_trades_closed_ml_v2, enabling an Index-Only Scan on Timescale chunks.
         query = """
         SELECT
-            symbol,
-            exit_ts_ms / 1000.0             AS ts_utc,
-            COALESCE(entry_tag, 'mixed')    AS pattern_label,
-            'mixed'                         AS regime,
-            ind_delta_z                     AS delta_spike_z,
-            ind_obi                         AS obi,
-            CASE WHEN ind_weak_progress THEN 1.0 ELSE 0.0 END AS weak_progress,
-            ind_atr_th_bps                  AS atr_quantile,
-            r_multiple                      AS pnl_r,
+            symbol
+            exit_ts_ms / 1000.0             AS ts_utc
+            COALESCE(entry_tag, 'mixed')    AS pattern_label
+            'mixed'                         AS regime
+            ind_delta_z                     AS delta_spike_z
+            ind_obi                         AS obi
+            CASE WHEN ind_weak_progress THEN 1.0 ELSE 0.0 END AS weak_progress
+            ind_atr_th_bps                  AS atr_quantile
+            r_multiple                      AS pnl_r
             tp1_hit                         AS hit_tp
         FROM trades_closed
         WHERE exit_ts_ms >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '%s days')) * 1000
@@ -83,15 +83,15 @@ def load_signals_from_database(db_url: str, lookback_days: int) -> list[SignalRo
                 return float(x) if x is not None else None
             
             sr = SignalRow(
-                symbol=r["symbol"],
+                symbol=r["symbol"]
                 session="", # Will be computed by manager
-                regime=r.get("regime") or "",
-                ts_utc=float(r["ts_utc"]),
-                delta_spike_z=to_float(r.get("delta_spike_z")),
-                obi=to_float(r.get("obi")),
-                weak_progress=to_float(r.get("weak_progress")),
-                atr_quantile=to_float(r.get("atr_quantile")),
-                pnl_r=to_float(r.get("pnl_r")),
+                regime=r.get("regime") or ""
+                ts_utc=float(r["ts_utc"])
+                delta_spike_z=to_float(r.get("delta_spike_z"))
+                obi=to_float(r.get("obi"))
+                weak_progress=to_float(r.get("weak_progress"))
+                atr_quantile=to_float(r.get("atr_quantile"))
+                pnl_r=to_float(r.get("pnl_r"))
                 hit_tp=bool(r.get("hit_tp")) if r.get("hit_tp") is not None else None
             )
             signal_rows.append(sr)
@@ -108,13 +108,13 @@ def load_signals_from_database(db_url: str, lookback_days: int) -> list[SignalRo
 
 def main():
     parser = argparse.ArgumentParser(description='Calibrate local thresholds for signal filtering')
-    parser.add_argument('--lookback-days', type=int, default=365,
+    parser.add_argument('--lookback-days', type=int, default=365
                        help='Number of days to look back for historical data')
-    parser.add_argument('--output', type=str, required=True,
+    parser.add_argument('--output', type=str, required=True
                        help='Output JSON file for calibration data')
-    parser.add_argument('--db-url', type=str,
+    parser.add_argument('--db-url', type=str
                        help='Database URL (if not set, uses environment)')
-    parser.add_argument('--min-cluster-samples', type=int, default=300,
+    parser.add_argument('--min-cluster-samples', type=int, default=300
                        help='Minimum samples required per cluster')
 
     args = parser.parse_args()

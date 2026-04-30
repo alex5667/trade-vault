@@ -26,7 +26,7 @@ class QueueETAEvaluator:
 
 
 class BurstinessTracker:
-    def __init__(self, bucket_ms=1000, half_life_short_ms=250, half_life_long_ms=2000,
+    def __init__(self, bucket_ms=1000, half_life_short_ms=250, half_life_long_ms=2000
                  fano_window_buckets=60, dt_alpha=0.05):
         pass
 

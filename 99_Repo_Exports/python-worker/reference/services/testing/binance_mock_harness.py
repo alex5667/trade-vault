@@ -263,12 +263,12 @@ class MockBinanceState:
         self.contract_prices[str(symbol).upper()] = float(price)
 
     def set_plain_order_script(
-        self,
-        client_order_id: str,
-        *,
-        query_sequence: Optional[List[Dict[str, Any]]] = None,
-        post_error: Optional[Dict[str, Any]] = None,
-        create_on_post_error: bool = True,
+        self
+        client_order_id: str
+        *
+        query_sequence: Optional[List[Dict[str, Any]]] = None
+        post_error: Optional[Dict[str, Any]] = None
+        create_on_post_error: bool = True
     ) -> None:
         """Script the REST behaviour for client_order_id.
 
@@ -278,9 +278,9 @@ class MockBinanceState:
                               (simulates a truly unknown submission).
         """
         self.order_scripts[str(client_order_id)] = {
-            "query_sequence": list(query_sequence or []),
-            "post_error": dict(post_error or {}) if post_error else None,
-            "create_on_post_error": bool(create_on_post_error),
+            "query_sequence": list(query_sequence or [])
+            "post_error": dict(post_error or {}) if post_error else None
+            "create_on_post_error": bool(create_on_post_error)
         }
 
     def set_algo_error(self, client_algo_id: str, *, status: int, payload: Dict[str, Any]) -> None:
@@ -305,13 +305,13 @@ class MockBinanceState:
         self.user_stream_sinks.append(sink)
 
     def set_http_fault(
-        self,
-        method: str,
-        path: str,
-        *,
-        status: int,
-        payload: Dict[str, Any],
-        repeat: int = 1,
+        self
+        method: str
+        path: str
+        *
+        status: int
+        payload: Dict[str, Any]
+        repeat: int = 1
     ) -> None:
         """Queue `repeat` HTTP fault responses for (method, path).
 
@@ -339,19 +339,19 @@ class MockBinanceState:
         self, order: ScriptedOrder, execution_type: str, *, event_time_ms: Optional[int] = None
     ) -> None:
         payload = {
-            "e": "ORDER_TRADE_UPDATE",
-            "E": int(event_time_ms or _ms_now()),
+            "e": "ORDER_TRADE_UPDATE"
+            "E": int(event_time_ms or _ms_now())
             "o": {
-                "s": order.symbol,
-                "S": order.side,
-                "X": order.status,
-                "x": execution_type,
-                "i": order.order_id,
-                "c": order.client_order_id,
-                "q": f"{order.quantity}",
-                "z": f"{order.executed_qty}",
-                "ap": f"{order.avg_price}",
-            },
+                "s": order.symbol
+                "S": order.side
+                "X": order.status
+                "x": execution_type
+                "i": order.order_id
+                "c": order.client_order_id
+                "q": f"{order.quantity}"
+                "z": f"{order.executed_qty}"
+                "ap": f"{order.avg_price}"
+            }
         }
         self._publish_user_stream_payload(payload)
 
@@ -359,33 +359,33 @@ class MockBinanceState:
         self, algo: ScriptedAlgoOrder, execution_type: str, *, event_time_ms: Optional[int] = None
     ) -> None:
         payload = {
-            "e": "ALGO_UPDATE",
-            "E": int(event_time_ms or _ms_now()),
+            "e": "ALGO_UPDATE"
+            "E": int(event_time_ms or _ms_now())
             "ao": {
-                "s": algo.symbol,
-                "S": algo.side,
-                "X": algo.status,
-                "x": execution_type,
-                "algoId": algo.algo_id,
-                "clientAlgoId": algo.client_algo_id,
-            },
+                "s": algo.symbol
+                "S": algo.side
+                "X": algo.status
+                "x": execution_type
+                "algoId": algo.algo_id
+                "clientAlgoId": algo.client_algo_id
+            }
         }
         self._publish_user_stream_payload(payload)
 
     def inject_plain_order_update(
-        self,
-        *,
-        client_order_id: Optional[str] = None,
-        order_id: Optional[int] = None,
-        status: str,
-        executed_qty: Optional[float] = None,
-        avg_price: Optional[float] = None,
-        execution_type: str = "TRADE",
-        event_time_ms: Optional[int] = None,
+        self
+        *
+        client_order_id: Optional[str] = None
+        order_id: Optional[int] = None
+        status: str
+        executed_qty: Optional[float] = None
+        avg_price: Optional[float] = None
+        execution_type: str = "TRADE"
+        event_time_ms: Optional[int] = None
     ) -> Dict[str, Any]:
         """Manually inject a plain order update event into the user-stream.
 
-        Looks up an existing ScriptedOrder by order_id or client_order_id,
+        Looks up an existing ScriptedOrder by order_id or client_order_id
         applies state mutation, and publishes the event to all registered sinks.
         Returns a REST-like snapshot dict for assertion convenience.
         """
@@ -408,22 +408,22 @@ class MockBinanceState:
             order.applied_qty += delta
         self._emit_order_update(order, execution_type=execution_type, event_time_ms=event_time_ms)
         return {
-            "symbol": order.symbol,
-            "orderId": order.order_id,
-            "clientOrderId": order.client_order_id,
-            "status": order.status,
-            "executedQty": f"{order.executed_qty}",
-            "avgPrice": f"{order.avg_price}",
+            "symbol": order.symbol
+            "orderId": order.order_id
+            "clientOrderId": order.client_order_id
+            "status": order.status
+            "executedQty": f"{order.executed_qty}"
+            "avgPrice": f"{order.avg_price}"
         }
 
     def inject_algo_update(
-        self,
-        *,
-        client_algo_id: Optional[str] = None,
-        algo_id: Optional[int] = None,
-        status: str,
-        execution_type: str = "TRIGGERED",
-        event_time_ms: Optional[int] = None,
+        self
+        *
+        client_algo_id: Optional[str] = None
+        algo_id: Optional[int] = None
+        status: str
+        execution_type: str = "TRIGGERED"
+        event_time_ms: Optional[int] = None
     ) -> Dict[str, Any]:
         """Manually inject an algo order update event into the user-stream.
 
@@ -440,10 +440,10 @@ class MockBinanceState:
         algo.status = str(status or algo.status).upper()
         self._emit_algo_update(algo, execution_type=execution_type, event_time_ms=event_time_ms)
         return {
-            "symbol": algo.symbol,
-            "algoId": algo.algo_id,
-            "clientAlgoId": algo.client_algo_id,
-            "status": algo.status,
+            "symbol": algo.symbol
+            "algoId": algo.algo_id
+            "clientAlgoId": algo.client_algo_id
+            "status": algo.status
         }
 
     def _record(self, method: str, path: str, params: Dict[str, Any]) -> None:
@@ -464,14 +464,14 @@ class MockBinanceState:
         return {
             "symbols": [
                 {
-                    "symbol": "BTCUSDT",
-                    "pricePrecision": 2,
-                    "quantityPrecision": 3,
+                    "symbol": "BTCUSDT"
+                    "pricePrecision": 2
+                    "quantityPrecision": 3
                     "filters": [
-                        {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
-                        {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
-                        {"filterType": "MIN_NOTIONAL", "notional": "5"},
-                    ],
+                        {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"}
+                        {"filterType": "PRICE_FILTER", "tickSize": "0.10"}
+                        {"filterType": "MIN_NOTIONAL", "notional": "5"}
+                    ]
                 }
             ]
         }
@@ -479,12 +479,12 @@ class MockBinanceState:
     def _position_risk(self, symbol: str) -> List[Dict[str, Any]]:
         amt = float(self.positions.get(symbol, 0.0))
         return [{
-            "symbol": symbol,
-            "positionAmt": f"{amt}",
-            "isolatedMargin": "50.0" if amt else "0.0",
-            "initialMargin": "50.0" if amt else "0.0",
-            "leverage": str(self.leverage[symbol]),
-            "positionSide": "BOTH",
+            "symbol": symbol
+            "positionAmt": f"{amt}"
+            "isolatedMargin": "50.0" if amt else "0.0"
+            "initialMargin": "50.0" if amt else "0.0"
+            "leverage": str(self.leverage[symbol])
+            "positionSide": "BOTH"
         }]
 
     def _apply_position_delta(self, symbol: str, side: str, delta_qty: float, reduce_only: bool) -> None:
@@ -512,14 +512,14 @@ class MockBinanceState:
         script_cfg = self.order_scripts.get(client_id, {})
         query_sequence = [dict(x) for x in script_cfg.get("query_sequence") or []]
         order = ScriptedOrder(
-            order_id=order_id,
-            client_order_id=client_id,
-            symbol=symbol,
-            side=side,
-            order_type=order_type,
-            quantity=quantity,
-            reduce_only=reduce_only,
-            script=query_sequence,
+            order_id=order_id
+            client_order_id=client_id
+            symbol=symbol
+            side=side
+            order_type=order_type
+            quantity=quantity
+            reduce_only=reduce_only
+            script=query_sequence
         )
         # For MARKET orders without a script, auto-fill immediately
         if order_type == "MARKET" and not query_sequence:
@@ -540,17 +540,17 @@ class MockBinanceState:
         client_id = str(params.get("clientAlgoId") or f"algo-{algo_id}")
         symbol = str(params.get("symbol") or "").upper()
         algo = ScriptedAlgoOrder(
-            algo_id=algo_id,
-            client_algo_id=client_id,
-            symbol=symbol,
-            side=str(params.get("side") or "SELL").upper(),
-            order_type=str(params.get("type") or "STOP_MARKET").upper(),
-            quantity=float(params.get("quantity") or 0.0),
-            trigger_price=float(params.get("triggerPrice") or 0.0),
-            working_type=str(params.get("workingType") or "MARK_PRICE").upper(),
-            price=float(params.get("price") or 0.0),
-            reduce_only=str(params.get("reduceOnly") or "false").lower() == "true",
-            close_position=str(params.get("closePosition") or "false").lower() == "true",
+            algo_id=algo_id
+            client_algo_id=client_id
+            symbol=symbol
+            side=str(params.get("side") or "SELL").upper()
+            order_type=str(params.get("type") or "STOP_MARKET").upper()
+            quantity=float(params.get("quantity") or 0.0)
+            trigger_price=float(params.get("triggerPrice") or 0.0)
+            working_type=str(params.get("workingType") or "MARK_PRICE").upper()
+            price=float(params.get("price") or 0.0)
+            reduce_only=str(params.get("reduceOnly") or "false").lower() == "true"
+            close_position=str(params.get("closePosition") or "false").lower() == "true"
         )
         self.algo_orders[algo_id] = algo
         self.algo_order_by_client[client_id] = algo_id
@@ -578,14 +578,14 @@ class MockBinanceState:
             elif snapshot.get("emit", False):
                 self._emit_order_update(order, execution_type=str(snapshot.get("executionType") or "TRADE"))
         return {
-            "symbol": order.symbol,
-            "orderId": order.order_id,
-            "clientOrderId": order.client_order_id,
-            "status": order.status,
-            "executedQty": f"{order.executed_qty}",
-            "avgPrice": f"{order.avg_price}",
-            "side": order.side,
-            "type": order.order_type,
+            "symbol": order.symbol
+            "orderId": order.order_id
+            "clientOrderId": order.client_order_id
+            "status": order.status
+            "executedQty": f"{order.executed_qty}"
+            "avgPrice": f"{order.avg_price}"
+            "side": order.side
+            "type": order.order_type
         }
 
     # --- Main dispatch ---
@@ -630,11 +630,11 @@ class MockBinanceState:
                 symbol = str(params.get("symbol") or "BTCUSDT").upper()
                 items = [
                     {
-                        "symbol": o.symbol,
-                        "orderId": o.order_id,
-                        "clientOrderId": o.client_order_id,
-                        "status": o.status,
-                        "side": o.side,
+                        "symbol": o.symbol
+                        "orderId": o.order_id
+                        "clientOrderId": o.client_order_id
+                        "status": o.status
+                        "side": o.side
                     }
                     for o in self.plain_orders.values()
                     if o.symbol == symbol and o.status not in {"CANCELED", "FILLED", "REJECTED", "EXPIRED"}
@@ -644,12 +644,12 @@ class MockBinanceState:
                 symbol = str(params.get("symbol") or "BTCUSDT").upper()
                 items = [
                     {
-                        "symbol": a.symbol,
-                        "algoId": a.algo_id,
-                        "clientAlgoId": a.client_algo_id,
-                        "status": a.status,
-                        "side": a.side,
-                        "positionSide": "BOTH",
+                        "symbol": a.symbol
+                        "algoId": a.algo_id
+                        "clientAlgoId": a.client_algo_id
+                        "status": a.status
+                        "side": a.side
+                        "positionSide": "BOTH"
                     }
                     for a in self.algo_orders.values()
                     if a.symbol == symbol and a.status not in {"CANCELED", "FILLED", "REJECTED", "EXPIRED"}
@@ -683,12 +683,12 @@ class MockBinanceState:
                         self.plain_order_by_client.pop(order.client_order_id, None)
                     return self._json_response(handler, int(post_error["status"]), post_error["payload"])
                 return self._json_response(handler, 200, {
-                    "symbol": order.symbol,
-                    "orderId": order.order_id,
-                    "clientOrderId": order.client_order_id,
-                    "status": order.status,
-                    "executedQty": f"{order.executed_qty}",
-                    "avgPrice": f"{order.avg_price}",
+                    "symbol": order.symbol
+                    "orderId": order.order_id
+                    "clientOrderId": order.client_order_id
+                    "status": order.status
+                    "executedQty": f"{order.executed_qty}"
+                    "avgPrice": f"{order.avg_price}"
                 })
 
             if path == "/fapi/v1/algoOrder" and method == "POST":
@@ -698,10 +698,10 @@ class MockBinanceState:
                     return self._json_response(handler, err["status"], err["payload"])
                 algo = self._new_algo_order(params)
                 return self._json_response(handler, 200, {
-                    "symbol": algo.symbol,
-                    "algoId": algo.algo_id,
-                    "clientAlgoId": algo.client_algo_id,
-                    "status": algo.status,
+                    "symbol": algo.symbol
+                    "algoId": algo.algo_id
+                    "clientAlgoId": algo.client_algo_id
+                    "status": algo.status
                 })
 
             if path == "/fapi/v1/order" and method == "GET":
@@ -725,10 +725,10 @@ class MockBinanceState:
                 if algo is None:
                     return self._json_response(handler, 404, {"code": -2013, "msg": "Algo order does not exist"})
                 return self._json_response(handler, 200, {
-                    "symbol": algo.symbol,
-                    "algoId": algo.algo_id,
-                    "clientAlgoId": algo.client_algo_id,
-                    "status": algo.status,
+                    "symbol": algo.symbol
+                    "algoId": algo.algo_id
+                    "clientAlgoId": algo.client_algo_id
+                    "status": algo.status
                 })
 
             # Plain order DELETE

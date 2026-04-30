@@ -54,10 +54,10 @@ class PersistenceManager:
             if self._pool is None:
                 logger.info(f"🔌 Initializing asyncpg pool for {self.dsn.split('@')[-1]}")
                 self._pool = await asyncpg.create_pool(
-                    self.dsn,
-                    min_size=2,
+                    self.dsn
+                    min_size=2
                     max_size=20,           # was 1000 — caused PG connection exhaustion
-                    max_inactive_connection_lifetime=300,
+                    max_inactive_connection_lifetime=300
                     timeout=60
                 )
         return self._pool
@@ -162,8 +162,8 @@ class PersistenceManager:
             INSERT INTO calibration_state (symbol, regime, kind, ts_ms, state_json, updated_at)
             VALUES ($1, $2, $3, $4, $5, now())
             ON CONFLICT (symbol, regime, kind) DO UPDATE SET
-                ts_ms = EXCLUDED.ts_ms,
-                state_json = EXCLUDED.state_json,
+                ts_ms = EXCLUDED.ts_ms
+                state_json = EXCLUDED.state_json
                 updated_at = now();
             """
             await pool.execute(sql, symbol, regime, kind, ts_ms, json.dumps(state))
@@ -198,13 +198,13 @@ class PersistenceManager:
                 self._flush_task = safe_create_task(self._flush_loop())
 
         args = (
-            symbol,
-            int(bar_data['ts_ms']),
-            float(bar_data['open']),
-            float(bar_data['high']),
-            float(bar_data['low']),
-            float(bar_data['close']),
-            float(bar_data['vol']),
+            symbol
+            int(bar_data['ts_ms'])
+            float(bar_data['open'])
+            float(bar_data['high'])
+            float(bar_data['low'])
+            float(bar_data['close'])
+            float(bar_data['vol'])
             float(bar_data['cvd'])
         )
         
@@ -243,11 +243,11 @@ class PersistenceManager:
             INSERT INTO market_daily_ohlc (symbol, date, open, high, low, close, volume, inserted_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, now())
             ON CONFLICT (symbol, date) DO UPDATE SET
-                open = EXCLUDED.open,
-                high = EXCLUDED.high,
-                low = EXCLUDED.low,
-                close = EXCLUDED.close,
-                volume = EXCLUDED.volume,
+                open = EXCLUDED.open
+                high = EXCLUDED.high
+                low = EXCLUDED.low
+                close = EXCLUDED.close
+                volume = EXCLUDED.volume
                 inserted_at = now();
             """
             await pool.execute(sql, symbol, date, o, h, l, c, v)

@@ -20,13 +20,13 @@ from prometheus_client import Counter, Gauge
 
 _DQ_BUCKET_ALLOWLIST = {
     # Contract buckets (alerting + dashboards)
-    "book_seq",
-    "tick_seq",
-    "gap_p95",
-    "data_health",
-    "other",
+    "book_seq"
+    "tick_seq"
+    "gap_p95"
+    "data_health"
+    "other"
     # internal / no-veto bucket (kept for safety)
-    "ok",
+    "ok"
 }
 
 
@@ -48,21 +48,21 @@ def sanitize_dq_bucket(bucket: str) -> str:
 
 # DQ gate level (0/1/2) emitted per symbol.
 dq_level_gauge = Gauge(
-    "dq_level",
-    "DQ gate severity level (0/1/2).",
-    labelnames=["symbol"],
+    "dq_level"
+    "DQ gate severity level (0/1/2)."
+    labelnames=["symbol"]
 )
 
 # DQ veto counter bucketed by primary DQ bucket.
 dq_veto_total = Counter(
-    "dq_veto_total",
-    "Number of times DQ gate applied veto (dq_veto==1).",
-    labelnames=["symbol", "bucket"],
+    "dq_veto_total"
+    "Number of times DQ gate applied veto (dq_veto==1)."
+    labelnames=["symbol", "bucket"]
 )
 
 # Tick-gap sample count used to gate alerting (min_samples).
 tick_gap_n_gauge = Gauge(
-    "tick_gap_n",
-    "Rolling sample count for tick_gap_pXX_ms trackers.",
-    labelnames=["symbol"],
+    "tick_gap_n"
+    "Rolling sample count for tick_gap_pXX_ms trackers."
+    labelnames=["symbol"]
 )

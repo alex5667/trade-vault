@@ -81,8 +81,8 @@ class ABWinnerSuggesterLCB:
             return RegimeThresholds(min_n=n, min_lcb_r=lr, min_lcb_wr=lwr, min_delta_lcb_vs_a=d, z=z)
 
         return {
-            "default": _th("DEFAULT", 200, 0.05, 0.45, 0.0),
-            "thin": _th("THIN", 100, 0.02, 0.40, 0.0),
+            "default": _th("DEFAULT", 200, 0.05, 0.45, 0.0)
+            "thin": _th("THIN", 100, 0.02, 0.40, 0.0)
         }
 
     async def _read_stats(self, symbol: str, regime: str, group: str, scenario: str) -> Dict[str, List[float]]:
@@ -145,15 +145,15 @@ class ABWinnerSuggesterLCB:
         latest_scn_key = f"cfg:suggestions:entry_policy:latest:ab_winner_scn:{symbol}:{regime}:{group}:{scenario}"
 
         meta = {
-            "sid": sid,
-            "ts_ms": _now_ms(),
-            "symbol": symbol,
-            "regime": regime,
-            "group": group,
-            "winner_arm": winner,
-            "scenario": scenario,
-            "type": "ab_winner_lcb_v2",
-            "decision": dec,
+            "sid": sid
+            "ts_ms": _now_ms()
+            "symbol": symbol
+            "regime": regime
+            "group": group
+            "winner_arm": winner
+            "scenario": scenario
+            "type": "ab_winner_lcb_v2"
+            "decision": dec
         }
         
         try:
@@ -172,12 +172,12 @@ class ABWinnerSuggesterLCB:
         thr_map = self._thr_map()
         
         dec = eval_winner_lcb(
-            samples_by_arm=samples,
-            regime=regime,
-            group=group,
-            scenario=scenario,
-            thr_by_regime=thr_map,
-            default_z=self.cfg.z,
+            samples_by_arm=samples
+            regime=regime
+            group=group
+            scenario=scenario
+            thr_by_regime=thr_map
+            default_z=self.cfg.z
         )
 
         if not dec.ok and dec.winner == "A":
@@ -198,17 +198,17 @@ class ABWinnerSuggesterLCB:
         n_clean = {k: int(v) for k, v in dec.n.items()}
 
         await self._propose(
-            symbol=symbol, regime=regime, group=group, scenario=scenario, winner=chosen,
+            symbol=symbol, regime=regime, group=group, scenario=scenario, winner=chosen
             dec={
-                "ok": int(dec.ok),
-                "raw_winner": dec.winner,
-                "reason": dec.reason,
-                "lcb_r": lcb_r_clean,
-                "lcb_wr": lcb_wr_clean,
-                "n": n_clean,
-                "baseline_a_lcb_r": float(dec.baseline_a_lcb_r),
-                "delta_lcb_vs_a": float(dec.delta_lcb_vs_a),
-                "z": float(self.cfg.z),
+                "ok": int(dec.ok)
+                "raw_winner": dec.winner
+                "reason": dec.reason
+                "lcb_r": lcb_r_clean
+                "lcb_wr": lcb_wr_clean
+                "n": n_clean
+                "baseline_a_lcb_r": float(dec.baseline_a_lcb_r)
+                "delta_lcb_vs_a": float(dec.delta_lcb_vs_a)
+                "z": float(self.cfg.z)
             }
         )
 
@@ -283,11 +283,11 @@ class ABWinnerSuggesterLCB:
             # 1. Read messages
             try:
                 msgs = await self.r.xreadgroup(
-                    groupname=self.cfg.group,
-                    consumername=self.cfg.consumer,
-                    streams={self.cfg.events_stream: ">"},
-                    count=self.cfg.read_count,
-                    block=self.cfg.read_block_ms,
+                    groupname=self.cfg.group
+                    consumername=self.cfg.consumer
+                    streams={self.cfg.events_stream: ">"}
+                    count=self.cfg.read_count
+                    block=self.cfg.read_block_ms
                 )
             except Exception:
                 msgs = []

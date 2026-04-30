@@ -55,30 +55,30 @@ class QF(IntEnum):
 
 # Human-readable codes (stable public surface), used ONLY in formatter/publisher.
 QF_STR: dict[int, str] = {
-    int(QF.L2_EMPTY): "l2.empty",
-    int(QF.L2_BAD_TOP): "l2.bad_top",
-    int(QF.L2_STALE): "l2.stale",
-    int(QF.L2_MISSING): "l2.missing",
-    int(QF.L3_MISSING_NEUTRAL): "l3.missing_neutral",
-    int(QF.GEO_MISSING_NEUTRAL): "geo.missing_neutral",
-    int(QF.HLC_FALLBACK): "hlc.fallback",
-    int(QF.SPREAD_TOO_WIDE): "spread.too_wide",
-    int(QF.SPREAD_SOFT_PENALTY): "spread.soft_penalty",
-    int(QF.SPREAD_HARD_VETO): "spread.hard_veto",
-    int(QF.NO_WALL): "wall.none",
-    int(QF.WALL_TOO_FAR): "wall.too_far",
-    int(QF.BO_L2_FAIL_CLOSED): "bo.l2.fail_closed",
-    int(QF.BO_FAKE_BREAKOUT_VETO): "bo.fake_breakout.veto",
-    int(QF.BO_CONTINUATION_PENALTY): "bo.continuation.penalty",
-    int(QF.AB_NEED_2OF2_VETO): "ab.need_2of2.veto",
-    int(QF.AB_LOW_TAKER_VETO): "ab.low_taker.veto",
-    int(QF.EXT_L2_MISSING_OR_STALE_PENALTY): "ext.l2.missing_or_stale.penalty",
-    int(QF.EXT_SPOOFY_MICRO_PENALTY): "ext.micro.spoofy.penalty",
-    int(QF.OBI_NOT_SUSTAINED_PENALTY): "obi.not_sustained.penalty",
-    int(QF.OBI_SPOOF_CANCEL_PENALTY): "obi.spoof.cancel.penalty",
-    int(QF.CONF_BELOW_MIN_VETO): "conf.below_min.veto",
-    int(QF.REASON_KIND_MISMATCH): "reason.kind_mismatch",
-    int(QF.REASON_LEGACY_MAPPED): "reason.legacy_mapped",
+    int(QF.L2_EMPTY): "l2.empty"
+    int(QF.L2_BAD_TOP): "l2.bad_top"
+    int(QF.L2_STALE): "l2.stale"
+    int(QF.L2_MISSING): "l2.missing"
+    int(QF.L3_MISSING_NEUTRAL): "l3.missing_neutral"
+    int(QF.GEO_MISSING_NEUTRAL): "geo.missing_neutral"
+    int(QF.HLC_FALLBACK): "hlc.fallback"
+    int(QF.SPREAD_TOO_WIDE): "spread.too_wide"
+    int(QF.SPREAD_SOFT_PENALTY): "spread.soft_penalty"
+    int(QF.SPREAD_HARD_VETO): "spread.hard_veto"
+    int(QF.NO_WALL): "wall.none"
+    int(QF.WALL_TOO_FAR): "wall.too_far"
+    int(QF.BO_L2_FAIL_CLOSED): "bo.l2.fail_closed"
+    int(QF.BO_FAKE_BREAKOUT_VETO): "bo.fake_breakout.veto"
+    int(QF.BO_CONTINUATION_PENALTY): "bo.continuation.penalty"
+    int(QF.AB_NEED_2OF2_VETO): "ab.need_2of2.veto"
+    int(QF.AB_LOW_TAKER_VETO): "ab.low_taker.veto"
+    int(QF.EXT_L2_MISSING_OR_STALE_PENALTY): "ext.l2.missing_or_stale.penalty"
+    int(QF.EXT_SPOOFY_MICRO_PENALTY): "ext.micro.spoofy.penalty"
+    int(QF.OBI_NOT_SUSTAINED_PENALTY): "obi.not_sustained.penalty"
+    int(QF.OBI_SPOOF_CANCEL_PENALTY): "obi.spoof.cancel.penalty"
+    int(QF.CONF_BELOW_MIN_VETO): "conf.below_min.veto"
+    int(QF.REASON_KIND_MISMATCH): "reason.kind_mismatch"
+    int(QF.REASON_LEGACY_MAPPED): "reason.legacy_mapped"
 }
 
 

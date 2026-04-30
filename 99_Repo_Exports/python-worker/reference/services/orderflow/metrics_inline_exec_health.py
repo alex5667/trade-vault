@@ -33,32 +33,32 @@ if Counter is None or Gauge is None:  # pragma: no cover
     inline_exec_edge_last_p95_bps = _Noop()
 else:
     inline_exec_rollup_updates_total = Counter(
-        "inline_exec_rollup_updates_total",
-        "Total inline execution-health rollup updates written by tca_worker.",
-        ["symbol", "side"],
+        "inline_exec_rollup_updates_total"
+        "Total inline execution-health rollup updates written by tca_worker."
+        ["symbol", "side"]
     )
     inline_exec_rollup_p95_bps = Gauge(
-        "inline_exec_rollup_p95_bps",
-        "Latest inline implementation shortfall p95 in bps.",
-        ["symbol", "side"],
+        "inline_exec_rollup_p95_bps"
+        "Latest inline implementation shortfall p95 in bps."
+        ["symbol", "side"]
     )
     inline_exec_rollup_count = Gauge(
-        "inline_exec_rollup_count",
-        "Latest bounded sample count for inline execution-health rollup.",
-        ["symbol", "side"],
+        "inline_exec_rollup_count"
+        "Latest bounded sample count for inline execution-health rollup."
+        ["symbol", "side"]
     )
     inline_exec_edge_tighten_total = Counter(
-        "inline_exec_edge_tighten_total",
-        "EdgeCostGate tighten decisions caused by inline execution-health.",
-        ["symbol", "side"],
+        "inline_exec_edge_tighten_total"
+        "EdgeCostGate tighten decisions caused by inline execution-health."
+        ["symbol", "side"]
     )
     inline_exec_edge_veto_total = Counter(
-        "inline_exec_edge_veto_total",
-        "EdgeCostGate veto decisions caused by inline execution-health.",
-        ["symbol", "side"],
+        "inline_exec_edge_veto_total"
+        "EdgeCostGate veto decisions caused by inline execution-health."
+        ["symbol", "side"]
     )
     inline_exec_edge_last_p95_bps = Gauge(
-        "inline_exec_edge_last_p95_bps",
-        "Latest inline execution-health p95 observed by EdgeCostGate.",
-        ["symbol", "side"],
+        "inline_exec_edge_last_p95_bps"
+        "Latest inline execution-health p95 observed by EdgeCostGate."
+        ["symbol", "side"]
     )

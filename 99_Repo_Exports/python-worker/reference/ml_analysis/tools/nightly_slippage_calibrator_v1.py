@@ -154,8 +154,8 @@ def _pg_connect(dsn: str):
 
 def _select_symbols(cur, *, view: str, lookback_days: int, max_syms: int) -> List[str]:
     q = f"""
-      select sym,
-             sum(size_usd) as usd,
+      select sym
+             sum(size_usd) as usd
              count(*) as n
       from {view}
       where ts > now() - (%s * interval '1 day')
@@ -199,10 +199,10 @@ def _fetch_rows(cur, *, view: str, sym: str, bucket: str, lookback_days: int, mi
 
 
 def _fit_k_bps(
-    rows: Sequence[Tuple[float, float, float]],
-    *,
-    cap_k_bps: float,
-    trim_q: float,
+    rows: Sequence[Tuple[float, float, float]]
+    *
+    cap_k_bps: float
+    trim_q: float
 ) -> Dict[str, Any]:
     ratios: List[float] = []
     for spread, imp, realized in rows:
@@ -223,12 +223,12 @@ def _fit_k_bps(
         ratios.append(float(r))
 
     res: Dict[str, Any] = {
-        "n_raw": int(len(rows)),
-        "n_used": int(len(ratios)),
-        "k_median_bps": None,
-        "k_p10_bps": None,
-        "k_p90_bps": None,
-        "k_trim_mean_bps": None,
+        "n_raw": int(len(rows))
+        "n_used": int(len(ratios))
+        "k_median_bps": None
+        "k_p10_bps": None
+        "k_p90_bps": None
+        "k_trim_mean_bps": None
     }
     if not ratios:
         return res
@@ -267,8 +267,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--max-syms", type=int, default=_env_int("SLIPPAGE_CALIBRATOR_MAX_SYMS", "10"))
 
     ap.add_argument(
-        "--buckets",
-        default=os.getenv("SLIPPAGE_CALIBRATOR_BUCKETS", "NORMAL,LOW_LIQ,HIGH_VOL,HIGH_VOL_LOW_LIQ"),
+        "--buckets"
+        default=os.getenv("SLIPPAGE_CALIBRATOR_BUCKETS", "NORMAL,LOW_LIQ,HIGH_VOL,HIGH_VOL_LOW_LIQ")
     )
 
     ap.add_argument("--min-n", type=int, default=_env_int("SLIPPAGE_CALIBRATOR_MIN_N", "120"))
@@ -284,18 +284,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--once", action="store_true", default=True)
 
     ap.add_argument(
-        "--status-path",
+        "--status-path"
         default=os.getenv(
-            "SLIPPAGE_CAL_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/stats/slippage_calibrator_status.json",
-        ),
+            "SLIPPAGE_CAL_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/stats/slippage_calibrator_status.json"
+        )
     )
     ap.add_argument(
-        "--report-path",
+        "--report-path"
         default=os.getenv(
-            "SLIPPAGE_CAL_REPORT_PATH",
-            "/var/lib/trade/of_reports/out/enforce/stats/slippage_calibrator_report.json",
-        ),
+            "SLIPPAGE_CAL_REPORT_PATH"
+            "/var/lib/trade/of_reports/out/enforce/stats/slippage_calibrator_report.json"
+        )
     )
 
     args = ap.parse_args(argv)
@@ -304,14 +304,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     t0 = time.time()
 
     status: Dict[str, Any] = {
-        "ts_ms": _now_ms(),
-        "stamp": stamp,
-        "ok": False,
-        "dry_run": bool(int(args.dry_run) == 1),
-        "lookback_days": int(args.lookback_days),
-        "min_n": int(args.min_n),
-        "view": str(args.view),
-        "error": "",
+        "ts_ms": _now_ms()
+        "stamp": stamp
+        "ok": False
+        "dry_run": bool(int(args.dry_run) == 1)
+        "lookback_days": int(args.lookback_days)
+        "min_n": int(args.min_n)
+        "view": str(args.view)
+        "error": ""
     }
 
     dsn = str(args.dsn or "").strip()
@@ -368,15 +368,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 0
 
         report: Dict[str, Any] = {
-            "ts_ms": status["ts_ms"],
-            "stamp": stamp,
-            "lookback_days": int(args.lookback_days),
-            "min_n": int(args.min_n),
-            "cap_k_bps": float(args.cap_k_bps),
-            "trim_q": float(args.trim_q),
-            "ema_alpha": float(args.ema_alpha),
-            "dry_run": bool(int(args.dry_run) == 1),
-            "items": [],
+            "ts_ms": status["ts_ms"]
+            "stamp": stamp
+            "lookback_days": int(args.lookback_days)
+            "min_n": int(args.min_n)
+            "cap_k_bps": float(args.cap_k_bps)
+            "trim_q": float(args.trim_q)
+            "ema_alpha": float(args.ema_alpha)
+            "dry_run": bool(int(args.dry_run) == 1)
+            "items": []
         }
 
         written = 0
@@ -385,20 +385,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         for sym in symbols:
             for b in buckets:
                 rows = _fetch_rows(
-                    cur,
-                    view=view,
-                    sym=sym,
-                    bucket=b,
-                    lookback_days=int(args.lookback_days),
-                    min_impact_proxy=float(args.min_impact_proxy),
+                    cur
+                    view=view
+                    sym=sym
+                    bucket=b
+                    lookback_days=int(args.lookback_days)
+                    min_impact_proxy=float(args.min_impact_proxy)
                 )
 
                 fit = _fit_k_bps(rows, cap_k_bps=float(args.cap_k_bps), trim_q=float(args.trim_q))
 
                 item: Dict[str, Any] = {
-                    "sym": sym,
-                    "bucket": b,
-                    **fit,
+                    "sym": sym
+                    "bucket": b
+                    **fit
                 }
 
                 k_med = fit.get("k_median_bps")

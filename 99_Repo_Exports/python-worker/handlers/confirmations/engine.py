@@ -23,7 +23,7 @@ class Validation:
     # -------------------------------------------------------------------------
     # outcome / коды решения
     #
-    # "reason_code/reason_u16" остаются SEMANTICALLY "veto reason" (если veto=True),
+    # "reason_code/reason_u16" остаются SEMANTICALLY "veto reason" (если veto=True)
     # чтобы не ломать существующие ожидания downstream.
     #
     # Для статистики/аналитики всегда заполняем decision_code/decision_u16:
@@ -120,8 +120,8 @@ class ConfirmationsEngine:
             return
         try:
             METRICS.inc(
-                "signals_veto_total",
-                labels={"kind": str(kind or "unknown"), "reason_code": str(reason_code), "ff_mask": str(int(ff_mask))},
+                "signals_veto_total"
+                labels={"kind": str(kind or "unknown"), "reason_code": str(reason_code), "ff_mask": str(int(ff_mask))}
             )
         except Exception:
             pass
@@ -144,17 +144,17 @@ class ConfirmationsEngine:
         return xf
 
     def _soft_penalties(
-        self,
-        *,
-        kind: str,
-        ctx: Any,
-        l2: Any,
+        self
+        *
+        kind: str
+        ctx: Any
+        l2: Any
         l3: Any
     ) -> tuple[float, list[tuple[str, float]], dict[str, float]]:
         """
         Возвращает:
-          conf_factor01 (после умножения всех мягких штрафов),
-          soft_hits: list[(reason_code, weight)],
+          conf_factor01 (после умножения всех мягких штрафов)
+          soft_hits: list[(reason_code, weight)]
           parts: float features для логов/отладки.
 
         ВАЖНО:
@@ -203,12 +203,12 @@ class ConfirmationsEngine:
         return Validation(False, c, list(flags), r, dict(parts), rc, u16)
 
     def validate(
-        self,
-        kind: str,
-        ctx: Any,
-        l2: Any,
-        l3: Any,
-        level_price: Optional[float],
+        self
+        kind: str
+        ctx: Any
+        l2: Any
+        l3: Any
+        level_price: Optional[float]
     ) -> Validation:
         k = (kind or "").lower()
         # ---- вывод стороны без изменения сигнатуры validate() ----
@@ -263,18 +263,18 @@ class ConfirmationsEngine:
             if spread_bps is not None and not math.isfinite(float(spread_bps)):
                 flags.append(int(QF.BAD_NUMERIC))
                 return self._veto(
-                    reason="spread_bps_non_finite",
-                    reason_code=ReasonCode.VETO_BAD_NUMERIC.value,
-                    flags=flags,
-                    parts=parts,
+                    reason="spread_bps_non_finite"
+                    reason_code=ReasonCode.VETO_BAD_NUMERIC.value
+                    flags=flags
+                    parts=parts
                 )
         except Exception:
             flags.append(int(QF.BAD_NUMERIC))
             return self._veto(
-                reason="spread_bps_bad_type",
-                reason_code=ReasonCode.VETO_BAD_NUMERIC.value,
-                flags=flags,
-                parts=parts,
+                reason="spread_bps_bad_type"
+                reason_code=ReasonCode.VETO_BAD_NUMERIC.value
+                flags=flags
+                parts=parts
             )
 
         # ---- политика fail-open/fail-closed L2 для каждого типа ----
@@ -287,44 +287,44 @@ class ConfirmationsEngine:
                 self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                 code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="bo_l2_missing", veto_reason_code=rc)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=[int(QF.BO_L2_FAIL_CLOSED)],
-                    reason="bo_l2_missing",
-                    parts=parts,
-                    reason_code=code,
-                    reason_u16=u16,
-                    decision_code=dcode,
-                    decision_u16=du16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=[int(QF.BO_L2_FAIL_CLOSED)]
+                    reason="bo_l2_missing"
+                    parts=parts
+                    reason_code=code
+                    reason_u16=u16
+                    decision_code=dcode
+                    decision_u16=du16
                 )
             if l2_stale:
                 rc = normalize_reason_code("VETO_L2_STALE")
                 self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                 code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="bo_l2_stale", veto_reason_code=rc)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=[int(QF.BO_L2_FAIL_CLOSED)],
-                    reason="bo_l2_stale",
-                    parts=parts,
-                    reason_code=code,
-                    reason_u16=u16,
-                    decision_code=dcode,
-                    decision_u16=du16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=[int(QF.BO_L2_FAIL_CLOSED)]
+                    reason="bo_l2_stale"
+                    parts=parts
+                    reason_code=code
+                    reason_u16=u16
+                    decision_code=dcode
+                    decision_u16=du16
                 )
             if self._breakout is None:
                 rc = normalize_reason_code("VETO_INTERNAL_ERROR")
                 code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="bo_validator_missing", veto_reason_code=rc)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=[int(QF.BO_L2_FAIL_CLOSED)],
-                    reason="bo_validator_missing",
-                    parts=parts,
-                    reason_code=code,
-                    reason_u16=u16,
-                    decision_code=dcode,
-                    decision_u16=du16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=[int(QF.BO_L2_FAIL_CLOSED)]
+                    reason="bo_validator_missing"
+                    parts=parts
+                    reason_code=code
+                    reason_u16=u16
+                    decision_code=dcode
+                    decision_u16=du16
                 )
             r = self._breakout.confirm(ctx=ctx, l2=l2, side=side_str, level_price=level_price)
             flags.extend(list(getattr(r, "flags", []) or []))
@@ -340,13 +340,13 @@ class ConfirmationsEngine:
                 u16 = int(getattr(r, "reason_u16", 0) or 0) or reason_u16(rc)
                 self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=flags,
-                    reason=(r.reasons[0] if r.reasons else "bo_l2_veto"),
-                    parts=parts,
-                    reason_code=rc,
-                    reason_u16=u16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=flags
+                    reason=(r.reasons[0] if r.reasons else "bo_l2_veto")
+                    parts=parts
+                    reason_code=rc
+                    reason_u16=u16
                 )
             l2_score = self._clamp01(getattr(r, "score01", 0.0))
             parts["l2_score01"] = l2_score
@@ -381,15 +381,15 @@ class ConfirmationsEngine:
                     self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                     code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="bo_l3_spoof_risk", veto_reason_code=rc)
                     return Validation(
-                        veto=True,
-                        conf_factor01=0.0,
-                        flags=flags,
-                        reason="bo_l3_spoof_risk",
-                        parts=parts,
-                        reason_code=code,
-                        reason_u16=u16,
-                        decision_code=dcode,
-                        decision_u16=du16,
+                        veto=True
+                        conf_factor01=0.0
+                        flags=flags
+                        reason="bo_l3_spoof_risk"
+                        parts=parts
+                        reason_code=code
+                        reason_u16=u16
+                        decision_code=dcode
+                        decision_u16=du16
                     )
 
             # Опционально: RegimeDetectorV2 veto (rollout через флаг)
@@ -406,15 +406,15 @@ class ConfirmationsEngine:
                     self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                     code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="bo_regime_range_v2", veto_reason_code=rc)
                     return Validation(
-                        veto=True,
-                        conf_factor01=0.0,
-                        flags=flags,
-                        reason="bo_regime_range_v2",
-                        parts=parts,
-                        reason_code=code,
-                        reason_u16=u16,
-                        decision_code=dcode,
-                        decision_u16=du16,
+                        veto=True
+                        conf_factor01=0.0
+                        flags=flags
+                        reason="bo_regime_range_v2"
+                        parts=parts
+                        reason_code=code
+                        reason_u16=u16
+                        decision_code=dcode
+                        decision_u16=du16
                     )
 
         # --- absorption ---
@@ -431,39 +431,39 @@ class ConfirmationsEngine:
                 self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                 code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="ab_l2_missing_or_stale", veto_reason_code=rc)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=[int(QF.L2_MISSING)],
-                    reason="ab_l2_missing_or_stale",
-                    parts=parts,
-                    reason_code=code,
-                    reason_u16=u16,
-                    decision_code=dcode,
-                    decision_u16=du16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=[int(QF.L2_MISSING)]
+                    reason="ab_l2_missing_or_stale"
+                    parts=parts
+                    reason_code=code
+                    reason_u16=u16
+                    decision_code=dcode
+                    decision_u16=du16
                 )
 
             if self._absorption is None:
                 rc = normalize_reason_code("VETO_INTERNAL_ERROR")
                 code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="ab_validator_missing", veto_reason_code=rc)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=[int(QF.L2_MISSING)],
-                    reason="ab_validator_missing",
-                    parts=parts,
-                    reason_code=code,
-                    reason_u16=u16,
-                    decision_code=dcode,
-                    decision_u16=du16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=[int(QF.L2_MISSING)]
+                    reason="ab_validator_missing"
+                    parts=parts
+                    reason_code=code
+                    reason_u16=u16
+                    decision_code=dcode
+                    decision_u16=du16
                 )
 
             # NOTE: absorption confirm может поддерживать строгий режим через kwarg (добавлено в этом патче).
             r = self._absorption.confirm(
-                ctx=ctx,
-                l2=l2,
-                level_price=float(level_price or 0.0),
-                side=str(getattr(ctx, "side", "buy")),
-                require_2ofn=require_2ofn,
+                ctx=ctx
+                l2=l2
+                level_price=float(level_price or 0.0)
+                side=str(getattr(ctx, "side", "buy"))
+                require_2ofn=require_2ofn
             )
             
             # Вмерживаем результаты валидатора
@@ -480,15 +480,15 @@ class ConfirmationsEngine:
                 self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                 code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason=(r.reasons[0] if r.reasons else "ab_l2_veto"), veto_reason_code=rc)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=flags,
-                    reason=(r.reasons[0] if r.reasons else "ab_l2_veto"),
-                    parts=parts,
-                    reason_code=code,
-                    reason_u16=u16,
-                    decision_code=dcode,
-                    decision_u16=du16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=flags
+                    reason=(r.reasons[0] if r.reasons else "ab_l2_veto")
+                    parts=parts
+                    reason_code=code
+                    reason_u16=u16
+                    decision_code=dcode
+                    decision_u16=du16
                 )
 
             conf = float(getattr(r, "score01", 0.5) or 0.5)
@@ -498,15 +498,15 @@ class ConfirmationsEngine:
                 self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
                 code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="conf_below_min_veto", veto_reason_code=rc)
                 return Validation(
-                    veto=True,
-                    conf_factor01=0.0,
-                    flags=flags,
-                    reason="conf_below_min_veto",
-                    parts=parts,
-                    reason_code=code,
-                    reason_u16=u16,
-                    decision_code=dcode,
-                    decision_u16=du16,
+                    veto=True
+                    conf_factor01=0.0
+                    flags=flags
+                    reason="conf_below_min_veto"
+                    parts=parts
+                    reason_code=code
+                    reason_u16=u16
+                    decision_code=dcode
+                    decision_u16=du16
                 )
 
             if METRICS is not None:
@@ -517,15 +517,15 @@ class ConfirmationsEngine:
             ok_rc = normalize_reason_code("OK")
             _, _, dcode, du16 = _finalize_decision(veto=False, veto_reason="", veto_reason_code="", soft_code="")
             return Validation(
-                veto=False,
-                conf_factor01=float(conf),
-                flags=flags,
-                reason="ok",
-                parts=parts,
-                reason_code=ok_rc,
-                reason_u16=reason_u16(ok_rc),
-                decision_code=dcode,
-                decision_u16=du16,
+                veto=False
+                conf_factor01=float(conf)
+                flags=flags
+                reason="ok"
+                parts=parts
+                reason_code=ok_rc
+                reason_u16=reason_u16(ok_rc)
+                decision_code=dcode
+                decision_u16=du16
             )
 
         # ---------------------------------------------------------------------
@@ -565,18 +565,18 @@ class ConfirmationsEngine:
             self._emit_veto_metric(kind=k, reason_code=rc, ff_mask=ff_mask)
             code, u16, dcode, du16 = _finalize_decision(veto=True, veto_reason="conf_below_min_veto", veto_reason_code=rc)
             return Validation(
-                veto=True,
-                conf_factor01=0.0,
-                flags=flags,
-                reason="conf_below_min_veto",
-                parts=parts,
-                reason_code=code,
-                reason_u16=u16,
-                decision_code=dcode,
-                decision_u16=du16,
-                soft_codes=(soft_codes if self._debug_soft_codes else []),
-                soft_u16s=soft_u16s,
-                soft16=soft16,
+                veto=True
+                conf_factor01=0.0
+                flags=flags
+                reason="conf_below_min_veto"
+                parts=parts
+                reason_code=code
+                reason_u16=u16
+                decision_code=dcode
+                decision_u16=du16
+                soft_codes=(soft_codes if self._debug_soft_codes else [])
+                soft_u16s=soft_u16s
+                soft16=soft16
             )
 
         # OK / SOFT результат
@@ -588,16 +588,16 @@ class ConfirmationsEngine:
         ok_rc = normalize_reason_code("OK")
         _, _, dcode, du16 = _finalize_decision(veto=False, veto_reason="", veto_reason_code="", soft_code="")
         return Validation(
-            veto=False,
-            conf_factor01=float(conf),
-            flags=flags,
-            reason="ok",
-            parts=parts,
-            reason_code=ok_rc,
-            reason_u16=reason_u16(ok_rc),
-            decision_code=dcode,
-            decision_u16=du16,
-            soft_codes=(soft_codes if self._debug_soft_codes else []),
-            soft_u16s=soft_u16s,
-            soft16=soft16,
+            veto=False
+            conf_factor01=float(conf)
+            flags=flags
+            reason="ok"
+            parts=parts
+            reason_code=ok_rc
+            reason_u16=reason_u16(ok_rc)
+            decision_code=dcode
+            decision_u16=du16
+            soft_codes=(soft_codes if self._debug_soft_codes else [])
+            soft_u16s=soft_u16s
+            soft16=soft16
         )

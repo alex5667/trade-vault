@@ -9,7 +9,7 @@ quarantine count and avg mismatch rate against configurable thresholds.
 If either threshold is exceeded, creates an Alertmanager silence for
 domain="risk-drift" alerts to suppress storm noise.
 
-Default mode is dry-run (RISK_DRIFT_AUTOSILENCE_DRY_RUN=1) — no API call is made,
+Default mode is dry-run (RISK_DRIFT_AUTOSILENCE_DRY_RUN=1) — no API call is made
 only the decision report is written.
 
 Environment variables
@@ -57,10 +57,10 @@ def _write_atomic(path: Path, payload: str) -> None:
 
 
 def decide_autosilence(
-    summary: Dict[str, Any],
-    *,
-    quarantine_threshold: int,
-    mismatch_rate_threshold: float,
+    summary: Dict[str, Any]
+    *
+    quarantine_threshold: int
+    mismatch_rate_threshold: float
 ) -> Dict[str, Any]:
     """Evaluate whether a silence should be triggered.
 
@@ -77,10 +77,10 @@ def decide_autosilence(
     )
     should = quarantine_count >= quarantine_threshold or max_avg_rate >= mismatch_rate_threshold
     return {
-        'should_silence': should,
-        'quarantine_count_24h': quarantine_count,
-        'max_avg_mismatch_rate_24h': max_avg_rate,
-        'reason': 'storm' if should else 'below_threshold',
+        'should_silence': should
+        'quarantine_count_24h': quarantine_count
+        'max_avg_mismatch_rate_24h': max_avg_rate
+        'reason': 'storm' if should else 'below_threshold'
     }
 
 
@@ -95,17 +95,17 @@ def create_silence(
     ends = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + duration_sec))
     payload = {
         'matchers': [
-            {'name': 'domain', 'value': 'risk-drift', 'isRegex': False},
-        ],
-        'startsAt': starts,
-        'endsAt': ends,
-        'createdBy': created_by,
-        'comment': comment,
+            {'name': 'domain', 'value': 'risk-drift', 'isRegex': False}
+        ]
+        'startsAt': starts
+        'endsAt': ends
+        'createdBy': created_by
+        'comment': comment
     }
     req = request.Request(
-        base_url.rstrip('/') + '/api/v2/silences',
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json'},
+        base_url.rstrip('/') + '/api/v2/silences'
+        data=json.dumps(payload).encode('utf-8')
+        headers={'Content-Type': 'application/json'}
     )
     with request.urlopen(req, timeout=10) as resp:  # nosec
         body = resp.read().decode('utf-8')
@@ -117,62 +117,62 @@ def main() -> int:
         description='Auto-silence repeated risk-drift mismatch storms in Alertmanager.'
     )
     parser.add_argument(
-        '--report-dir',
-        default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'),
+        '--report-dir'
+        default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports')
     )
     parser.add_argument(
-        '--alertmanager-url',
-        default=os.getenv('ALERTMANAGER_EXTERNAL_URL', 'http://alertmanager:9093'),
+        '--alertmanager-url'
+        default=os.getenv('ALERTMANAGER_EXTERNAL_URL', 'http://alertmanager:9093')
     )
     parser.add_argument(
-        '--quarantine-threshold',
-        type=int,
-        default=int(os.getenv('RISK_DRIFT_AUTOSILENCE_QUARANTINE_THRESHOLD', '10')),
+        '--quarantine-threshold'
+        type=int
+        default=int(os.getenv('RISK_DRIFT_AUTOSILENCE_QUARANTINE_THRESHOLD', '10'))
     )
     parser.add_argument(
-        '--mismatch-rate-threshold',
-        type=float,
-        default=float(os.getenv('RISK_DRIFT_AUTOSILENCE_MISMATCH_RATE_THRESHOLD', '0.20')),
+        '--mismatch-rate-threshold'
+        type=float
+        default=float(os.getenv('RISK_DRIFT_AUTOSILENCE_MISMATCH_RATE_THRESHOLD', '0.20'))
     )
     parser.add_argument(
-        '--duration-sec',
-        type=int,
-        default=int(os.getenv('RISK_DRIFT_AUTOSILENCE_DURATION_SEC', '3600')),
+        '--duration-sec'
+        type=int
+        default=int(os.getenv('RISK_DRIFT_AUTOSILENCE_DURATION_SEC', '3600'))
     )
     # Default dry-run=True unless explicitly disabled
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        default=os.getenv('RISK_DRIFT_AUTOSILENCE_DRY_RUN', '1') not in {'0', 'false', 'False'},
+        '--dry-run'
+        action='store_true'
+        default=os.getenv('RISK_DRIFT_AUTOSILENCE_DRY_RUN', '1') not in {'0', 'false', 'False'}
     )
     parser.add_argument(
-        '--out',
+        '--out'
         default=os.getenv(
-            'RISK_DRIFT_AUTOSILENCE_REPORT_PATH',
-            '/var/lib/trade-runbook/reports/latest_risk_drift_autosilence.json',
-        ),
+            'RISK_DRIFT_AUTOSILENCE_REPORT_PATH'
+            '/var/lib/trade-runbook/reports/latest_risk_drift_autosilence.json'
+        )
     )
     args = parser.parse_args()
 
     summary = _load_json(Path(args.report_dir) / 'latest_risk_mismatch_summary.json')
     decision = decide_autosilence(
-        summary,
-        quarantine_threshold=args.quarantine_threshold,
-        mismatch_rate_threshold=args.mismatch_rate_threshold,
+        summary
+        quarantine_threshold=args.quarantine_threshold
+        mismatch_rate_threshold=args.mismatch_rate_threshold
     )
     out: Dict[str, Any] = {
-        'generated_at_ms': get_ny_time_millis(),
-        **decision,
-        'dry_run': bool(args.dry_run),
+        'generated_at_ms': get_ny_time_millis()
+        **decision
+        'dry_run': bool(args.dry_run)
     }
 
     if decision['should_silence'] and not args.dry_run:
         try:
             out['silence'] = create_silence(
-                args.alertmanager_url,
-                args.duration_sec,
-                'trade-risk-drift-autosilence',
-                'Auto silence for repeated risk-drift mismatch storm',
+                args.alertmanager_url
+                args.duration_sec
+                'trade-risk-drift-autosilence'
+                'Auto silence for repeated risk-drift mismatch storm'
             )
         except Exception as exc:
             out['silence_error'] = str(exc)

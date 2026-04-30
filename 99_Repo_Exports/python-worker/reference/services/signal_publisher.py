@@ -77,14 +77,14 @@ class SignalPublisher:
     """
 
     def __init__(
-        self,
-        *,
-        redis_client: Any,
-        sinks: PublishSinks,
-        source: str,
-        metrics_prefix: str = "signals_publish",
-        logger: Any = None,
-        order_builder: Any = None,
+        self
+        *
+        redis_client: Any
+        sinks: PublishSinks
+        source: str
+        metrics_prefix: str = "signals_publish"
+        logger: Any = None
+        order_builder: Any = None
     ) -> None:
         self.r = redis_client
         self.sinks = sinks
@@ -144,10 +144,10 @@ class SignalPublisher:
         if self.sinks.raw_stream:
             try:
                 self.r.xadd(
-                    self.sinks.raw_stream,
-                    {"payload": ser},
-                    maxlen=int(self.sinks.raw_maxlen),
-                    approximate=True,
+                    self.sinks.raw_stream
+                    {"payload": ser}
+                    maxlen=int(self.sinks.raw_maxlen)
+                    approximate=True
                 )
                 raw_written = True
             except redis.exceptions.BusyLoadingError:
@@ -170,10 +170,10 @@ class SignalPublisher:
         if self.sinks.notify_stream:
             try:
                 self.r.xadd(
-                    self.sinks.notify_stream,
-                    {"payload": ser},
-                    maxlen=int(self.sinks.notify_maxlen),
-                    approximate=True,
+                    self.sinks.notify_stream
+                    {"payload": ser}
+                    maxlen=int(self.sinks.notify_maxlen)
+                    approximate=True
                 )
                 notify_written = True
             except redis.exceptions.BusyLoadingError:

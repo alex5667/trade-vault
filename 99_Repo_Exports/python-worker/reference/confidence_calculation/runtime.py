@@ -98,16 +98,16 @@ class BookSnapshot:
         depth_5_ask_vol = sum(q for _, q in ta)
 
         return BookSnapshot(
-            best_bid_px=float(best_bid_px),
-            best_bid_qty=float(best_bid_qty),
-            best_ask_px=float(best_ask_px),
-            best_ask_qty=float(best_ask_qty),
-            top5_bids=list(tb),
-            top5_asks=list(ta),
-            ts_ms=_safe_int(ts_ms),
-            spread_bps=float(spread_bps),
-            depth_5_bid_vol=float(depth_5_bid_vol),
-            depth_5_ask_vol=float(depth_5_ask_vol),
+            best_bid_px=float(best_bid_px)
+            best_bid_qty=float(best_bid_qty)
+            best_ask_px=float(best_ask_px)
+            best_ask_qty=float(best_ask_qty)
+            top5_bids=list(tb)
+            top5_asks=list(ta)
+            ts_ms=_safe_int(ts_ms)
+            spread_bps=float(spread_bps)
+            depth_5_bid_vol=float(depth_5_bid_vol)
+            depth_5_ask_vol=float(depth_5_ask_vol)
         )
 
 
@@ -155,7 +155,7 @@ from services.orderflow.metrics import (
     log_silent_error
 )
 from services.orderflow.utils import (
-    _dedup_seen_uid,
+    _dedup_seen_uid
     LogSampler, LogSamplerFactory
 )
 
@@ -197,10 +197,10 @@ from core.liquidity_regime import LiquidityRegimeService
 import redis.asyncio as aioredis
 
 from core.crypto_orderflow_detectors import (
-    AbsorptionDetector,
-    DeltaSpikeDetector,
-    IcebergDetector,
-    OBIDetector,
+    AbsorptionDetector
+    DeltaSpikeDetector
+    IcebergDetector
+    OBIDetector
 )
 from core.instrument_config import get_specs
 from services.l3_queue_events_proxy import L3QueueEventsProxy
@@ -222,8 +222,8 @@ logger = logging.getLogger("crypto_orderflow_service")
 # Настройка логирования
 log_level = os.getenv("CRYPTO_OF_LOG_LEVEL", "INFO")
 logging.basicConfig(
-    level=log_level,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=log_level
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 # Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
 # Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
@@ -631,12 +631,12 @@ class SymbolRuntime:
         self.burst = BurstCandidateSelector(window_ms=max(0, bw), max_age_ms=max(1000, ba))
         self.tick_gaps = TickGapTracker(window=int(self.config.get("tick_gap_window", 512)))
         self.burst_cal = BurstCalibrator(
-            base_window_ms=int(self.config.get("burst_window_ms", 2500)),
-            min_window_ms=int(self.config.get("burst_window_min_ms", 300)),
-            max_window_ms=int(self.config.get("burst_window_max_ms", 3000)),
-            base_max_age_ms=int(self.config.get("burst_max_age_ms", 8000)),
-            pressure_hi_per_min=float(self.config.get("pressure_hi_per_min", 60.0)),
-            pressure_extreme_per_min=float(self.config.get("pressure_extreme_per_min", 200.0)),
+            base_window_ms=int(self.config.get("burst_window_ms", 2500))
+            min_window_ms=int(self.config.get("burst_window_min_ms", 300))
+            max_window_ms=int(self.config.get("burst_window_max_ms", 3000))
+            base_max_age_ms=int(self.config.get("burst_max_age_ms", 8000))
+            pressure_hi_per_min=float(self.config.get("pressure_hi_per_min", 60.0))
+            pressure_extreme_per_min=float(self.config.get("pressure_extreme_per_min", 200.0))
         )
         
         # ATR sanity range aggregator (deterministic TF roll-up)
@@ -685,10 +685,10 @@ class SymbolRuntime:
         cand_raw = os.getenv("ATR_TF_CANDIDATES", "1m,5m,15m")
         cands = [x.strip() for x in str(cand_raw).split(",") if x.strip()]
         self.atr_tf_calib = ATRTfCalibrator(
-            candidates=cands,
-            min_atr_bps=float(os.getenv("ATR_TF_MIN_ATR_BPS", "0.10")),
-            max_atr_bps=float(os.getenv("ATR_TF_MAX_ATR_BPS", "500.0")),
-            max_jump_mult=float(os.getenv("ATR_TF_MAX_JUMP_MULT", "4.0")),
+            candidates=cands
+            min_atr_bps=float(os.getenv("ATR_TF_MIN_ATR_BPS", "0.10"))
+            max_atr_bps=float(os.getenv("ATR_TF_MAX_ATR_BPS", "500.0"))
+            max_jump_mult=float(os.getenv("ATR_TF_MAX_JUMP_MULT", "4.0"))
         )
 
         
@@ -713,11 +713,11 @@ class SymbolRuntime:
         # Adaptive DN threshold calibration with regime-awareness and hysteresis
         from core.pressure_tier_calibrator import PressureTierCalibrator
         self.ptier_calib = PressureTierCalibrator(
-            min_samples=int(self.config.get("ptier_min_samples", 300)),
-            window=int(self.config.get("ptier_window", 2000)),
-            recompute_gap_ms=int(self.config.get("ptier_recompute_gap_ms", 10_000)),
-            hold_ms=int(self.config.get("ptier_hold_ms", 60_000)),
-            max_jump_mult=float(self.config.get("ptier_max_jump_mult", 2.0)),
+            min_samples=int(self.config.get("ptier_min_samples", 300))
+            window=int(self.config.get("ptier_window", 2000))
+            recompute_gap_ms=int(self.config.get("ptier_recompute_gap_ms", 10_000))
+            hold_ms=int(self.config.get("ptier_hold_ms", 60_000))
+            max_jump_mult=float(self.config.get("ptier_max_jump_mult", 2.0))
         )
 
         # Delta Notional Calibrator (Classic/Legacy) - required for ensure_calibration_loaded
@@ -734,10 +734,10 @@ class SymbolRuntime:
         # --------------------------------------
         # from core.obi_stability_tracker import OBIStabilityTracker
         self.obi_tracker = OBIStabilityTracker(
-            window_ms=int(self.config.get("obi_stable_window_ms", 3000)),
-            threshold=float(self.config.get("obi_threshold", 0.25)),
-            deadband=float(self.config.get("obi_deadband", 0.05)),
-            grace_ms=int(self.config.get("obi_grace_ms", 250)),
+            window_ms=int(self.config.get("obi_stable_window_ms", 3000))
+            threshold=float(self.config.get("obi_threshold", 0.25))
+            deadband=float(self.config.get("obi_deadband", 0.05))
+            grace_ms=int(self.config.get("obi_grace_ms", 250))
         )
         self.obi_stable_secs = 0.0
         self.obi_stability_score = 0.0
@@ -748,19 +748,19 @@ class SymbolRuntime:
         # --------------------------------------
         # from core.weak_progress_detector import WeakProgressDetector
         self.weak_progress_det = WeakProgressDetector(
-            maxlen=int(self.config.get("weak_history_maxlen", 50)),
-            recent_window=int(self.config.get("weak_recent_window", 5)),
-            range_max_atr=float(self.config.get("weak_range_max_atr", 0.30)),
-            body_max_atr=float(self.config.get("weak_body_max_atr", 0.35)),
-            eff_max=float(self.config.get("weak_eff_max", 0.02)),
+            maxlen=int(self.config.get("weak_history_maxlen", 50))
+            recent_window=int(self.config.get("weak_recent_window", 5))
+            range_max_atr=float(self.config.get("weak_range_max_atr", 0.30))
+            body_max_atr=float(self.config.get("weak_body_max_atr", 0.35))
+            eff_max=float(self.config.get("weak_eff_max", 0.02))
         )
 
         # --------------------------------------
         # OFI tracker (best bid/ask incremental flow)
         # --------------------------------------
         self.ofi_tracker = OFIStabilityTracker(
-            window_ms=int(self.config.get("ofi_window_ms", 3000)),
-            z_window=int(self.config.get("ofi_z_window", 256)),
+            window_ms=int(self.config.get("ofi_window_ms", 3000))
+            z_window=int(self.config.get("ofi_z_window", 256))
         )
 
         # --------------------------------------
@@ -847,11 +847,11 @@ class SymbolRuntime:
         )
 
         self.how_scale = HourOfWeekScaleTracker(
-            alpha=float(os.getenv("HOW_SCALE_EMA_ALPHA", "0.02")),
-            clamp_low=float(os.getenv("HOW_SCALE_CLAMP_LOW", "0.5")),
-            clamp_high=float(os.getenv("HOW_SCALE_CLAMP_HIGH", "2.0")),
-            min_bucket_n=int(os.getenv("HOW_SCALE_MIN_BUCKET_N", "300")),
-            min_global_n=int(os.getenv("HOW_SCALE_MIN_GLOBAL_N", "2000")),
+            alpha=float(os.getenv("HOW_SCALE_EMA_ALPHA", "0.02"))
+            clamp_low=float(os.getenv("HOW_SCALE_CLAMP_LOW", "0.5"))
+            clamp_high=float(os.getenv("HOW_SCALE_CLAMP_HIGH", "2.0"))
+            min_bucket_n=int(os.getenv("HOW_SCALE_MIN_BUCKET_N", "300"))
+            min_global_n=int(os.getenv("HOW_SCALE_MIN_GLOBAL_N", "2000"))
         )
         self.last_dn_how_alert_ts_ms = 0
 
@@ -901,15 +901,15 @@ class SymbolRuntime:
             # from core.microbar import MicroBar
             for b_dict in bars:
                 mb = MicroBar(
-                    symbol=self.symbol,
-                    tf_ms=1000,
+                    symbol=self.symbol
+                    tf_ms=1000
                     start_ts_ms=int(b_dict['ts_ms']) - 1000, # Approximation for warmup
-                    end_ts_ms=int(b_dict['ts_ms']),
-                    open=float(b_dict['open']),
-                    high=float(b_dict['high']),
-                    low=float(b_dict['low']),
-                    close=float(b_dict['close']),
-                    vol=float(b_dict['vol']),
+                    end_ts_ms=int(b_dict['ts_ms'])
+                    open=float(b_dict['open'])
+                    high=float(b_dict['high'])
+                    low=float(b_dict['low'])
+                    close=float(b_dict['close'])
+                    vol=float(b_dict['vol'])
                     cvd_close=float(b_dict['cvd_close'])
                 )
                 # Feed to detectors
@@ -962,12 +962,12 @@ class SymbolRuntime:
                     self.cvd_state.redis = self.redis_client
             else:
                 self.cvd_state = TickCVDState(
-                    symbol=self.symbol,
-                    reset_mode=self.config.get("cvd_reset_mode", "day"),
-                    ema_period_delta=int(self.config.get("cvd_ema_period_delta", 10)),
-                    ema_period_cvd=int(self.config.get("cvd_ema_period_cvd", 20)),
-                    robust_window=int(self.config.get("cvd_robust_w", 500)),
-                    redis_client=getattr(self, "redis_client", None),
+                    symbol=self.symbol
+                    reset_mode=self.config.get("cvd_reset_mode", "day")
+                    ema_period_delta=int(self.config.get("cvd_ema_period_delta", 10))
+                    ema_period_cvd=int(self.config.get("cvd_ema_period_cvd", 20))
+                    robust_window=int(self.config.get("cvd_robust_w", 500))
+                    redis_client=getattr(self, "redis_client", None)
                 )
         except Exception as exc:
             # Fail-open
@@ -981,11 +981,11 @@ class SymbolRuntime:
                 self.microbar.apply_config(self.config)
             else:
                 self.microbar = MicroBarAggregator(
-                    symbol=self.symbol,
-                    mode=self.config.get("microbar_mode", "time"),
-                    tf_ms=int(self.config.get("microbar_tf_ms", 1000)),
-                    volume_target=float(self.config.get("microbar_volume_target", 0.0)),
-                    tick_size=float(self.config.get("tick_size", 0.0)),
+                    symbol=self.symbol
+                    mode=self.config.get("microbar_mode", "time")
+                    tf_ms=int(self.config.get("microbar_tf_ms", 1000))
+                    volume_target=float(self.config.get("microbar_volume_target", 0.0))
+                    tick_size=float(self.config.get("tick_size", 0.0))
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:microbar')
@@ -997,10 +997,10 @@ class SymbolRuntime:
                 self.swing.apply_config(self.config)
             else:
                 self.swing = SwingDetector(
-                    left=int(self.config.get("swing_left", 3)),
-                    right=int(self.config.get("swing_right", 3)),
-                    min_bp=float(self.config.get("swing_min_bp", 5.0)),
-                    min_range_bp=float(self.config.get("swing_min_range_bp", 1.0)),
+                    left=int(self.config.get("swing_left", 3))
+                    right=int(self.config.get("swing_right", 3))
+                    min_bp=float(self.config.get("swing_min_bp", 5.0))
+                    min_range_bp=float(self.config.get("swing_min_range_bp", 1.0))
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:swing')
@@ -1012,9 +1012,9 @@ class SymbolRuntime:
                 self.divergence.apply_config(self.config)
             else:
                 self.divergence = DivergenceEngine(
-                    min_strength=float(self.config.get("div_strength_min", 2.5)),
-                    min_price_bp=float(self.config.get("div_min_price_bp", 5.0)),
-                    require_bias_for_hidden=bool(self.config.get("div_require_bias_hidden", True)),
+                    min_strength=float(self.config.get("div_strength_min", 2.5))
+                    min_price_bp=float(self.config.get("div_min_price_bp", 5.0))
+                    require_bias_for_hidden=bool(self.config.get("div_require_bias_hidden", True))
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:divergence')
@@ -1036,9 +1036,9 @@ class SymbolRuntime:
                         z_thr = 3.0
 
                 self.delta_detector = DeltaSpikeDetector(
-                    window=int(self.config.get("delta_window", 120)),
-                    z_threshold=float(z_thr),
-                    min_abs_volume=float(self.config.get("delta_abs_min", 0.0)),
+                    window=int(self.config.get("delta_window", 120))
+                    z_threshold=float(z_thr)
+                    min_abs_volume=float(self.config.get("delta_abs_min", 0.0))
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:delta_detector')
@@ -1050,9 +1050,9 @@ class SymbolRuntime:
                 pass
             else:
                 self.obi_detector = OBIDetector(
-                    depth=int(self.config.get("obi_depth", 5)),
-                    threshold=float(self.config.get("obi_threshold", 0.4)),
-                    hold_secs=float(self.config.get("obi_hold_secs", 2.0)),
+                    depth=int(self.config.get("obi_depth", 5))
+                    threshold=float(self.config.get("obi_threshold", 0.4))
+                    hold_secs=float(self.config.get("obi_hold_secs", 2.0))
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:obi_detector')
@@ -1064,9 +1064,9 @@ class SymbolRuntime:
                 pass
             else:
                 self.absorption_detector = AbsorptionDetector(
-                    price_tolerance=self.config.get("absorption_price_tolerance", 0.0001),
-                    min_volume=self.config.get("absorption_min_volume", 10.0),
-                    window_sec=self.config.get("absorption_window_sec", 5.0),
+                    price_tolerance=self.config.get("absorption_price_tolerance", 0.0001)
+                    min_volume=self.config.get("absorption_min_volume", 10.0)
+                    window_sec=self.config.get("absorption_window_sec", 5.0)
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:absorption')
@@ -1078,8 +1078,8 @@ class SymbolRuntime:
                 pass
             else:
                 self.iceberg_detector = IcebergDetector(
-                    min_refresh=self.config.get("iceberg_refresh", 2),
-                    min_duration=self.config.get("iceberg_duration", 1.5),
+                    min_refresh=self.config.get("iceberg_refresh", 2)
+                    min_duration=self.config.get("iceberg_duration", 1.5)
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'apply_config:iceberg')
@@ -1159,8 +1159,8 @@ class SymbolRuntime:
                 pass
             else:
                 self.eq_pools = EQPoolTracker(
-                    mature_bars=int(self.config.get("pool_mature_bars", 60)),
-                    expiry_bars=int(self.config.get("pool_expiry_bars", 3600)),
+                    mature_bars=int(self.config.get("pool_mature_bars", 60))
+                    expiry_bars=int(self.config.get("pool_expiry_bars", 3600))
                 )
         except Exception as exc:
             log_silent_error(exc, 'init_failure', self.symbol, 'maybe_load_htf_zones:eq_pools_init')
@@ -1172,12 +1172,12 @@ class SymbolRuntime:
                 self.eq_pools.apply_config(self.config)
             else:
                 self.eq_pools = EQPoolTracker(
-                    symbol=self.symbol,
-                    eq_tol_bp=float(self.config.get("eq_tol_bp", 6.0)),
-                    eq_tol_atr_mult=float(self.config.get("eq_tol_atr_mult", 0.08)),
-                    eq_min_touches=int(self.config.get("eq_min_touches", 2)),
-                    eq_ttl_ms=int(self.config.get("eq_ttl_ms", 3_600_000)),
-                    eq_max_pools=int(self.config.get("eq_max_pools", 64)),
+                    symbol=self.symbol
+                    eq_tol_bp=float(self.config.get("eq_tol_bp", 6.0))
+                    eq_tol_atr_mult=float(self.config.get("eq_tol_atr_mult", 0.08))
+                    eq_min_touches=int(self.config.get("eq_min_touches", 2))
+                    eq_ttl_ms=int(self.config.get("eq_ttl_ms", 3_600_000))
+                    eq_max_pools=int(self.config.get("eq_max_pools", 64))
                 )
         except Exception as exc:
             log_silent_error(exc, 'config_parse_failure', self.symbol, 'maybe_load_htf_zones:eq_pools_config')
@@ -1189,9 +1189,9 @@ class SymbolRuntime:
                 self.sweep.apply_config(self.config)
             else:
                 self.sweep = SweepDetector(
-                    confirm_bars=int(self.config.get("sweep_confirm_bars", 3)),
-                    cooldown_ms=int(self.config.get("sweep_cooldown_ms", 60_000)),
-                    valid_ms=int(self.config.get("sweep_valid_ms", 120_000)),
+                    confirm_bars=int(self.config.get("sweep_confirm_bars", 3))
+                    cooldown_ms=int(self.config.get("sweep_cooldown_ms", 60_000))
+                    valid_ms=int(self.config.get("sweep_valid_ms", 120_000))
                 )
         except Exception:
             if not hasattr(self, "sweep"):
@@ -1203,8 +1203,8 @@ class SymbolRuntime:
                 self.reclaim.apply_config(self.config)
             else:
                 self.reclaim = ReclaimDetector(
-                    hold_bars=int(self.config.get("reclaim_hold_bars", 2)),
-                    valid_ms=int(self.config.get("reclaim_valid_ms", 120_000)),
+                    hold_bars=int(self.config.get("reclaim_hold_bars", 2))
+                    valid_ms=int(self.config.get("reclaim_valid_ms", 120_000))
                 )
         except Exception:
             if not hasattr(self, "reclaim"):
@@ -1215,8 +1215,8 @@ class SymbolRuntime:
                 self.fp_edge.apply_config(self.config)
             else:
                 self.fp_edge = FPEdgeAbsorbDetector(
-                    window_bars=int(self.config.get("fp_edge_window_bars", 1800)),
-                    refresh_every=int(self.config.get("fp_edge_refresh_every", 5)),
+                    window_bars=int(self.config.get("fp_edge_window_bars", 1800))
+                    refresh_every=int(self.config.get("fp_edge_refresh_every", 5))
                 )
         except Exception:
             if not hasattr(self, "fp_edge"):
@@ -1228,8 +1228,8 @@ class SymbolRuntime:
                 self.reclaim.apply_config(self.config)
             else:
                 self.reclaim = ReclaimDetector(
-                    hold_bars=int(self.config.get("reclaim_hold_bars", 2)),
-                    valid_ms=int(self.config.get("reclaim_valid_ms", 120_000)),
+                    hold_bars=int(self.config.get("reclaim_hold_bars", 2))
+                    valid_ms=int(self.config.get("reclaim_valid_ms", 120_000))
                 )
         except Exception:
             if not hasattr(self, "reclaim"):
@@ -1240,8 +1240,8 @@ class SymbolRuntime:
                 self.fp_edge.apply_config(self.config)
             else:
                 self.fp_edge = FPEdgeAbsorbDetector(
-                    window_bars=int(self.config.get("fp_edge_window_bars", 1800)),
-                    refresh_every=int(self.config.get("fp_edge_refresh_every", 5)),
+                    window_bars=int(self.config.get("fp_edge_window_bars", 1800))
+                    refresh_every=int(self.config.get("fp_edge_refresh_every", 5))
                 )
         except Exception:
             if not hasattr(self, "fp_edge"):

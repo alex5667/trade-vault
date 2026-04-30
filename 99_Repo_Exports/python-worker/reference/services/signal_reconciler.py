@@ -29,11 +29,11 @@ class SignalReconciler:
     def __init__(self) -> None:
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.redis = redis.from_url(
-            self.redis_url,
-            decode_responses=True,
-            socket_connect_timeout=5,
-            socket_timeout=15,
-            health_check_interval=0,
+            self.redis_url
+            decode_responses=True
+            socket_connect_timeout=5
+            socket_timeout=15
+            health_check_interval=0
         )
 
         self.replay_stream = os.getenv("SIGNAL_REPLAY_STREAM", "stream:signals:replay")
@@ -71,9 +71,9 @@ class SignalReconciler:
             return False
 
         payload = {
-            "sid": sid,
-            "reason": reason,
-            "ts_ms": _now_ms(),
+            "sid": sid
+            "reason": reason
+            "ts_ms": _now_ms()
         }
         try:
             self.redis.xadd(self.replay_stream, payload, maxlen=50000, approximate=True)
@@ -130,13 +130,13 @@ class SignalReconciler:
 
     def run(self) -> None:
         logger.info(
-            "SignalReconciler started redis=%s idx=%s replay=%s scan=%d stale_ms=%d poll=%.1fs",
-            self.redis_url,
-            self.journal.settings.index_key,
-            self.replay_stream,
-            self.scan_count,
-            self.stale_ms,
-            self.poll_sec,
+            "SignalReconciler started redis=%s idx=%s replay=%s scan=%d stale_ms=%d poll=%.1fs"
+            self.redis_url
+            self.journal.settings.index_key
+            self.replay_stream
+            self.scan_count
+            self.stale_ms
+            self.poll_sec
         )
         while True:
             try:

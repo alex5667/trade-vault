@@ -8,10 +8,10 @@ class TestOFInputsDLQDBArchiveParseP98(unittest.TestCase):
         stream = "stream:dlq:of_inputs"
         mid = "1700000000000-1"
         fields = {
-            b"stream": b"signals:of:inputs",
-            b"stream_id": b"1700000000000-9",
-            b"err": b"missing required field: microprice",
-            b"payload": b"{\"schema_version\":3,\"ts_ms\":1700000000000,\"symbol\":\"BTCUSDT\",\"dq_code\":\"missing_lob_fields\",\"missing_fields\":[\"microprice\",\"spread_bps\"]}",
+            b"stream": b"signals:of:inputs"
+            b"stream_id": b"1700000000000-9"
+            b"err": b"missing required field: microprice"
+            b"payload": b"{\"schema_version\":3,\"ts_ms\":1700000000000,\"symbol\":\"BTCUSDT\",\"dq_code\":\"missing_lob_fields\",\"missing_fields\":[\"microprice\",\"spread_bps\"]}"
         }
 
         row, last_id = parse_event(stream, mid, fields)
@@ -28,12 +28,12 @@ class TestOFInputsDLQDBArchiveParseP98(unittest.TestCase):
         stream = "quarantine:signals:of:inputs"
         mid = "1700000001000-1"
         fields = {
-            b"dq_code": b"book_state_degraded",
-            b"attempt_version": b"3",
-            b"published_version": b"2",
-            b"missing_fields": b"microprice,obi_l1",
-            b"ts_ms": b"1700000001000",
-            b"symbol": b"ETHUSDT",
+            b"dq_code": b"book_state_degraded"
+            b"attempt_version": b"3"
+            b"published_version": b"2"
+            b"missing_fields": b"microprice,obi_l1"
+            b"ts_ms": b"1700000001000"
+            b"symbol": b"ETHUSDT"
         }
 
         row, _ = parse_event(stream, mid, fields)

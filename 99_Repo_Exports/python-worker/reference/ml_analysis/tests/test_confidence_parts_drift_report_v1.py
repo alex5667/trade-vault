@@ -8,18 +8,18 @@ def test_drift_report_detects_shift():
     # 1708128000000 -> 2024-02-17
     for i in range(120):
         rows.append({
-            "ts_ms": 1708128000000 + i*1000,
-            "symbol": "BTCUSDT",
-            "indicators": {"confidence_parts": {"base": 0.50, "bonuses": 0.05}, "regime_class": "trend"},
+            "ts_ms": 1708128000000 + i*1000
+            "symbol": "BTCUSDT"
+            "indicators": {"confidence_parts": {"base": 0.50, "bonuses": 0.05}, "regime_class": "trend"}
         })
     # target day: 2024-02-18
     # 1708214400000 -> 2024-02-18
     for i in range(200):
         val = 0.80 if i < 150 else 0.82 # Shifted mean
         rows.append({
-            "ts_ms": 1708214400000 + i*1000,
-            "symbol": "BTCUSDT",
-            "indicators": {"confidence_parts": {"base": val, "bonuses": 0.05}, "regime_class": "trend"},
+            "ts_ms": 1708214400000 + i*1000
+            "symbol": "BTCUSDT"
+            "indicators": {"confidence_parts": {"base": val, "bonuses": 0.05}, "regime_class": "trend"}
         })
 
     rep = build_report(rows, group_by="symbol_regime", baseline_days=1, target_day=None, top_n=10)
@@ -47,8 +47,8 @@ def test_drift_report_detects_shift():
 
 def test_drift_report_grouping():
     rows = [
-        {"ts_ms": 1708128000000, "symbol": "BTC", "indicators": {"confidence_parts": {"x": 1}, "regime_class": "trend"}},
-        {"ts_ms": 1708128000000, "symbol": "ETH", "indicators": {"confidence_parts": {"x": 1}, "regime_class": "range"}},
+        {"ts_ms": 1708128000000, "symbol": "BTC", "indicators": {"confidence_parts": {"x": 1}, "regime_class": "trend"}}
+        {"ts_ms": 1708128000000, "symbol": "ETH", "indicators": {"confidence_parts": {"x": 1}, "regime_class": "range"}}
     ]
     rep = build_report(rows, group_by="symbol_regime")
     # Should have 2 groups

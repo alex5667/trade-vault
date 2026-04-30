@@ -30,12 +30,12 @@ def _chunks(text: str, limit: int = 3900) -> List[str]:
 
 
 def send_telegram_message(
-    *,
-    text: str,
-    parse_mode: str = "Markdown",
-    disable_web_page_preview: bool = True,
-    bot_token: Optional[str] = None,
-    chat_id: Optional[str] = None,
+    *
+    text: str
+    parse_mode: str = "Markdown"
+    disable_web_page_preview: bool = True
+    bot_token: Optional[str] = None
+    chat_id: Optional[str] = None
 ) -> bool:
     tok = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
     cid = chat_id or os.getenv("TELEGRAM_CHAT_ID", "")
@@ -48,14 +48,14 @@ def send_telegram_message(
         ok_any = False
         for part in _chunks(text, limit=3900):
             resp = requests.post(
-                url,
-                timeout=10,
+                url
+                timeout=10
                 json={
-                    "chat_id": cid,
-                    "text": part,
-                    "parse_mode": parse_mode,
-                    "disable_web_page_preview": bool(disable_web_page_preview),
-                },
+                    "chat_id": cid
+                    "text": part
+                    "parse_mode": parse_mode
+                    "disable_web_page_preview": bool(disable_web_page_preview)
+                }
             )
             ok_any = ok_any or bool(resp.ok)
         return ok_any

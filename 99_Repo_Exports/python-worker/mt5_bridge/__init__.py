@@ -2,7 +2,7 @@
 MT5 Bridge - Complete Execution Engine for Signals
 
 MT5-мост для автоматического исполнения сигналов из scanner_infra.
-Читает ExecutionPlan из Redis Streams, исполняет ордера в MT5,
+Читает ExecutionPlan из Redis Streams, исполняет ордера в MT5
 и публикует реальные результаты сделок обратно в Redis.
 
 Components:
@@ -56,13 +56,13 @@ except ImportError:
 
 __version__ = "1.0.0"
 __all__ = [
-    "Mt5ExecutionPlan",
-    "plan_from_dict",
-    "PlanExecutor",
-    "ActivePlanState",
-    "PlansStreamConsumer",
-    "ExecutionEvent",
-    "ExecEventsPublisher",
+    "Mt5ExecutionPlan"
+    "plan_from_dict"
+    "PlanExecutor"
+    "ActivePlanState"
+    "PlansStreamConsumer"
+    "ExecutionEvent"
+    "ExecEventsPublisher"
 ]
 
 # Add MT5 components only if available

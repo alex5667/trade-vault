@@ -4,9 +4,9 @@ from __future__ import annotations
 common/signal_metrics.py
 -----------------------
 Единая "точка правды" для метрик сигналов/вето, чтобы:
-  1) candidates_total учитывал и veto (до emitter), и sent (через emitter),
-  2) signals_veto имел реальную причину (reason) из ConfirmationsEngine,
-  3) защитные метрики (touch/spread/cooldown) работали даже когда veto происходит ДО emitter,
+  1) candidates_total учитывал и veto (до emitter), и sent (через emitter)
+  2) signals_veto имел реальную причину (reason) из ConfirmationsEngine
+  3) защитные метрики (touch/spread/cooldown) работали даже когда veto происходит ДО emitter
   4) всё было fail-open и не влияло на trading-path.
 
 ВАЖНО:
@@ -90,11 +90,11 @@ class SignalMetrics:
         try:
             if self._veto_reporter is not None:
                 self._veto_reporter.record(
-                    ctx=ctx,
-                    kind=str(kind or "unknown"),
-                    reason_norm=reason_norm,
-                    reason_family=str(fam or "unknown"),
-                    reason_raw=str(reason or ""),
+                    ctx=ctx
+                    kind=str(kind or "unknown")
+                    reason_norm=reason_norm
+                    reason_family=str(fam or "unknown")
+                    reason_raw=str(reason or "")
                 )
         except Exception:
             pass

@@ -3,7 +3,7 @@
 Crypto Futures OrderFlow Handler Service.
 
 Запускает OrderFlow-обработчики для нескольких криптосимволов, читая тики и книги
-из Redis Ticks, используя существующую инфраструктуру (BaseOrderFlowHandler,
+из Redis Ticks, используя существующую инфраструктуру (BaseOrderFlowHandler
 CryptoOrderFlowHandler, MultiSymbolOrderFlowService).
 
 Функциональность:

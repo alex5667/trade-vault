@@ -100,10 +100,10 @@ class WalkForwardResult:
 
 
 def make_expanding_folds(
-    n_items: int,
-    min_train: int,
-    test_size: int,
-    step: int,
+    n_items: int
+    min_train: int
+    test_size: int
+    step: int
 ) -> List[tuple[int, int, int, int]]:
     """
     Generate expanding-window fold indices.
@@ -133,10 +133,10 @@ def make_expanding_folds(
 
 
 def make_sliding_folds(
-    n_items: int,
-    train_size: int,
-    test_size: int,
-    step: int,
+    n_items: int
+    train_size: int
+    test_size: int
+    step: int
 ) -> List[tuple[int, int, int, int]]:
     """
     Generate sliding-window fold indices (fixed train size).
@@ -184,13 +184,13 @@ class WalkForwardCalibrator:
     """
 
     def __init__(
-        self,
-        min_train_trades: int = 100,
-        test_trades: int = 30,
-        step_trades: int = 20,
-        stability_threshold: float = 0.5,
-        min_oos_pf: float = 1.0,
-        min_folds_to_deploy: int = 2,
+        self
+        min_train_trades: int = 100
+        test_trades: int = 30
+        step_trades: int = 20
+        stability_threshold: float = 0.5
+        min_oos_pf: float = 1.0
+        min_folds_to_deploy: int = 2
         window_mode: str = "expanding",  # "expanding" | "sliding"
         sliding_train_size: int = 150,   # only used if window_mode="sliding"
     ) -> None:
@@ -204,12 +204,12 @@ class WalkForwardCalibrator:
         self.sliding_train_size = max(1, sliding_train_size)
 
     def run(
-        self,
-        trades: Sequence[Any],
-        param_candidates: List[float],
-        objective_fn: ObjectiveFn,
-        evaluate_fn: EvaluateFn,
-        symbol: str = "",
+        self
+        trades: Sequence[Any]
+        param_candidates: List[float]
+        objective_fn: ObjectiveFn
+        evaluate_fn: EvaluateFn
+        symbol: str = ""
     ) -> WalkForwardResult:
         """
         Execute walk-forward validation.
@@ -233,24 +233,24 @@ class WalkForwardCalibrator:
         # Generate fold indices
         if self.window_mode == "sliding":
             folds = make_sliding_folds(
-                n, self.sliding_train_size, self.test_trades, self.step_trades,
+                n, self.sliding_train_size, self.test_trades, self.step_trades
             )
         else:
             folds = make_expanding_folds(
-                n, self.min_train_trades, self.test_trades, self.step_trades,
+                n, self.min_train_trades, self.test_trades, self.step_trades
             )
 
         if not folds:
             logger.warning(
                 "[%s] WF: insufficient trades (%d) for walk-forward "
-                "(min_train=%d, test=%d)",
-                symbol, n, self.min_train_trades, self.test_trades,
+                "(min_train=%d, test=%d)"
+                symbol, n, self.min_train_trades, self.test_trades
             )
             return self._empty_result(symbol)
 
         logger.info(
-            "[%s] WF: %d trades, %d folds, %d candidates, mode=%s",
-            symbol, n, len(folds), len(param_candidates), self.window_mode,
+            "[%s] WF: %d trades, %d folds, %d candidates, mode=%s"
+            symbol, n, len(folds), len(param_candidates), self.window_mode
         )
 
         fold_results: List[OOSFoldResult] = []
@@ -271,8 +271,8 @@ class WalkForwardCalibrator:
                     score = objective_fn(train_slice, param)
                 except Exception as e:
                     logger.debug(
-                        "[%s] WF fold %d: objective_fn error for param=%.4f: %s",
-                        symbol, fold_idx, param, e,
+                        "[%s] WF fold %d: objective_fn error for param=%.4f: %s"
+                        symbol, fold_idx, param, e
                     )
                     score = -1e18
 
@@ -285,33 +285,33 @@ class WalkForwardCalibrator:
                 oos = evaluate_fn(test_slice, best_param)
             except Exception as e:
                 logger.warning(
-                    "[%s] WF fold %d: evaluate_fn error: %s", symbol, fold_idx, e,
+                    "[%s] WF fold %d: evaluate_fn error: %s", symbol, fold_idx, e
                 )
                 oos = OOSMetrics()
 
             fold_result = OOSFoldResult(
-                fold_idx=fold_idx,
-                train_start_idx=tr_start,
-                train_end_idx=tr_end,
-                test_start_idx=ts_start,
-                test_end_idx=ts_end,
-                best_param=best_param,
-                oos_sharpe=oos.sharpe,
-                oos_win_rate=oos.win_rate,
-                oos_profit_factor=oos.profit_factor,
-                oos_expectancy_r=oos.expectancy_r,
-                oos_n_trades=oos.n_trades,
-                oos_score=oos.score,
-                train_score=best_train_score,
+                fold_idx=fold_idx
+                train_start_idx=tr_start
+                train_end_idx=tr_end
+                test_start_idx=ts_start
+                test_end_idx=ts_end
+                best_param=best_param
+                oos_sharpe=oos.sharpe
+                oos_win_rate=oos.win_rate
+                oos_profit_factor=oos.profit_factor
+                oos_expectancy_r=oos.expectancy_r
+                oos_n_trades=oos.n_trades
+                oos_score=oos.score
+                train_score=best_train_score
             )
             fold_results.append(fold_result)
 
             logger.info(
                 "[%s] WF fold %d: param=%.4f, train_score=%.3f, "
-                "oos_sharpe=%.3f, oos_pf=%.3f, oos_wr=%.1f%%, oos_n=%d",
-                symbol, fold_idx, best_param, best_train_score,
-                oos.sharpe, oos.profit_factor,
-                oos.win_rate * 100, oos.n_trades,
+                "oos_sharpe=%.3f, oos_pf=%.3f, oos_wr=%.1f%%, oos_n=%d"
+                symbol, fold_idx, best_param, best_train_score
+                oos.sharpe, oos.profit_factor
+                oos.win_rate * 100, oos.n_trades
             )
 
         if not fold_results:
@@ -324,9 +324,9 @@ class WalkForwardCalibrator:
     # ------------------------------------------------------------------
 
     def _aggregate(
-        self,
-        symbol: str,
-        folds: List[OOSFoldResult],
+        self
+        symbol: str
+        folds: List[OOSFoldResult]
     ) -> WalkForwardResult:
         """Aggregate fold results into a single WalkForwardResult."""
 
@@ -368,34 +368,34 @@ class WalkForwardCalibrator:
             overfit_ratio = 0.0
 
         result = WalkForwardResult(
-            symbol=symbol,
-            robust_param=robust_param,
-            stability_score=round(stability_score, 4),
-            deploy=deploy,
-            n_folds=len(folds),
-            n_stable_folds=n_stable,
-            mean_oos_sharpe=round(mean_oos_sharpe, 4),
-            mean_oos_expectancy=round(mean_oos_exp, 4),
-            mean_train_score=round(mean_train, 4),
-            overfit_ratio=round(overfit_ratio, 4),
-            folds=folds,
+            symbol=symbol
+            robust_param=robust_param
+            stability_score=round(stability_score, 4)
+            deploy=deploy
+            n_folds=len(folds)
+            n_stable_folds=n_stable
+            mean_oos_sharpe=round(mean_oos_sharpe, 4)
+            mean_oos_expectancy=round(mean_oos_exp, 4)
+            mean_train_score=round(mean_train, 4)
+            overfit_ratio=round(overfit_ratio, 4)
+            folds=folds
         )
 
         logger.info(
             "[%s] WF result: robust_param=%.4f, stability=%.4f, "
-            "deploy=%s, folds=%d/%d stable, overfit_ratio=%.2f",
-            symbol, robust_param, stability_score,
-            deploy, n_stable, len(folds), overfit_ratio,
+            "deploy=%s, folds=%d/%d stable, overfit_ratio=%.2f"
+            symbol, robust_param, stability_score
+            deploy, n_stable, len(folds), overfit_ratio
         )
 
         return result
 
     def _empty_result(self, symbol: str) -> WalkForwardResult:
         return WalkForwardResult(
-            symbol=symbol,
-            robust_param=0.0,
-            stability_score=999.0,
-            deploy=False,
-            n_folds=0,
-            n_stable_folds=0,
+            symbol=symbol
+            robust_param=0.0
+            stability_score=999.0
+            deploy=False
+            n_folds=0
+            n_stable_folds=0
         )

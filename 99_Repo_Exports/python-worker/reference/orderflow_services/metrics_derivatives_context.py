@@ -36,82 +36,82 @@ def _get_or_create(name: str, ctor: Type[TCollector], documentation: str, labeln
 
 
 deriv_ctx_snapshot_age_ms = _get_or_create(
-    "deriv_ctx_snapshot_age_ms",
-    Histogram,
-    "Age of normalized derivatives context snapshot in milliseconds",
-    labelnames=("symbol",),
-    buckets=(250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000),
+    "deriv_ctx_snapshot_age_ms"
+    Histogram
+    "Age of normalized derivatives context snapshot in milliseconds"
+    labelnames=("symbol",)
+    buckets=(250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000)
 )
 
 deriv_ctx_funding_rate_z = _get_or_create(
-    "deriv_ctx_funding_rate_z",
-    Histogram,
-    "Funding-rate robust z-score from derivatives context",
-    labelnames=("symbol",),
-    buckets=(0.5, 1, 2, 3, 4, 5, 7, 10),
+    "deriv_ctx_funding_rate_z"
+    Histogram
+    "Funding-rate robust z-score from derivatives context"
+    labelnames=("symbol",)
+    buckets=(0.5, 1, 2, 3, 4, 5, 7, 10)
 )
 
 deriv_ctx_basis_bps = _get_or_create(
-    "deriv_ctx_basis_bps",
-    Histogram,
-    "Basis / premium in bps from derivatives context",
-    labelnames=("symbol",),
-    buckets=(1, 2, 4, 8, 12, 20, 30, 50, 80, 120),
+    "deriv_ctx_basis_bps"
+    Histogram
+    "Basis / premium in bps from derivatives context"
+    labelnames=("symbol",)
+    buckets=(1, 2, 4, 8, 12, 20, 30, 50, 80, 120)
 )
 
 deriv_ctx_oi_notional_usd = _get_or_create(
-    "deriv_ctx_oi_notional_usd",
-    Histogram,
-    "Open interest notional in USD from derivatives context",
-    labelnames=("symbol",),
-    buckets=(1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9),
+    "deriv_ctx_oi_notional_usd"
+    Histogram
+    "Open interest notional in USD from derivatives context"
+    labelnames=("symbol",)
+    buckets=(1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9)
 )
 
 deriv_ctx_gate_monitor_hit_total = _get_or_create(
-    "deriv_ctx_gate_monitor_hit_total",
-    Counter,
-    "Derivatives context gate hits (annotate/monitor)",
-    labelnames=("symbol", "profile"),
+    "deriv_ctx_gate_monitor_hit_total"
+    Counter
+    "Derivatives context gate hits (annotate/monitor)"
+    labelnames=("symbol", "profile")
 )
 
 deriv_ctx_gate_tighten_total = _get_or_create(
-    "deriv_ctx_gate_tighten_total",
-    Counter,
-    "Derivatives context tighten count",
-    labelnames=("symbol", "profile"),
+    "deriv_ctx_gate_tighten_total"
+    Counter
+    "Derivatives context tighten count"
+    labelnames=("symbol", "profile")
 )
 
 deriv_ctx_gate_veto_total = _get_or_create(
-    "deriv_ctx_gate_veto_total",
-    Counter,
-    "Derivatives context veto count",
-    labelnames=("symbol", "reason"),
+    "deriv_ctx_gate_veto_total"
+    Counter
+    "Derivatives context veto count"
+    labelnames=("symbol", "reason")
 )
 
 deriv_ctx_tighten_add_bps = _get_or_create(
-    "deriv_ctx_tighten_add_bps",
-    Histogram,
-    "Added slippage (bps) due to derivatives context crowding",
-    labelnames=("symbol",),
-    buckets=(0.25, 0.5, 1, 2, 3, 4, 6, 8, 10),
+    "deriv_ctx_tighten_add_bps"
+    Histogram
+    "Added slippage (bps) due to derivatives context crowding"
+    labelnames=("symbol",)
+    buckets=(0.25, 0.5, 1, 2, 3, 4, 6, 8, 10)
 )
 
 deriv_ctx_missing_total = _get_or_create(
-    "deriv_ctx_missing_total",
-    Counter,
-    "Derivatives context snapshot missing at signal publish time (key expired or collector down)",
-    labelnames=("symbol",),
+    "deriv_ctx_missing_total"
+    Counter
+    "Derivatives context snapshot missing at signal publish time (key expired or collector down)"
+    labelnames=("symbol",)
 )
 
 deriv_ctx_collector_up = _get_or_create(
-    "deriv_ctx_collector_up",
-    Gauge,
-    "Derivatives context collector liveness",
+    "deriv_ctx_collector_up"
+    Gauge
+    "Derivatives context collector liveness"
 )
 
 deriv_ctx_collector_errors_total = _get_or_create(
-    "deriv_ctx_collector_errors_total",
-    Counter,
-    "Derivatives context collector errors",
-    labelnames=("where",),
+    "deriv_ctx_collector_errors_total"
+    Counter
+    "Derivatives context collector errors"
+    labelnames=("where",)
 )

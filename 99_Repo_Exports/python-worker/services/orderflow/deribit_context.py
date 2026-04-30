@@ -85,16 +85,16 @@ async def aread_deribit_context(
     )
 
     return DeribitContextSnapshot(
-        schema_version=_i(obj.get("schema_version"), 1),
-        symbol=str(obj.get("symbol") or sym),
-        currency=str(obj.get("currency") or ""),
-        ts_ms=_i(obj.get("ts_ms")),
-        btc_options_oi_proxy=_f(obj.get("btc_options_oi_proxy")),
-        eth_options_oi_proxy=_f(obj.get("eth_options_oi_proxy")),
-        deribit_iv_proxy=iv_proxy,
-        deribit_iv_z=iv_z,
-        deribit_funding_8h=funding_8h,
-        deribit_perp_basis_bps=_f(obj.get("deribit_perp_basis_bps")),
-        btc_eth_vol_regime=str(obj.get("btc_eth_vol_regime") or "unknown"),
-        quality_status=str(obj.get("quality_status") or "UNKNOWN"),
+        schema_version=_i(obj.get("schema_version"), 1)
+        symbol=str(obj.get("symbol") or sym)
+        currency=str(obj.get("currency") or "")
+        ts_ms=_i(obj.get("ts_ms"))
+        btc_options_oi_proxy=_f(obj.get("btc_options_oi_proxy"))
+        eth_options_oi_proxy=_f(obj.get("eth_options_oi_proxy"))
+        deribit_iv_proxy=iv_proxy
+        deribit_iv_z=iv_z
+        deribit_funding_8h=funding_8h
+        deribit_perp_basis_bps=_f(obj.get("deribit_perp_basis_bps"))
+        btc_eth_vol_regime=str(obj.get("btc_eth_vol_regime") or "unknown")
+        quality_status=str(obj.get("quality_status") or "UNKNOWN")
     )

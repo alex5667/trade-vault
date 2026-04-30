@@ -159,35 +159,35 @@ def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "skip:no_ctx"
 
     row = {
-        "decision_ts_ms": decision_ts_ms,
-        "sid": sid,
-        "symbol": symbol,
-        "direction": str(evt.get("direction") or evt.get("side") or ""),
-        "session": str(evt.get("ctx_session") or evt.get("session") or ""),
-        "dow": _to_int(evt.get("ctx_dow") or evt.get("dow"), 0),
-        "hour_utc": _to_int(evt.get("ctx_hour_utc") or evt.get("hour_utc"), 0),
-        "scenario_v4": str(evt.get("scenario_v4") or ""),
-        "legacy_rule_score": _to_float(evt.get("of_score_final") or evt.get("raw_score") or evt.get("score"), 0.0),
-        "legacy_rule_ok": _to_bool(evt.get("ok"), False),
-        "legacy_reason": str(evt.get("reason") or ""),
-        "ctx_enabled": bool(ctx_enabled),
-        "ctx_mode": str(src.get("ctx_mode") or evt.get("ctx_mode") or "off"),
-        "ctx_key": str(src.get("ctx_key") or evt.get("ctx_key") or ""),
-        "ctx_bundle_ver": str(src.get("ctx_bundle_ver") or evt.get("ctx_bundle_ver") or ""),
-        "ctx_p_rule_raw": _to_float(src.get("ctx_p_rule_raw") if src.get("ctx_p_rule_raw") is not None else evt.get("ctx_p_rule_raw"), 0.0),
-        "ctx_p_rule_cal": _to_float(src.get("ctx_p_rule_cal") if src.get("ctx_p_rule_cal") is not None else evt.get("ctx_p_rule_cal"), 0.0),
-        "ctx_cost_p50_bps": _to_float(src.get("ctx_cost_p50_bps") if src.get("ctx_cost_p50_bps") is not None else evt.get("ctx_cost_p50_bps"), 0.0),
-        "ctx_cost_p90_bps": _to_float(src.get("ctx_cost_p90_bps") if src.get("ctx_cost_p90_bps") is not None else evt.get("ctx_cost_p90_bps"), 0.0),
-        "ctx_exec_risk_ref_bps": _to_float(src.get("ctx_exec_risk_ref_bps") if src.get("ctx_exec_risk_ref_bps") is not None else evt.get("ctx_exec_risk_ref_bps"), 0.0),
-        "ctx_edge_net_p50_bps": _to_float(src.get("ctx_edge_net_p50_bps") if src.get("ctx_edge_net_p50_bps") is not None else evt.get("ctx_edge_net_p50_bps"), 0.0),
-        "ctx_edge_net_p90_bps": _to_float(src.get("ctx_edge_net_p90_bps") if src.get("ctx_edge_net_p90_bps") is not None else evt.get("ctx_edge_net_p90_bps"), 0.0),
-        "ctx_decision": str(evt.get("ctx_decision") or ("allow" if _to_bool(src.get("ctx_allow") if src.get("ctx_allow") is not None else evt.get("ctx_allow"), False) else "deny")),
-        "ctx_reason": str(src.get("ctx_reason") or evt.get("ctx_reason") or ""),
-        "ctx_fallback_level": str(src.get("ctx_fallback_level") or evt.get("ctx_fallback_level") or ""),
-        "ctx_shadow_disagree": _to_bool(src.get("ctx_shadow_disagree") if src.get("ctx_shadow_disagree") is not None else evt.get("ctx_shadow_disagree"), False),
-        "ctx_infer_latency_us": _to_int(src.get("ctx_infer_latency_us") if src.get("ctx_infer_latency_us") is not None else evt.get("ctx_infer_latency_us"), 0),
-        "spread_bps_missing": _to_bool(evt.get("spread_bps_missing"), False),
-        "slippage_missing": _to_bool(evt.get("slippage_missing"), False),
+        "decision_ts_ms": decision_ts_ms
+        "sid": sid
+        "symbol": symbol
+        "direction": str(evt.get("direction") or evt.get("side") or "")
+        "session": str(evt.get("ctx_session") or evt.get("session") or "")
+        "dow": _to_int(evt.get("ctx_dow") or evt.get("dow"), 0)
+        "hour_utc": _to_int(evt.get("ctx_hour_utc") or evt.get("hour_utc"), 0)
+        "scenario_v4": str(evt.get("scenario_v4") or "")
+        "legacy_rule_score": _to_float(evt.get("of_score_final") or evt.get("raw_score") or evt.get("score"), 0.0)
+        "legacy_rule_ok": _to_bool(evt.get("ok"), False)
+        "legacy_reason": str(evt.get("reason") or "")
+        "ctx_enabled": bool(ctx_enabled)
+        "ctx_mode": str(src.get("ctx_mode") or evt.get("ctx_mode") or "off")
+        "ctx_key": str(src.get("ctx_key") or evt.get("ctx_key") or "")
+        "ctx_bundle_ver": str(src.get("ctx_bundle_ver") or evt.get("ctx_bundle_ver") or "")
+        "ctx_p_rule_raw": _to_float(src.get("ctx_p_rule_raw") if src.get("ctx_p_rule_raw") is not None else evt.get("ctx_p_rule_raw"), 0.0)
+        "ctx_p_rule_cal": _to_float(src.get("ctx_p_rule_cal") if src.get("ctx_p_rule_cal") is not None else evt.get("ctx_p_rule_cal"), 0.0)
+        "ctx_cost_p50_bps": _to_float(src.get("ctx_cost_p50_bps") if src.get("ctx_cost_p50_bps") is not None else evt.get("ctx_cost_p50_bps"), 0.0)
+        "ctx_cost_p90_bps": _to_float(src.get("ctx_cost_p90_bps") if src.get("ctx_cost_p90_bps") is not None else evt.get("ctx_cost_p90_bps"), 0.0)
+        "ctx_exec_risk_ref_bps": _to_float(src.get("ctx_exec_risk_ref_bps") if src.get("ctx_exec_risk_ref_bps") is not None else evt.get("ctx_exec_risk_ref_bps"), 0.0)
+        "ctx_edge_net_p50_bps": _to_float(src.get("ctx_edge_net_p50_bps") if src.get("ctx_edge_net_p50_bps") is not None else evt.get("ctx_edge_net_p50_bps"), 0.0)
+        "ctx_edge_net_p90_bps": _to_float(src.get("ctx_edge_net_p90_bps") if src.get("ctx_edge_net_p90_bps") is not None else evt.get("ctx_edge_net_p90_bps"), 0.0)
+        "ctx_decision": str(evt.get("ctx_decision") or ("allow" if _to_bool(src.get("ctx_allow") if src.get("ctx_allow") is not None else evt.get("ctx_allow"), False) else "deny"))
+        "ctx_reason": str(src.get("ctx_reason") or evt.get("ctx_reason") or "")
+        "ctx_fallback_level": str(src.get("ctx_fallback_level") or evt.get("ctx_fallback_level") or "")
+        "ctx_shadow_disagree": _to_bool(src.get("ctx_shadow_disagree") if src.get("ctx_shadow_disagree") is not None else evt.get("ctx_shadow_disagree"), False)
+        "ctx_infer_latency_us": _to_int(src.get("ctx_infer_latency_us") if src.get("ctx_infer_latency_us") is not None else evt.get("ctx_infer_latency_us"), 0)
+        "spread_bps_missing": _to_bool(evt.get("spread_bps_missing"), False)
+        "slippage_missing": _to_bool(evt.get("slippage_missing"), False)
     }
     return row, ""
 
@@ -212,15 +212,15 @@ class PgWriter:
             cur = conn.cursor()
             sql = (
                 "INSERT INTO ofc_contextual_decisions ("
-                "decision_ts_ms,sid,symbol,direction,session,dow,hour_utc,scenario_v4,"
-                "legacy_rule_score,legacy_rule_ok,legacy_reason,ctx_enabled,ctx_mode,ctx_key,ctx_bundle_ver,"
-                "ctx_p_rule_raw,ctx_p_rule_cal,ctx_cost_p50_bps,ctx_cost_p90_bps,ctx_exec_risk_ref_bps,"
-                "ctx_edge_net_p50_bps,ctx_edge_net_p90_bps,ctx_decision,ctx_reason,ctx_fallback_level,"
+                "decision_ts_ms,sid,symbol,direction,session,dow,hour_utc,scenario_v4"
+                "legacy_rule_score,legacy_rule_ok,legacy_reason,ctx_enabled,ctx_mode,ctx_key,ctx_bundle_ver"
+                "ctx_p_rule_raw,ctx_p_rule_cal,ctx_cost_p50_bps,ctx_cost_p90_bps,ctx_exec_risk_ref_bps"
+                "ctx_edge_net_p50_bps,ctx_edge_net_p90_bps,ctx_decision,ctx_reason,ctx_fallback_level"
                 "ctx_shadow_disagree,ctx_infer_latency_us,spread_bps_missing,slippage_missing) "
-                "VALUES (%(decision_ts_ms)s,%(sid)s,%(symbol)s,%(direction)s,%(session)s,%(dow)s,%(hour_utc)s,%(scenario_v4)s,"
-                "%(legacy_rule_score)s,%(legacy_rule_ok)s,%(legacy_reason)s,%(ctx_enabled)s,%(ctx_mode)s,%(ctx_key)s,%(ctx_bundle_ver)s,"
-                "%(ctx_p_rule_raw)s,%(ctx_p_rule_cal)s,%(ctx_cost_p50_bps)s,%(ctx_cost_p90_bps)s,%(ctx_exec_risk_ref_bps)s,"
-                "%(ctx_edge_net_p50_bps)s,%(ctx_edge_net_p90_bps)s,%(ctx_decision)s,%(ctx_reason)s,%(ctx_fallback_level)s,"
+                "VALUES (%(decision_ts_ms)s,%(sid)s,%(symbol)s,%(direction)s,%(session)s,%(dow)s,%(hour_utc)s,%(scenario_v4)s"
+                "%(legacy_rule_score)s,%(legacy_rule_ok)s,%(legacy_reason)s,%(ctx_enabled)s,%(ctx_mode)s,%(ctx_key)s,%(ctx_bundle_ver)s"
+                "%(ctx_p_rule_raw)s,%(ctx_p_rule_cal)s,%(ctx_cost_p50_bps)s,%(ctx_cost_p90_bps)s,%(ctx_exec_risk_ref_bps)s"
+                "%(ctx_edge_net_p50_bps)s,%(ctx_edge_net_p90_bps)s,%(ctx_decision)s,%(ctx_reason)s,%(ctx_fallback_level)s"
                 "%(ctx_shadow_disagree)s,%(ctx_infer_latency_us)s,%(spread_bps_missing)s,%(slippage_missing)s) "
                 "ON CONFLICT (decision_ts_ms, sid) DO UPDATE SET "
                 "ctx_mode=EXCLUDED.ctx_mode, ctx_bundle_ver=EXCLUDED.ctx_bundle_ver, ctx_p_rule_raw=EXCLUDED.ctx_p_rule_raw, "
@@ -254,18 +254,18 @@ class Cfg:
     def from_env() -> "Cfg":
         host = socket.gethostname()
         return Cfg(
-            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("OFC_CTX_DECISION_STREAM", _env("DECISIONS_FINAL_STREAM", "decisions:final")),
-            group=_env("OFC_CTX_DECISION_CG", "ofc_ctx_decision_writer"),
-            consumer=_env("OFC_CTX_DECISION_CONSUMER", f"{host}:{os.getpid()}"),
-            block_ms=_env_int("OFC_CTX_DECISION_BLOCK_MS", 5000),
-            count=_env_int("OFC_CTX_DECISION_COUNT", 128),
-            dlq_stream=_env("OFC_CTX_DECISION_DLQ_STREAM", "events:ofc_ctx_decision:dlq"),
-            dlq_maxlen=_env_int("OFC_CTX_DECISION_DLQ_MAXLEN", 200000),
-            batch_size=_env_int("OFC_CTX_DECISION_BATCH_SIZE", 200),
-            metrics_key=_env("OFC_CTX_DECISION_METRICS_KEY", "metrics:ofc_contextual_decision_writer"),
-            metrics_port=_env_int("OFC_CTX_DECISION_WRITER_METRICS_PORT", 9831),
-            fail_sleep_sec=_env_float("OFC_CTX_DECISION_FAIL_SLEEP_SEC", 1.0),
+            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+            stream=_env("OFC_CTX_DECISION_STREAM", _env("DECISIONS_FINAL_STREAM", "decisions:final"))
+            group=_env("OFC_CTX_DECISION_CG", "ofc_ctx_decision_writer")
+            consumer=_env("OFC_CTX_DECISION_CONSUMER", f"{host}:{os.getpid()}")
+            block_ms=_env_int("OFC_CTX_DECISION_BLOCK_MS", 5000)
+            count=_env_int("OFC_CTX_DECISION_COUNT", 128)
+            dlq_stream=_env("OFC_CTX_DECISION_DLQ_STREAM", "events:ofc_ctx_decision:dlq")
+            dlq_maxlen=_env_int("OFC_CTX_DECISION_DLQ_MAXLEN", 200000)
+            batch_size=_env_int("OFC_CTX_DECISION_BATCH_SIZE", 200)
+            metrics_key=_env("OFC_CTX_DECISION_METRICS_KEY", "metrics:ofc_contextual_decision_writer")
+            metrics_port=_env_int("OFC_CTX_DECISION_WRITER_METRICS_PORT", 9831)
+            fail_sleep_sec=_env_float("OFC_CTX_DECISION_FAIL_SLEEP_SEC", 1.0)
         )
 
 
@@ -286,9 +286,9 @@ async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
 async def _publish_dlq(r: Any, *, stream: str, payload: Dict[str, Any], reason: str, maxlen: int) -> None:
     try:
         body = {
-            "payload": json.dumps(payload, ensure_ascii=False),
-            "reason": str(reason),
-            "ts_ms": str(_now_ms()),
+            "payload": json.dumps(payload, ensure_ascii=False)
+            "reason": str(reason)
+            "ts_ms": str(_now_ms())
         }
         await r.xadd(stream, body, maxlen=maxlen, approximate=True)
     except Exception:
@@ -322,11 +322,11 @@ async def main() -> None:
     while True:
         try:
             res = await r.xreadgroup(
-                groupname=cfg.group,
-                consumername=cfg.consumer,
-                streams={cfg.stream: ">"},
-                count=cfg.count,
-                block=cfg.block_ms,
+                groupname=cfg.group
+                consumername=cfg.consumer
+                streams={cfg.stream: ">"}
+                count=cfg.count
+                block=cfg.block_ms
             )
             if not res:
                 try:
@@ -372,15 +372,15 @@ async def main() -> None:
                     metrics.last_ok.set(0)
                     logger.exception("ofc_contextual_decision_writer DB failure")
                     await _update_status(
-                        r,
-                        cfg.metrics_key,
+                        r
+                        cfg.metrics_key
                         {
-                            "last_run_ts_ms": _now_ms(),
-                            "last_ok": 0,
-                            "db_fail_total": 1,
-                            "last_error": last_error,
-                            "pending_count": len(ack_ids),
-                        },
+                            "last_run_ts_ms": _now_ms()
+                            "last_ok": 0
+                            "db_fail_total": 1
+                            "last_error": last_error
+                            "pending_count": len(ack_ids)
+                        }
                     )
                     await asyncio.sleep(cfg.fail_sleep_sec)
                     continue
@@ -394,17 +394,17 @@ async def main() -> None:
                 pending = 0
             metrics.pending_count.set(pending)
             await _update_status(
-                r,
-                cfg.metrics_key,
+                r
+                cfg.metrics_key
                 {
-                    "last_run_ts_ms": _now_ms(),
-                    "last_ok": 1,
-                    "last_batch_rows": written,
-                    "written_total": written,
-                    "dlq_total": dlq_count,
-                    "pending_count": pending,
-                    "last_error": last_error,
-                },
+                    "last_run_ts_ms": _now_ms()
+                    "last_ok": 1
+                    "last_batch_rows": written
+                    "written_total": written
+                    "dlq_total": dlq_count
+                    "pending_count": pending
+                    "last_error": last_error
+                }
             )
         except Exception:
             logger.exception("ofc_contextual_decision_writer loop failure")
@@ -414,7 +414,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level=os.getenv("LOG_LEVEL", "INFO").upper()
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     raise SystemExit(asyncio.run(main()))

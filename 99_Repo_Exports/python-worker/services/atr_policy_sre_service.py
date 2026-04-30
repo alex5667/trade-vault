@@ -42,8 +42,8 @@ logger = logging.getLogger(__name__)
 
 def _redis() -> redis.Redis:
     return redis.Redis.from_url(
-        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        decode_responses=True,
+        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        decode_responses=True
     )
 
 
@@ -70,8 +70,8 @@ g_pending_total = Gauge(
     "atr_policy_pending_total", "Pending policy proposals total"
 )
 g_pending_oldest_age_sec = Gauge(
-    "atr_policy_pending_oldest_age_sec",
-    "Oldest pending proposal age in seconds",
+    "atr_policy_pending_oldest_age_sec"
+    "Oldest pending proposal age in seconds"
 )
 g_decided_total = Gauge(
     "atr_policy_decided_queue_total", "Decided queue size"
@@ -80,12 +80,12 @@ g_active_total = Gauge(
     "atr_policy_active_total", "Active policy total"
 )
 g_approve_to_apply_p95_sec = Gauge(
-    "atr_policy_approve_to_apply_p95_sec",
-    "P95 approve->apply latency seconds",
+    "atr_policy_approve_to_apply_p95_sec"
+    "P95 approve->apply latency seconds"
 )
 g_proposal_to_decision_p95_sec = Gauge(
-    "atr_policy_proposal_to_decision_p95_sec",
-    "P95 proposal->decision latency seconds",
+    "atr_policy_proposal_to_decision_p95_sec"
+    "P95 proposal->decision latency seconds"
 )
 g_revoke_today_total = Gauge(
     "atr_policy_revoke_today_total", "Total revokes today"
@@ -94,25 +94,25 @@ g_flip_today_total = Gauge(
     "atr_policy_flip_today_total", "Total policy flips today"
 )
 g_confirm_expired_today_total = Gauge(
-    "atr_policy_confirm_expired_today_total",
-    "Expired confirm tokens today",
+    "atr_policy_confirm_expired_today_total"
+    "Expired confirm tokens today"
 )
 g_callback_denied_today_total = Gauge(
-    "atr_policy_callback_denied_today_total",
-    "Denied Telegram callbacks today",
+    "atr_policy_callback_denied_today_total"
+    "Denied Telegram callbacks today"
 )
 g_reconcile_last_success_age_sec = Gauge(
-    "atr_policy_reconcile_last_success_age_sec",
-    "Age since reconcile last success in seconds",
+    "atr_policy_reconcile_last_success_age_sec"
+    "Age since reconcile last success in seconds"
 )
 
 c_sre_loop_total = Counter(
     "atr_policy_sre_loop_total", "SRE service loop iterations"
 )
 c_sre_error_total = Counter(
-    "atr_policy_sre_error_total",
-    "SRE service collection errors",
-    ["stage"],
+    "atr_policy_sre_error_total"
+    "SRE service collection errors"
+    ["stage"]
 )
 
 # Phase 4 Metrics
@@ -188,17 +188,17 @@ def _pending_stats(r: redis.Redis) -> Dict[str, Any]:
             continue
 
     return {
-        "pending_total": len(ids),
+        "pending_total": len(ids)
         "pending_oldest_age_sec": (
             max(0, (now_ms - oldest_ms) // 1000) if oldest_ms > 0 else 0
-        ),
+        )
     }
 
 
 def _queue_stats(r: redis.Redis) -> Dict[str, Any]:
     return {
-        "decided_total": len(list(r.smembers("queue:atr_policy:decided") or [])),
-        "active_total": len(_scan_keys(r, "cfg:atr_policy:active:*")),
+        "decided_total": len(list(r.smembers("queue:atr_policy:decided") or []))
+        "active_total": len(_scan_keys(r, "cfg:atr_policy:active:*"))
     }
 
 
@@ -209,12 +209,12 @@ def _audit_stats(conn: "psycopg2.connection") -> Dict[str, Any]:
     Falls back gracefully if the table does not yet exist.
     """
     out: Dict[str, Any] = {
-        "proposal_to_decision_p95_sec": 0.0,
-        "approve_to_apply_p95_sec": 0.0,
-        "revoke_today_total": 0,
-        "flip_today_total": 0,
-        "confirm_expired_today_total": 0,
-        "callback_denied_today_total": 0,
+        "proposal_to_decision_p95_sec": 0.0
+        "approve_to_apply_p95_sec": 0.0
+        "revoke_today_total": 0
+        "flip_today_total": 0
+        "confirm_expired_today_total": 0
+        "callback_denied_today_total": 0
     }
 
     try:
@@ -269,7 +269,7 @@ def _audit_stats(conn: "psycopg2.connection") -> Dict[str, Any]:
                 SELECT
                     count(*) FILTER (
                         WHERE (decision_json->>'action') = 'REVOKE'
-                    ) AS revoke_today_total,
+                    ) AS revoke_today_total
                     count(*) FILTER (
                         WHERE (decision_json->>'action') IN ('APPROVE', 'REVOKE')
                     ) AS flip_today_total
@@ -311,9 +311,9 @@ def _runtime_stats(r: redis.Redis) -> Dict[str, Any]:
         pass
 
     return {
-        "reconcile_last_success_age_sec": reconcile_age,
-        "confirm_expired_today_total": confirm_expired,
-        "callback_denied_today_total": callback_denied,
+        "reconcile_last_success_age_sec": reconcile_age
+        "confirm_expired_today_total": confirm_expired
+        "callback_denied_today_total": callback_denied
     }
 
 def _drift_stats(r: redis.Redis) -> Dict[str, Any]:
@@ -323,12 +323,12 @@ def _drift_stats(r: redis.Redis) -> Dict[str, Any]:
     age = max(0, (now_ms - int(last_ts)) // 1000) if last_ts else 0
 
     return {
-        "drift_last_run_age_sec": age,
-        "drift_total": r.hgetall("atr_policy:metrics:drift_total") or {},
-        "repair_total": r.hgetall("atr_policy:metrics:repair_total") or {},
-        "checker_error_total": r.hgetall("atr_policy:metrics:checker_error_total") or {},
-        "extra_keys_total": r.hgetall("atr_policy:metrics:extra_keys_total") or {},
-        "orphan_queue_total": r.hgetall("atr_policy:metrics:orphan_queue_total") or {},
+        "drift_last_run_age_sec": age
+        "drift_total": r.hgetall("atr_policy:metrics:drift_total") or {}
+        "repair_total": r.hgetall("atr_policy:metrics:repair_total") or {}
+        "checker_error_total": r.hgetall("atr_policy:metrics:checker_error_total") or {}
+        "extra_keys_total": r.hgetall("atr_policy:metrics:extra_keys_total") or {}
+        "orphan_queue_total": r.hgetall("atr_policy:metrics:orphan_queue_total") or {}
     }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -400,14 +400,14 @@ def run_forever() -> None:
             logger.debug(
                 "atr_policy_sre_service: exported — pending=%d oldest_age=%ds"
                 " decided=%d active=%d p2d_p95=%.0fs a2a_p95=%.0fs"
-                " reconcile_age=%ds",
-                s["pending_total"],
-                s["pending_oldest_age_sec"],
-                s["decided_total"],
-                s["active_total"],
-                s["proposal_to_decision_p95_sec"],
-                s["approve_to_apply_p95_sec"],
-                s["reconcile_last_success_age_sec"],
+                " reconcile_age=%ds"
+                s["pending_total"]
+                s["pending_oldest_age_sec"]
+                s["decided_total"]
+                s["active_total"]
+                s["proposal_to_decision_p95_sec"]
+                s["approve_to_apply_p95_sec"]
+                s["reconcile_last_success_age_sec"]
             )
         except Exception as exc:
             logger.exception("atr_policy_sre_service: export_once failed: %s", exc)
@@ -417,7 +417,7 @@ def run_forever() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level=logging.INFO
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     run_forever()

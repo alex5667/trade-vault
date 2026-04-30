@@ -97,12 +97,12 @@ class L2ConfirmCfg:
             top_n = 50
 
         return cls(
-            top_n=top_n,
-            max_age_ms=b.max_age_ms,
-            min_total_notional=b.min_total_notional,
-            breakout_imbalance_min=b.breakout_imbalance_min,
-            absorption_imbalance_min=b.absorption_imbalance_min,
-            wall_dist_bps_max=b.wall_dist_bps_max,
+            top_n=top_n
+            max_age_ms=b.max_age_ms
+            min_total_notional=b.min_total_notional
+            breakout_imbalance_min=b.breakout_imbalance_min
+            absorption_imbalance_min=b.absorption_imbalance_min
+            wall_dist_bps_max=b.wall_dist_bps_max
         )
 
 
@@ -113,11 +113,11 @@ class L2ConfirmBreakout:
     """
 
     def __init__(
-        self,
-        *,
-        cfg: L2ConfirmCfg,
-        get_snapshot: Callable[[Any], Optional[L2Snapshot]],
-        get_snapshot_ts_ms: Callable[[Any], Optional[int]],
+        self
+        *
+        cfg: L2ConfirmCfg
+        get_snapshot: Callable[[Any], Optional[L2Snapshot]]
+        get_snapshot_ts_ms: Callable[[Any], Optional[int]]
     ) -> None:
         self.cfg = cfg
         self._get_snapshot = get_snapshot
@@ -140,9 +140,9 @@ class L2ConfirmBreakout:
 
     def check(self, ctx: Any, *, dir_up: bool) -> Tuple[bool, Dict[str, Any]]:
         details: Dict[str, Any] = {
-            "ok": False,
-            "dir_up": bool(dir_up),
-            "reason": "",
+            "ok": False
+            "dir_up": bool(dir_up)
+            "reason": ""
         }
 
         snap = self._get_snapshot(ctx)
@@ -214,11 +214,11 @@ class L2ConfirmAbsorption:
     """
 
     def __init__(
-        self,
-        *,
-        cfg: L2ConfirmCfg,
-        get_snapshot: Callable[[Any], Optional[L2Snapshot]],
-        get_snapshot_ts_ms: Callable[[Any], Optional[int]],
+        self
+        *
+        cfg: L2ConfirmCfg
+        get_snapshot: Callable[[Any], Optional[L2Snapshot]]
+        get_snapshot_ts_ms: Callable[[Any], Optional[int]]
     ) -> None:
         self.cfg = cfg
         self._get_snapshot = get_snapshot
@@ -239,9 +239,9 @@ class L2ConfirmAbsorption:
 
     def check(self, ctx: Any, *, dir_up: bool) -> Tuple[bool, Dict[str, Any]]:
         details: Dict[str, Any] = {
-            "ok": False,
-            "dir_up": bool(dir_up),
-            "reason": "",
+            "ok": False
+            "dir_up": bool(dir_up)
+            "reason": ""
         }
 
         snap = self._get_snapshot(ctx)

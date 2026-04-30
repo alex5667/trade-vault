@@ -62,14 +62,14 @@ class RiskCfgResolver:
         min_lock_r = float(pick("TRAILING_MIN_LOCK_R", 0.0))
 
         cfg: Dict[str, Any] = {
-            "STOP_MODE": stop_mode,
-            "STOP_ATR_MULT": stop_atr_mult,
-            "STOP_ATR_MULT_BASE": stop_atr_mult_base,
-            "STOP_PCT": stop_pct,
-            "STOP_POINTS": stop_points,
-            "TP_MODE": tp_mode,
-            "TP_RR": tp_rr,
-            "TP_ATR_MULTS": tp_atr_mults,
+            "STOP_MODE": stop_mode
+            "STOP_ATR_MULT": stop_atr_mult
+            "STOP_ATR_MULT_BASE": stop_atr_mult_base
+            "STOP_PCT": stop_pct
+            "STOP_POINTS": stop_points
+            "TP_MODE": tp_mode
+            "TP_RR": tp_rr
+            "TP_ATR_MULTS": tp_atr_mults
         }
         if str(trail_profile).strip():
             cfg["trail_profile"] = str(trail_profile).strip()

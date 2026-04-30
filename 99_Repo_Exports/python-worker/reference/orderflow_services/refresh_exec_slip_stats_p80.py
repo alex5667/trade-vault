@@ -72,19 +72,19 @@ def _connect_redis():
 
 def main() -> int:
     status_path = os.getenv(
-        "EXEC_SLIP_STATS_STATUS_PATH",
-        "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json",
+        "EXEC_SLIP_STATS_STATUS_PATH"
+        "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json"
     )
 
     if psycopg2 is None:
         _write_status(
-            status_path,
+            status_path
             {
-                "ok": False,
-                "ts_ms": _now_ms(),
-                "mv": os.getenv("EXEC_SLIP_STATS_MV", "mv_exec_slippage_eval_1h_stats"),
-                "error": "psycopg2_missing",
-            },
+                "ok": False
+                "ts_ms": _now_ms()
+                "mv": os.getenv("EXEC_SLIP_STATS_MV", "mv_exec_slippage_eval_1h_stats")
+                "error": "psycopg2_missing"
+            }
         )
         print("FATAL: psycopg2 not installed", file=sys.stderr)
         return 2
@@ -92,13 +92,13 @@ def main() -> int:
     dsn = os.getenv("ANALYTICS_DB_DSN") or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL")) or ""
     if not dsn:
         _write_status(
-            status_path,
+            status_path
             {
-                "ok": False,
-                "ts_ms": _now_ms(),
-                "mv": os.getenv("EXEC_SLIP_STATS_MV", "mv_exec_slippage_eval_1h_stats"),
-                "error": "missing_dsn",
-            },
+                "ok": False
+                "ts_ms": _now_ms()
+                "mv": os.getenv("EXEC_SLIP_STATS_MV", "mv_exec_slippage_eval_1h_stats")
+                "error": "missing_dsn"
+            }
         )
         print("FATAL: missing ANALYTICS_DB_DSN/DATABASE_URL", file=sys.stderr)
         return 2
@@ -127,14 +127,14 @@ def main() -> int:
     ts_ms = _now_ms()
 
     _write_status(
-        status_path,
+        status_path
         {
-            "ok": bool(ok),
-            "ts_ms": ts_ms,
-            "mv": mv,
-            "dur_ms": dur_ms,
-            "error": err[:200] if err else "",
-        },
+            "ok": bool(ok)
+            "ts_ms": ts_ms
+            "mv": mv
+            "dur_ms": dur_ms
+            "error": err[:200] if err else ""
+        }
     )
 
     r = _connect_redis()

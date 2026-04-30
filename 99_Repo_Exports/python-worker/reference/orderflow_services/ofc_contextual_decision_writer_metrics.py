@@ -52,53 +52,53 @@ def build_metrics() -> WriterMetrics:
 
         _METRICS = WriterMetrics(
             written_total=Counter(
-                "ofc_contextual_decision_writer_written_total",
-                "Rows successfully upserted into ofc_contextual_decisions.",
-            ),
+                "ofc_contextual_decision_writer_written_total"
+                "Rows successfully upserted into ofc_contextual_decisions."
+            )
             db_fail_total=Counter(
-                "ofc_contextual_decision_writer_db_fail_total",
-                "DB write failures for OFC contextual decision writer.",
-            ),
+                "ofc_contextual_decision_writer_db_fail_total"
+                "DB write failures for OFC contextual decision writer."
+            )
             processed_total=Counter(
-                "ofc_contextual_decision_writer_processed_total",
-                "Redis entries processed by OFC contextual decision writer.",
-            ),
+                "ofc_contextual_decision_writer_processed_total"
+                "Redis entries processed by OFC contextual decision writer."
+            )
             dlq_total=Counter(
-                "ofc_contextual_decision_writer_dlq_total",
-                "Entries sent to DLQ by OFC contextual decision writer.",
-                ["reason"],
-            ),
+                "ofc_contextual_decision_writer_dlq_total"
+                "Entries sent to DLQ by OFC contextual decision writer."
+                ["reason"]
+            )
             pending_count=Gauge(
-                "ofc_contextual_decision_writer_pending_count",
-                "Current pending entries in the OFC contextual decision writer consumer group.",
-            ),
+                "ofc_contextual_decision_writer_pending_count"
+                "Current pending entries in the OFC contextual decision writer consumer group."
+            )
             redis_lag_ms=Histogram(
-                "ofc_contextual_decision_writer_redis_lag_ms",
-                "Lag in ms from decision_ts_ms to writer processing time.",
-                buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000),
-            ),
+                "ofc_contextual_decision_writer_redis_lag_ms"
+                "Lag in ms from decision_ts_ms to writer processing time."
+                buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000)
+            )
             last_ok=Gauge(
-                "ofc_contextual_decision_writer_last_ok",
-                "1 if last OFC contextual decision writer batch succeeded, 0 otherwise.",
-            ),
+                "ofc_contextual_decision_writer_last_ok"
+                "1 if last OFC contextual decision writer batch succeeded, 0 otherwise."
+            )
             last_batch_rows=Gauge(
-                "ofc_contextual_decision_writer_last_batch_rows",
-                "Rows written in the last successful writer batch.",
-            ),
+                "ofc_contextual_decision_writer_last_batch_rows"
+                "Rows written in the last successful writer batch."
+            )
         )
         return _METRICS
     except Exception as e:
         logger.warning("prometheus_client not available, metrics disabled: %s", e)
         noop = _NoOp()
         _METRICS = WriterMetrics(
-            written_total=noop,
-            db_fail_total=noop,
-            processed_total=noop,
-            dlq_total=noop,
-            pending_count=noop,
-            redis_lag_ms=noop,
-            last_ok=noop,
-            last_batch_rows=noop,
+            written_total=noop
+            db_fail_total=noop
+            processed_total=noop
+            dlq_total=noop
+            pending_count=noop
+            redis_lag_ms=noop
+            last_ok=noop
+            last_batch_rows=noop
         )
         return _METRICS
 

@@ -206,17 +206,17 @@ class PgWriter:
         check_ddl = "SELECT 1 FROM information_schema.tables WHERE table_name = 'signal_confidence_scores'"
         ddl = """
         CREATE TABLE IF NOT EXISTS signal_confidence_scores (
-          stream_id TEXT NOT NULL,
-          ts_ms BIGINT NOT NULL,
-          ts TIMESTAMPTZ NOT NULL,
-          sid TEXT NOT NULL,
-          symbol TEXT NOT NULL,
-          schema_version INT NOT NULL,
-          producer TEXT NOT NULL,
-          confidence_raw DOUBLE PRECISION NOT NULL,
-          confidence_final DOUBLE PRECISION,
-          evidence_json JSONB NOT NULL,
-          context_json JSONB,
+          stream_id TEXT NOT NULL
+          ts_ms BIGINT NOT NULL
+          ts TIMESTAMPTZ NOT NULL
+          sid TEXT NOT NULL
+          symbol TEXT NOT NULL
+          schema_version INT NOT NULL
+          producer TEXT NOT NULL
+          confidence_raw DOUBLE PRECISION NOT NULL
+          confidence_final DOUBLE PRECISION
+          evidence_json JSONB NOT NULL
+          context_json JSONB
           PRIMARY KEY (stream_id, ts)
         );
         """
@@ -260,34 +260,34 @@ class PgWriter:
         """
         ddl_metrics = """
         CREATE TABLE IF NOT EXISTS of_gate_metrics (
-          stream_id TEXT NOT NULL,
-          ts_ms BIGINT NOT NULL,
-          ts TIMESTAMPTZ NOT NULL,
-          symbol TEXT NOT NULL,
-          scenario_v4 TEXT NOT NULL,
-          schema_version INT NOT NULL,
-          ok SMALLINT NOT NULL,
-          ok_soft SMALLINT NOT NULL,
-          missing_legs JSONB,
-          reason_code TEXT NOT NULL,
-          payload_json JSONB NOT NULL,
+          stream_id TEXT NOT NULL
+          ts_ms BIGINT NOT NULL
+          ts TIMESTAMPTZ NOT NULL
+          symbol TEXT NOT NULL
+          scenario_v4 TEXT NOT NULL
+          schema_version INT NOT NULL
+          ok SMALLINT NOT NULL
+          ok_soft SMALLINT NOT NULL
+          missing_legs JSONB
+          reason_code TEXT NOT NULL
+          payload_json JSONB NOT NULL
           PRIMARY KEY (stream_id, ts)
         );
         """
         ddl_q = """
         CREATE TABLE IF NOT EXISTS of_gate_metrics_quarantine (
-          stream_id TEXT NOT NULL,
-          ts_ms BIGINT NOT NULL,
-          ts TIMESTAMPTZ NOT NULL,
-          source_stream TEXT NOT NULL,
-          symbol TEXT,
-          scenario_v4 TEXT,
-          schema_version INT,
-          ok SMALLINT,
-          ok_soft SMALLINT,
-          dq_code TEXT NOT NULL,
-          err TEXT,
-          payload_json JSONB NOT NULL,
+          stream_id TEXT NOT NULL
+          ts_ms BIGINT NOT NULL
+          ts TIMESTAMPTZ NOT NULL
+          source_stream TEXT NOT NULL
+          symbol TEXT
+          scenario_v4 TEXT
+          schema_version INT
+          ok SMALLINT
+          ok_soft SMALLINT
+          dq_code TEXT NOT NULL
+          err TEXT
+          payload_json JSONB NOT NULL
           PRIMARY KEY (stream_id, ts)
         );
         """
@@ -371,14 +371,14 @@ class PgWriter:
             CREATE MATERIALIZED VIEW IF NOT EXISTS of_gate_ok_rate_5m
             WITH (timescaledb.continuous) AS
             SELECT
-              time_bucket('5 minutes', ts) AS bucket,
-              symbol,
-              scenario_v4,
-              count(*)::bigint AS eligible_count,
-              sum(ok)::bigint AS ok_hard_count,
-              sum(ok_soft)::bigint AS ok_soft_count,
-              CASE WHEN count(*) = 0 THEN NULL ELSE (sum(ok)::numeric / count(*)::numeric) END AS ok_rate_strict,
-              CASE WHEN count(*) = 0 THEN NULL ELSE ((sum(ok)+sum(ok_soft))::numeric / count(*)::numeric) END AS ok_rate_soft,
+              time_bucket('5 minutes', ts) AS bucket
+              symbol
+              scenario_v4
+              count(*)::bigint AS eligible_count
+              sum(ok)::bigint AS ok_hard_count
+              sum(ok_soft)::bigint AS ok_soft_count
+              CASE WHEN count(*) = 0 THEN NULL ELSE (sum(ok)::numeric / count(*)::numeric) END AS ok_rate_strict
+              CASE WHEN count(*) = 0 THEN NULL ELSE ((sum(ok)+sum(ok_soft))::numeric / count(*)::numeric) END AS ok_rate_soft
               CASE WHEN (sum(ok)+sum(ok_soft)) = 0 THEN NULL ELSE (sum(ok_soft)::numeric / (sum(ok)+sum(ok_soft))::numeric) END AS soft_share
             FROM of_gate_metrics
             GROUP BY 1,2,3;
@@ -393,14 +393,14 @@ class PgWriter:
             CREATE MATERIALIZED VIEW IF NOT EXISTS of_gate_ok_rate_1h
             WITH (timescaledb.continuous) AS
             SELECT
-              time_bucket('1 hour', ts) AS bucket,
-              symbol,
-              scenario_v4,
-              count(*)::bigint AS eligible_count,
-              sum(ok)::bigint AS ok_hard_count,
-              sum(ok_soft)::bigint AS ok_soft_count,
-              CASE WHEN count(*) = 0 THEN NULL ELSE (sum(ok)::numeric / count(*)::numeric) END AS ok_rate_strict,
-              CASE WHEN count(*) = 0 THEN NULL ELSE ((sum(ok)+sum(ok_soft))::numeric / count(*)::numeric) END AS ok_rate_soft,
+              time_bucket('1 hour', ts) AS bucket
+              symbol
+              scenario_v4
+              count(*)::bigint AS eligible_count
+              sum(ok)::bigint AS ok_hard_count
+              sum(ok_soft)::bigint AS ok_soft_count
+              CASE WHEN count(*) = 0 THEN NULL ELSE (sum(ok)::numeric / count(*)::numeric) END AS ok_rate_strict
+              CASE WHEN count(*) = 0 THEN NULL ELSE ((sum(ok)+sum(ok_soft))::numeric / count(*)::numeric) END AS ok_rate_soft
               CASE WHEN (sum(ok)+sum(ok_soft)) = 0 THEN NULL ELSE (sum(ok_soft)::numeric / (sum(ok)+sum(ok_soft))::numeric) END AS soft_share
             FROM of_gate_metrics
             GROUP BY 1,2,3;
@@ -447,16 +447,16 @@ class PgWriter:
         """Create of_gate_metrics and of_gate_metrics_quarantine tables (+ hypertables if Timescale present)."""
         ddl = """
         CREATE TABLE IF NOT EXISTS of_gate_metrics (
-          stream_id TEXT PRIMARY KEY,
-          ts_ms BIGINT NOT NULL,
-          ts TIMESTAMPTZ NOT NULL,
-          symbol TEXT NOT NULL,
-          schema_version INT NOT NULL DEFAULT 1,
-          scenario_v4 TEXT NOT NULL DEFAULT 'unknown',
-          ok INT NOT NULL DEFAULT 0,
-          ok_soft INT NOT NULL DEFAULT 0,
-          reason_code TEXT NOT NULL DEFAULT 'na',
-          missing_legs JSONB,
+          stream_id TEXT PRIMARY KEY
+          ts_ms BIGINT NOT NULL
+          ts TIMESTAMPTZ NOT NULL
+          symbol TEXT NOT NULL
+          schema_version INT NOT NULL DEFAULT 1
+          scenario_v4 TEXT NOT NULL DEFAULT 'unknown'
+          ok INT NOT NULL DEFAULT 0
+          ok_soft INT NOT NULL DEFAULT 0
+          reason_code TEXT NOT NULL DEFAULT 'na'
+          missing_legs JSONB
           payload_json JSONB NOT NULL
         );
         CREATE INDEX IF NOT EXISTS of_gate_metrics_symbol_ts_idx
@@ -466,13 +466,13 @@ class PgWriter:
         """
         ddl_q = """
         CREATE TABLE IF NOT EXISTS of_gate_metrics_quarantine (
-          stream_id TEXT PRIMARY KEY,
-          ts_ms BIGINT NOT NULL,
-          ts TIMESTAMPTZ NOT NULL,
-          src_stream TEXT,
-          src_stream_id TEXT,
-          dq_code TEXT,
-          err TEXT,
+          stream_id TEXT PRIMARY KEY
+          ts_ms BIGINT NOT NULL
+          ts TIMESTAMPTZ NOT NULL
+          src_stream TEXT
+          src_stream_id TEXT
+          dq_code TEXT
+          err TEXT
           payload_json JSONB
         );
         CREATE INDEX IF NOT EXISTS of_gate_metrics_quarantine_ts_idx
@@ -497,11 +497,11 @@ class PgWriter:
             return 0
         sql = """
         INSERT INTO entry_policy_audit (
-          stream_id, ts_ms, ts,
-          sid, symbol, tf, strategy, source,
-          decision, arm, ab_group, scenario, regime,
-          of_confirm_score, coh, leader_conf,
-          spread_z, pressure_sps, obi_age_ms,
+          stream_id, ts_ms, ts
+          sid, symbol, tf, strategy, source
+          decision, arm, ab_group, scenario, regime
+          of_confirm_score, coh, leader_conf
+          spread_z, pressure_sps, obi_age_ms
           payload_json
         ) VALUES %s
         ON CONFLICT (stream_id) DO NOTHING
@@ -517,8 +517,8 @@ class PgWriter:
             return 0
         sql = """
         INSERT INTO position_events (
-          stream_id, ts_ms, ts,
-          position_id, sid, symbol,
+          stream_id, ts_ms, ts
+          position_id, sid, symbol
           event_type, meta_json, payload_json
         ) VALUES %s
         ON CONFLICT (stream_id) DO NOTHING
@@ -534,10 +534,10 @@ class PgWriter:
             return 0
         sql = """
         INSERT INTO signal_confidence_scores (
-          stream_id, ts_ms, ts,
-          sid, symbol,
-          schema_version, producer,
-          confidence_raw, confidence_final,
+          stream_id, ts_ms, ts
+          sid, symbol
+          schema_version, producer
+          confidence_raw, confidence_final
           evidence_json, context_json
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
@@ -550,19 +550,19 @@ class PgWriter:
     def insert_of_gate_metrics(self, rows: List[Tuple[Any, ...]]) -> int:
         """Batch insert of_gate_metrics per-event rows (idempotent).
 
-        Schema: (stream_id, ts_ms, ts, symbol, scenario_v4, schema_version,
+        Schema: (stream_id, ts_ms, ts, symbol, scenario_v4, schema_version
                  ok, ok_soft, missing_legs, reason_code, payload_json)
         """
         if not rows:
             return 0
         sql = """
         INSERT INTO of_gate_metrics (
-          stream_id, ts_ms, ts,
-          symbol, scenario_v4,
-          schema_version,
-          ok, ok_soft,
-          missing_legs,
-          reason_code,
+          stream_id, ts_ms, ts
+          symbol, scenario_v4
+          schema_version
+          ok, ok_soft
+          missing_legs
+          reason_code
           payload_json
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
@@ -575,20 +575,20 @@ class PgWriter:
     def insert_of_gate_metrics_quarantine(self, rows: List[Tuple[Any, ...]]) -> int:
         """Batch insert of_gate_metrics_quarantine (idempotent).
 
-        Schema: (stream_id, ts_ms, ts, source_stream, symbol, scenario_v4,
+        Schema: (stream_id, ts_ms, ts, source_stream, symbol, scenario_v4
                  schema_version, ok, ok_soft, dq_code, err, payload_json)
         """
         if not rows:
             return 0
         sql = """
         INSERT INTO of_gate_metrics_quarantine (
-          stream_id, ts_ms, ts,
-          source_stream,
-          symbol, scenario_v4,
-          schema_version,
-          ok, ok_soft,
-          dq_code,
-          err,
+          stream_id, ts_ms, ts
+          source_stream
+          symbol, scenario_v4
+          schema_version
+          ok, ok_soft
+          dq_code
+          err
           payload_json
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
@@ -605,20 +605,20 @@ class PgWriter:
     def ensure_trade_kpi_liqmap_v1_table(self) -> None:
         ddl = """
         CREATE TABLE IF NOT EXISTS trade_kpi_liqmap_v1 (
-          stream_id TEXT NOT NULL,
-          ts_ms BIGINT NOT NULL,
-          ts TIMESTAMPTZ NOT NULL,
-          trade_id TEXT NOT NULL,
-          symbol TEXT NOT NULL,
-          side TEXT NOT NULL,
-          regime TEXT NOT NULL,
-          sl_hit_near_liqmap_peak SMALLINT,
-          tp1_anchored SMALLINT,
-          tp1_anchored_and_hit SMALLINT,
-          sl_liqmap_peak_dist_bps DOUBLE PRECISION,
-          sl_liqmap_peak_usd DOUBLE PRECISION,
-          liqmap_kpi JSONB NOT NULL,
-          payload_json JSONB NOT NULL,
+          stream_id TEXT NOT NULL
+          ts_ms BIGINT NOT NULL
+          ts TIMESTAMPTZ NOT NULL
+          trade_id TEXT NOT NULL
+          symbol TEXT NOT NULL
+          side TEXT NOT NULL
+          regime TEXT NOT NULL
+          sl_hit_near_liqmap_peak SMALLINT
+          tp1_anchored SMALLINT
+          tp1_anchored_and_hit SMALLINT
+          sl_liqmap_peak_dist_bps DOUBLE PRECISION
+          sl_liqmap_peak_usd DOUBLE PRECISION
+          liqmap_kpi JSONB NOT NULL
+          payload_json JSONB NOT NULL
           PRIMARY KEY (stream_id, ts)
         );
         """
@@ -645,10 +645,10 @@ class PgWriter:
             return 0
         sql = """
         INSERT INTO trade_kpi_liqmap_v1 (
-          stream_id, ts_ms, ts,
-          trade_id, symbol, side, regime,
-          sl_hit_near_liqmap_peak, tp1_anchored, tp1_anchored_and_hit,
-          sl_liqmap_peak_dist_bps, sl_liqmap_peak_usd,
+          stream_id, ts_ms, ts
+          trade_id, symbol, side, regime
+          sl_hit_near_liqmap_peak, tp1_anchored, tp1_anchored_and_hit
+          sl_liqmap_peak_dist_bps, sl_liqmap_peak_usd
           liqmap_kpi, payload_json
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
@@ -815,15 +815,15 @@ class StreamArchiver:
     async def dlq(self, dlq_stream: str, stream: str, stream_id: str, err: str, payload: Dict[str, Any]) -> None:
         """Write failed message to Dead Letter Queue"""
         await self.r.xadd(
-            dlq_stream,
+            dlq_stream
             {
-                "stream": stream,
-                "stream_id": stream_id,
-                "err": err[:500],
-                "payload": json.dumps(payload, ensure_ascii=False)[:4000],
-            },
-            maxlen=200000,
-            approximate=True,
+                "stream": stream
+                "stream_id": stream_id
+                "err": err[:500]
+                "payload": json.dumps(payload, ensure_ascii=False)[:4000]
+            }
+            maxlen=200000
+            approximate=True
         )
 
     # ------------------------------------------------------------------
@@ -831,11 +831,11 @@ class StreamArchiver:
     # ------------------------------------------------------------------
 
     async def _bump_archiver_metrics(
-        self,
-        key: str,
-        last_stream_id: str,
-        inserted: int,
-        errors: int,
+        self
+        key: str
+        last_stream_id: str
+        inserted: int
+        errors: int
     ) -> None:
         """Write last-run status to Redis hash (best-effort, non-blocking).
 
@@ -857,9 +857,9 @@ class StreamArchiver:
                 pass
             pipe = self.r.pipeline()
             pipe.hset(key, mapping={
-                "last_run_ts_ms": now_ms,
-                "last_stream_id": last_stream_id,
-                "archival_lag_seconds": f"{lag_seconds:.1f}",
+                "last_run_ts_ms": now_ms
+                "last_stream_id": last_stream_id
+                "archival_lag_seconds": f"{lag_seconds:.1f}"
             })
             if inserted:
                 pipe.hincrby(key, "inserted_total", inserted)
@@ -882,24 +882,24 @@ class StreamArchiver:
             or "UNKNOWN"
         )
         return (
-            stream_id, ts_ms, ts,
-            payload.get("sid"),
-            payload.get("symbol"),
-            payload.get("tf"),
-            payload.get("strategy"),
-            payload.get("source"),
-            str(decision),
-            payload.get("arm") or payload.get("ab_arm"),
-            payload.get("group") or payload.get("ab_group"),
-            payload.get("scenario"),
-            payload.get("regime"),
-            safe_float(payload.get("of_confirm_score")),
-            safe_float(payload.get("coh")),
-            safe_float(payload.get("leader_conf") or payload.get("leader_conf_score")),
-            safe_float(payload.get("spread_z")),
-            safe_float(payload.get("pressure_sps")),
-            safe_int(payload.get("obi_age_ms")),
-            json.dumps(payload, ensure_ascii=False),
+            stream_id, ts_ms, ts
+            payload.get("sid")
+            payload.get("symbol")
+            payload.get("tf")
+            payload.get("strategy")
+            payload.get("source")
+            str(decision)
+            payload.get("arm") or payload.get("ab_arm")
+            payload.get("group") or payload.get("ab_group")
+            payload.get("scenario")
+            payload.get("regime")
+            safe_float(payload.get("of_confirm_score"))
+            safe_float(payload.get("coh"))
+            safe_float(payload.get("leader_conf") or payload.get("leader_conf_score"))
+            safe_float(payload.get("spread_z"))
+            safe_float(payload.get("pressure_sps"))
+            safe_int(payload.get("obi_age_ms"))
+            json.dumps(payload, ensure_ascii=False)
         )
 
     def event_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
@@ -912,13 +912,13 @@ class StreamArchiver:
         meta_json = parse_meta_json(payload.get("meta"))
 
         return (
-            stream_id, ts_ms, ts,
-            position_id,
-            payload.get("sid"),
-            payload.get("symbol"),
-            event_type,
-            json.dumps(meta_json, ensure_ascii=False) if meta_json is not None else None,
-            json.dumps(payload, ensure_ascii=False),
+            stream_id, ts_ms, ts
+            position_id
+            payload.get("sid")
+            payload.get("symbol")
+            event_type
+            json.dumps(meta_json, ensure_ascii=False) if meta_json is not None else None
+            json.dumps(payload, ensure_ascii=False)
         )
 
     def conf_score_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
@@ -951,19 +951,19 @@ class StreamArchiver:
         if ctx is None and self.conf_scores_store_context:
             # Keep a small subset to avoid bloating JSONB
             ctx = {
-                "market_mode": payload.get("market_mode"),
-                "data_health": payload.get("data_health"),
-                "tf": payload.get("tf"),
-                "session": payload.get("session"),
+                "market_mode": payload.get("market_mode")
+                "data_health": payload.get("data_health")
+                "tf": payload.get("tf")
+                "session": payload.get("session")
             }
 
         return (
-            stream_id, ts_ms, ts,
-            str(sid), str(symbol),
-            int(schema_version), str(producer),
-            float(conf_raw), float(conf_final) if conf_final is not None else None,
-            json.dumps(evidence_map, ensure_ascii=False) if self.conf_scores_store_evidence else "{}",
-            json.dumps(ctx, ensure_ascii=False) if (ctx is not None) else None,
+            stream_id, ts_ms, ts
+            str(sid), str(symbol)
+            int(schema_version), str(producer)
+            float(conf_raw), float(conf_final) if conf_final is not None else None
+            json.dumps(evidence_map, ensure_ascii=False) if self.conf_scores_store_evidence else "{}"
+            json.dumps(ctx, ensure_ascii=False) if (ctx is not None) else None
         )
 
     # ------------------------------------------------------------------
@@ -1001,13 +1001,13 @@ class StreamArchiver:
         reason_code = str(payload.get("reason_code") or payload.get("reason") or "na")
 
         return (
-            stream_id, ts_ms, ts,
-            symbol, scenario_v4,
-            int(schema_version),
-            int(ok), int(ok_soft),
-            json.dumps(missing_legs_json, ensure_ascii=False) if missing_legs_json is not None else None,
-            reason_code,
-            json.dumps(payload, ensure_ascii=False),
+            stream_id, ts_ms, ts
+            symbol, scenario_v4
+            int(schema_version)
+            int(ok), int(ok_soft)
+            json.dumps(missing_legs_json, ensure_ascii=False) if missing_legs_json is not None else None
+            reason_code
+            json.dumps(payload, ensure_ascii=False)
         )
 
     def of_gate_quarantine_row(self, source_stream: str, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
@@ -1037,16 +1037,16 @@ class StreamArchiver:
         err = str(err)[:500] if err is not None else None
 
         return (
-            stream_id, ts_ms, ts,
-            source_stream,
-            str(symbol) if symbol is not None else None,
-            str(scenario_v4) if scenario_v4 is not None else None,
-            int(schema_version) if schema_version is not None else None,
-            int(ok) if ok is not None else None,
-            int(ok_soft) if ok_soft is not None else None,
-            dq_code[:120],
-            err,
-            json.dumps(payload, ensure_ascii=False),
+            stream_id, ts_ms, ts
+            source_stream
+            str(symbol) if symbol is not None else None
+            str(scenario_v4) if scenario_v4 is not None else None
+            int(schema_version) if schema_version is not None else None
+            int(ok) if ok is not None else None
+            int(ok_soft) if ok_soft is not None else None
+            dq_code[:120]
+            err
+            json.dumps(payload, ensure_ascii=False)
         )
 
 
@@ -1056,9 +1056,9 @@ class StreamArchiver:
             now_ms = get_ny_time_millis()
             p = self.r.pipeline()
             p.hset(key, mapping={
-                "last_run_ts_ms": str(now_ms),
-                "last_stream_ts_ms": str(last_stream_ts_ms),
-                "ok": "0" if err else "1",
+                "last_run_ts_ms": str(now_ms)
+                "last_stream_ts_ms": str(last_stream_ts_ms)
+                "ok": "0" if err else "1"
             })
             if inserted_delta:
                 p.hincrby(key, "inserted_total", int(inserted_delta))
@@ -1072,11 +1072,11 @@ class StreamArchiver:
     async def _read_new(self, stream: str, group: str, consumer: str, count: int, block_ms: int):
         try:
             return await self.r.xreadgroup(
-                groupname=group,
-                consumername=consumer,
-                streams={stream: ">"},
-                count=count,
-                block=block_ms,
+                groupname=group
+                consumername=consumer
+                streams={stream: ">"}
+                count=count
+                block=block_ms
             )
         except Exception as e:
             if "NOGROUP" in str(e).upper():
@@ -1088,12 +1088,12 @@ class StreamArchiver:
     async def _claim_pending(self, stream: str, group: str, consumer: str, min_idle_ms: int, count: int):
         try:
             _next_start, msgs, _deleted = await self.r.xautoclaim(
-                name=stream,
-                groupname=group,
-                consumername=consumer,
-                min_idle_time=min_idle_ms,
-                start_id="0-0",
-                count=count,
+                name=stream
+                groupname=group
+                consumername=consumer
+                min_idle_time=min_idle_ms
+                start_id="0-0"
+                count=count
             )
             return msgs
         except Exception as e:
@@ -1108,21 +1108,21 @@ class StreamArchiver:
 
         while True:
             pending = await self._claim_pending(
-                self.entry_stream,
-                self.entry_cg,
-                self.entry_consumer,
-                self.entry_min_idle,
-                self.entry_batch,
+                self.entry_stream
+                self.entry_cg
+                self.entry_consumer
+                self.entry_min_idle
+                self.entry_batch
             )
             if pending:
                 msgs = pending
             else:
                 resp = await self._read_new(
-                    self.entry_stream,
-                    self.entry_cg,
-                    self.entry_consumer,
-                    self.entry_batch,
-                    self.entry_block_ms,
+                    self.entry_stream
+                    self.entry_cg
+                    self.entry_consumer
+                    self.entry_batch
+                    self.entry_block_ms
                 )
                 if not resp:
                     continue
@@ -1157,21 +1157,21 @@ class StreamArchiver:
 
         while True:
             pending = await self._claim_pending(
-                self.events_stream,
-                self.events_cg,
-                self.events_consumer,
-                self.events_min_idle,
-                self.events_batch,
+                self.events_stream
+                self.events_cg
+                self.events_consumer
+                self.events_min_idle
+                self.events_batch
             )
             if pending:
                 msgs = pending
             else:
                 resp = await self._read_new(
-                    self.events_stream,
-                    self.events_cg,
-                    self.events_consumer,
-                    self.events_batch,
-                    self.events_block_ms,
+                    self.events_stream
+                    self.events_cg
+                    self.events_consumer
+                    self.events_batch
+                    self.events_block_ms
                 )
                 if not resp:
                     continue
@@ -1210,21 +1210,21 @@ class StreamArchiver:
 
         while True:
             pending = await self._claim_pending(
-                self.conf_scores_stream,
-                self.conf_scores_cg,
-                self.conf_scores_consumer,
-                self.conf_scores_min_idle,
-                self.conf_scores_batch,
+                self.conf_scores_stream
+                self.conf_scores_cg
+                self.conf_scores_consumer
+                self.conf_scores_min_idle
+                self.conf_scores_batch
             )
             if pending:
                 msgs = pending
             else:
                 resp = await self._read_new(
-                    self.conf_scores_stream,
-                    self.conf_scores_cg,
-                    self.conf_scores_consumer,
-                    self.conf_scores_batch,
-                    self.conf_scores_block_ms,
+                    self.conf_scores_stream
+                    self.conf_scores_cg
+                    self.conf_scores_consumer
+                    self.conf_scores_batch
+                    self.conf_scores_block_ms
                 )
                 if not resp:
                     continue
@@ -1276,21 +1276,21 @@ class StreamArchiver:
 
         while True:
             pending = await self._claim_pending(
-                self.of_gate_stream,
-                self.of_gate_cg,
-                self.of_gate_consumer,
-                self.of_gate_min_idle,
-                self.of_gate_batch,
+                self.of_gate_stream
+                self.of_gate_cg
+                self.of_gate_consumer
+                self.of_gate_min_idle
+                self.of_gate_batch
             )
             if pending:
                 msgs = pending
             else:
                 resp = await self._read_new(
-                    self.of_gate_stream,
-                    self.of_gate_cg,
-                    self.of_gate_consumer,
-                    self.of_gate_batch,
-                    self.of_gate_block_ms,
+                    self.of_gate_stream
+                    self.of_gate_cg
+                    self.of_gate_consumer
+                    self.of_gate_batch
+                    self.of_gate_block_ms
                 )
                 if not resp:
                     continue
@@ -1325,10 +1325,10 @@ class StreamArchiver:
                 await self.r.xack(self.of_gate_stream, self.of_gate_cg, *ack_ids)
                 # P78: bump success metrics
                 await self._bump_archiver_metrics(
-                    self.of_gate_archiver_metrics_key,
-                    ack_ids[-1] if ack_ids else last_seen_mid,
-                    inserted=len(rows),
-                    errors=parse_errors,
+                    self.of_gate_archiver_metrics_key
+                    ack_ids[-1] if ack_ids else last_seen_mid
+                    inserted=len(rows)
+                    errors=parse_errors
                 )
             except Exception as e:
                 parse_errors += 1
@@ -1336,10 +1336,10 @@ class StreamArchiver:
                 # Instead, we let the batch stay un-acked in standard PEL, to be reclaimed on next run using XAUTOCLAIM.
                 # P78: bump error metrics on DB failure
                 await self._bump_archiver_metrics(
-                    self.of_gate_archiver_metrics_key,
-                    ack_ids[-1] if ack_ids else last_seen_mid,
-                    inserted=0,
-                    errors=1,
+                    self.of_gate_archiver_metrics_key
+                    ack_ids[-1] if ack_ids else last_seen_mid
+                    inserted=0
+                    errors=1
                 )
                 await asyncio.sleep(1.0)
 
@@ -1357,21 +1357,21 @@ class StreamArchiver:
 
         while True:
             pending = await self._claim_pending(
-                self.of_gate_q_stream,
-                self.of_gate_q_cg,
-                self.of_gate_q_consumer,
-                self.of_gate_q_min_idle,
-                self.of_gate_q_batch,
+                self.of_gate_q_stream
+                self.of_gate_q_cg
+                self.of_gate_q_consumer
+                self.of_gate_q_min_idle
+                self.of_gate_q_batch
             )
             if pending:
                 msgs = pending
             else:
                 resp = await self._read_new(
-                    self.of_gate_q_stream,
-                    self.of_gate_q_cg,
-                    self.of_gate_q_consumer,
-                    self.of_gate_q_batch,
-                    self.of_gate_q_block_ms,
+                    self.of_gate_q_stream
+                    self.of_gate_q_cg
+                    self.of_gate_q_consumer
+                    self.of_gate_q_batch
+                    self.of_gate_q_block_ms
                 )
                 if not resp:
                     continue
@@ -1406,10 +1406,10 @@ class StreamArchiver:
                 await self.r.xack(self.of_gate_q_stream, self.of_gate_q_cg, *ack_ids)
                 # P78: bump success metrics
                 await self._bump_archiver_metrics(
-                    self.of_gate_q_archiver_metrics_key,
-                    ack_ids[-1] if ack_ids else last_seen_mid,
-                    inserted=len(rows),
-                    errors=parse_errors,
+                    self.of_gate_q_archiver_metrics_key
+                    ack_ids[-1] if ack_ids else last_seen_mid
+                    inserted=len(rows)
+                    errors=parse_errors
                 )
             except Exception as e:
                 parse_errors += 1
@@ -1417,10 +1417,10 @@ class StreamArchiver:
                 # Instead, we let the batch stay un-acked in standard PEL, to be reclaimed on next run using XAUTOCLAIM.
                 # P78: bump error metrics on DB failure
                 await self._bump_archiver_metrics(
-                    self.of_gate_q_archiver_metrics_key,
-                    ack_ids[-1] if ack_ids else last_seen_mid,
-                    inserted=0,
-                    errors=1,
+                    self.of_gate_q_archiver_metrics_key
+                    ack_ids[-1] if ack_ids else last_seen_mid
+                    inserted=0
+                    errors=1
                 )
                 await asyncio.sleep(1.0)
 
@@ -1441,8 +1441,8 @@ class StreamArchiver:
             if isinstance(k, str) and k.startswith("liqmap_"):
                 liqmap_kpi[k] = v
         for k in (
-            "sl_hit_near_liqmap_peak", "sl_liqmap_peak_dist_bps", "sl_liqmap_peak_usd",
-            "tp1_anchored", "tp1_anchored_and_hit", "liqmap_levels_applied",
+            "sl_hit_near_liqmap_peak", "sl_liqmap_peak_dist_bps", "sl_liqmap_peak_usd"
+            "tp1_anchored", "tp1_anchored_and_hit", "liqmap_levels_applied"
             "liqmap_tp1_adj_bps", "liqmap_sl_adj_bps", "liqmap_levels_reason"
         ):
             if k in payload:
@@ -1453,8 +1453,8 @@ class StreamArchiver:
         sl_peak_dist_bps = safe_float(payload.get("sl_liqmap_peak_dist_bps"))
         sl_peak_usd = safe_float(payload.get("sl_liqmap_peak_usd"))
         return (
-            stream_id, ts_ms, ts, trade_id, symbol, side, regime,
-            sl_hit, tp1_anchored, tp1_hit, sl_peak_dist_bps, sl_peak_usd,
+            stream_id, ts_ms, ts, trade_id, symbol, side, regime
+            sl_hit, tp1_anchored, tp1_hit, sl_peak_dist_bps, sl_peak_usd
             json.dumps(liqmap_kpi, ensure_ascii=False), json.dumps(payload, ensure_ascii=False)
         )
 
@@ -1464,13 +1464,13 @@ class StreamArchiver:
         loop = asyncio.get_running_loop()
         while True:
             pending = await self._claim_pending(
-                self.post_sl_stream, self.post_sl_liqmap_cg, self.post_sl_liqmap_consumer,
+                self.post_sl_stream, self.post_sl_liqmap_cg, self.post_sl_liqmap_consumer
                 self.post_sl_liqmap_min_idle, self.post_sl_liqmap_batch)
             if pending:
                 msgs = pending
             else:
                 resp = await self._read_new(
-                    self.post_sl_stream, self.post_sl_liqmap_cg, self.post_sl_liqmap_consumer,
+                    self.post_sl_stream, self.post_sl_liqmap_cg, self.post_sl_liqmap_consumer
                     self.post_sl_liqmap_batch, self.post_sl_liqmap_block_ms)
                 if not resp:
                     continue

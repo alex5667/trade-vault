@@ -38,11 +38,11 @@ STAGE_EMIT_TO_WS = "emit_to_ws"
 STAGE_END_TO_END_EVENT = "end_to_end_event"
 
 ALL_STAGES = (
-    STAGE_INGEST_TO_REDIS,
-    STAGE_REDIS_TO_FEATURE,
-    STAGE_FEATURE_TO_EMIT,
-    STAGE_EMIT_TO_WS,
-    STAGE_END_TO_END_EVENT,
+    STAGE_INGEST_TO_REDIS
+    STAGE_REDIS_TO_FEATURE
+    STAGE_FEATURE_TO_EMIT
+    STAGE_EMIT_TO_WS
+    STAGE_END_TO_END_EVENT
 )
 
 
@@ -99,9 +99,9 @@ def ensure_epoch_ms_fields(payload: dict[str, Any], *, default_event_ms: int = 0
 def compute_contract_deltas(payload: dict[str, Any]) -> dict[str, int]:
     payload = ensure_epoch_ms_fields(payload)
     out = {
-        STAGE_REDIS_TO_FEATURE: non_negative_delta_ms(payload.get(FIELD_TS_REDIS_READ_MS), payload.get(FIELD_TS_FEATURE_MS)),
-        STAGE_FEATURE_TO_EMIT: non_negative_delta_ms(payload.get(FIELD_TS_FEATURE_MS), payload.get(FIELD_TS_EMIT_MS)),
-        STAGE_END_TO_END_EVENT: non_negative_delta_ms(payload.get(FIELD_TS_EVENT_MS), payload.get(FIELD_TS_EMIT_MS)),
+        STAGE_REDIS_TO_FEATURE: non_negative_delta_ms(payload.get(FIELD_TS_REDIS_READ_MS), payload.get(FIELD_TS_FEATURE_MS))
+        STAGE_FEATURE_TO_EMIT: non_negative_delta_ms(payload.get(FIELD_TS_FEATURE_MS), payload.get(FIELD_TS_EMIT_MS))
+        STAGE_END_TO_END_EVENT: non_negative_delta_ms(payload.get(FIELD_TS_EVENT_MS), payload.get(FIELD_TS_EMIT_MS))
     }
     # External stages may be stamped by Go / NestJS in the same contract later.
     out[STAGE_INGEST_TO_REDIS] = non_negative_delta_ms(payload.get(FIELD_TS_INGEST_SOURCE_MS), payload.get(FIELD_TS_REDIS_XADD_MS))
@@ -138,11 +138,11 @@ def default_symbol_allowlist() -> Set[str]:
 # ---------------------------------------------------------------------------
 
 REQUIRED_STAGE_OWNERS: tuple[tuple[str, str], ...] = (
-    (SERVICE_GO_INGEST, STAGE_INGEST_TO_REDIS),
-    (SERVICE_PYTHON_WORKER, STAGE_REDIS_TO_FEATURE),
-    (SERVICE_PYTHON_WORKER, STAGE_FEATURE_TO_EMIT),
-    (SERVICE_NEST_GATEWAY, STAGE_EMIT_TO_WS),
-    (SERVICE_NEST_GATEWAY, STAGE_END_TO_END_EVENT),
+    (SERVICE_GO_INGEST, STAGE_INGEST_TO_REDIS)
+    (SERVICE_PYTHON_WORKER, STAGE_REDIS_TO_FEATURE)
+    (SERVICE_PYTHON_WORKER, STAGE_FEATURE_TO_EMIT)
+    (SERVICE_NEST_GATEWAY, STAGE_EMIT_TO_WS)
+    (SERVICE_NEST_GATEWAY, STAGE_END_TO_END_EVENT)
 )
 
 
@@ -161,9 +161,9 @@ def required_stage_owners() -> tuple[tuple[str, str], ...]:
 # ---------------------------------------------------------------------------
 
 EXTERNAL_REQUIRED_STAGE_OWNERS: tuple[tuple[str, str], ...] = (
-    (SERVICE_GO_INGEST, STAGE_INGEST_TO_REDIS),
-    (SERVICE_NEST_GATEWAY, STAGE_EMIT_TO_WS),
-    (SERVICE_NEST_GATEWAY, STAGE_END_TO_END_EVENT),
+    (SERVICE_GO_INGEST, STAGE_INGEST_TO_REDIS)
+    (SERVICE_NEST_GATEWAY, STAGE_EMIT_TO_WS)
+    (SERVICE_NEST_GATEWAY, STAGE_END_TO_END_EVENT)
 )
 
 
@@ -177,38 +177,38 @@ def external_required_stage_owners() -> tuple[tuple[str, str], ...]:
 
 
 def build_external_state_mapping(
-    *,
-    service: str,
-    stage: str,
-    symbol: str,
-    duration_ms: int,
-    payload: dict[str, Any],
-    instance_id: str = '',
-    source: str = '',
-    now_ms: Optional[int] = None,
+    *
+    service: str
+    stage: str
+    symbol: str
+    duration_ms: int
+    payload: dict[str, Any]
+    instance_id: str = ''
+    source: str = ''
+    now_ms: Optional[int] = None
 ) -> dict[str, str]:
     """Reference Redis-hash payload for non-Python writers (Go/NestJS).
 
-    Produces the same hash format that LatencyStateWriter.write_async() writes,
+    Produces the same hash format that LatencyStateWriter.write_async() writes
     so all service handlers are interchangeable from the exporter's perspective.
     """
     payload = ensure_epoch_ms_fields(dict(payload or {}))
     ts_now = int(now_ms or now_wall_ms())
     mapping: dict[str, str] = {
-        'schema_version': str(SCHEMA_VERSION),
-        'service': str(service),
-        'stage': str(stage),
-        'symbol': str(symbol or '').upper(),
-        'last_duration_ms': str(int(max(0, duration_ms))),
-        'last_ts_ms': str(ts_now),
-        FIELD_TS_EVENT_MS: str(as_int_ms(payload.get(FIELD_TS_EVENT_MS), 0)),
-        FIELD_TS_REDIS_READ_MS: str(as_int_ms(payload.get(FIELD_TS_REDIS_READ_MS), 0)),
-        FIELD_TS_FEATURE_MS: str(as_int_ms(payload.get(FIELD_TS_FEATURE_MS), 0)),
-        FIELD_TS_EMIT_MS: str(as_int_ms(payload.get(FIELD_TS_EMIT_MS), 0)),
-        FIELD_TS_WS_EMIT_MS: str(as_int_ms(payload.get(FIELD_TS_WS_EMIT_MS), 0)),
-        FIELD_TS_INGEST_SOURCE_MS: str(as_int_ms(payload.get(FIELD_TS_INGEST_SOURCE_MS), 0)),
-        FIELD_TS_REDIS_XADD_MS: str(as_int_ms(payload.get(FIELD_TS_REDIS_XADD_MS), 0)),
-        'instance_id': str(instance_id or ''),
-        'source': str(source or ''),
+        'schema_version': str(SCHEMA_VERSION)
+        'service': str(service)
+        'stage': str(stage)
+        'symbol': str(symbol or '').upper()
+        'last_duration_ms': str(int(max(0, duration_ms)))
+        'last_ts_ms': str(ts_now)
+        FIELD_TS_EVENT_MS: str(as_int_ms(payload.get(FIELD_TS_EVENT_MS), 0))
+        FIELD_TS_REDIS_READ_MS: str(as_int_ms(payload.get(FIELD_TS_REDIS_READ_MS), 0))
+        FIELD_TS_FEATURE_MS: str(as_int_ms(payload.get(FIELD_TS_FEATURE_MS), 0))
+        FIELD_TS_EMIT_MS: str(as_int_ms(payload.get(FIELD_TS_EMIT_MS), 0))
+        FIELD_TS_WS_EMIT_MS: str(as_int_ms(payload.get(FIELD_TS_WS_EMIT_MS), 0))
+        FIELD_TS_INGEST_SOURCE_MS: str(as_int_ms(payload.get(FIELD_TS_INGEST_SOURCE_MS), 0))
+        FIELD_TS_REDIS_XADD_MS: str(as_int_ms(payload.get(FIELD_TS_REDIS_XADD_MS), 0))
+        'instance_id': str(instance_id or '')
+        'source': str(source or '')
     }
     return mapping

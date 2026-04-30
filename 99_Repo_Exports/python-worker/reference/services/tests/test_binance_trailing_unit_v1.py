@@ -106,13 +106,13 @@ def test_round_half_up_normal():
 # compute_trailing_callback_rate_pct()
 # ---------------------------------------------------------------------------
 
-def _rate(payload, *, entry_price=100.0, atr=1.0,
+def _rate(payload, *, entry_price=100.0, atr=1.0
           min_pct=0.1, max_pct=5.0, default_pct=0.3, atr_mult_default=1.0):
     return compute_trailing_callback_rate_pct(
-        payload,
-        entry_price=entry_price, atr=atr,
-        min_pct=min_pct, max_pct=max_pct,
-        default_pct=default_pct, atr_mult_default=atr_mult_default,
+        payload
+        entry_price=entry_price, atr=atr
+        min_pct=min_pct, max_pct=max_pct
+        default_pct=default_pct, atr_mult_default=atr_mult_default
     )
 
 

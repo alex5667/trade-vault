@@ -19,8 +19,8 @@ except ImportError:
     redis = None
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("signal_quality_exporter")
 
@@ -54,7 +54,7 @@ class SignalQualityCollector:
     def collect(self):
         # This approach uses Custom Collector, which is better than `while True` loop pushing to gauges.
         # But `Gauge` in python client is usually stateful.
-        # To make it stateless (fetch on scrape), we can either use CustomCollector yielding Metrics,
+        # To make it stateless (fetch on scrape), we can either use CustomCollector yielding Metrics
         # OR just update the global Gauges inside a loop/callback. 
         # Standard pattern: Update gauges periodically or on scrape.
         # Let's use the simplest pattern: Update gauges right before scrape? 

@@ -127,18 +127,18 @@ class ApplyResult:
 
 
 async def apply_sid_if_ready(
-    *,
-    r: Any,
-    sid: str,
-    meta_prefix: str,
-    approvals_prefix: str,
-    applied_prefix: str,
-    approvals_required: int,
-    lock_sec: int,
-    active_ttl_sec: int,
-    applied_ttl_sec: int,
-    audit_stream: str,
-    by: str = "apply_runner",
+    *
+    r: Any
+    sid: str
+    meta_prefix: str
+    approvals_prefix: str
+    applied_prefix: str
+    approvals_required: int
+    lock_sec: int
+    active_ttl_sec: int
+    applied_ttl_sec: int
+    audit_stream: str
+    by: str = "apply_runner"
 ) -> ApplyResult:
     """
     Loads meta:{sid} -> derives keys -> calls atomic Lua apply.
@@ -172,34 +172,34 @@ async def apply_sid_if_ready(
     override_key = f"cfg:entry_policy:active_arm_override_unlock:{sym}:{rg}:{grp}"
 
     applied_payload = {
-        "sid": sid,
-        "ts_ms": _now_ms(),
-        "by": by,
-        "symbol": sym,
-        "regime": rg,
-        "group": grp,
-        "winner_arm": winner,
-        "meta_key": meta_key,
-        "active_arm_key": active_key,
-        "lock_key": lock_key,
-        "note": "applied_by_lua",
+        "sid": sid
+        "ts_ms": _now_ms()
+        "by": by
+        "symbol": sym
+        "regime": rg
+        "group": grp
+        "winner_arm": winner
+        "meta_key": meta_key
+        "active_arm_key": active_key
+        "lock_key": lock_key
+        "note": "applied_by_lua"
     }
 
     try:
         res = await r.eval(
-            LUA_APPLY,
-            5,
-            approvals_key,
-            applied_key,
-            active_key,
-            lock_key,
-            override_key,
-            str(int(approvals_required)),
-            str(winner),
-            json.dumps(applied_payload, ensure_ascii=False, separators=(",", ":")),
-            str(int(lock_sec)),
-            str(int(active_ttl_sec)),
-            str(int(applied_ttl_sec)),
+            LUA_APPLY
+            5
+            approvals_key
+            applied_key
+            active_key
+            lock_key
+            override_key
+            str(int(approvals_required))
+            str(winner)
+            json.dumps(applied_payload, ensure_ascii=False, separators=(",", ":"))
+            str(int(lock_sec))
+            str(int(active_ttl_sec))
+            str(int(applied_ttl_sec))
         )
     except Exception as e:
         return ApplyResult(False, False, f"eval_failed:{e}", sid, sym, rg, grp, winner)
@@ -218,14 +218,14 @@ async def apply_sid_if_ready(
     # best-effort audit
     try:
         msg = {
-            "type": "cfg_apply_active_arm",
-            "ts_ms": str(_now_ms()),
-            "symbol": sym,
-            "regime": rg,
-            "group": grp,
-            "arm": winner,
-            "sid": sid,
-            "payload": json.dumps({"sid": sid, "approvals_n": n_appr, "key": active_key}, separators=(",", ":")),
+            "type": "cfg_apply_active_arm"
+            "ts_ms": str(_now_ms())
+            "symbol": sym
+            "regime": rg
+            "group": grp
+            "arm": winner
+            "sid": sid
+            "payload": json.dumps({"sid": sid, "approvals_n": n_appr, "key": active_key}, separators=(",", ":"))
         }
         await r.xadd(audit_stream, msg, maxlen=50000, approximate=True)
     except Exception:

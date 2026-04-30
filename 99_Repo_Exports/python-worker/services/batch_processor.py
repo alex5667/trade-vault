@@ -1,7 +1,7 @@
 """
 Batch Processor для массовой обработки данных с GPU ускорением.
 
-Используется для обработки больших объемов данных батчами,
+Используется для обработки больших объемов данных батчами
 с автоматическим использованием GPU если доступен.
 """
 
@@ -52,7 +52,7 @@ class BatchProcessor:
                 self.gpu_service = None
     
     def process_candles_batch(
-        self,
+        self
         candles: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
@@ -77,13 +77,13 @@ class BatchProcessor:
                 for i, candle in enumerate(candles):
                     result = candle.copy()
                     result.update({
-                        'buy_vol': float(metrics['buy_vols'][i]),
-                        'sell_vol': float(metrics['sell_vols'][i]),
-                        'delta': float(metrics['deltas'][i]),
-                        'cvd': float(metrics['cvd'][i]),
-                        'z_delta': float(metrics['z_deltas'][i]),
-                        'atr': float(metrics['atr'][i]),
-                        'body_atr': float(metrics['body_atr'][i]),
+                        'buy_vol': float(metrics['buy_vols'][i])
+                        'sell_vol': float(metrics['sell_vols'][i])
+                        'delta': float(metrics['deltas'][i])
+                        'cvd': float(metrics['cvd'][i])
+                        'z_delta': float(metrics['z_deltas'][i])
+                        'atr': float(metrics['atr'][i])
+                        'body_atr': float(metrics['body_atr'][i])
                         'delta_ratio': float(metrics['delta_ratio'][i])
                     })
                     results.append(result)
@@ -98,13 +98,13 @@ class BatchProcessor:
             # Простая обработка без GPU
             result = candle.copy()
             result.update({
-                'buy_vol': 0.0,
-                'sell_vol': 0.0,
-                'delta': 0.0,
-                'cvd': 0.0,
-                'z_delta': 0.0,
-                'atr': 0.0,
-                'body_atr': 0.0,
+                'buy_vol': 0.0
+                'sell_vol': 0.0
+                'delta': 0.0
+                'cvd': 0.0
+                'z_delta': 0.0
+                'atr': 0.0
+                'body_atr': 0.0
                 'delta_ratio': 0.0
             })
             results.append(result)
@@ -112,8 +112,8 @@ class BatchProcessor:
         return results
     
     def process_in_batches(
-        self,
-        data: List[Any],
+        self
+        data: List[Any]
         processor: Callable[[List[Any]], List[Any]]
     ) -> List[Any]:
         """
@@ -139,8 +139,8 @@ class BatchProcessor:
         return results
     
     def compute_deltas_batch(
-        self,
-        volumes: List[float],
+        self
+        volumes: List[float]
         taker_buy_volumes: Optional[List[float]] = None
     ) -> tuple:
         """
@@ -180,8 +180,8 @@ class BatchProcessor:
         return buy_vols.tolist(), sell_vols.tolist(), deltas.tolist()
     
     def compute_z_scores_batch(
-        self,
-        values: List[float],
+        self
+        values: List[float]
         window: int = 300
     ) -> List[float]:
         """

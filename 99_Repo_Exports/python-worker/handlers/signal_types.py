@@ -4,19 +4,19 @@
 from __future__ import annotations
 
 from contexts import (
-    MarketRegime,
-    RegimeLabel,
-    RegimeDecision,
-    SignalKind,
-    SignalTypeConf,
+    MarketRegime
+    RegimeLabel
+    RegimeDecision
+    SignalKind
+    SignalTypeConf
     GoldenThresholds
 )
 
 __all__ = [
-    "MarketRegime",
-    "RegimeLabel",
-    "RegimeDecision",
+    "MarketRegime"
+    "RegimeLabel"
+    "RegimeDecision"
     "SignalKind", 
-    "SignalTypeConf",
+    "SignalTypeConf"
     "GoldenThresholds"
 ]

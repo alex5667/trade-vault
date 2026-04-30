@@ -66,14 +66,14 @@ class AsyncSignalPublisher:
     """
 
     def __init__(
-        self,
-        *,
-        redis_client: Any,
-        source: str,
-        metrics_prefix: str = "signals_publish_async",
-        logger: Any = None,
-        max_retries: int = 5,
-        retry_queue_maxsize: int = 1000,
+        self
+        *
+        redis_client: Any
+        source: str
+        metrics_prefix: str = "signals_publish_async"
+        logger: Any = None
+        max_retries: int = 5
+        retry_queue_maxsize: int = 1000
     ) -> None:
         self.r = redis_client
         self.source = str(source or "na")
@@ -130,7 +130,7 @@ class AsyncSignalPublisher:
                     else:
                         PUB_DROPPED_TOTAL.labels(source=self.source, symbol=symbol).inc()
                         self.logger.error(
-                            "🚨 SIGNAL LOST PERMANENTLY after %d attempts (busy=%s): %s",
+                            "🚨 SIGNAL LOST PERMANENTLY after %d attempts (busy=%s): %s"
                             attempt, res.busy_loading, symbol
                         )
 
@@ -142,12 +142,12 @@ class AsyncSignalPublisher:
                 await asyncio.sleep(1)
 
     async def xadd_json(
-        self,
-        *,
-        sink: StreamSink,
-        payload: Dict[str, Any],
-        symbol: str,
-        approximate: bool = True,
+        self
+        *
+        sink: StreamSink
+        payload: Dict[str, Any]
+        symbol: str
+        approximate: bool = True
     ) -> AsyncPublishResult:
         """
         Public method that guarantees At-Least-Once delivery (via local buffer).
@@ -178,12 +178,12 @@ class AsyncSignalPublisher:
         return res
 
     async def xadd_json_internal(
-        self,
-        *,
-        sink: StreamSink,
-        payload: Dict[str, Any],
-        symbol: str,
-        approximate: bool = True,
+        self
+        *
+        sink: StreamSink
+        payload: Dict[str, Any]
+        symbol: str
+        approximate: bool = True
     ) -> AsyncPublishResult:
         """
         Internal raw XADD logic.
@@ -204,10 +204,10 @@ class AsyncSignalPublisher:
         # 3) xadd
         try:
             await self.r.xadd(
-                sink.name,
-                fields={str(sink.field or "payload"): ser},
-                maxlen=int(sink.maxlen),
-                approximate=bool(approximate),
+                sink.name
+                fields={str(sink.field or "payload"): ser}
+                maxlen=int(sink.maxlen)
+                approximate=bool(approximate)
             )
             raw_written = True
             PUB_OK_TOTAL.labels(source=self.source, stream=sink.name).inc()

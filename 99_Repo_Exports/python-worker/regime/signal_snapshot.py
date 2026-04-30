@@ -88,45 +88,45 @@ class SignalSnapshot:
 
         # Map fields
         return cls(
-            signal_id=data.get("signal_id", ""),
-            symbol=data.get("symbol", ""),
-            ts_ms=data.get("ts_ms") or data.get("ts") or 0,
-            direction=data.get("direction", 0),
-            signal_family=data.get("signal_family") or data.get("setup_type") or "unknown",
-            conf_score=data.get("conf_score") or data.get("confidence") or data.get("final_score") or 0.0,
-            atr_14=data.get("atr_14") or data.get("atr") or 0.0,
-            delta_spike_z=data.get("delta_spike_z") or data.get("delta_z") or 0.0,
-            obi_avg_20=data.get("obi_avg_20") or data.get("obi") or 0.0,
-            weak_progress_ratio=data.get("weak_progress_ratio") or data.get("weak_progress") or 0.0,
-            l3=l3,
+            signal_id=data.get("signal_id", "")
+            symbol=data.get("symbol", "")
+            ts_ms=data.get("ts_ms") or data.get("ts") or 0
+            direction=data.get("direction", 0)
+            signal_family=data.get("signal_family") or data.get("setup_type") or "unknown"
+            conf_score=data.get("conf_score") or data.get("confidence") or data.get("final_score") or 0.0
+            atr_14=data.get("atr_14") or data.get("atr") or 0.0
+            delta_spike_z=data.get("delta_spike_z") or data.get("delta_z") or 0.0
+            obi_avg_20=data.get("obi_avg_20") or data.get("obi") or 0.0
+            weak_progress_ratio=data.get("weak_progress_ratio") or data.get("weak_progress") or 0.0
+            l3=l3
             extra=extra
         )
 
 def build_signal_snapshot(
-    signal_id: str,
-    symbol: str,
-    ts_ms: int,
-    family: str,
-    conf_score: float,
+    signal_id: str
+    symbol: str
+    ts_ms: int
+    family: str
+    conf_score: float
     ctx: Any  # SignalContext with L3 fields
 ) -> SignalSnapshot:
     """Build SignalSnapshot from SignalContext"""
 
     l3 = SignalL3Snapshot(
-        spread_bps=getattr(ctx, 'spread_bps', 0.0),
-        microprice_shift_bps_20=getattr(ctx, 'microprice_shift_bps_20', 0.0),
-        obi_5=getattr(ctx, 'obi_5', 0.0),
-        obi_20=getattr(ctx, 'obi_20', 0.0),
-        obi_50=getattr(ctx, 'obi_50', 0.0),
-        obi_persistence_score=getattr(ctx, 'obi_persistence_score', 0.0),
-        cancel_to_trade_bid_5s=getattr(ctx, 'cancel_to_trade_bid_5s', 0.0),
-        cancel_to_trade_ask_5s=getattr(ctx, 'cancel_to_trade_ask_5s', 0.0),
-        cancel_to_trade_bid_20s=getattr(ctx, 'cancel_to_trade_bid_20s', 0.0),
-        cancel_to_trade_ask_20s=getattr(ctx, 'cancel_to_trade_ask_20s', 0.0),
-        microprice_velocity_bps=getattr(ctx, 'microprice_velocity_bps', 0.0),
-        queue_pressure_bid=getattr(ctx, 'queue_pressure_bid', 0.0),
-        queue_pressure_ask=getattr(ctx, 'queue_pressure_ask', 0.0),
-        market_depth_imbalance=getattr(ctx, 'market_depth_imbalance', 0.0),
+        spread_bps=getattr(ctx, 'spread_bps', 0.0)
+        microprice_shift_bps_20=getattr(ctx, 'microprice_shift_bps_20', 0.0)
+        obi_5=getattr(ctx, 'obi_5', 0.0)
+        obi_20=getattr(ctx, 'obi_20', 0.0)
+        obi_50=getattr(ctx, 'obi_50', 0.0)
+        obi_persistence_score=getattr(ctx, 'obi_persistence_score', 0.0)
+        cancel_to_trade_bid_5s=getattr(ctx, 'cancel_to_trade_bid_5s', 0.0)
+        cancel_to_trade_ask_5s=getattr(ctx, 'cancel_to_trade_ask_5s', 0.0)
+        cancel_to_trade_bid_20s=getattr(ctx, 'cancel_to_trade_bid_20s', 0.0)
+        cancel_to_trade_ask_20s=getattr(ctx, 'cancel_to_trade_ask_20s', 0.0)
+        microprice_velocity_bps=getattr(ctx, 'microprice_velocity_bps', 0.0)
+        queue_pressure_bid=getattr(ctx, 'queue_pressure_bid', 0.0)
+        queue_pressure_ask=getattr(ctx, 'queue_pressure_ask', 0.0)
+        market_depth_imbalance=getattr(ctx, 'market_depth_imbalance', 0.0)
     )
 
     # Extract extra from ctx if available
@@ -135,17 +135,17 @@ def build_signal_snapshot(
         extra = {}
 
     return SignalSnapshot(
-        signal_id=signal_id,
-        symbol=symbol,
-        ts_ms=ts_ms,
-        direction=getattr(ctx, 'direction', 0),
-        signal_family=family,
-        conf_score=conf_score,
+        signal_id=signal_id
+        symbol=symbol
+        ts_ms=ts_ms
+        direction=getattr(ctx, 'direction', 0)
+        signal_family=family
+        conf_score=conf_score
         # Основные поля (расширить по необходимости)
-        atr_14=getattr(ctx, 'atr', 0.0),
-        delta_spike_z=getattr(ctx, 'z_delta', 0.0),
-        obi_avg_20=getattr(ctx, 'obi_avg_20', 0.0),
-        weak_progress_ratio=getattr(ctx, 'weak_progress_ratio', 0.0),
-        l3=l3,
+        atr_14=getattr(ctx, 'atr', 0.0)
+        delta_spike_z=getattr(ctx, 'z_delta', 0.0)
+        obi_avg_20=getattr(ctx, 'obi_avg_20', 0.0)
+        weak_progress_ratio=getattr(ctx, 'weak_progress_ratio', 0.0)
+        l3=l3
         extra=extra
     )

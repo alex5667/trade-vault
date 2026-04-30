@@ -24,20 +24,20 @@ Value: JSON object
 
 Example::
     {
-      "schema_version": 1,
-      "symbol": "BTCUSDT",
-      "ts_ms": 1731000000000,
-      "venue": "binance",
-      "funding_rate": 0.0001,
-      "funding_rate_abs": 0.0001,
-      "funding_rate_z": 2.3,
-      "premium_index": 0.0008,
-      "basis_bps": 8.0,
-      "open_interest": 12345.0,
-      "delta_oi_5m": 234.0,
-      "oi_notional_usd": 123450000.0,
-      "funding_extreme": 0,
-      "basis_extreme": 0,
+      "schema_version": 1
+      "symbol": "BTCUSDT"
+      "ts_ms": 1731000000000
+      "venue": "binance"
+      "funding_rate": 0.0001
+      "funding_rate_abs": 0.0001
+      "funding_rate_z": 2.3
+      "premium_index": 0.0008
+      "basis_bps": 8.0
+      "open_interest": 12345.0
+      "delta_oi_5m": 234.0
+      "oi_notional_usd": 123450000.0
+      "funding_extreme": 0
+      "basis_extreme": 0
       "oi_accel": 0
     }
 
@@ -184,20 +184,20 @@ def delta_open_interest(*, current_oi: float, previous_oi: float) -> float:
 
 
 def build_snapshot(
-    *,
-    symbol: str,
-    ts_ms: int,
-    venue: str,
-    funding_rate: float,
-    funding_history: Sequence[float],
-    premium_index: float,
-    mark_price: float,
-    index_price: float,
-    open_interest: float,
-    previous_open_interest: float,
-    funding_extreme_abs: float,
-    basis_extreme_abs_bps: float,
-    oi_accel_abs_usd: float,
+    *
+    symbol: str
+    ts_ms: int
+    venue: str
+    funding_rate: float
+    funding_history: Sequence[float]
+    premium_index: float
+    mark_price: float
+    index_price: float
+    open_interest: float
+    previous_open_interest: float
+    funding_extreme_abs: float
+    basis_extreme_abs_bps: float
+    oi_accel_abs_usd: float
 ) -> DerivativesContextSnapshot:
     """Build normalized derivatives snapshot from raw values.
 
@@ -219,49 +219,49 @@ def build_snapshot(
     oi_accel = 1 if doi_usd >= max(_f(oi_accel_abs_usd, 0.0), 1e-12) and doi != 0.0 else 0
 
     return DerivativesContextSnapshot(
-        schema_version=SCHEMA_VERSION,
-        symbol=str(symbol or "").upper(),
-        ts_ms=int(ts_ms or _now_ms()),
-        venue=str(venue or "binance").lower(),
-        funding_rate=float(fr),
-        funding_rate_abs=float(abs(fr)),
-        funding_rate_z=float(fz),
-        premium_index=float(_f(premium_index, 0.0)),
-        basis_bps=float(basis),
-        open_interest=float(oi),
-        delta_oi_5m=float(doi),
-        oi_notional_usd=float(oi_usd),
-        funding_extreme=int(funding_extreme),
-        basis_extreme=int(basis_extreme),
-        oi_accel=int(oi_accel),
+        schema_version=SCHEMA_VERSION
+        symbol=str(symbol or "").upper()
+        ts_ms=int(ts_ms or _now_ms())
+        venue=str(venue or "binance").lower()
+        funding_rate=float(fr)
+        funding_rate_abs=float(abs(fr))
+        funding_rate_z=float(fz)
+        premium_index=float(_f(premium_index, 0.0))
+        basis_bps=float(basis)
+        open_interest=float(oi)
+        delta_oi_5m=float(doi)
+        oi_notional_usd=float(oi_usd)
+        funding_extreme=int(funding_extreme)
+        basis_extreme=int(basis_extreme)
+        oi_accel=int(oi_accel)
     )
 
 
 def build_snapshot_v2(
-    *,
-    symbol: str,
-    ts_ms: int,
-    venue: str,
-    funding_rate: float,
-    funding_history: Sequence[float],
-    premium_index: float,
-    mark_price: float,
-    index_price: float,
-    open_interest: float,
-    previous_open_interest: float,
-    funding_extreme_abs: float,
-    basis_extreme_abs_bps: float,
-    oi_accel_abs_usd: float,
+    *
+    symbol: str
+    ts_ms: int
+    venue: str
+    funding_rate: float
+    funding_history: Sequence[float]
+    premium_index: float
+    mark_price: float
+    index_price: float
+    open_interest: float
+    previous_open_interest: float
+    funding_extreme_abs: float
+    basis_extreme_abs_bps: float
+    oi_accel_abs_usd: float
     # v2 fields — all optional, fail-open with 0.0
-    long_short_ratio: float = 0.0,
-    long_short_ratio_z: float = 0.0,
-    taker_buy_sell_imbalance: float = 0.0,
-    liq_buy_notional_1m: float = 0.0,
-    liq_sell_notional_1m: float = 0.0,
-    liq_imbalance_z: float = 0.0,
-    market_breadth_ret_24h: float = 0.0,
-    market_breadth_volume_z: float = 0.0,
-    leader_btc_eth_confirm: float = 0.0,
+    long_short_ratio: float = 0.0
+    long_short_ratio_z: float = 0.0
+    taker_buy_sell_imbalance: float = 0.0
+    liq_buy_notional_1m: float = 0.0
+    liq_sell_notional_1m: float = 0.0
+    liq_imbalance_z: float = 0.0
+    market_breadth_ret_24h: float = 0.0
+    market_breadth_volume_z: float = 0.0
+    leader_btc_eth_confirm: float = 0.0
 ) -> DerivativesContextSnapshot:
     """Build v2 derivatives snapshot including liquidation, breadth, and crowding fields.
 
@@ -283,31 +283,31 @@ def build_snapshot_v2(
     oi_accel = 1 if doi_usd >= max(_f(oi_accel_abs_usd, 0.0), 1e-12) and doi != 0.0 else 0
 
     return DerivativesContextSnapshot(
-        schema_version=SCHEMA_VERSION_V2,
-        symbol=str(symbol or "").upper(),
-        ts_ms=int(ts_ms or _now_ms()),
-        venue=str(venue or "binance").lower(),
-        funding_rate=float(fr),
-        funding_rate_abs=float(abs(fr)),
-        funding_rate_z=float(fz),
-        premium_index=float(_f(premium_index, 0.0)),
-        basis_bps=float(basis),
-        open_interest=float(oi),
-        delta_oi_5m=float(doi),
-        oi_notional_usd=float(oi_usd),
-        funding_extreme=int(funding_extreme),
-        basis_extreme=int(basis_extreme),
-        oi_accel=int(oi_accel),
+        schema_version=SCHEMA_VERSION_V2
+        symbol=str(symbol or "").upper()
+        ts_ms=int(ts_ms or _now_ms())
+        venue=str(venue or "binance").lower()
+        funding_rate=float(fr)
+        funding_rate_abs=float(abs(fr))
+        funding_rate_z=float(fz)
+        premium_index=float(_f(premium_index, 0.0))
+        basis_bps=float(basis)
+        open_interest=float(oi)
+        delta_oi_5m=float(doi)
+        oi_notional_usd=float(oi_usd)
+        funding_extreme=int(funding_extreme)
+        basis_extreme=int(basis_extreme)
+        oi_accel=int(oi_accel)
         # v2
-        long_short_ratio=_f(long_short_ratio, 0.0),
-        long_short_ratio_z=_f(long_short_ratio_z, 0.0),
-        taker_buy_sell_imbalance=_f(taker_buy_sell_imbalance, 0.0),
-        liq_buy_notional_1m=_f(liq_buy_notional_1m, 0.0),
-        liq_sell_notional_1m=_f(liq_sell_notional_1m, 0.0),
-        liq_imbalance_z=_f(liq_imbalance_z, 0.0),
-        market_breadth_ret_24h=_f(market_breadth_ret_24h, 0.0),
-        market_breadth_volume_z=_f(market_breadth_volume_z, 0.0),
-        leader_btc_eth_confirm=_f(leader_btc_eth_confirm, 0.0),
+        long_short_ratio=_f(long_short_ratio, 0.0)
+        long_short_ratio_z=_f(long_short_ratio_z, 0.0)
+        taker_buy_sell_imbalance=_f(taker_buy_sell_imbalance, 0.0)
+        liq_buy_notional_1m=_f(liq_buy_notional_1m, 0.0)
+        liq_sell_notional_1m=_f(liq_sell_notional_1m, 0.0)
+        liq_imbalance_z=_f(liq_imbalance_z, 0.0)
+        market_breadth_ret_24h=_f(market_breadth_ret_24h, 0.0)
+        market_breadth_volume_z=_f(market_breadth_volume_z, 0.0)
+        leader_btc_eth_confirm=_f(leader_btc_eth_confirm, 0.0)
     )
 
 
@@ -317,31 +317,31 @@ def from_dict(payload: Dict[str, Any]) -> Optional[DerivativesContextSnapshot]:
         if not symbol:
             return None
         return DerivativesContextSnapshot(
-            schema_version=_i(payload.get("schema_version"), SCHEMA_VERSION),
-            symbol=symbol,
-            ts_ms=_i(payload.get("ts_ms"), 0),
-            venue=_s(payload.get("venue")) or "binance",
-            funding_rate=_f(payload.get("funding_rate"), 0.0),
-            funding_rate_abs=_f(payload.get("funding_rate_abs"), 0.0),
-            funding_rate_z=_f(payload.get("funding_rate_z"), 0.0),
-            premium_index=_f(payload.get("premium_index"), 0.0),
-            basis_bps=_f(payload.get("basis_bps"), 0.0),
-            open_interest=_f(payload.get("open_interest"), 0.0),
-            delta_oi_5m=_f(payload.get("delta_oi_5m"), 0.0),
-            oi_notional_usd=_f(payload.get("oi_notional_usd"), 0.0),
-            funding_extreme=_i(payload.get("funding_extreme"), 0),
-            basis_extreme=_i(payload.get("basis_extreme"), 0),
-            oi_accel=_i(payload.get("oi_accel"), 0),
+            schema_version=_i(payload.get("schema_version"), SCHEMA_VERSION)
+            symbol=symbol
+            ts_ms=_i(payload.get("ts_ms"), 0)
+            venue=_s(payload.get("venue")) or "binance"
+            funding_rate=_f(payload.get("funding_rate"), 0.0)
+            funding_rate_abs=_f(payload.get("funding_rate_abs"), 0.0)
+            funding_rate_z=_f(payload.get("funding_rate_z"), 0.0)
+            premium_index=_f(payload.get("premium_index"), 0.0)
+            basis_bps=_f(payload.get("basis_bps"), 0.0)
+            open_interest=_f(payload.get("open_interest"), 0.0)
+            delta_oi_5m=_f(payload.get("delta_oi_5m"), 0.0)
+            oi_notional_usd=_f(payload.get("oi_notional_usd"), 0.0)
+            funding_extreme=_i(payload.get("funding_extreme"), 0)
+            basis_extreme=_i(payload.get("basis_extreme"), 0)
+            oi_accel=_i(payload.get("oi_accel"), 0)
             # v2 backward compatibility (defaults to 0.0 if missing)
-            long_short_ratio=_f(payload.get("long_short_ratio"), 0.0),
-            long_short_ratio_z=_f(payload.get("long_short_ratio_z"), 0.0),
-            taker_buy_sell_imbalance=_f(payload.get("taker_buy_sell_imbalance"), 0.0),
-            liq_buy_notional_1m=_f(payload.get("liq_buy_notional_1m"), 0.0),
-            liq_sell_notional_1m=_f(payload.get("liq_sell_notional_1m"), 0.0),
-            liq_imbalance_z=_f(payload.get("liq_imbalance_z"), 0.0),
-            market_breadth_ret_24h=_f(payload.get("market_breadth_ret_24h"), 0.0),
-            market_breadth_volume_z=_f(payload.get("market_breadth_volume_z"), 0.0),
-            leader_btc_eth_confirm=_f(payload.get("leader_btc_eth_confirm"), 0.0),
+            long_short_ratio=_f(payload.get("long_short_ratio"), 0.0)
+            long_short_ratio_z=_f(payload.get("long_short_ratio_z"), 0.0)
+            taker_buy_sell_imbalance=_f(payload.get("taker_buy_sell_imbalance"), 0.0)
+            liq_buy_notional_1m=_f(payload.get("liq_buy_notional_1m"), 0.0)
+            liq_sell_notional_1m=_f(payload.get("liq_sell_notional_1m"), 0.0)
+            liq_imbalance_z=_f(payload.get("liq_imbalance_z"), 0.0)
+            market_breadth_ret_24h=_f(payload.get("market_breadth_ret_24h"), 0.0)
+            market_breadth_volume_z=_f(payload.get("market_breadth_volume_z"), 0.0)
+            leader_btc_eth_confirm=_f(payload.get("leader_btc_eth_confirm"), 0.0)
         )
     except Exception:
         return None
@@ -428,19 +428,19 @@ def partial_funding_payload_from_exchange(payload: Dict[str, Any], *, venue: str
     rate = _f(obj.get("lastFundingRate", obj.get("fundingRate", 0.0)), 0.0)
     premium = _f(obj.get("lastFundingRate", 0.0), 0.0) if "premiumIndex" not in obj else _f(obj.get("premiumIndex"), 0.0)
     return {
-        "schema_version": SCHEMA_VERSION,
-        "symbol": symbol,
-        "ts_ms": ts_ms,
-        "venue": str(venue or "binance").lower(),
-        "funding_rate": float(rate),
-        "funding_rate_abs": float(abs(rate)),
-        "funding_rate_z": 0.0,
-        "premium_index": float(premium),
-        "basis_bps": 0.0,
-        "open_interest": 0.0,
-        "delta_oi_5m": 0.0,
-        "oi_notional_usd": 0.0,
-        "funding_extreme": 0,
-        "basis_extreme": 0,
-        "oi_accel": 0,
+        "schema_version": SCHEMA_VERSION
+        "symbol": symbol
+        "ts_ms": ts_ms
+        "venue": str(venue or "binance").lower()
+        "funding_rate": float(rate)
+        "funding_rate_abs": float(abs(rate))
+        "funding_rate_z": 0.0
+        "premium_index": float(premium)
+        "basis_bps": 0.0
+        "open_interest": 0.0
+        "delta_oi_5m": 0.0
+        "oi_notional_usd": 0.0
+        "funding_extreme": 0
+        "basis_extreme": 0
+        "oi_accel": 0
     }

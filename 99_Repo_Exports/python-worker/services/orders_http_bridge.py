@@ -38,8 +38,8 @@ r = redis.from_url(REDIS_URL, decode_responses=True)
 
 # Create FastAPI app
 app = FastAPI(
-    title="Orders HTTP Bridge",
-    description="REST API для MT5 OrderExecutor",
+    title="Orders HTTP Bridge"
+    description="REST API для MT5 OrderExecutor"
     version="6.0.0"
 )
 
@@ -63,7 +63,7 @@ def health():
         return {"ok": True, "redis": "connected", "queue": ORDERS_QUEUE}
     except Exception as e:
         return JSONResponse(
-            {"ok": False, "error": str(e)},
+            {"ok": False, "error": str(e)}
             status_code=503
         )
 
@@ -154,7 +154,7 @@ def get_stats():
         exec_len = r.xlen(EXEC_STREAM)
         
         return {
-            "queue_length": queue_len,
+            "queue_length": queue_len
             "executions_total": exec_len
         }
     except Exception as e:

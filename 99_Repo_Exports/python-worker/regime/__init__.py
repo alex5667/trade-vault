@@ -6,9 +6,9 @@ from .runtime_state import RegimeRuntimeState as RegimeRuntimeState
 from .blackzone import BlackZoneScheduler as BlackZoneScheduler
 
 __all__ = [
-    "RegimeDetector",
-    "RegimeFeatures",
-    "RegimeSample",
-    "RegimeRuntimeState",
-    "BlackZoneScheduler",
+    "RegimeDetector"
+    "RegimeFeatures"
+    "RegimeSample"
+    "RegimeRuntimeState"
+    "BlackZoneScheduler"
 ]

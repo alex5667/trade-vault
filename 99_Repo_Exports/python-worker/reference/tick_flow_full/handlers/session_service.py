@@ -51,30 +51,30 @@ class SessionService:
         # Defaults: non-overlapping UTC buckets for crypto-like flows
         # Priority: US > Europe > Asia > Overnight
         self._default_windows_crypto: List[SessionWindow] = [
-            SessionWindow("us_main", "UTC", 14 * 60, 21 * 60, weekdays=None),
-            SessionWindow("european", "UTC", 8 * 60, 14 * 60, weekdays=None),
-            SessionWindow("asian", "UTC", 0 * 60, 8 * 60, weekdays=None),
-            SessionWindow("overnight", "UTC", 21 * 60, 24 * 60, weekdays=None),
+            SessionWindow("us_main", "UTC", 14 * 60, 21 * 60, weekdays=None)
+            SessionWindow("european", "UTC", 8 * 60, 14 * 60, weekdays=None)
+            SessionWindow("asian", "UTC", 0 * 60, 8 * 60, weekdays=None)
+            SessionWindow("overnight", "UTC", 21 * 60, 24 * 60, weekdays=None)
         ]
 
         # "По-взрослому" для FX/металлов: DST-aware зоны.
         # Приоритет сохраняем (US > London > Tokyo > Overnight).
         self._default_windows_fx_like: List[SessionWindow] = [
-            SessionWindow("us_main", "America/New_York", 9 * 60, 16 * 60, weekdays=(0, 1, 2, 3, 4)),
-            SessionWindow("european", "Europe/London", 8 * 60, 16 * 60, weekdays=(0, 1, 2, 3, 4)),
-            SessionWindow("asian", "Asia/Tokyo", 9 * 60, 17 * 60, weekdays=(0, 1, 2, 3, 4)),
+            SessionWindow("us_main", "America/New_York", 9 * 60, 16 * 60, weekdays=(0, 1, 2, 3, 4))
+            SessionWindow("european", "Europe/London", 8 * 60, 16 * 60, weekdays=(0, 1, 2, 3, 4))
+            SessionWindow("asian", "Asia/Tokyo", 9 * 60, 17 * 60, weekdays=(0, 1, 2, 3, 4))
             # Overnight: fallback for everything else (UTC, all days)
-            SessionWindow("overnight", "UTC", 0, 24 * 60, weekdays=None),
+            SessionWindow("overnight", "UTC", 0, 24 * 60, weekdays=None)
         ]
 
         # Bias defaults (can be overridden via config)
         self._default_biases: Dict[str, float] = {
-            "us_main": 0.1,
-            "european": -0.05,
-            "asian": 0.0,
-            "overnight": -0.1,
-            "weekend": 0.0,
-            "unknown": 0.0,
+            "us_main": 0.1
+            "european": -0.05
+            "asian": 0.0
+            "overnight": -0.1
+            "weekend": 0.0
+            "unknown": 0.0
         }
 
     def _normalize_ts_ms(self, ts: Any) -> int:
@@ -176,12 +176,12 @@ class SessionService:
         Optional config format:
           config.sessions = {
             "crypto": {
-              "weekend_label": "weekend",
+              "weekend_label": "weekend"
               "windows": [
-                {"label":"us_main","tz":"UTC","start":"14:00","end":"21:00","weekdays":[0,1,2,3,4,5,6]},
+                {"label":"us_main","tz":"UTC","start":"14:00","end":"21:00","weekdays":[0,1,2,3,4,5,6]}
                 ...
               ]
-            },
+            }
             "metals": {...}
           }
         """
@@ -351,13 +351,13 @@ class SessionService:
         """
         try:
             return {
-                "symbol": getattr(sig_ctx, "symbol", self.symbol),
-                "direction": int(getattr(sig_ctx, "direction", 0) or 0),
-                "quantity": float(getattr(sig_ctx, "quantity", 1.0) or 1.0),
-                "execution_type": "market",
-                "created_at_ms": self._normalize_ts_ms(getattr(sig_ctx, "ts", 0)),
-                "session": getattr(sig_ctx, "session", None),
-                "session_bias": getattr(sig_ctx, "session_bias", None),
+                "symbol": getattr(sig_ctx, "symbol", self.symbol)
+                "direction": int(getattr(sig_ctx, "direction", 0) or 0)
+                "quantity": float(getattr(sig_ctx, "quantity", 1.0) or 1.0)
+                "execution_type": "market"
+                "created_at_ms": self._normalize_ts_ms(getattr(sig_ctx, "ts", 0))
+                "session": getattr(sig_ctx, "session", None)
+                "session_bias": getattr(sig_ctx, "session_bias", None)
             }
         except Exception as e:
             self.logger.warning("Failed to create execution plan from signal ctx: %s", e)
@@ -369,11 +369,11 @@ class SessionService:
             # This would integrate with execution planning logic
             # For now, return a simple placeholder
             return {
-                "symbol": getattr(ctx, 'symbol', self.symbol),
-                "direction": getattr(ctx, 'direction', 0),
-                "quantity": getattr(ctx, 'quantity', 1.0),
-                "execution_type": "market",
-                "created_at": getattr(ctx, 'ts', 0),
+                "symbol": getattr(ctx, 'symbol', self.symbol)
+                "direction": getattr(ctx, 'direction', 0)
+                "quantity": getattr(ctx, 'quantity', 1.0)
+                "execution_type": "market"
+                "created_at": getattr(ctx, 'ts', 0)
             }
         except Exception as e:
             self.logger.warning(f"Failed to create execution plan: {e}")
@@ -410,8 +410,8 @@ class SessionService:
         # Additional session metrics could be calculated here
 
         return {
-            "session_label": session_label,
-            "session_bias": session_bias,
-            "asset_class": asset_class,
-            "analysis_ts_ms": ts_ms,
+            "session_label": session_label
+            "session_bias": session_bias
+            "asset_class": asset_class
+            "analysis_ts_ms": ts_ms
         }

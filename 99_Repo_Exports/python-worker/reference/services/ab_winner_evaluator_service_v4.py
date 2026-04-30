@@ -72,15 +72,15 @@ class ABWinnerEvaluatorV4:
         self.tail_k = int(os.getenv("AB_TAIL_WORST_K", "200"))
 
         self.pen_cfg = PenaltyCfg(
-            lam_spread=float(os.getenv("LCB_LAM_SPREAD", "0.03")),
-            lam_pressure=float(os.getenv("LCB_LAM_PRESSURE", "0.05")),
-            lam_cooldown=float(os.getenv("LCB_LAM_COOLDOWN", "0.04")),
-            lam_bookstale=float(os.getenv("LCB_LAM_BOOKSTALE", "0.03")),
-            lam_unstable=float(os.getenv("LCB_LAM_UNSTABLE", "0.03")),
-            lam_news=float(os.getenv("LCB_LAM_NEWS", "0.05")),
-            pressure_hi_sps=float(os.getenv("ENTRY_PRESSURE_HI_SPS", "0.08")),
-            cooldown_hi_sps=float(os.getenv("ENTRY_COOLDOWN_HI_SPS", "0.06")),
-            obi_ttl_ms=int(os.getenv("OBI_EVENT_TTL_MS", "5000")),
+            lam_spread=float(os.getenv("LCB_LAM_SPREAD", "0.03"))
+            lam_pressure=float(os.getenv("LCB_LAM_PRESSURE", "0.05"))
+            lam_cooldown=float(os.getenv("LCB_LAM_COOLDOWN", "0.04"))
+            lam_bookstale=float(os.getenv("LCB_LAM_BOOKSTALE", "0.03"))
+            lam_unstable=float(os.getenv("LCB_LAM_UNSTABLE", "0.03"))
+            lam_news=float(os.getenv("LCB_LAM_NEWS", "0.05"))
+            pressure_hi_sps=float(os.getenv("ENTRY_PRESSURE_HI_SPS", "0.08"))
+            cooldown_hi_sps=float(os.getenv("ENTRY_COOLDOWN_HI_SPS", "0.06"))
+            obi_ttl_ms=int(os.getenv("OBI_EVENT_TTL_MS", "5000"))
         )
 
     async def _ensure_group(self) -> None:
@@ -146,25 +146,25 @@ class ABWinnerEvaluatorV4:
         win_score = float(min(lcb_mean, lcb_tail))
 
         payload = {
-            "ts_ms": _now_ms(),
-            "symbol": sym, "regime": rg, "group": grp, "scenario": scn, "arm": arm,
-            "n": int(w.n),
-            "mean_r_adj": float(w.mean),
-            "std_r_adj": float(std),
-            "lcb_mean": float(lcb_mean),
-            "tail_n": int(t_n),
-            "tail_mean": float(t_mu),
-            "tail_std": float(t_std),
-            "lcb_tail": float(lcb_tail),
-            "win_score": float(win_score),
-            "z": float(th.z),
-            "tail_z": float(th.tail_z),
-            "min_n": int(th.min_n),
-            "min_tail_n": int(th.min_tail_n),
-            "margin": float(th.margin),
+            "ts_ms": _now_ms()
+            "symbol": sym, "regime": rg, "group": grp, "scenario": scn, "arm": arm
+            "n": int(w.n)
+            "mean_r_adj": float(w.mean)
+            "std_r_adj": float(std)
+            "lcb_mean": float(lcb_mean)
+            "tail_n": int(t_n)
+            "tail_mean": float(t_mu)
+            "tail_std": float(t_std)
+            "lcb_tail": float(lcb_tail)
+            "win_score": float(win_score)
+            "z": float(th.z)
+            "tail_z": float(th.tail_z)
+            "min_n": int(th.min_n)
+            "min_tail_n": int(th.min_tail_n)
+            "margin": float(th.margin)
             "pen_last": pen,   # transparency: last penalties
-            "w": w.to_dict(),
-            "tail": tail.to_dict(),
+            "w": w.to_dict()
+            "tail": tail.to_dict()
         }
         await self._save_state(key, payload)
 

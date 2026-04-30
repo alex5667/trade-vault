@@ -138,9 +138,9 @@ def _filter_dataclass_kwargs(cls: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]
     """
     Предотвращение сбоев runtime при различии версий dataclass.
     Fail-open (без TypeError в __init__):
-      - неизвестные ключи НЕ передаём в dataclass (чтобы не падать),
-      - но если dataclass поддерживает поле `extra: dict`, то сохраняем туда все "лишние" ключи,
-      - аккуратно мержим уже переданный kwargs["extra"] (если это dict),
+      - неизвестные ключи НЕ передаём в dataclass (чтобы не падать)
+      - но если dataclass поддерживает поле `extra: dict`, то сохраняем туда все "лишние" ключи
+      - аккуратно мержим уже переданный kwargs["extra"] (если это dict)
       - нормализуем data_quality_flags (None/iterable -> list) если поле существует.
     """
     try:
@@ -214,15 +214,15 @@ class OrderFlowDataProcessor:
     """
 
     def __init__(
-        self,
-        symbol: str,
-        specs: Any,
-        config: Any,
-        atr_publisher: Any = None,
-        atr_calculator: Any = None,
-        health_metrics: Any = None,
-        l3_queue: Any = None,
-        l2_gpu_processor: Any = None,
+        self
+        symbol: str
+        specs: Any
+        config: Any
+        atr_publisher: Any = None
+        atr_calculator: Any = None
+        health_metrics: Any = None
+        l3_queue: Any = None
+        l2_gpu_processor: Any = None
     ):
         self.symbol = symbol
         self.specs = specs
@@ -327,25 +327,25 @@ class OrderFlowDataProcessor:
 
         # Market Regime Service (optional; keep system robust across config variants)
         _rc_raw = {
-            "score_hi": float(getattr(config, "regime_label_hi", 0.35)),
-            "score_lo": float(getattr(config, "regime_label_lo", -0.35)),
-            "atr_q_hi": float(getattr(config, "regime_atr_hi_q", 0.70)),
-            "atr_q_lo": float(getattr(config, "regime_atr_lo_q", 0.35)),
-            "adx_q_hi": float(getattr(config, "regime_adx_hi_q", 0.75)),
-            "adx_q_lo": float(getattr(config, "regime_adx_lo_q", 0.40)),
-            "ping_scale": float(getattr(config, "regime_ping_scale", 0.20)),
-            "delta_scale": float(getattr(config, "regime_delta_scale", 1.0)),
-            "w_atr": float(getattr(config, "regime_w_atr", 0.35)),
-            "w_adx": float(getattr(config, "regime_w_adx", 0.20)),
-            "w_delta": float(getattr(config, "regime_w_delta", 0.25)),
-            "w_hold": float(getattr(config, "regime_w_hold", 0.25)),
-            "w_ping": float(getattr(config, "regime_w_ping", 0.15)),
-            "trend_dir_hold_min": float(getattr(config, "regime_trend_dir_hold_min", 0.10)),
+            "score_hi": float(getattr(config, "regime_label_hi", 0.35))
+            "score_lo": float(getattr(config, "regime_label_lo", -0.35))
+            "atr_q_hi": float(getattr(config, "regime_atr_hi_q", 0.70))
+            "atr_q_lo": float(getattr(config, "regime_atr_lo_q", 0.35))
+            "adx_q_hi": float(getattr(config, "regime_adx_hi_q", 0.75))
+            "adx_q_lo": float(getattr(config, "regime_adx_lo_q", 0.40))
+            "ping_scale": float(getattr(config, "regime_ping_scale", 0.20))
+            "delta_scale": float(getattr(config, "regime_delta_scale", 1.0))
+            "w_atr": float(getattr(config, "regime_w_atr", 0.35))
+            "w_adx": float(getattr(config, "regime_w_adx", 0.20))
+            "w_delta": float(getattr(config, "regime_w_delta", 0.25))
+            "w_hold": float(getattr(config, "regime_w_hold", 0.25))
+            "w_ping": float(getattr(config, "regime_w_ping", 0.15))
+            "trend_dir_hold_min": float(getattr(config, "regime_trend_dir_hold_min", 0.10))
             # placeholder RegimeConfig compatibility (if present)
-            "window_bars": int(getattr(config, "regime_window_bars", 20)),
-            "trend_threshold": float(getattr(config, "regime_trend_threshold", 0.7)),
-            "range_threshold": float(getattr(config, "regime_range_threshold", 0.3)),
-            "mixed_threshold": float(getattr(config, "regime_mixed_threshold", 0.5)),
+            "window_bars": int(getattr(config, "regime_window_bars", 20))
+            "trend_threshold": float(getattr(config, "regime_trend_threshold", 0.7))
+            "range_threshold": float(getattr(config, "regime_range_threshold", 0.3))
+            "mixed_threshold": float(getattr(config, "regime_mixed_threshold", 0.5))
         }
         self.regime_service = MarketRegimeService(_build_regime_config_safe(RegimeConfig, _rc_raw))
 
@@ -401,14 +401,14 @@ class OrderFlowDataProcessor:
         """
         st = self._bucket_state
         return {
-            "obi": float(getattr(st, "obi", 0.0) or 0.0),
-            "obi_avg": float(getattr(st, "obi_avg", 0.0) or 0.0),
-            "obi_sustained": bool(getattr(st, "obi_sustained", False)),
+            "obi": float(getattr(st, "obi", 0.0) or 0.0)
+            "obi_avg": float(getattr(st, "obi_avg", 0.0) or 0.0)
+            "obi_sustained": bool(getattr(st, "obi_sustained", False))
 
-            "obi20": float(getattr(st, "obi_20", 0.0) or 0.0),
-            "obi20_avg": float(getattr(st, "obi_avg_20", 0.0) or 0.0),
-            "obi20_sustained": bool(getattr(st, "obi_sustained_20", False)),
-            "obi20_valid": bool(getattr(st, "obi_20_valid", False)),
+            "obi20": float(getattr(st, "obi_20", 0.0) or 0.0)
+            "obi20_avg": float(getattr(st, "obi_avg_20", 0.0) or 0.0)
+            "obi20_sustained": bool(getattr(st, "obi_sustained_20", False))
+            "obi20_valid": bool(getattr(st, "obi_20_valid", False))
         }
 
     def _get_rq(self, symbol: str, now_ms: int) -> Optional[Any]:
@@ -696,14 +696,14 @@ class OrderFlowDataProcessor:
             l2_is_stale = bool(getattr(st, "l2_is_stale", True))
             l2_is_stale_now = bool(getattr(st, "l2_is_stale_now", l2_is_stale))
             hm.on_tick(
-                symbol=self.symbol,
-                l2_age_ms=l2_age_ms,
-                l2_age_ms_tick=l2_age_ms_tick,
-                l2_is_stale=l2_is_stale,
-                l2_is_stale_now=l2_is_stale_now,
-                eta_fill_ms=None,
-                burst_ratio=None,
-                imbalance_min=None,
+                symbol=self.symbol
+                l2_age_ms=l2_age_ms
+                l2_age_ms_tick=l2_age_ms_tick
+                l2_is_stale=l2_is_stale
+                l2_is_stale_now=l2_is_stale_now
+                eta_fill_ms=None
+                burst_ratio=None
+                imbalance_min=None
             )
         except Exception:
             # Не ломаем обработку тика ни при каких обстоятельствах
@@ -946,13 +946,13 @@ class OrderFlowDataProcessor:
                 pass  # fail-open: use fallback
 
             f = RegimeFeatures(
-                atr_q=float(atr_q),
-                adx_q=float(adx_q),
-                delta_ema=float(self._regime_delta_ema),
-                hold_side_score=float(self._regime_hold_ema),
-                vwap_cross_rate=float(cross_rate),
-                vwap=float(self._regime_vwap),
-                open_day=float(self._regime_open_day),
+                atr_q=float(atr_q)
+                adx_q=float(adx_q)
+                delta_ema=float(self._regime_delta_ema)
+                hold_side_score=float(self._regime_hold_ema)
+                vwap_cross_rate=float(cross_rate)
+                vwap=float(self._regime_vwap)
+                open_day=float(self._regime_open_day)
             )
             self.regime_service.update_regime(f)
             regime_state = self.regime_service.get_current_regime()
@@ -1173,163 +1173,163 @@ class OrderFlowDataProcessor:
         # ---- ctx kwargs: максимально полная стыковка ----
         ctx_kwargs = dict(
             # IDs
-            symbol=self.symbol,
-            ts=now_ts,
-            ts_utc=ts_utc,
-            price=float(getattr(st, "price", 0.0) or 0.0),
+            symbol=self.symbol
+            ts=now_ts
+            ts_utc=ts_utc
+            price=float(getattr(st, "price", 0.0) or 0.0)
 
             # config metadata
-            family=str(getattr(self.config, "family", "crypto_orderflow")),
-            venue=str(getattr(self.config, "venue", "binance_futures")),
-            timeframe_s=int(getattr(self.config, "timeframe_s", 60)),
+            family=str(getattr(self.config, "family", "crypto_orderflow"))
+            venue=str(getattr(self.config, "venue", "binance_futures"))
+            timeframe_s=int(getattr(self.config, "timeframe_s", 60))
 
             # core
-            z_delta=float(getattr(st, "z_delta", 0.0) or 0.0),
+            z_delta=float(getattr(st, "z_delta", 0.0) or 0.0)
 
             # OBI short/long
-            obi=float(getattr(st, "obi", 0.0) or 0.0),
-            obi_avg=float(getattr(st, "obi_avg", 0.0) or 0.0),
-            obi_sustained=bool(getattr(st, "obi_sustained", False)),
+            obi=float(getattr(st, "obi", 0.0) or 0.0)
+            obi_avg=float(getattr(st, "obi_avg", 0.0) or 0.0)
+            obi_sustained=bool(getattr(st, "obi_sustained", False))
 
-            obi_20=float(getattr(st, "obi_20", 0.0) or 0.0),
-            obi_avg_20=float(getattr(st, "obi_avg_20", 0.0) or 0.0),
-            obi_sustained_20=obi_sust_20,
-            obi_20_valid=bool(obi_20_valid),
+            obi_20=float(getattr(st, "obi_20", 0.0) or 0.0)
+            obi_avg_20=float(getattr(st, "obi_avg_20", 0.0) or 0.0)
+            obi_sustained_20=obi_sust_20
+            obi_20_valid=bool(obi_20_valid)
 
             # depths/slopes/microprice
-            depth_bid_5=float(getattr(st, "depth_bid_5", 0.0) or 0.0),
-            depth_ask_5=float(getattr(st, "depth_ask_5", 0.0) or 0.0),
-            depth_bid_20=float(getattr(st, "depth_bid_20", 0.0) or 0.0),
-            depth_ask_20=float(getattr(st, "depth_ask_20", 0.0) or 0.0),
-            slope_bid_20=float(getattr(st, "slope_bid_20", 0.0) or 0.0),
-            slope_ask_20=float(getattr(st, "slope_ask_20", 0.0) or 0.0),
-            microprice_shift_bps_20=float(getattr(st, "microprice_shift_bps_20", 0.0) or 0.0),
-            microprice=float(getattr(st, "microprice", 0.0) or 0.0),
+            depth_bid_5=float(getattr(st, "depth_bid_5", 0.0) or 0.0)
+            depth_ask_5=float(getattr(st, "depth_ask_5", 0.0) or 0.0)
+            depth_bid_20=float(getattr(st, "depth_bid_20", 0.0) or 0.0)
+            depth_ask_20=float(getattr(st, "depth_ask_20", 0.0) or 0.0)
+            slope_bid_20=float(getattr(st, "slope_bid_20", 0.0) or 0.0)
+            slope_ask_20=float(getattr(st, "slope_ask_20", 0.0) or 0.0)
+            microprice_shift_bps_20=float(getattr(st, "microprice_shift_bps_20", 0.0) or 0.0)
+            microprice=float(getattr(st, "microprice", 0.0) or 0.0)
 
             # spread
-            spread_bps=float(spread_bps),
-            spread_bps_mean=float(getattr(st, "spread_bps_mean", 0.0) or 0.0),
-            spread_bps_z=float(getattr(st, "spread_bps_z", 0.0) or 0.0),
+            spread_bps=float(spread_bps)
+            spread_bps_mean=float(getattr(st, "spread_bps_mean", 0.0) or 0.0)
+            spread_bps_z=float(getattr(st, "spread_bps_z", 0.0) or 0.0)
 
             # walls
-            wall_bid=bool(getattr(st, "wall_bid", False)),
-            wall_ask=bool(getattr(st, "wall_ask", False)),
-            wall_bid_dist_bps=float(getattr(st, "wall_bid_dist_bps", 0.0) or 0.0),
-            wall_ask_dist_bps=float(getattr(st, "wall_ask_dist_bps", 0.0) or 0.0),
-            wall_bid_persist_ratio=float(wall_bid_persist),
-            wall_ask_persist_ratio=float(wall_ask_persist),
-            wall_bid_suspicious=bool(wall_bid_susp),
-            wall_ask_suspicious=bool(wall_ask_susp),
+            wall_bid=bool(getattr(st, "wall_bid", False))
+            wall_ask=bool(getattr(st, "wall_ask", False))
+            wall_bid_dist_bps=float(getattr(st, "wall_bid_dist_bps", 0.0) or 0.0)
+            wall_ask_dist_bps=float(getattr(st, "wall_ask_dist_bps", 0.0) or 0.0)
+            wall_bid_persist_ratio=float(wall_bid_persist)
+            wall_ask_persist_ratio=float(wall_ask_persist)
+            wall_bid_suspicious=bool(wall_bid_susp)
+            wall_ask_suspicious=bool(wall_ask_susp)
 
             # L2 freshness
-            l2_ts=int(l2_ts),
-            l2_age_ms=int(l2_age_ms),
-            l2_is_stale=bool(l2_is_stale),
+            l2_ts=int(l2_ts)
+            l2_age_ms=int(l2_age_ms)
+            l2_is_stale=bool(l2_is_stale)
 
             # ATR / vol
-            atr=float(getattr(st, "atr", 0.0) or 0.0),
-            atr_14_raw=float(getattr(st, "atr_14_raw", 0.0) or 0.0),
-            atr_14_bps=float(getattr(st, "atr_14_bps", 0.0) or 0.0),
-            atr_14_q=float(getattr(st, "atr_14_q", 0.0) or 0.0),
-            daily_atr_bps=getattr(st, "daily_atr_bps", None),
+            atr=float(getattr(st, "atr", 0.0) or 0.0)
+            atr_14_raw=float(getattr(st, "atr_14_raw", 0.0) or 0.0)
+            atr_14_bps=float(getattr(st, "atr_14_bps", 0.0) or 0.0)
+            atr_14_q=float(getattr(st, "atr_14_q", 0.0) or 0.0)
+            daily_atr_bps=getattr(st, "daily_atr_bps", None)
 
             # delta/bucket
-            current_delta=float(getattr(st, "current_delta", 0.0) or 0.0),
-            delta_bucket=float(getattr(st, "delta_bucket", 0.0) or 0.0),
-            cvd_5m=float(getattr(st, "cvd_5m", 0.0) or 0.0),
-            cvd_divergence=float(getattr(st, "cvd_divergence", 0.0) or 0.0),
+            current_delta=float(getattr(st, "current_delta", 0.0) or 0.0)
+            delta_bucket=float(getattr(st, "delta_bucket", 0.0) or 0.0)
+            cvd_5m=float(getattr(st, "cvd_5m", 0.0) or 0.0)
+            cvd_divergence=float(getattr(st, "cvd_divergence", 0.0) or 0.0)
 
             # L3-lite
-            taker_buy_qty_bucket=float(getattr(st, "taker_buy_qty_bucket", 0.0) or 0.0),
-            taker_sell_qty_bucket=float(getattr(st, "taker_sell_qty_bucket", 0.0) or 0.0),
-            taker_buy_rate_ema=float(getattr(st, "taker_buy_rate_ema", 0.0) or 0.0),
-            taker_sell_rate_ema=float(getattr(st, "taker_sell_rate_ema", 0.0) or 0.0),
-            cancel_to_trade_bid=float(getattr(st, "cancel_to_trade_bid", 0.0) or 0.0),
-            cancel_to_trade_ask=float(getattr(st, "cancel_to_trade_ask", 0.0) or 0.0),
-            cancel_bid_rate_ema=float(getattr(st, "cancel_bid_rate_ema", 0.0) or 0.0),
-            cancel_ask_rate_ema=float(getattr(st, "cancel_ask_rate_ema", 0.0) or 0.0),
-            eta_fill_bid_sec=float(getattr(st, "eta_fill_bid_sec", 0.0) or 0.0),
-            eta_fill_ask_sec=float(getattr(st, "eta_fill_ask_sec", 0.0) or 0.0),
-            pull_ask_qty_proxy=float(getattr(st, "pull_ask_qty_proxy", 0.0) or 0.0),
-            pull_bid_qty_proxy=float(getattr(st, "pull_bid_qty_proxy", 0.0) or 0.0),
+            taker_buy_qty_bucket=float(getattr(st, "taker_buy_qty_bucket", 0.0) or 0.0)
+            taker_sell_qty_bucket=float(getattr(st, "taker_sell_qty_bucket", 0.0) or 0.0)
+            taker_buy_rate_ema=float(getattr(st, "taker_buy_rate_ema", 0.0) or 0.0)
+            taker_sell_rate_ema=float(getattr(st, "taker_sell_rate_ema", 0.0) or 0.0)
+            cancel_to_trade_bid=float(getattr(st, "cancel_to_trade_bid", 0.0) or 0.0)
+            cancel_to_trade_ask=float(getattr(st, "cancel_to_trade_ask", 0.0) or 0.0)
+            cancel_bid_rate_ema=float(getattr(st, "cancel_bid_rate_ema", 0.0) or 0.0)
+            cancel_ask_rate_ema=float(getattr(st, "cancel_ask_rate_ema", 0.0) or 0.0)
+            eta_fill_bid_sec=float(getattr(st, "eta_fill_bid_sec", 0.0) or 0.0)
+            eta_fill_ask_sec=float(getattr(st, "eta_fill_ask_sec", 0.0) or 0.0)
+            pull_ask_qty_proxy=float(getattr(st, "pull_ask_qty_proxy", 0.0) or 0.0)
+            pull_bid_qty_proxy=float(getattr(st, "pull_bid_qty_proxy", 0.0) or 0.0)
             
             # P1: OFI / Churn
-            ofi_val=float(getattr(st, "ofi_val", 0.0) or 0.0),
-            ofi_z=float(getattr(st, "ofi_z", 0.0) or 0.0),
-            book_churn_hz=float(getattr(st, "book_churn_hz", 0.0) or 0.0),
-            book_churn_z=float(getattr(st, "book_churn_z", 0.0) or 0.0),
+            ofi_val=float(getattr(st, "ofi_val", 0.0) or 0.0)
+            ofi_z=float(getattr(st, "ofi_z", 0.0) or 0.0)
+            book_churn_hz=float(getattr(st, "book_churn_hz", 0.0) or 0.0)
+            book_churn_z=float(getattr(st, "book_churn_z", 0.0) or 0.0)
 
             # P1: Event Recency (age_ms)
-            iceberg_age_ms=int(now_ts - int(getattr(st, "last_iceberg_ts", 0) or 0)) if getattr(st, "last_iceberg_ts", 0) > 0 else -1,
-            sweep_age_ms=int(now_ts - int(getattr(st, "last_sweep_ts", 0) or 0)) if getattr(st, "last_sweep_ts", 0) > 0 else -1,
-            reclaim_age_ms=int(now_ts - int(getattr(st, "last_reclaim_ts", 0) or 0)) if getattr(st, "last_reclaim_ts", 0) > 0 else -1,
-            microprice_shift_age_ms=int(now_ts - int(getattr(st, "last_microprice_shift_ts", 0) or 0)) if getattr(st, "last_microprice_shift_ts", 0) > 0 else -1,
-            obi_event_age_ms=int(now_ts - int(getattr(st, "last_obi_spike_ts", 0) or 0)) if getattr(st, "last_obi_spike_ts", 0) > 0 else -1,
+            iceberg_age_ms=int(now_ts - int(getattr(st, "last_iceberg_ts", 0) or 0)) if getattr(st, "last_iceberg_ts", 0) > 0 else -1
+            sweep_age_ms=int(now_ts - int(getattr(st, "last_sweep_ts", 0) or 0)) if getattr(st, "last_sweep_ts", 0) > 0 else -1
+            reclaim_age_ms=int(now_ts - int(getattr(st, "last_reclaim_ts", 0) or 0)) if getattr(st, "last_reclaim_ts", 0) > 0 else -1
+            microprice_shift_age_ms=int(now_ts - int(getattr(st, "last_microprice_shift_ts", 0) or 0)) if getattr(st, "last_microprice_shift_ts", 0) > 0 else -1
+            obi_event_age_ms=int(now_ts - int(getattr(st, "last_obi_spike_ts", 0) or 0)) if getattr(st, "last_obi_spike_ts", 0) > 0 else -1
 
             # touch-level
-            touch_bid_tag=str(getattr(st, "touch_bid_tag", "none") or "none"),
-            touch_ask_tag=str(getattr(st, "touch_ask_tag", "none") or "none"),
-            touch_bid_rho=float(getattr(st, "touch_bid_rho", 0.0) or 0.0),
-            touch_ask_rho=float(getattr(st, "touch_ask_rho", 0.0) or 0.0),
-            touch_bid_traded_w=float(getattr(st, "touch_bid_traded_w", 0.0) or 0.0),
-            touch_ask_traded_w=float(getattr(st, "touch_ask_traded_w", 0.0) or 0.0),
-            touch_bid_drop_w=float(getattr(st, "touch_bid_drop_w", 0.0) or 0.0),
-            touch_ask_drop_w=float(getattr(st, "touch_ask_drop_w", 0.0) or 0.0),
-            touch_is_stale=bool(getattr(st, "touch_is_stale", True)),
+            touch_bid_tag=str(getattr(st, "touch_bid_tag", "none") or "none")
+            touch_ask_tag=str(getattr(st, "touch_ask_tag", "none") or "none")
+            touch_bid_rho=float(getattr(st, "touch_bid_rho", 0.0) or 0.0)
+            touch_ask_rho=float(getattr(st, "touch_ask_rho", 0.0) or 0.0)
+            touch_bid_traded_w=float(getattr(st, "touch_bid_traded_w", 0.0) or 0.0)
+            touch_ask_traded_w=float(getattr(st, "touch_ask_traded_w", 0.0) or 0.0)
+            touch_bid_drop_w=float(getattr(st, "touch_bid_drop_w", 0.0) or 0.0)
+            touch_ask_drop_w=float(getattr(st, "touch_ask_drop_w", 0.0) or 0.0)
+            touch_is_stale=bool(getattr(st, "touch_is_stale", True))
 
             # burstiness
-            burst_trade_count_bucket=int(getattr(st, "burst_trade_count_bucket", 0) or 0),
-            burst_rate_short=float(getattr(st, "burst_rate_short", 0.0) or 0.0),
-            burst_rate_long=float(getattr(st, "burst_rate_long", 0.0) or 0.0),
-            burst_ratio=float(getattr(st, "burst_ratio", 0.0) or 0.0),
-            burst_cv_dt=float(getattr(st, "burst_cv_dt", 0.0) or 0.0),
-            burst_fano_counts=float(getattr(st, "burst_fano_counts", 0.0) or 0.0),
-            burst_flip_ratio=float(getattr(st, "burst_flip_ratio", 0.0) or 0.0),
+            burst_trade_count_bucket=int(getattr(st, "burst_trade_count_bucket", 0) or 0)
+            burst_rate_short=float(getattr(st, "burst_rate_short", 0.0) or 0.0)
+            burst_rate_long=float(getattr(st, "burst_rate_long", 0.0) or 0.0)
+            burst_ratio=float(getattr(st, "burst_ratio", 0.0) or 0.0)
+            burst_cv_dt=float(getattr(st, "burst_cv_dt", 0.0) or 0.0)
+            burst_fano_counts=float(getattr(st, "burst_fano_counts", 0.0) or 0.0)
+            burst_flip_ratio=float(getattr(st, "burst_flip_ratio", 0.0) or 0.0)
 
             # regime (если добавили в BucketState; иначе останется дефолт)
-            regime_score=float(getattr(st, "regime_score", 0.0) or 0.0),
-            regime_label=str(getattr(st, "regime_label", "mixed") or "mixed"),
+            regime_score=float(getattr(st, "regime_score", 0.0) or 0.0)
+            regime_label=str(getattr(st, "regime_label", "mixed") or "mixed")
 
             # pivots
-            pivots=pivots_dict,
+            pivots=pivots_dict
 
             # Bar range snapshot (from collected variables above)
-            bar_id=bar_id,
-            bar_ts_open_ms=bar_ts_open_ms,
-            bar_open=bar_open,
-            bar_high=bar_high,
-            bar_low=bar_low,
-            bar_close=bar_close,
-            bar_range=bar_range,
-            bar_range_bps=bar_range_bps,
-            bar_range_bps_ema=bar_range_bps_ema,
-            bar_range_bps_ratio_to_ema=bar_range_bps_ratio_to_ema,
-            bar_range_z=bar_range_z,
-            bar_range_last_closed_z=bar_range_last_closed_z,
+            bar_id=bar_id
+            bar_ts_open_ms=bar_ts_open_ms
+            bar_open=bar_open
+            bar_high=bar_high
+            bar_low=bar_low
+            bar_close=bar_close
+            bar_range=bar_range
+            bar_range_bps=bar_range_bps
+            bar_range_bps_ema=bar_range_bps_ema
+            bar_range_bps_ratio_to_ema=bar_range_bps_ratio_to_ema
+            bar_range_z=bar_range_z
+            bar_range_last_closed_z=bar_range_last_closed_z
 
-            prev_bar_open=prev_bar_open,
-            prev_bar_high=prev_bar_high,
-            prev_bar_low=prev_bar_low,
-            prev_bar_close=prev_bar_close,
-            prev_bar_range=prev_bar_range,
-            prev_bar_range_bps=prev_bar_range_bps,
-            prev_bar_range_bps_z=prev_bar_range_bps_z,
+            prev_bar_open=prev_bar_open
+            prev_bar_high=prev_bar_high
+            prev_bar_low=prev_bar_low
+            prev_bar_close=prev_bar_close
+            prev_bar_range=prev_bar_range
+            prev_bar_range_bps=prev_bar_range_bps
+            prev_bar_range_bps_z=prev_bar_range_bps_z
 
-            bar_time_backwards_cnt=bar_time_backwards_cnt,
-            bar_time_backwards_flag=bar_time_backwards_flag,
-            bar_time_backwards_ms=bar_time_backwards_ms,
-            bar_gap_bars=bar_gap_bars,
-            bar_gap_flag=bar_gap_flag,
-            bar_late_tick_ignored=bar_late_tick_ignored,
+            bar_time_backwards_cnt=bar_time_backwards_cnt
+            bar_time_backwards_flag=bar_time_backwards_flag
+            bar_time_backwards_ms=bar_time_backwards_ms
+            bar_gap_bars=bar_gap_bars
+            bar_gap_flag=bar_gap_flag
+            bar_late_tick_ignored=bar_late_tick_ignored
 
             # Pivots meta (strictly from BucketState)
-            pivots_ts_ms=int(getattr(st, "pivots_ts_ms", 0) or 0),
-            pivots_date=str(getattr(st, "pivots_date", "") or ""),
-            nearest_pivot_key=str(getattr(st, "nearest_pivot_key", "") or ""),
-            nearest_pivot_price=float(getattr(st, "nearest_pivot_price", 0.0) or 0.0),
+            pivots_ts_ms=int(getattr(st, "pivots_ts_ms", 0) or 0)
+            pivots_date=str(getattr(st, "pivots_date", "") or "")
+            nearest_pivot_key=str(getattr(st, "nearest_pivot_key", "") or "")
+            nearest_pivot_price=float(getattr(st, "nearest_pivot_price", 0.0) or 0.0)
 
             # Fail-open telemetry flags
-            data_quality_flags=dq0,
+            data_quality_flags=dq0
         )
 
         ctx = OrderflowSignalContext(**_filter_dataclass_kwargs(OrderflowSignalContext, ctx_kwargs))
@@ -1338,10 +1338,10 @@ class OrderFlowDataProcessor:
 
         # thresholds
         thr = OrderflowSignalThresholds(
-            min_bucket_trades=int(getattr(self.config, "min_bucket_trades", 0)),
-            min_bucket_notional_usd=float(getattr(self.config, "min_bucket_notional_usd", 0.0)),
-            min_delta_z=float(getattr(self.config, "min_delta_z", 0.0)),
-            min_obi_z=float(getattr(self.config, "min_obi_z", 0.0)),
+            min_bucket_trades=int(getattr(self.config, "min_bucket_trades", 0))
+            min_bucket_notional_usd=float(getattr(self.config, "min_bucket_notional_usd", 0.0))
+            min_delta_z=float(getattr(self.config, "min_delta_z", 0.0))
+            min_obi_z=float(getattr(self.config, "min_obi_z", 0.0))
         )
         ctx.thresholds = thr
 
@@ -1369,8 +1369,8 @@ class OrderFlowDataProcessor:
             # weak_progress не вычисляется в этом модуле - не включаем пока
             if hasattr(ctx, "metrics"):
                 ctx.metrics = {
-                    "deltaSpike_z": ctx.z_delta,
-                    "obi": ctx.obi,
+                    "deltaSpike_z": ctx.z_delta
+                    "obi": ctx.obi
                 }
             if hasattr(ctx, "calibrated"):
                 ctx.calibrated = {}
@@ -1384,7 +1384,7 @@ class OrderFlowDataProcessor:
         # - attach() must not do Redis IO; it only reads in-memory cache
         # - failures must be fail-open (never break signal generation)
         #
-        # This makes ctx.news available earlier than CandidateEmitPipeline,
+        # This makes ctx.news available earlier than CandidateEmitPipeline
         # so any downstream logic (filters, risk, regime, etc.) can use it.
         # ------------------------------------------------------------------
         try:
@@ -1648,7 +1648,7 @@ class OrderFlowDataProcessor:
         # Feed L3-lite proxy with L2 totals (top-20 depth)
         if self.l3_queue:
              self.l3_queue.on_l2_totals(
-                 bid_total=float(getattr(st, "depth_bid_20", 0.0) or 0.0),
+                 bid_total=float(getattr(st, "depth_bid_20", 0.0) or 0.0)
                  ask_total=float(getattr(st, "depth_ask_20", 0.0) or 0.0)
              )
 
@@ -1688,7 +1688,7 @@ class OrderFlowDataProcessor:
                     st.book_churn_z = float(z)
             self._last_book_ts = now_ms
 
-        # Синхронизируем staleness относительно ПОСЛЕДНЕГО тика (если он уже был),
+        # Синхронизируем staleness относительно ПОСЛЕДНЕГО тика (если он уже был)
         # чтобы build_signal_ctx не жил "старыми" флагами до прихода следующего тика.
         last_tick_ts = int(getattr(st, "ts", 0) or 0)
         if last_tick_ts > 0:

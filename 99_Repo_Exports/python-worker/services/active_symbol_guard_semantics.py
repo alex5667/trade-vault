@@ -23,7 +23,7 @@ def guard_view(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict
     This utility is the single contract for all readers of
     orders:active_symbol_sid:{SYMBOL}. Writers may add more fields, but readers
     should derive blocking / released / pending-release meaning only via this
-    function so tombstone semantics remain consistent across executor,
+    function so tombstone semantics remain consistent across executor
     projection, repair-worker, exporters and tests.
     """
     raw = dict(doc or {})
@@ -60,7 +60,7 @@ def guard_view(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict
         "updated_at_ms": updated_at_ms,
         "tombstone_age_ms": tombstone_age_ms,
         "guard_writer": str(raw.get("guard_writer") or ""),
-        "guard_lease_token": str(raw.get("guard_lease_token") or ""),
+        "guard_lease_token": str(raw.get("guard_lease_token") or "")
     }
 
 

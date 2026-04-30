@@ -2,7 +2,7 @@
 
 D3 changes:
   - Canonical ENV names normalised; back-compat aliases supported.
-  - New canonical names:  LIQMAP_LEVELS_SL_MAX_WIDEN_BPS, LIQMAP_LEVELS_TP1_ENABLE,
+  - New canonical names:  LIQMAP_LEVELS_SL_MAX_WIDEN_BPS, LIQMAP_LEVELS_TP1_ENABLE
                           LIQMAP_LEVELS_SL_ENABLE
   - Legacy aliases:       LIQMAP_LEVELS_MAX_SL_WIDEN_BPS → SL_MAX_WIDEN_BPS
                           LIQMAP_LEVELS_ENABLE_TP1       → TP1_ENABLE
@@ -27,11 +27,11 @@ class DummyRuntime:
         self.symbol = "BTCUSDT"
         self.config = {
             # keep it minimal and deterministic
-            "stop_mode": "ATR",
-            "stop_atr_mult": 1.0,
-            "tp_rr": "1.3,2.0,2.7",
-            "min_lot": 0.01,
-            "max_lot": 0.01,
+            "stop_mode": "ATR"
+            "stop_atr_mult": 1.0
+            "tp_rr": "1.3,2.0,2.7"
+            "min_lot": 0.01
+            "max_lot": 0.01
         }
         self.dynamic_cfg = {}
         self.calibrated_specs = {}
@@ -43,18 +43,18 @@ class DummyRuntime:
 def _clean_liqmap_env():
     """Remove all LiqMap levels overlay env vars to ensure test isolation."""
     for k in (
-        "LIQMAP_LEVELS_ENABLE",
-        "LIQMAP_LEVELS_WINDOW",
-        "LIQMAP_LEVELS_MIN_USD",
-        "LIQMAP_LEVELS_BUFFER_BPS",
+        "LIQMAP_LEVELS_ENABLE"
+        "LIQMAP_LEVELS_WINDOW"
+        "LIQMAP_LEVELS_MIN_USD"
+        "LIQMAP_LEVELS_BUFFER_BPS"
         # D3 canonical
-        "LIQMAP_LEVELS_SL_MAX_WIDEN_BPS",
-        "LIQMAP_LEVELS_TP1_ENABLE",
-        "LIQMAP_LEVELS_SL_ENABLE",
+        "LIQMAP_LEVELS_SL_MAX_WIDEN_BPS"
+        "LIQMAP_LEVELS_TP1_ENABLE"
+        "LIQMAP_LEVELS_SL_ENABLE"
         # D2 legacy aliases
-        "LIQMAP_LEVELS_MAX_SL_WIDEN_BPS",
-        "LIQMAP_LEVELS_ENABLE_TP1",
-        "LIQMAP_LEVELS_ENABLE_SL",
+        "LIQMAP_LEVELS_MAX_SL_WIDEN_BPS"
+        "LIQMAP_LEVELS_ENABLE_TP1"
+        "LIQMAP_LEVELS_ENABLE_SL"
     ):
         os.environ.pop(k, None)
 
@@ -71,14 +71,14 @@ def _mk_tp(overlay_enable: bool):
     os.environ["LIQMAP_LEVELS_TP1_ENABLE"] = "1"
     os.environ["LIQMAP_LEVELS_SL_ENABLE"] = "0"
     return TickProcessor(
-        redis=None,
-        ticks=None,
-        publisher=None,
-        of_engine=None,
-        calib_svc=None,
-        atr_cache=None,
-        atr_sanity=None,
-        conf_scorer=None,
+        redis=None
+        ticks=None
+        publisher=None
+        of_engine=None
+        calib_svc=None
+        atr_cache=None
+        atr_sanity=None
+        conf_scorer=None
     )
 
 
@@ -93,11 +93,11 @@ def test_liqmap_levels_overlay_tp1_adjusts_when_enabled():
 
     entry = 100.0
     indicators = {
-        "atr": 1.0,
-        # Derived peak_up_price = entry * (1 + 100bps) = 101.0,
+        "atr": 1.0
+        # Derived peak_up_price = entry * (1 + 100bps) = 101.0
         # which sits between entry and base_tp1 (~101.3) → should anchor TP1 before peak.
-        "liqmap_1h_dist_up_bps": 100.0,
-        "liqmap_1h_peak_up1_usd": 500000.0,
+        "liqmap_1h_dist_up_bps": 100.0
+        "liqmap_1h_peak_up1_usd": 500000.0
     }
 
     sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")
@@ -115,9 +115,9 @@ def test_liqmap_levels_overlay_disabled_is_noop():
 
     entry = 100.0
     indicators = {
-        "atr": 1.0,
-        "liqmap_1h_dist_up_bps": 100.0,
-        "liqmap_1h_peak_up1_usd": 500000.0,
+        "atr": 1.0
+        "liqmap_1h_dist_up_bps": 100.0
+        "liqmap_1h_peak_up1_usd": 500000.0
     }
 
     sl, tps, lot, atr = tp._calculate_levels(rt, entry, "LONG", indicators, trail_profile="classic")
@@ -131,9 +131,9 @@ def test_d3_sl_max_widen_bps_default_is_20():
     _clean_liqmap_env()
     # No SL_MAX_WIDEN_BPS / MAX_SL_WIDEN_BPS set → must default to 20.
     tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+        redis=None, ticks=None, publisher=None
+        of_engine=None, calib_svc=None, atr_cache=None
+        atr_sanity=None, conf_scorer=None
     )
     assert tp.liqmap_levels_max_sl_widen_bps == 20.0
 
@@ -144,9 +144,9 @@ def test_d3_legacy_alias_max_sl_widen_honoured():
     os.environ["LIQMAP_LEVELS_MAX_SL_WIDEN_BPS"] = "15"
     # New name absent → legacy alias wins.
     tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+        redis=None, ticks=None, publisher=None
+        of_engine=None, calib_svc=None, atr_cache=None
+        atr_sanity=None, conf_scorer=None
     )
     assert tp.liqmap_levels_max_sl_widen_bps == 15.0
     _clean_liqmap_env()
@@ -158,9 +158,9 @@ def test_d3_new_name_beats_legacy_alias():
     os.environ["LIQMAP_LEVELS_SL_MAX_WIDEN_BPS"] = "25"
     os.environ["LIQMAP_LEVELS_MAX_SL_WIDEN_BPS"] = "99"  # should be ignored
     tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+        redis=None, ticks=None, publisher=None
+        of_engine=None, calib_svc=None, atr_cache=None
+        atr_sanity=None, conf_scorer=None
     )
     assert tp.liqmap_levels_max_sl_widen_bps == 25.0
     _clean_liqmap_env()
@@ -171,9 +171,9 @@ def test_d3_legacy_alias_enable_tp1_honoured():
     _clean_liqmap_env()
     os.environ["LIQMAP_LEVELS_ENABLE_TP1"] = "0"
     tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+        redis=None, ticks=None, publisher=None
+        of_engine=None, calib_svc=None, atr_cache=None
+        atr_sanity=None, conf_scorer=None
     )
     assert tp.liqmap_levels_enable_tp1 is False
     _clean_liqmap_env()
@@ -184,9 +184,9 @@ def test_d3_legacy_alias_enable_sl_honoured():
     _clean_liqmap_env()
     os.environ["LIQMAP_LEVELS_ENABLE_SL"] = "1"
     tp = TickProcessor(
-        redis=None, ticks=None, publisher=None,
-        of_engine=None, calib_svc=None, atr_cache=None,
-        atr_sanity=None, conf_scorer=None,
+        redis=None, ticks=None, publisher=None
+        of_engine=None, calib_svc=None, atr_cache=None
+        atr_sanity=None, conf_scorer=None
     )
     assert tp.liqmap_levels_enable_sl is True
     _clean_liqmap_env()

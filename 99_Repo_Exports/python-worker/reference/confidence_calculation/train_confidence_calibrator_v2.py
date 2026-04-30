@@ -80,8 +80,8 @@ class PlattCalibrator(Calibrator):
         lr.fit(log_odds, labels)
         
         return {
-            "method": "platt",
-            "slope": float(lr.coef_[0][0]),
+            "method": "platt"
+            "slope": float(lr.coef_[0][0])
             "intercept": float(lr.intercept_[0])
         }
 
@@ -94,10 +94,10 @@ class IsotonicCalibrator(Calibrator):
         
         # Serialize boundaries and values
         return {
-            "method": "isotonic",
-            "x_min": float(iso.X_min_),
-            "x_max": float(iso.X_max_),
-            "f_x": [float(x) for x in iso.f_.x],
+            "method": "isotonic"
+            "x_min": float(iso.X_min_)
+            "x_max": float(iso.X_max_)
+            "f_x": [float(x) for x in iso.f_.x]
             "f_y": [float(y) for y in iso.f_.y]
         }
 
@@ -112,10 +112,10 @@ class BetaCalibratorResult(Calibrator):
         return res
 
 FACTORIES = {
-    "identity": IdentityCalibrator,
-    "platt": PlattCalibrator,
-    "isotonic": IsotonicCalibrator,
-    "beta": BetaCalibratorResult,
+    "identity": IdentityCalibrator
+    "platt": PlattCalibrator
+    "isotonic": IsotonicCalibrator
+    "beta": BetaCalibratorResult
 }
 
 def load_data_jsonl(path: str) -> List[Dict[str, Any]]:
@@ -140,11 +140,11 @@ def load_data_db(dsn: str, since_days: int) -> List[Dict[str, Any]]:
         # signal_performance has: ts_signal, symbol, final_score, outcome, realized_R, extra
         sql = """
         SELECT 
-            EXTRACT(EPOCH FROM ts_signal) * 1000 as ts_ms,
-            symbol,
-            final_score as confidence,
-            outcome,
-            "realized_R",
+            EXTRACT(EPOCH FROM ts_signal) * 1000 as ts_ms
+            symbol
+            final_score as confidence
+            outcome
+            "realized_R"
             extra
         FROM signal_performance
         WHERE ts_signal > NOW() - INTERVAL '%s days'
@@ -186,10 +186,10 @@ def load_data_db(dsn: str, since_days: int) -> List[Dict[str, Any]]:
             sess = session_utc(ts_ms)
             
             data.append({
-                "y": label,
-                "confidence": float(r["confidence"]),
-                "symbol": r["symbol"],
-                "session": sess,
+                "y": label
+                "confidence": float(r["confidence"])
+                "symbol": r["symbol"]
+                "session": sess
                 "regime": regime
             })
             
@@ -241,11 +241,11 @@ def run_once(args):
     # Train
     out_map = {
         "meta": {
-            "method": args.method,
-            "train_ts": now_ms(),
-            "source": "db" if args.dsn else args.data_jsonl,
-            "rows": len(rows),
-        },
+            "method": args.method
+            "train_ts": now_ms()
+            "source": "db" if args.dsn else args.data_jsonl
+            "rows": len(rows)
+        }
         "calibrations": {}
     }
     

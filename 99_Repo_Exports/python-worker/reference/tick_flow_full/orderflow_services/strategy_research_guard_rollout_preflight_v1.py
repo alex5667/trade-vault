@@ -15,11 +15,11 @@ import os
 from orderflow_services.research_guard_blocker_v1 import evaluate_research_guard_gate
 
 ALLOWED_PURPOSES = {
-    'latency_contract_sensitive_apply',
-    'conf_score_guardrails_apply',
-    'conf_score_guardrails_promote',
-    'meta_cov_rollout_controller',
-    'conf_score_guardrails_autopromo_controller',
+    'latency_contract_sensitive_apply'
+    'conf_score_guardrails_apply'
+    'conf_score_guardrails_promote'
+    'meta_cov_rollout_controller'
+    'conf_score_guardrails_autopromo_controller'
 }
 
 
@@ -49,11 +49,11 @@ def main() -> int:
         return 0
 
     state = evaluate_research_guard_gate(
-        _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
-        _env('STRATEGY_RESEARCH_GUARD_BLOCKER_KEY', 'cfg:research_guard:blocker:v1'),
-        _env('STRATEGY_RESEARCH_GUARD_SUMMARY_KEY', 'metrics:strategy_research_guard:last'),
-        max_age_sec=float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600') or 129600),
-        fail_closed_missing=int(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1') or 1),
+        _env('REDIS_URL', 'redis://redis-worker-1:6379/0')
+        _env('STRATEGY_RESEARCH_GUARD_BLOCKER_KEY', 'cfg:research_guard:blocker:v1')
+        _env('STRATEGY_RESEARCH_GUARD_SUMMARY_KEY', 'metrics:strategy_research_guard:last')
+        max_age_sec=float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600') or 129600)
+        fail_closed_missing=int(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1') or 1)
     )
     status = str(state.get('status') or 'invalid')
     reason = str(state.get('reason') or 'unknown')

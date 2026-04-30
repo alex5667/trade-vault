@@ -59,7 +59,7 @@ class LogThrottler:
         self,
         message_key: str,
         message: str,
-        every_n: int = 10_000,
+        every_n: int = 10_000
     ) -> bool:
         """Log *message* via ``logging.info`` if this occurrence should be emitted.
 

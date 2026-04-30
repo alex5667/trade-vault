@@ -23,21 +23,21 @@ PROM_RULES_PATH = os.path.join(
 )
 
 REQUIRED_ENV_KNOBS = [
-    "PROTECTION_ARM_TIMEOUT_MS",
-    "TP_LIMIT_WATCHDOG_ENABLE",
-    "EXEC_RECONCILE_ON_503_UNKNOWN",
-    "EXEC_RECONCILE_PREFER_USER_STREAM",
-    "RISK_ENGINE_V2_ENABLE",
-    "EXEC_FEE_MAKER_BPS",
-    "EXEC_FEE_TAKER_BPS",
+    "PROTECTION_ARM_TIMEOUT_MS"
+    "TP_LIMIT_WATCHDOG_ENABLE"
+    "EXEC_RECONCILE_ON_503_UNKNOWN"
+    "EXEC_RECONCILE_PREFER_USER_STREAM"
+    "RISK_ENGINE_V2_ENABLE"
+    "EXEC_FEE_MAKER_BPS"
+    "EXEC_FEE_TAKER_BPS"
 ]
 
 REQUIRED_ALERT_NAMES = [
-    "TradeExecutionProtectionArmTimeout",
-    "TradeExecutionEmergencyFlatten",
-    "TradeExecutionWatchdogFallbackSpike",
-    "TradeExecutionMarkContractDivergence",
-    "TradeExecutionUserStreamStale",
+    "TradeExecutionProtectionArmTimeout"
+    "TradeExecutionEmergencyFlatten"
+    "TradeExecutionWatchdogFallbackSpike"
+    "TradeExecutionMarkContractDivergence"
+    "TradeExecutionUserStreamStale"
 ]
 
 

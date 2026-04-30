@@ -49,15 +49,15 @@ from typing import Any, Dict, List, Optional, Tuple
 # Полный payload хранится в PostgreSQL (stream-archiver) и trade:events:{sid}.
 # --------------------------------------------------------------------------- #
 _HEAVY_FIELDS: frozenset = frozenset({
-    "config_snapshot",
-    "calibrated_specs",
-    "indicators_snapshot",
-    "trail_profile_config",
-    "evidence",
-    "feature_vector",
-    "trail_profile",
-    "raw_signal",
-    "signal_payload",
+    "config_snapshot"
+    "calibrated_specs"
+    "indicators_snapshot"
+    "trail_profile_config"
+    "evidence"
+    "feature_vector"
+    "trail_profile"
+    "raw_signal"
+    "signal_payload"
 })
 
 # Минимальная разумная граница epoch ms: 2020-01-01T00:00:00Z
@@ -138,11 +138,11 @@ def _json_dumps(v: Any) -> str:
 
 
 def _make_event_id(
-    event_type: str,
-    sid: str,
-    ts: Optional[int],
-    pnl: Optional[str] = None,
-    position_id: Optional[str] = None,
+    event_type: str
+    sid: str
+    ts: Optional[int]
+    pnl: Optional[str] = None
+    position_id: Optional[str] = None
 ) -> str:
     """Детерминированный SHA1 для идемпотентности.
 
@@ -154,11 +154,11 @@ def _make_event_id(
 
 
 def _compute_fee_bps(
-    *,
-    fees_usd: Optional[float],
-    turnover_roundtrip: Optional[float],
-    qty: Optional[float],
-    price: Optional[float],
+    *
+    fees_usd: Optional[float]
+    turnover_roundtrip: Optional[float]
+    qty: Optional[float]
+    price: Optional[float]
 ) -> Optional[float]:
     """Вычислить fee_bps из имеющихся данных (best-effort)."""
     try:
@@ -199,7 +199,7 @@ def strip_heavy_fields(evt: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def normalize_position_closed_event(
-    doc: Dict[str, Any],
+    doc: Dict[str, Any]
 ) -> Tuple[Dict[str, str], List[str]]:
     """Нормализовать событие POSITION_CLOSED в канонический Redis-формат (V2).
 
@@ -305,11 +305,11 @@ def normalize_position_closed_event(
         if existing_id:
             errs.append("bad_event_id")
         out["event_id"] = _make_event_id(
-            event_type=out["event_type"],
-            sid=sid_str,
-            ts=ts_ms,
-            pnl=_safe_str(d.get("pnl")),
-            position_id=_safe_str(d.get("position_id")),
+            event_type=out["event_type"]
+            sid=sid_str
+            ts=ts_ms
+            pnl=_safe_str(d.get("pnl"))
+            position_id=_safe_str(d.get("position_id"))
         )
 
     # 7. price / px (join-critical: A3)

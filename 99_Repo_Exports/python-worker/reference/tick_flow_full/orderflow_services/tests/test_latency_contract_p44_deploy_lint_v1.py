@@ -18,10 +18,10 @@ def test_generic_wrapper_calls_deploy_lint_before_preflight() -> None:
 
 def test_specific_wrappers_export_wrapper_and_unit_paths() -> None:
     files = [
-        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh',
-        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh',
-        'orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh',
-        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh',
+        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh'
+        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh'
+        'orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh'
+        'orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh'
     ]
     for rel in files:
         txt = _read(rel)
@@ -31,10 +31,10 @@ def test_specific_wrappers_export_wrapper_and_unit_paths() -> None:
 
 def test_systemd_units_export_env_file_and_lint_report_path() -> None:
     files = [
-        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service',
-        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service',
-        'orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service',
-        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service',
+        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service'
+        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service'
+        'orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service'
+        'orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service'
     ]
     for rel in files:
         txt = _read(rel)
@@ -45,8 +45,8 @@ def test_systemd_units_export_env_file_and_lint_report_path() -> None:
 
 def test_env_examples_include_deploy_lint_report_path() -> None:
     for rel in [
-        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example',
-        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example',
+        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.staging.env.example'
+        'orderflow_services/deploy/env/latency-contract-sensitive-jobs.prod.env.example'
     ]:
         txt = _read(rel)
         assert 'LATENCY_CONTRACT_DEPLOY_LINT_REPORT_PATH=' in txt

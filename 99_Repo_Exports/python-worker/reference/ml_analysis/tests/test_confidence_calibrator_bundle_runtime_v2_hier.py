@@ -24,36 +24,36 @@ class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
         
         # Create a V3 Bundle
         self.bundle = {
-            "schema_version": 3,
-            "version": "test_v3",
-            "generated_at": 1234567890,
+            "schema_version": 3
+            "version": "test_v3"
+            "generated_at": 1234567890
             "meta": {
                 "bucket_by": "hierarchical", # or "session_regime" but V3 logic applies
                 "method_global": "platt"
-            },
+            }
             "buckets": {
                 "global": {
-                    "method": "identity",
+                    "method": "identity"
                     "params": {}
-                },
+                }
                 # Specific
                 "BTCUSDT|ASIA|trend_up": {
-                    "method": "platt_logit",
+                    "method": "platt_logit"
                     "params": {"a": 2.0, "b": 0.0} # steep sigmoid
-                },
+                }
                 # Fallback: Session Any
                 "BTCUSDT|ASIA|any": {
-                    "method": "platt_logit",
+                    "method": "platt_logit"
                     "params": {"a": 1.0, "b": 0.0} # standard sigmoid
-                },
+                }
                 # Fallback: Symbol Any
                 "BTCUSDT|any|any": {
                     "method": "platt_logit", 
                     "params": {"a": 0.5, "b": 0.0} # flatter sigmoid
-                },
+                }
                 # Global Regimes
                 "GLOBAL|any|trend_down": {
-                    "method": "platt_logit",
+                    "method": "platt_logit"
                     "params": {"a": 0.1, "b": 0.0} # very flat
                 }
             }

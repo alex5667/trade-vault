@@ -24,10 +24,10 @@ validate_execution_intent = mod2.validate_execution_intent
 def test_execution_intent_valid():
     now = int(time.time() * 1000)
     intent = ExecutionIntent.from_payload({
-        "sid": "123",
-        "symbol": "BTCUSDT",
-        "action": "open",
-        "qty": 1.0,
+        "sid": "123"
+        "symbol": "BTCUSDT"
+        "action": "open"
+        "qty": 1.0
         "ts_decision_ms": now - 10, # 10ms old
         "max_ttd_ms": 50
     })
@@ -37,10 +37,10 @@ def test_execution_intent_valid():
 def test_execution_intent_expired():
     now = int(time.time() * 1000)
     intent = ExecutionIntent.from_payload({
-        "sid": "123",
-        "symbol": "BTCUSDT",
-        "action": "open",
-        "qty": 1.0,
+        "sid": "123"
+        "symbol": "BTCUSDT"
+        "action": "open"
+        "qty": 1.0
         "ts_decision_ms": now - 60, # 60ms old
         "max_ttd_ms": 50
     })
@@ -50,11 +50,11 @@ def test_execution_intent_expired():
 def test_execution_intent_fallback_max_ttd():
     now = int(time.time() * 1000)
     intent = ExecutionIntent.from_payload({
-        "sid": "123",
-        "symbol": "BTCUSDT",
-        "action": "open",
-        "qty": 1.0,
-        "ts_decision_ms": now - 60,
+        "sid": "123"
+        "symbol": "BTCUSDT"
+        "action": "open"
+        "qty": 1.0
+        "ts_decision_ms": now - 60
         # max_ttd_ms missing
     })
     # Default is 50, so 60ms old should expire
@@ -64,10 +64,10 @@ def test_execution_intent_fallback_max_ttd():
 def test_execution_intent_fallback_ts_decision():
     now = int(time.time() * 1000)
     intent = ExecutionIntent.from_payload({
-        "sid": "123",
-        "symbol": "BTCUSDT",
-        "action": "open",
-        "qty": 1.0,
+        "sid": "123"
+        "symbol": "BTCUSDT"
+        "action": "open"
+        "qty": 1.0
         # ts_decision_ms missing
         "ts_exec_start_ms": now - 10
     })

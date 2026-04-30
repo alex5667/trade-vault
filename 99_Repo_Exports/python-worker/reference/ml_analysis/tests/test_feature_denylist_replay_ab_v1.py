@@ -37,12 +37,12 @@ def test_feature_denylist_replay_ab_pass_on_noise(tmp_path: Path):
 
     df = pd.DataFrame(
         {
-            "ts_ms": ts,
-            "label": y,
-            "scenario_v4": scenario,
-            "n_good": good,
-            "n_noise": noise,
-            "b_flag": b_flag,
+            "ts_ms": ts
+            "label": y
+            "scenario_v4": scenario
+            "n_good": good
+            "n_noise": noise
+            "b_flag": b_flag
         }
     )
 
@@ -52,18 +52,18 @@ def test_feature_denylist_replay_ab_pass_on_noise(tmp_path: Path):
     df.to_csv(data_path, index=False)
 
     meta = {
-        "ver": "unit",
-        "feature_names": ["n:good", "n:noise", "b:flag"],
-        "column_names": ["n_good", "n_noise", "b_flag"],
+        "ver": "unit"
+        "feature_names": ["n:good", "n:noise", "b:flag"]
+        "column_names": ["n_good", "n_noise", "b_flag"]
     }
     meta_path = run_dir / "meta.json"
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
     summary = {
-        "data_path": str(data_path),
-        "meta_json": str(meta_path),
-        "schema_ver": "unit",
-        "model": "lr",
+        "data_path": str(data_path)
+        "meta_json": str(meta_path)
+        "schema_ver": "unit"
+        "model": "lr"
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
@@ -74,28 +74,28 @@ def test_feature_denylist_replay_ab_pass_on_noise(tmp_path: Path):
     proposals.mkdir(parents=True, exist_ok=True)
 
     manifest = {
-        "kind": "feature_denylist_proposal",
-        "proposal_hash": "deadbeef" * 8,
-        "status": "pending_ab",
-        "inputs": {"fs_run_dir": str(run_dir), "stability_table": str(run_dir / "stability_table.csv")},
-        "denylist_after": {"deny_num": ["noise"], "deny_bool": []},
+        "kind": "feature_denylist_proposal"
+        "proposal_hash": "deadbeef" * 8
+        "status": "pending_ab"
+        "inputs": {"fs_run_dir": str(run_dir), "stability_table": str(run_dir / "stability_table.csv")}
+        "denylist_after": {"deny_num": ["noise"], "deny_bool": []}
     }
 
     mp = proposals / "denylist_proposal_unit.manifest.json"
     mp.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     cmd = [
-        sys.executable,
-        "-m",
-        "ml_analysis.tools.feature_denylist_replay_ab_v1",
-        "--manifest",
-        str(mp),
-        "--out_dir",
-        str(proposals / "ab_runs"),
-        "--model",
-        "lr",
-        "--auc_drop_max",
-        "0.01",
+        sys.executable
+        "-m"
+        "ml_analysis.tools.feature_denylist_replay_ab_v1"
+        "--manifest"
+        str(mp)
+        "--out_dir"
+        str(proposals / "ab_runs")
+        "--model"
+        "lr"
+        "--auc_drop_max"
+        "0.01"
     ]
 
     r = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[2]), capture_output=True, text=True)
@@ -128,12 +128,12 @@ def test_feature_denylist_replay_ab_fail_on_good(tmp_path: Path):
 
     df = pd.DataFrame(
         {
-            "ts_ms": ts,
-            "label": y,
-            "scenario_v4": scenario,
-            "n_good": good,
-            "n_noise": noise,
-            "b_flag": b_flag,
+            "ts_ms": ts
+            "label": y
+            "scenario_v4": scenario
+            "n_good": good
+            "n_noise": noise
+            "b_flag": b_flag
         }
     )
 
@@ -143,18 +143,18 @@ def test_feature_denylist_replay_ab_fail_on_good(tmp_path: Path):
     df.to_csv(data_path, index=False)
 
     meta = {
-        "ver": "unit",
-        "feature_names": ["n:good", "n:noise", "b:flag"],
-        "column_names": ["n_good", "n_noise", "b_flag"],
+        "ver": "unit"
+        "feature_names": ["n:good", "n:noise", "b:flag"]
+        "column_names": ["n_good", "n_noise", "b_flag"]
     }
     meta_path = run_dir / "meta.json"
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
     summary = {
-        "data_path": str(data_path),
-        "meta_json": str(meta_path),
-        "schema_ver": "unit",
-        "model": "lr",
+        "data_path": str(data_path)
+        "meta_json": str(meta_path)
+        "schema_ver": "unit"
+        "model": "lr"
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     (run_dir / "stability_table.csv").write_text("feature,score\n", encoding="utf-8")
@@ -163,28 +163,28 @@ def test_feature_denylist_replay_ab_fail_on_good(tmp_path: Path):
     proposals.mkdir(parents=True, exist_ok=True)
 
     manifest = {
-        "kind": "feature_denylist_proposal",
-        "proposal_hash": "cafebabe" * 8,
-        "status": "pending_ab",
-        "inputs": {"fs_run_dir": str(run_dir), "stability_table": str(run_dir / "stability_table.csv")},
-        "denylist_after": {"deny_num": ["good"], "deny_bool": []},
+        "kind": "feature_denylist_proposal"
+        "proposal_hash": "cafebabe" * 8
+        "status": "pending_ab"
+        "inputs": {"fs_run_dir": str(run_dir), "stability_table": str(run_dir / "stability_table.csv")}
+        "denylist_after": {"deny_num": ["good"], "deny_bool": []}
     }
 
     mp = proposals / "denylist_proposal_unit2.manifest.json"
     mp.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     cmd = [
-        sys.executable,
-        "-m",
-        "ml_analysis.tools.feature_denylist_replay_ab_v1",
-        "--manifest",
-        str(mp),
-        "--out_dir",
-        str(proposals / "ab_runs"),
-        "--model",
-        "lr",
-        "--auc_drop_max",
-        "0.001",
+        sys.executable
+        "-m"
+        "ml_analysis.tools.feature_denylist_replay_ab_v1"
+        "--manifest"
+        str(mp)
+        "--out_dir"
+        str(proposals / "ab_runs")
+        "--model"
+        "lr"
+        "--auc_drop_max"
+        "0.001"
     ]
 
     r = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[2]), capture_output=True, text=True)

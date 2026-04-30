@@ -64,13 +64,13 @@ def _emit_aux_metric(r: redis.Redis, kind: str, fields: Dict[str, Any]) -> None:
         payload.update({k: _as_str(v) for k, v in fields.items() if v is not None})
         retry_redis_operation(
             operation=lambda: r.xadd(
-                "metrics:ml_outcome_emitter",
-                payload,
-                maxlen=200000,
-                approximate=True,
-            ),
-            operation_name="xadd_metrics_aux",
-            max_retries=3,
+                "metrics:ml_outcome_emitter"
+                payload
+                maxlen=200000
+                approximate=True
+            )
+            operation_name="xadd_metrics_aux"
+            max_retries=3
         )
     except Exception:
         pass
@@ -79,8 +79,8 @@ def _emit_aux_metric(r: redis.Redis, kind: str, fields: Dict[str, Any]) -> None:
 def main() -> None:
     """ML Outcome Emitter Service.
 
-    Reads POSITION_CLOSED events from trades:closed stream,
-    joins with ml:dec:{sid} cache to get p_edge and bucket,
+    Reads POSITION_CLOSED events from trades:closed stream
+    joins with ml:dec:{sid} cache to get p_edge and bucket
     writes outcome metrics to metrics:ml_outcome stream.
 
     ENV:
@@ -115,9 +115,9 @@ def main() -> None:
     # Ensure consumer group exists
     try:
         retry_redis_operation(
-            operation=lambda: r.xgroup_create(src_stream, group, id="0-0", mkstream=True),
-            operation_name="xgroup_create",
-            max_retries=5,
+            operation=lambda: r.xgroup_create(src_stream, group, id="0-0", mkstream=True)
+            operation_name="xgroup_create"
+            max_retries=5
         )
     except Exception:
         # Group already exists, ignore
@@ -132,9 +132,9 @@ def main() -> None:
         loop_iter_start = time.time()
         try:
             resp = retry_redis_operation(
-                operation=lambda: r.xreadgroup(group, consumer, {src_stream: ">"}, count=count, block=block_ms),
-                operation_name="xreadgroup",
-                max_retries=10,
+                operation=lambda: r.xreadgroup(group, consumer, {src_stream: ">"}, count=count, block=block_ms)
+                operation_name="xreadgroup"
+                max_retries=10
             )
         except Exception:
             time.sleep(1)
@@ -151,9 +151,9 @@ def main() -> None:
                     skipped_total += 1
                     try:
                         retry_redis_operation(
-                            operation=lambda: r.xack(src_stream, group, msg_id),
-                            operation_name="xack_skipped",
-                            max_retries=3,
+                            operation=lambda: r.xack(src_stream, group, msg_id)
+                            operation_name="xack_skipped"
+                            max_retries=3
                         )
                     except Exception:
                         pass
@@ -164,9 +164,9 @@ def main() -> None:
                     skipped_total += 1
                     try:
                         retry_redis_operation(
-                            operation=lambda: r.xack(src_stream, group, msg_id),
-                            operation_name="xack_no_sid",
-                            max_retries=3,
+                            operation=lambda: r.xack(src_stream, group, msg_id)
+                            operation_name="xack_no_sid"
+                            max_retries=3
                         )
                     except Exception:
                         pass
@@ -187,9 +187,9 @@ def main() -> None:
                     dedup_key = f"ml:outcome:missing:{sid}"
                     try:
                         ok = retry_redis_operation(
-                            operation=lambda: r.set(dedup_key, "1", nx=True, ex=missing_ttl),
-                            operation_name="set_missing_dedup",
-                            max_retries=3,
+                            operation=lambda: r.set(dedup_key, "1", nx=True, ex=missing_ttl)
+                            operation_name="set_missing_dedup"
+                            max_retries=3
                         )
                         if ok:
                             _emit_aux_metric(r, "missing_decision", {"sid": sid, "symbol": symbol})
@@ -199,9 +199,9 @@ def main() -> None:
                     if not emit_missing:
                         try:
                             retry_redis_operation(
-                                operation=lambda: r.xack(src_stream, group, msg_id),
-                                operation_name="xack_missing",
-                                max_retries=3,
+                                operation=lambda: r.xack(src_stream, group, msg_id)
+                                operation_name="xack_missing"
+                                max_retries=3
                             )
                         except Exception:
                             pass
@@ -212,14 +212,14 @@ def main() -> None:
                 bucket = get_bucket_from_dec(dec or {})
 
                 out = {
-                    "ts_ms": str(ts_ms),
-                    "sid": sid,
-                    "symbol": symbol,
-                    "bucket": bucket,
-                    "p_edge": f"{p_edge:.6f}",
-                    "y": str(int(y)),
-                    "r_mult": f"{float(r_mult):.6f}",
-                    "label_src": str(label_src),
+                    "ts_ms": str(ts_ms)
+                    "sid": sid
+                    "symbol": symbol
+                    "bucket": bucket
+                    "p_edge": f"{p_edge:.6f}"
+                    "y": str(int(y))
+                    "r_mult": f"{float(r_mult):.6f}"
+                    "label_src": str(label_src)
                 }
 
                 # Optional close-side debug fields
@@ -231,9 +231,9 @@ def main() -> None:
                 if dec:
                     out.update(
                         {
-                            "enforce": str(_i(dec.get("enforce", 0), 0)),
-                            "ok_rule": str(_i(dec.get("ok_rule", 1), 1)),
-                            "missing": str(_i(dec.get("missing", 0), 0)),
+                            "enforce": str(_i(dec.get("enforce", 0), 0))
+                            "ok_rule": str(_i(dec.get("ok_rule", 1), 1))
+                            "missing": str(_i(dec.get("missing", 0), 0))
                         }
                     )
                     model_ver = dec.get("model_ver", "")
@@ -242,18 +242,18 @@ def main() -> None:
 
                 try:
                     retry_redis_operation(
-                        operation=lambda: r.xadd(out_stream, out, maxlen=700000, approximate=True),
-                        operation_name="xadd_outcome",
-                        max_retries=5,
+                        operation=lambda: r.xadd(out_stream, out, maxlen=700000, approximate=True)
+                        operation_name="xadd_outcome"
+                        max_retries=5
                     )
                 except Exception:
                     pass
 
                 try:
                     retry_redis_operation(
-                        operation=lambda: r.xack(src_stream, group, msg_id),
-                        operation_name="xack_success",
-                        max_retries=5,
+                        operation=lambda: r.xack(src_stream, group, msg_id)
+                        operation_name="xack_success"
+                        max_retries=5
                     )
                 except Exception:
                     pass
@@ -263,14 +263,14 @@ def main() -> None:
         loop_latency_ms = (time.time() - loop_iter_start) * 1000.0
         if processed_total % 200 == 0 or (time.time() - loop_start) > 60:
             _emit_aux_metric(
-                r,
-                "stats",
+                r
+                "stats"
                 {
-                    "processed_total": processed_total,
-                    "missing_decision_total": missing_decision_total,
-                    "skipped_total": skipped_total,
-                    "loop_latency_ms": f"{loop_latency_ms:.2f}",
-                },
+                    "processed_total": processed_total
+                    "missing_decision_total": missing_decision_total
+                    "skipped_total": skipped_total
+                    "loop_latency_ms": f"{loop_latency_ms:.2f}"
+                }
             )
             loop_start = time.time()
 

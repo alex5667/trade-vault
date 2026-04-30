@@ -29,18 +29,18 @@ def test_metrics_modules_import_and_expose_dq_symbols() -> None:
 
     required = [
         # tick gap stats
-        "tick_gap_p95_ms_gauge",
-        "tick_gap_n_gauge",
+        "tick_gap_p95_ms_gauge"
+        "tick_gap_n_gauge"
         # continuity EMAs
-        "tick_missing_seq_ema_gauge",
-        "book_missing_seq_ema_gauge",
+        "tick_missing_seq_ema_gauge"
+        "book_missing_seq_ema_gauge"
         # trade_id diagnostics
-        "tick_id_gap_events_total",
-        "tick_id_dup_events_total",
-        "tick_id_reorder_events_total",
+        "tick_id_gap_events_total"
+        "tick_id_dup_events_total"
+        "tick_id_reorder_events_total"
         # gate surface
-        "dq_level_gauge",
-        "dq_veto_total",
+        "dq_level_gauge"
+        "dq_veto_total"
     ]
 
     for name in required:

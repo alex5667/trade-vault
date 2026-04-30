@@ -63,19 +63,19 @@ def _base_exec(**overrides):
 
 def _mock_filters():
     f = MagicMock()
-    f.get.return_value = MagicMock(step_size=0.001, tick_size=0.01, min_qty=0.001,
+    f.get.return_value = MagicMock(step_size=0.001, tick_size=0.01, min_qty=0.001
                                    min_notional=5.0)
     return f
 
 
 def _pos_risk_row(symbol="BTCUSDT", amt=0.0, notional=0.0, margin=0.0, side="BOTH"):
     return {
-        "symbol": symbol,
-        "positionAmt": str(amt),
-        "notional": str(notional),
-        "isolatedMargin": str(margin),
-        "positionSide": side,
-        "leverage": "10",
+        "symbol": symbol
+        "positionAmt": str(amt)
+        "notional": str(notional)
+        "isolatedMargin": str(margin)
+        "positionSide": side
+        "leverage": "10"
     }
 
 
@@ -130,13 +130,13 @@ def test_force_flatten_symbol_exact_retries_dust_tail():
             0.0,   # while check 1 — last yield is flat
         ] + [1e9] * 20):
             result = ex._force_flatten_symbol_exact(
-                sid="sid-test-1",
-                symbol="BTCUSDT",
-                client=client,
-                filters=filters,
-                logical_side="LONG",
-                reason_tag="emerg",
-                max_attempts=3,
+                sid="sid-test-1"
+                symbol="BTCUSDT"
+                client=client
+                filters=filters
+                logical_side="LONG"
+                reason_tag="emerg"
+                max_attempts=3
             )
 
     assert result["status"] in {"closed", "dust_remaining", "residual_position"}, result
@@ -159,12 +159,12 @@ def test_handle_cancel_uses_exact_flatten_and_surfaces_residuals():
 
     # Stub _force_flatten_symbol_exact — returns a clean "closed" status
     ex._force_flatten_symbol_exact = MagicMock(return_value={
-        "status": "closed",
-        "residual_qty": 0.0,
-        "residual_notional_usdt": 0.0,
-        "residual_margin_usdt": 0.0,
-        "close_order_id": 55501,
-        "verify": {"logical_side": "LONG", "abs_qty": 0.0},
+        "status": "closed"
+        "residual_qty": 0.0
+        "residual_notional_usdt": 0.0
+        "residual_margin_usdt": 0.0
+        "close_order_id": 55501
+        "verify": {"logical_side": "LONG", "abs_qty": 0.0}
     })
 
     result = ex.handle_cancel({"sid": "sid-cancel-1", "symbol": "BTCUSDT"})
@@ -197,12 +197,12 @@ def test_get_symbol_position_risk_matches_symbol_and_side():
     client = client_mod.BinanceFuturesClient.__new__(client_mod.BinanceFuturesClient)
 
     rows = [
-        {"symbol": "BTCUSDT", "positionAmt": "0.5", "positionSide": "LONG",
-         "notional": "30000", "isolatedMargin": "300"},
-        {"symbol": "BTCUSDT", "positionAmt": "-0.5", "positionSide": "SHORT",
-         "notional": "30000", "isolatedMargin": "300"},
-        {"symbol": "ETHUSDT", "positionAmt": "1.0", "positionSide": "LONG",
-         "notional": "3000", "isolatedMargin": "30"},
+        {"symbol": "BTCUSDT", "positionAmt": "0.5", "positionSide": "LONG"
+         "notional": "30000", "isolatedMargin": "300"}
+        {"symbol": "BTCUSDT", "positionAmt": "-0.5", "positionSide": "SHORT"
+         "notional": "30000", "isolatedMargin": "300"}
+        {"symbol": "ETHUSDT", "positionAmt": "1.0", "positionSide": "LONG"
+         "notional": "3000", "isolatedMargin": "30"}
     ]
     client.get_position_risk = MagicMock(return_value=rows)
 

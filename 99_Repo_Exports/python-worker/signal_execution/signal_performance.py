@@ -29,11 +29,11 @@ class SignalPerformanceTracker:
         self.max_ttd_bars = max_ttd_bars
 
     def _compute_ttd_bars(
-        self,
-        side: Side,
-        entry_price: float,
-        stop_price: float,
-        bars_after_entry: List[Bar1m],
+        self
+        side: Side
+        entry_price: float
+        stop_price: float
+        bars_after_entry: List[Bar1m]
     ) -> Optional[int]:
         """
         TTD: через сколько баров max_favorable_excursion впервые >= r_target R.
@@ -73,11 +73,11 @@ class SignalPerformanceTracker:
         return None
 
     def _compute_mfe_mae_R(
-        self,
-        side: Side,
-        entry_price: float,
-        stop_price: float,
-        bars_during_trade: List[Bar1m],
+        self
+        side: Side
+        entry_price: float
+        stop_price: float
+        bars_during_trade: List[Bar1m]
     ) -> Tuple[Optional[float], Optional[float]]:
         """
         Calculate MFE (Max Favorable Excursion) and MAE (Max Adverse Excursion) in R.
@@ -119,11 +119,11 @@ class SignalPerformanceTracker:
         return mfe_R, mae_R
 
     def _compute_realized_R(
-        self,
-        side: Side,
-        entry_price: float,
-        stop_price: float,
-        exit_price: float,
+        self
+        side: Side
+        entry_price: float
+        stop_price: float
+        exit_price: float
     ) -> Optional[float]:
         """
         Calculate realized R for the trade.
@@ -147,15 +147,15 @@ class SignalPerformanceTracker:
             return (entry_price - exit_price) / R
 
     def build_performance(
-        self,
-        ctx: ExtendedSignalContext,
-        bars: List[Bar1m],
-        entry_ts: Optional[datetime],
-        exit_ts: Optional[datetime],
-        entry_price: Optional[float],
-        exit_price: Optional[float],
-        stop_price: Optional[float],
-        expired_without_entry: bool = False,
+        self
+        ctx: ExtendedSignalContext
+        bars: List[Bar1m]
+        entry_ts: Optional[datetime]
+        exit_ts: Optional[datetime]
+        entry_price: Optional[float]
+        exit_price: Optional[float]
+        stop_price: Optional[float]
+        expired_without_entry: bool = False
     ) -> SignalPerformance:
         """
         Build SignalPerformance from signal context and execution data.
@@ -179,26 +179,26 @@ class SignalPerformanceTracker:
         # Outcome-кейс 1: сигнал протух, входа нет
         if expired_without_entry or entry_ts is None or entry_price is None:
             perf = SignalPerformance(
-                signal_id=ctx.signal_id,
-                symbol=ctx.symbol,
-                side=ctx.side,
-                setup_type=ctx.setup_type,
-                ts_signal=ts_signal,
-                ts_entry=None,
-                ts_exit=None,
-                price_at_signal=ctx.price_at_signal,
-                entry_price=None,
-                exit_price=None,
-                stop_price=stop_price,
-                realized_R=None,
-                mfe_R=None,
-                mae_R=None,
-                ttd_bars=None,
-                ttd_seconds=None,
-                outcome="expired",
-                bars_to_entry=None,
-                bars_to_exit=None,
-                notes="Signal expired without entry",
+                signal_id=ctx.signal_id
+                symbol=ctx.symbol
+                side=ctx.side
+                setup_type=ctx.setup_type
+                ts_signal=ts_signal
+                ts_entry=None
+                ts_exit=None
+                price_at_signal=ctx.price_at_signal
+                entry_price=None
+                exit_price=None
+                stop_price=stop_price
+                realized_R=None
+                mfe_R=None
+                mae_R=None
+                ttd_bars=None
+                ttd_seconds=None
+                outcome="expired"
+                bars_to_entry=None
+                bars_to_exit=None
+                notes="Signal expired without entry"
             )
             return perf
 
@@ -242,25 +242,25 @@ class SignalPerformanceTracker:
             outcome = "open"  # сделка ещё открыта
 
         perf = SignalPerformance(
-            signal_id=ctx.signal_id,
-            symbol=ctx.symbol,
-            side=ctx.side,
-            setup_type=ctx.setup_type,
-            ts_signal=ts_signal,
-            ts_entry=entry_ts,
-            ts_exit=exit_ts,
-            price_at_signal=ctx.price_at_signal,
-            entry_price=entry_price,
-            exit_price=exit_price,
-            stop_price=stop_price,
-            realized_R=realized_R,
-            mfe_R=mfe_R,
-            mae_R=mae_R,
-            ttd_bars=ttd_bars,
-            ttd_seconds=ttd_seconds,
-            outcome=outcome,
-            bars_to_entry=bars_to_entry,
-            bars_to_exit=bars_to_exit,
-            notes=None,
+            signal_id=ctx.signal_id
+            symbol=ctx.symbol
+            side=ctx.side
+            setup_type=ctx.setup_type
+            ts_signal=ts_signal
+            ts_entry=entry_ts
+            ts_exit=exit_ts
+            price_at_signal=ctx.price_at_signal
+            entry_price=entry_price
+            exit_price=exit_price
+            stop_price=stop_price
+            realized_R=realized_R
+            mfe_R=mfe_R
+            mae_R=mae_R
+            ttd_bars=ttd_bars
+            ttd_seconds=ttd_seconds
+            outcome=outcome
+            bars_to_entry=bars_to_entry
+            bars_to_exit=bars_to_exit
+            notes=None
         )
         return perf

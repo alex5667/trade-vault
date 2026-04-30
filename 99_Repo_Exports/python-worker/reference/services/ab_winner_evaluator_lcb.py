@@ -93,7 +93,7 @@ class LCBEvaluatorPerRegime:
 
     def _params(self, regime: str) -> Tuple[float, int, float]:
         rg = _rg(regime)
-        # Defaults: 80% one-sided (~1.28) for normal regimes,
+        # Defaults: 80% one-sided (~1.28) for normal regimes
         #           90% (~1.64) for thin/news where variance and slippage are higher.
         z_default = _f(self.cfg.get("lcb_z_default"), 1.28)
         z_thin = _f(self.cfg.get("lcb_z_thin"), 1.64)
@@ -148,16 +148,16 @@ class LCBEvaluatorPerRegime:
             lcb = mu - z * se
             picks.append(
                 LCBPick(
-                    arm=arm,
-                    regime=regime,
-                    mean_r=float(mu),
-                    std_r=float(sd),
-                    n=int(n),
-                    lcb_r=float(lcb),
-                    z=float(z),
-                    min_n=int(min_n),
-                    min_lcb_r=float(min_lcb_r),
-                    reason="",
+                    arm=arm
+                    regime=regime
+                    mean_r=float(mu)
+                    std_r=float(sd)
+                    n=int(n)
+                    lcb_r=float(lcb)
+                    z=float(z)
+                    min_n=int(min_n)
+                    min_lcb_r=float(min_lcb_r)
+                    reason=""
                 )
             )
 
@@ -175,26 +175,26 @@ class LCBEvaluatorPerRegime:
 
         # return dict (backward-friendly)
         return {
-            "winner_arm": best.arm,
-            "regime": best.regime,
-            "lcb_r": best.lcb_r,
-            "mean_r": best.mean_r,
-            "std_r": best.std_r,
-            "n": best.n,
-            "z": best.z,
-            "min_n": best.min_n,
-            "min_lcb_r": best.min_lcb_r,
-            "reason": best.reason,
+            "winner_arm": best.arm
+            "regime": best.regime
+            "lcb_r": best.lcb_r
+            "mean_r": best.mean_r
+            "std_r": best.std_r
+            "n": best.n
+            "z": best.z
+            "min_n": best.min_n
+            "min_lcb_r": best.min_lcb_r
+            "reason": best.reason
             "arms": [
                 {
-                    "arm": p.arm,
-                    "n": p.n,
-                    "mean_r": p.mean_r,
-                    "std_r": p.std_r,
-                    "lcb_r": p.lcb_r,
+                    "arm": p.arm
+                    "n": p.n
+                    "mean_r": p.mean_r
+                    "std_r": p.std_r
+                    "lcb_r": p.lcb_r
                 }
                 for p in picks_sorted
-            ],
+            ]
         }
 
 

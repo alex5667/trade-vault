@@ -11,7 +11,7 @@ from news_pipeline.models import NewsRawItem
 
 
 FMP_BASE = os.getenv("FMP_BASE_URL", "https://financialmodelingprep.com")
-# по документации: /stable/news/crypto-latest, /stable/news/stock-latest (аналогично),
+# по документации: /stable/news/crypto-latest, /stable/news/stock-latest (аналогично)
 # и /stable/economic-calendar. (Если у вас другой endpoint — поправите base/path.)
 
 
@@ -47,15 +47,15 @@ def fetch_fmp(cfg: Dict[str, Any]) -> List[NewsRawItem]:
                 uid = str(it.get("id") or "") or f"fmpc:{hash(link)}"
                 out.append(
                     NewsRawItem(
-                        uid=f"fmp:crypto:{uid}",
-                        ts_ms=now,
-                        source="fmp",
-                        title=title[:280],
-                        url=link[:700],
-                        summary=str(it.get("text") or it.get("site") or "")[:600],
+                        uid=f"fmp:crypto:{uid}"
+                        ts_ms=now
+                        source="fmp"
+                        title=title[:280]
+                        url=link[:700]
+                        summary=str(it.get("text") or it.get("site") or "")[:600]
                         symbols=[],  # можно заполнить через LLM tags/assets
-                        importance=0.0,
-                        payload=it,
+                        importance=0.0
+                        payload=it
                     )
                 )
 
@@ -83,15 +83,15 @@ def fetch_fmp(cfg: Dict[str, Any]) -> List[NewsRawItem]:
 
                 out.append(
                     NewsRawItem(
-                        uid=f"fmp:stock:{uid}",
-                        ts_ms=now,
-                        source="fmp",
-                        title=title[:280],
-                        url=link[:700],
-                        summary=str(it.get("text") or it.get("site") or "")[:600],
-                        symbols=symbols,
-                        importance=0.0,
-                        payload=it,
+                        uid=f"fmp:stock:{uid}"
+                        ts_ms=now
+                        source="fmp"
+                        title=title[:280]
+                        url=link[:700]
+                        summary=str(it.get("text") or it.get("site") or "")[:600]
+                        symbols=symbols
+                        importance=0.0
+                        payload=it
                     )
                 )
 

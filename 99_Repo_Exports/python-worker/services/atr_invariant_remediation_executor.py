@@ -19,71 +19,71 @@ class InvariantRemediationExecutor:
 
         if kind == "deny_only":
             return {
-                "action_id": action_id,
-                "status": "skipped",
-                "reason_code": "REMEDIATION_DENY_ONLY",
+                "action_id": action_id
+                "status": "skipped"
+                "reason_code": "REMEDIATION_DENY_ONLY"
                 "action_json": {"invariant_id": inv}
             }
 
         if kind == "runtime_clip":
             return {
-                "action_id": action_id,
-                "status": "executed",
-                "reason_code": "REMEDIATION_RUNTIME_CLIP",
+                "action_id": action_id
+                "status": "executed"
+                "reason_code": "REMEDIATION_RUNTIME_CLIP"
                 "action_json": {
-                    "scope_kind": scope_kind,
-                    "scope_value": scope_value,
+                    "scope_kind": scope_kind
+                    "scope_value": scope_value
                     "clip_mult": policy.get("policy_json", {}).get("clip_mult", 0.5)
                 }
             }
 
         if kind == "scope_freeze":
             return {
-                "action_id": action_id,
-                "status": "executed",
-                "reason_code": "REMEDIATION_SCOPE_FREEZE",
+                "action_id": action_id
+                "status": "executed"
+                "reason_code": "REMEDIATION_SCOPE_FREEZE"
                 "action_json": {
-                    "scope_kind": scope_kind,
-                    "scope_value": scope_value,
+                    "scope_kind": scope_kind
+                    "scope_value": scope_value
                     "target_state": policy.get("policy_json", {}).get("target_state", "no_new_risk")
                 }
             }
 
         if kind == "rollout_pause":
             return {
-                "action_id": action_id,
-                "status": "executed",
-                "reason_code": "REMEDIATION_ROLLOUT_PAUSE",
+                "action_id": action_id
+                "status": "executed"
+                "reason_code": "REMEDIATION_ROLLOUT_PAUSE"
                 "action_json": {"scope_kind": scope_kind, "scope_value": scope_value}
             }
 
         if kind == "rollback_request":
             return {
-                "action_id": action_id,
-                "status": "requested",
-                "reason_code": "REMEDIATION_ROLLBACK_REQUEST",
+                "action_id": action_id
+                "status": "requested"
+                "reason_code": "REMEDIATION_ROLLBACK_REQUEST"
                 "action_json": policy.get("policy_json", {})
             }
 
         if kind == "last_good_restore":
             return {
-                "action_id": action_id,
-                "status": "requested",
-                "reason_code": "REMEDIATION_LAST_GOOD_RESTORE_REQUEST",
+                "action_id": action_id
+                "status": "requested"
+                "reason_code": "REMEDIATION_LAST_GOOD_RESTORE_REQUEST"
                 "action_json": policy.get("policy_json", {})
             }
 
         if kind == "serving_rebuild":
             return {
-                "action_id": action_id,
-                "status": "requested",
-                "reason_code": "REMEDIATION_SERVING_REBUILD_REQUEST",
+                "action_id": action_id
+                "status": "requested"
+                "reason_code": "REMEDIATION_SERVING_REBUILD_REQUEST"
                 "action_json": policy.get("policy_json", {})
             }
 
         return {
-            "action_id": action_id,
-            "status": "failed",
-            "reason_code": "REMEDIATION_UNKNOWN_KIND",
+            "action_id": action_id
+            "status": "failed"
+            "reason_code": "REMEDIATION_UNKNOWN_KIND"
             "action_json": {}
         }

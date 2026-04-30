@@ -9,10 +9,10 @@ from services.analytics_db import get_conn
 logger = logging.getLogger("atr_graph_backed_freeze_override")
 
 FREEZE_PRECEDENCE = {
-    "clip": 10,
-    "no_new_risk": 20,
-    "scope_frozen": 30,
-    "venue_frozen": 40,
+    "clip": 10
+    "no_new_risk": 20
+    "scope_frozen": 30
+    "venue_frozen": 40
     "hard_freeze": 100
 }
 
@@ -95,18 +95,18 @@ class ATRGraphBackedFreezeOverrideService:
                     effective_level = active_override_level
 
                 return {
-                    "scope_value": scope_value,
-                    "highest_graph_freeze": highest_freeze,
-                    "active_override_level": active_override_level,
-                    "override_active": override_active,
-                    "effective_level": effective_level,
+                    "scope_value": scope_value
+                    "highest_graph_freeze": highest_freeze
+                    "active_override_level": active_override_level
+                    "override_active": override_active
+                    "effective_level": effective_level
                     "resolved_at_ms": int(time.time() * 1000)
                 }
 
         except Exception as e:
             logger.error(f"Error resolving graph-backed state for {scope_value}: {e}")
             return {
-                "scope_value": scope_value,
-                "effective_level": "unknown",
+                "scope_value": scope_value
+                "effective_level": "unknown"
                 "error": str(e)
             }

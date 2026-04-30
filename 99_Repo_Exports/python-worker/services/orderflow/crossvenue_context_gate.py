@@ -19,7 +19,7 @@ Fail-open semantics
 
 Veto conditions (HARD mode only)
 ---------------------------------
-- ≥2 adverse flags (venue_direction_disagree, venue_dislocation, venue_mid_spread_wide,
+- ≥2 adverse flags (venue_direction_disagree, venue_dislocation, venue_mid_spread_wide
   trade_imbalance_against_{long|short})
 - AND stale_count ≤ max_stale_count (stale venues can't be used as veto evidence)
 """
@@ -39,11 +39,11 @@ class CrossVenueDecision:
 
 
 _ADVERSE_FLAGS = frozenset({
-    "venue_direction_disagree",
-    "venue_dislocation",
-    "venue_mid_spread_wide",
-    "trade_imbalance_against_long",
-    "trade_imbalance_against_short",
+    "venue_direction_disagree"
+    "venue_dislocation"
+    "venue_mid_spread_wide"
+    "trade_imbalance_against_long"
+    "trade_imbalance_against_short"
 })
 
 
@@ -59,21 +59,21 @@ def _map_profile(profile: str) -> str:
 
 
 def evaluate_crossvenue_context(
-    *,
-    profile: str,
-    side: str,
-    direction_agree: float,
-    trade_imbalance: float,
-    dislocation_z: float,
-    mid_spread_bps: float,
-    stale_count: int,
+    *
+    profile: str
+    side: str
+    direction_agree: float
+    trade_imbalance: float
+    dislocation_z: float
+    mid_spread_bps: float
+    stale_count: int
     # Thresholds
-    min_agree: float,
-    max_dislocation_z: float,
-    max_mid_spread_bps: float,
-    max_stale_count: int,
-    tighten_mult: float,
-    tighten_cap_bps: float,
+    min_agree: float
+    max_dislocation_z: float
+    max_mid_spread_bps: float
+    max_stale_count: int
+    tighten_mult: float
+    tighten_cap_bps: float
 ) -> CrossVenueDecision:
     """Evaluate cross-venue context against current signal direction.
 
@@ -129,10 +129,10 @@ def evaluate_crossvenue_context(
         veto_reason = "crossvenue_ctx:" + ",".join(adverse_flags)
 
     return CrossVenueDecision(
-        hit=bool(flags),
-        mode=mode,
-        flags=flags,
-        tighten_add_bps=float(tighten),
-        veto=bool(veto),
-        veto_reason=veto_reason,
+        hit=bool(flags)
+        mode=mode
+        flags=flags
+        tighten_add_bps=float(tighten)
+        veto=bool(veto)
+        veto_reason=veto_reason
     )

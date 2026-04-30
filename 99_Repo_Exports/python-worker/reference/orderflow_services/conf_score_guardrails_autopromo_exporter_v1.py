@@ -49,16 +49,16 @@ def _safe_float(x: Any) -> Optional[float]:
 
 
 PHASES = {
-    "idle": 0,
-    "baseline": 1,
-    "canary_promote": 2,
-    "observing": 3,
-    "evaluate": 4,
-    "promote_full": 5,
-    "rollback": 6,
-    "promoted": 7,
-    "rolled_back": 8,
-    "blocked": 9,
+    "idle": 0
+    "baseline": 1
+    "canary_promote": 2
+    "observing": 3
+    "evaluate": 4
+    "promote_full": 5
+    "rollback": 6
+    "promoted": 7
+    "rolled_back": 8
+    "blocked": 9
 }
 
 

@@ -17,11 +17,11 @@ from common.log import setup_logger, set_trace_id, clear_trace_id
 from core.redis_client import get_redis
 
 from services.redis_streams_runtime import (
-    ensure_group,
-    discover_streams,
-    xreadgroup_multi,
-    autoclaim_stale,
-    StreamMsg,
+    ensure_group
+    discover_streams
+    xreadgroup_multi
+    autoclaim_stale
+    StreamMsg
 )
 from domain.time_utils import normalize_ts_ms
 
@@ -44,15 +44,15 @@ trade_monitor_open_positions = _get_or_create_metric(Gauge, 'trade_monitor_open_
 trade_monitor_signals_skipped = _get_or_create_metric(Counter, 'trade_monitor_signals_skipped_total', 'Total signals skipped due to cap/age/timeout')
 
 XACK_FAIL_REASON_TOTAL = _get_or_create_metric(
-    Counter,
-    "xack_fail_reason_total",
-    "Total xack failures",
+    Counter
+    "xack_fail_reason_total"
+    "Total xack failures"
     ["stream", "reason"]
 )
 DLQ_WRITE_FAIL_TOTAL = _get_or_create_metric(
-    Counter,
-    "tm_dlq_write_fail_total",
-    "Total failures writing messages to the trade-monitor DLQ",
+    Counter
+    "tm_dlq_write_fail_total"
+    "Total failures writing messages to the trade-monitor DLQ"
     []
 )
 
@@ -108,7 +108,7 @@ def _parse_signal(fields: Dict[str, str]) -> Dict:
       - если JSON вложен в fields['data'] как dict/строка -> нормализуем
 
     Fail-open:
-      - на любой ошибке возвращаем максимально безопасный dict,
+      - на любой ошибке возвращаем максимально безопасный dict
         чтобы монитор не падал и не терял поток.
     """
     try:
@@ -199,14 +199,14 @@ if not _HAS_SIGALRM and SIGNAL_TIMEOUT_SEC > 0:
         "trade-monitor-runner: signal.alarm() (SIGALRM) is unavailable on this platform "
         f"(platform={sys.platform}). Per-signal timeout protection is DISABLED even though "
         f"TM_SIGNAL_TIMEOUT_SEC={SIGNAL_TIMEOUT_SEC}. "
-        "Set TM_SIGNAL_TIMEOUT_SEC=0 to suppress this warning.",
-        RuntimeWarning,
-        stacklevel=1,
+        "Set TM_SIGNAL_TIMEOUT_SEC=0 to suppress this warning."
+        RuntimeWarning
+        stacklevel=1
     )
     log.warning(
         "trade-monitor-runner: SIGALRM unavailable on %s — per-signal timeout inactive. "
-        "Set TM_SIGNAL_TIMEOUT_SEC=0 to suppress.",
-        sys.platform,
+        "Set TM_SIGNAL_TIMEOUT_SEC=0 to suppress."
+        sys.platform
     )
 
 class _SignalTimeout(Exception):
@@ -220,11 +220,11 @@ def _timeout_handler(signum, frame):
 
 # Global stats for heartbeat
 _stats = {
-    "signals_processed": 0,
-    "signals_skipped_cap": 0,
-    "signals_skipped_age": 0,
-    "ticks_processed": 0,
-    "last_heartbeat": 0.0,
+    "signals_processed": 0
+    "signals_skipped_cap": 0
+    "signals_skipped_age": 0
+    "ticks_processed": 0
+    "last_heartbeat": 0.0
 }
 
 
@@ -334,12 +334,12 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
         if tries >= MAX_RETRIES:
             # чтобы не застревало навечно: отправляем в DLQ и ACK
             _to_dlq(r, {
-                "stream": m.stream,
-                "id": m.msg_id,
-                "tries": tries,
-                "is_tick": int(is_tick),
-                "error": str(e),
-                "fields": m.fields,
+                "stream": m.stream
+                "id": m.msg_id
+                "tries": tries
+                "is_tick": int(is_tick)
+                "error": str(e)
+                "fields": m.fields
             })
             try:
                 # Извлекаем trace_id из полей, если он там есть
@@ -406,8 +406,8 @@ def main():
     calibration_source = os.getenv("AUTO_CALIBRATION_SOURCE", "CryptoOrderFlow")
 
     init_auto_calibration(
-        trades_threshold=trades_threshold,
-        enabled_symbols=enabled_symbols,
+        trades_threshold=trades_threshold
+        enabled_symbols=enabled_symbols
         source=calibration_source
     )
 
@@ -468,12 +468,12 @@ def main():
                 n_open = len(monitor.open_positions)
                 trade_monitor_open_positions.set(n_open)
                 log.info(
-                    "💓 HEARTBEAT: open_positions=%d signals=%d ticks=%d skipped_cap=%d skipped_age=%d",
-                    n_open,
-                    _stats["signals_processed"],
-                    _stats["ticks_processed"],
-                    _stats["signals_skipped_cap"],
-                    _stats["signals_skipped_age"],
+                    "💓 HEARTBEAT: open_positions=%d signals=%d ticks=%d skipped_cap=%d skipped_age=%d"
+                    n_open
+                    _stats["signals_processed"]
+                    _stats["ticks_processed"]
+                    _stats["signals_skipped_cap"]
+                    _stats["signals_skipped_age"]
                 )
             except Exception:
                 log.info("💓 HEARTBEAT: alive")
@@ -563,8 +563,8 @@ def main():
                     _process_one(rc, monitor, m, is_tick=(m.stream in tick_set))
             except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError) as conn_err:
                 log.warning(
-                    "Redis connection error on node %s: %s — skipping this node for current cycle",
-                    rc.connection_pool.connection_kwargs.get("host", "unknown"), conn_err,
+                    "Redis connection error on node %s: %s — skipping this node for current cycle"
+                    rc.connection_pool.connection_kwargs.get("host", "unknown"), conn_err
                 )
                 continue
                 

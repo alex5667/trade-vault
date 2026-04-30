@@ -77,15 +77,15 @@ def _refresh_agg_for_key(r: redis.Redis, key: str, idx_zset: str) -> None:
         tminus = max(0, int((ts_ms - now) / 1000))
 
         r.hset(
-            _agg_key(key),
+            _agg_key(key)
             mapping={
-                "event_ts_ms": str(ts_ms),
-                "next_ts_ms": str(ts_ms),
-                "event_tminus_sec": str(tminus),
-                "event_grade_id": str(int(grade_id)),
-                "event_ref": _event_key(ev_id),
-                "updated_ts_ms": str(int(now)),
-            },
+                "event_ts_ms": str(ts_ms)
+                "next_ts_ms": str(ts_ms)
+                "event_tminus_sec": str(tminus)
+                "event_grade_id": str(int(grade_id))
+                "event_ref": _event_key(ev_id)
+                "updated_ts_ms": str(int(now))
+            }
         )
         r.expire(_agg_key(key), int(config.CALENDAR_AGG_TTL_SEC))
 
@@ -106,11 +106,11 @@ class CalendarFeatureStoreService:
     """
 
     def __init__(
-        self,
-        r: redis.Redis,
-        consumer: str = "cal-fs-1",
-        block_ms: int = 5000,
-        batch: int = 50,
+        self
+        r: redis.Redis
+        consumer: str = "cal-fs-1"
+        block_ms: int = 5000
+        batch: int = 50
     ) -> None:
         self.r = r
         self.consumer = consumer
@@ -127,12 +127,12 @@ class CalendarFeatureStoreService:
 
         while not self._stop:
             items = xreadgroup_block(
-                self.r,
-                config.CALENDAR_EVENTS_STREAM,
-                config.CALENDAR_FEATURE_GROUP,
-                consumer=self.consumer,
-                count=self.batch,
-                block_ms=self.block_ms,
+                self.r
+                config.CALENDAR_EVENTS_STREAM
+                config.CALENDAR_FEATURE_GROUP
+                consumer=self.consumer
+                count=self.batch
+                block_ms=self.block_ms
             )
             if not items:
                 continue
@@ -148,14 +148,14 @@ class CalendarFeatureStoreService:
                         # heavy save
                         ek = _event_key(ev.event_id)
                         heavy = {
-                            "event_id": ev.event_id,
-                            "title": ev.title,
-                            "ts_ms": ev.ts_ms,
-                            "grade_id": ev.grade_id,
-                            "currency": ev.currency,
-                            "region": ev.region,
-                            "symbols": ev.symbols,
-                            "payload": ev.payload,
+                            "event_id": ev.event_id
+                            "title": ev.title
+                            "ts_ms": ev.ts_ms
+                            "grade_id": ev.grade_id
+                            "currency": ev.currency
+                            "region": ev.region
+                            "symbols": ev.symbols
+                            "payload": ev.payload
                         }
                         self.r.set(ek, json.dumps(heavy, ensure_ascii=False))
                         self.r.expire(ek, int(config.CALENDAR_EVENT_TTL_SEC))

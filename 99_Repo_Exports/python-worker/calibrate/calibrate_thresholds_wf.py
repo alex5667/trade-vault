@@ -67,10 +67,10 @@ class WFThresholdResult:
 
 
 def _objective(
-    df: pd.DataFrame,
-    dz: float,
-    obi: float,
-    weight_profit: float = 0.7,
+    df: pd.DataFrame
+    dz: float
+    obi: float
+    weight_profit: float = 0.7
 ) -> Tuple[float, float, float, int]:
     """
     Calculate composite score for given thresholds.
@@ -96,9 +96,9 @@ def _objective(
 
 
 def _evaluate_oos(
-    df: pd.DataFrame,
-    dz: float,
-    obi: float,
+    df: pd.DataFrame
+    dz: float
+    obi: float
 ) -> Tuple[float, float, float, float, int]:
     """
     Evaluate thresholds on OOS data.
@@ -134,22 +134,22 @@ def _evaluate_oos(
 
 
 def run_walk_forward(
-    df: pd.DataFrame,
-    dz_grid: List[float],
-    obi_grid: List[float],
-    min_train_days: int = 30,
-    test_days: int = 7,
-    step_days: int = 7,
-    weight_profit: float = 0.7,
-    stability_threshold: float = 0.5,
-    min_oos_pf: float = 1.0,
-    min_folds_to_deploy: int = 2,
+    df: pd.DataFrame
+    dz_grid: List[float]
+    obi_grid: List[float]
+    min_train_days: int = 30
+    test_days: int = 7
+    step_days: int = 7
+    weight_profit: float = 0.7
+    stability_threshold: float = 0.5
+    min_oos_pf: float = 1.0
+    min_folds_to_deploy: int = 2
 ) -> WFThresholdResult:
     """
     Run walk-forward validation over threshold grid.
 
     Args:
-        df: DataFrame with 'delta_z', 'profit', optional 'obi',
+        df: DataFrame with 'delta_z', 'profit', optional 'obi'
             and a datetime column ('ts', 'timestamp', or 'date').
         dz_grid: List of delta_z threshold candidates.
         obi_grid: List of OBI threshold candidates.
@@ -192,15 +192,15 @@ def run_walk_forward(
             f"< min_train({min_train_days}) + test({test_days})"
         )
         return WFThresholdResult(
-            robust_dz=dz_grid[len(dz_grid) // 2] if dz_grid else 3.0,
-            robust_obi=obi_grid[len(obi_grid) // 2] if obi_grid else 0.5,
-            stability_score=999.0,
-            deploy=False,
-            n_folds=0,
-            n_stable_folds=0,
-            mean_oos_sharpe=0.0,
-            overfit_ratio=0.0,
-            folds=[],
+            robust_dz=dz_grid[len(dz_grid) // 2] if dz_grid else 3.0
+            robust_obi=obi_grid[len(obi_grid) // 2] if obi_grid else 0.5
+            stability_score=999.0
+            deploy=False
+            n_folds=0
+            n_stable_folds=0
+            mean_oos_sharpe=0.0
+            overfit_ratio=0.0
+            folds=[]
         )
 
     # Generate expanding windows
@@ -241,24 +241,24 @@ def run_walk_forward(
 
         # Evaluate on test
         oos_mu, oos_sh, oos_wr, oos_pf, oos_n = _evaluate_oos(
-            test_df, best_dz, best_obi,
+            test_df, best_dz, best_obi
         )
 
         fold_result = FoldThresholdResult(
-            fold_idx=fold_idx,
-            train_end_date=str(train_end_dt.date()),
-            test_end_date=str(test_end_dt.date()),
-            train_n=len(train_df),
-            test_n=len(test_df),
-            best_dz=best_dz,
-            best_obi=best_obi,
-            train_mean_profit=best_mu,
-            train_sharpe=best_sh,
-            oos_mean_profit=oos_mu,
-            oos_sharpe=oos_sh,
-            oos_win_rate=oos_wr,
-            oos_profit_factor=oos_pf,
-            oos_n_trades=oos_n,
+            fold_idx=fold_idx
+            train_end_date=str(train_end_dt.date())
+            test_end_date=str(test_end_dt.date())
+            train_n=len(train_df)
+            test_n=len(test_df)
+            best_dz=best_dz
+            best_obi=best_obi
+            train_mean_profit=best_mu
+            train_sharpe=best_sh
+            oos_mean_profit=oos_mu
+            oos_sharpe=oos_sh
+            oos_win_rate=oos_wr
+            oos_profit_factor=oos_pf
+            oos_n_trades=oos_n
         )
         folds.append(fold_result)
 
@@ -275,11 +275,11 @@ def run_walk_forward(
 
     if not folds:
         return WFThresholdResult(
-            robust_dz=dz_grid[len(dz_grid) // 2] if dz_grid else 3.0,
-            robust_obi=obi_grid[len(obi_grid) // 2] if obi_grid else 0.5,
-            stability_score=999.0,
-            deploy=False, n_folds=0, n_stable_folds=0,
-            mean_oos_sharpe=0.0, overfit_ratio=0.0, folds=[],
+            robust_dz=dz_grid[len(dz_grid) // 2] if dz_grid else 3.0
+            robust_obi=obi_grid[len(obi_grid) // 2] if obi_grid else 0.5
+            stability_score=999.0
+            deploy=False, n_folds=0, n_stable_folds=0
+            mean_oos_sharpe=0.0, overfit_ratio=0.0, folds=[]
         )
 
     # Aggregate
@@ -310,15 +310,15 @@ def run_walk_forward(
     )
 
     return WFThresholdResult(
-        robust_dz=robust_dz,
-        robust_obi=robust_obi,
-        stability_score=round(stability_score, 4),
-        deploy=deploy,
-        n_folds=len(folds),
-        n_stable_folds=n_stable,
-        mean_oos_sharpe=round(mean_oos_sharpe, 4),
-        overfit_ratio=round(overfit_ratio, 4),
-        folds=folds,
+        robust_dz=robust_dz
+        robust_obi=robust_obi
+        stability_score=round(stability_score, 4)
+        deploy=deploy
+        n_folds=len(folds)
+        n_stable_folds=n_stable
+        mean_oos_sharpe=round(mean_oos_sharpe, 4)
+        overfit_ratio=round(overfit_ratio, 4)
+        folds=folds
     )
 
 
@@ -376,14 +376,14 @@ def main():
 
     # Run walk-forward
     result = run_walk_forward(
-        df=df,
-        dz_grid=dzs,
-        obi_grid=obis,
-        min_train_days=args.min_train_days,
-        test_days=args.test_days,
-        step_days=args.step_days,
-        weight_profit=args.weight_profit,
-        stability_threshold=args.stability_threshold,
+        df=df
+        dz_grid=dzs
+        obi_grid=obis
+        min_train_days=args.min_train_days
+        test_days=args.test_days
+        step_days=args.step_days
+        weight_profit=args.weight_profit
+        stability_threshold=args.stability_threshold
     )
 
     print()

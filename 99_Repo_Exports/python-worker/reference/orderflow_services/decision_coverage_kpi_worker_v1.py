@@ -129,19 +129,19 @@ class Cfg:
 
 def load_cfg() -> Cfg:
     return Cfg(
-        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        stream=_env("DECISIONS_FINAL_STREAM", "decisions:final"),
-        group=_env("DECISION_COVERAGE_CG", "decision_coverage_kpi_v1"),
-        consumer=_env("DECISION_COVERAGE_CONSUMER", socket.gethostname()),
-        block_ms=_i(_env("DECISION_COVERAGE_BLOCK_MS", "5000"), 5000),
-        count=_i(_env("DECISION_COVERAGE_READ_COUNT", "200"), 200),
-        window_minutes=_i(_env("DECISION_COVERAGE_WINDOW_MINUTES", "1440"), 1440),
-        bucket_prefix=_env("DECISION_COVERAGE_BUCKET_PREFIX", "kpi:decision_coverage:bucket:"),
-        bucket_ttl_s=_i(_env("DECISION_COVERAGE_BUCKET_TTL_S", str(86400 * 3)), 86400 * 3),
-        state_key=_env("DECISION_COVERAGE_STATE_KEY", "metrics:decision_coverage:state"),
-        claim_idle_ms=_i(_env("DECISION_COVERAGE_CLAIM_IDLE_MS", "60000"), 60000),
-        sleep_on_idle_s=float(_env("DECISION_COVERAGE_SLEEP_ON_IDLE_S", "0.2") or 0.2),
-        rebuild_gap_minutes=_i(_env("DECISION_COVERAGE_REBUILD_GAP_MINUTES", "10"), 10),
+        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+        stream=_env("DECISIONS_FINAL_STREAM", "decisions:final")
+        group=_env("DECISION_COVERAGE_CG", "decision_coverage_kpi_v1")
+        consumer=_env("DECISION_COVERAGE_CONSUMER", socket.gethostname())
+        block_ms=_i(_env("DECISION_COVERAGE_BLOCK_MS", "5000"), 5000)
+        count=_i(_env("DECISION_COVERAGE_READ_COUNT", "200"), 200)
+        window_minutes=_i(_env("DECISION_COVERAGE_WINDOW_MINUTES", "1440"), 1440)
+        bucket_prefix=_env("DECISION_COVERAGE_BUCKET_PREFIX", "kpi:decision_coverage:bucket:")
+        bucket_ttl_s=_i(_env("DECISION_COVERAGE_BUCKET_TTL_S", str(86400 * 3)), 86400 * 3)
+        state_key=_env("DECISION_COVERAGE_STATE_KEY", "metrics:decision_coverage:state")
+        claim_idle_ms=_i(_env("DECISION_COVERAGE_CLAIM_IDLE_MS", "60000"), 60000)
+        sleep_on_idle_s=float(_env("DECISION_COVERAGE_SLEEP_ON_IDLE_S", "0.2") or 0.2)
+        rebuild_gap_minutes=_i(_env("DECISION_COVERAGE_REBUILD_GAP_MINUTES", "10"), 10)
     )
 
 
@@ -204,24 +204,24 @@ def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int
 
     # Persist bootstrap result immediately so exporter has fresh state
     r.hset(
-        cfg.state_key,
+        cfg.state_key
         mapping={
-            "cur_minute": str(cur_min),
-            "rolling_ok": str(rolling["ok"]),
-            "rolling_warn": str(rolling["warn"]),
-            "rolling_block": str(rolling["block"]),
-            "rolling_unknown": str(rolling["unknown"]),
-            "rolling_total": str(rolling["total"]),
-            "last_ts_ms": str(last_ts_ms),
-            "updated_ts_ms": str(now_ms),
-        },
+            "cur_minute": str(cur_min)
+            "rolling_ok": str(rolling["ok"])
+            "rolling_warn": str(rolling["warn"])
+            "rolling_block": str(rolling["block"])
+            "rolling_unknown": str(rolling["unknown"])
+            "rolling_total": str(rolling["total"])
+            "last_ts_ms": str(last_ts_ms)
+            "updated_ts_ms": str(now_ms)
+        }
     )
     return cur_min, rolling, last_ts_ms
 
 
 def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
     """
-    Advance window minute pointer from `from_min` to `to_min`,
+    Advance window minute pointer from `from_min` to `to_min`
     subtracting outgoing minute buckets at the tail of the window.
     If gap is too large (>= rebuild_gap_minutes), do a full rebuild instead.
     Returns updated cur_minute (in-place modifies rolling dict).
@@ -256,13 +256,13 @@ def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _process_one(
-    r,
-    cfg: Cfg,
-    stream_id: str,
-    fields: Dict[str, Any],
-    cur_min: int,
-    rolling: Dict[str, int],
-    last_ts_ms: int,
+    r
+    cfg: Cfg
+    stream_id: str
+    fields: Dict[str, Any]
+    cur_min: int
+    rolling: Dict[str, int]
+    last_ts_ms: int
 ) -> Tuple[int, int]:
     """
     Process a single stream message:
@@ -304,17 +304,17 @@ def _process_one(
     rolling["total"] = int(rolling.get("total", 0)) + 1
 
     pipe.hset(
-        cfg.state_key,
+        cfg.state_key
         mapping={
-            "cur_minute": str(cur_min),
-            "rolling_ok": str(int(rolling["ok"])),
-            "rolling_warn": str(int(rolling["warn"])),
-            "rolling_block": str(int(rolling["block"])),
-            "rolling_unknown": str(int(rolling["unknown"])),
-            "rolling_total": str(int(rolling["total"])),
-            "last_ts_ms": str(int(last_ts_ms)),
-            "updated_ts_ms": str(_now_ms()),
-        },
+            "cur_minute": str(cur_min)
+            "rolling_ok": str(int(rolling["ok"]))
+            "rolling_warn": str(int(rolling["warn"]))
+            "rolling_block": str(int(rolling["block"]))
+            "rolling_unknown": str(int(rolling["unknown"]))
+            "rolling_total": str(int(rolling["total"]))
+            "last_ts_ms": str(int(last_ts_ms))
+            "updated_ts_ms": str(_now_ms())
+        }
     )
     pipe.execute()
     return cur_min, last_ts_ms
@@ -345,12 +345,12 @@ def main() -> int:
             last_claim_ms = now_ms
             try:
                 res = r.xautoclaim(
-                    cfg.stream,
-                    cfg.group,
-                    cfg.consumer,
-                    min_idle_time=cfg.claim_idle_ms,
-                    start_id="0-0",
-                    count=cfg.count,
+                    cfg.stream
+                    cfg.group
+                    cfg.consumer
+                    min_idle_time=cfg.claim_idle_ms
+                    start_id="0-0"
+                    count=cfg.count
                 )
                 msgs = res[1] if isinstance(res, (list, tuple)) and len(res) >= 2 else []
                 for mid, mfields in msgs:
@@ -363,11 +363,11 @@ def main() -> int:
         # Main read loop: block until new messages arrive
         try:
             data = r.xreadgroup(
-                groupname=cfg.group,
-                consumername=cfg.consumer,
-                streams={cfg.stream: ">"},
-                count=cfg.count,
-                block=cfg.block_ms,
+                groupname=cfg.group
+                consumername=cfg.consumer
+                streams={cfg.stream: ">"}
+                count=cfg.count
+                block=cfg.block_ms
             )
         except Exception:
             time.sleep(1.0)

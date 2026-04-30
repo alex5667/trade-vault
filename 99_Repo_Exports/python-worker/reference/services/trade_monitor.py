@@ -31,11 +31,11 @@ def _log_future_exception(fut):
         pass
 from domain.normalizers import canon_source, canon_symbol, canon_tf, canon_strategy
 from infra.order_schema import (
-    normalize_side,
-    extract_tp_levels,
-    extract_profile,
-    extract_tp_fills,
-    parse_json_dict,
+    normalize_side
+    extract_tp_levels
+    extract_profile
+    extract_tp_fills
+    parse_json_dict
 )
 from domain.handlers import create_position, process_tick, apply_trailing_update, finalize_trade
 from domain.tick_price import build_tick
@@ -45,39 +45,39 @@ from domain.tick_price import build_tick
 # when TradeMonitorService is instantiated multiple times (e.g. in Actor Runtime shards).
 TM_ORPHANS_FORCE_CLOSED = Counter(
     "orphans_force_closed_total", 
-    "Total number of positions force closed by orphan housekeep",
+    "Total number of positions force closed by orphan housekeep"
     ["symbol"]
 )
 TM_OPEN_POSITIONS = Gauge(
-    "open_positions_count",
-    "Number of currently open positions",
+    "open_positions_count"
+    "Number of currently open positions"
     ["symbol"]
 )
 TM_TICK_LATENCY_US = Histogram(
-    "tick_processing_time_us",
-    "Latency of on_tick processing in microseconds",
-    ["symbol"],
+    "tick_processing_time_us"
+    "Latency of on_tick processing in microseconds"
+    ["symbol"]
     buckets=[100, 500, 1000, 5000, 10000, 50000]
 )
 
 # [NEW] Backpressure metrics
 TM_RG_PERSIST_PENDING = Gauge(
-    "tm_regime_guard_persist_pending",
+    "tm_regime_guard_persist_pending"
     "Number of RegimeGuard persist tasks currently in queue"
 )
 TM_RG_PERSIST_DROPPED = Counter(
-    "tm_regime_guard_persist_dropped_total",
-    "Total number of RegimeGuard persist tasks dropped due to backpressure",
+    "tm_regime_guard_persist_dropped_total"
+    "Total number of RegimeGuard persist tasks dropped due to backpressure"
     ["family", "venue"]
 )
 TM_RG_PERSIST_SUBMITTED = Counter(
-    "tm_regime_guard_persist_submitted_total",
-    "Total number of RegimeGuard persist tasks successfully submitted",
+    "tm_regime_guard_persist_submitted_total"
+    "Total number of RegimeGuard persist tasks successfully submitted"
     ["family", "venue"]
 )
 TM_RG_PERSIST_FAILED = Counter(
-    "tm_regime_guard_persist_failed_total",
-    "Total number of RegimeGuard async persist tasks that failed",
+    "tm_regime_guard_persist_failed_total"
+    "Total number of RegimeGuard async persist tasks that failed"
     ["family", "venue"]
 )
 # --------------------------------------------------------------------
@@ -172,48 +172,48 @@ def _extract_regime_from_signal(sig: Any) -> str:
 
 def _ev_open(pos: PositionState) -> TradeEvent:
     return TradeEvent(
-        event_type="OPEN",
-        order_id=pos.id,
-        sid=pos.sid,
-        strategy=pos.strategy,
-        source=pos.source,
-        symbol=pos.symbol,
-        tf=pos.tf,
-        direction=pos.direction,
-        ts_ms=pos.entry_ts_ms,
+        event_type="OPEN"
+        order_id=pos.id
+        sid=pos.sid
+        strategy=pos.strategy
+        source=pos.source
+        symbol=pos.symbol
+        tf=pos.tf
+        direction=pos.direction
+        ts_ms=pos.entry_ts_ms
         payload={
-            "sl": pos.sl,
-            "tp_levels": pos.tp_levels,
-            "entry_price": pos.entry_price,
-            "lot": pos.lot,
-            "signal_payload": pos.signal_payload,
-        },
+            "sl": pos.sl
+            "tp_levels": pos.tp_levels
+            "entry_price": pos.entry_price
+            "lot": pos.lot
+            "signal_payload": pos.signal_payload
+        }
     )
 
 
 def _ev_tp1_hit_external(
-    pos: PositionState,
-    fill_price: float,
-    closed_qty: float,
-    ts_ms: int,
+    pos: PositionState
+    fill_price: float
+    closed_qty: float
+    ts_ms: int
 ) -> TradeEvent:
     return TradeEvent(
-        event_type="TP1_HIT",
-        order_id=pos.id,
-        sid=pos.sid,
-        strategy=pos.strategy,
-        source=pos.source,
-        symbol=pos.symbol,
-        tf=pos.tf,
-        direction=pos.direction,
-        ts_ms=int(ts_ms),
+        event_type="TP1_HIT"
+        order_id=pos.id
+        sid=pos.sid
+        strategy=pos.strategy
+        source=pos.source
+        symbol=pos.symbol
+        tf=pos.tf
+        direction=pos.direction
+        ts_ms=int(ts_ms)
         payload={
-            "tp_level": 1,
-            "fill_price": float(fill_price),
-            "closed_qty": float(closed_qty),
-            "pnl_part_gross": 0.0,
-            "external": True,
-        },
+            "tp_level": 1
+            "fill_price": float(fill_price)
+            "closed_qty": float(closed_qty)
+            "pnl_part_gross": 0.0
+            "external": True
+        }
     )
 
 
@@ -252,10 +252,10 @@ def _normalize_side(v: Any) -> str:
     return su if su in ("LONG", "SHORT") else "LONG"
 
 def parse_open_position_hash(
-    h: Dict[str, str],
-    *,
-    to_int_ms,
-    logger=None,
+    h: Dict[str, str]
+    *
+    to_int_ms
+    logger=None
 ) -> Optional[PositionState]:
     """
     Pure parser for recovery. Extracted from TradeMonitorService._position_from_hash()
@@ -277,35 +277,35 @@ def parse_open_position_hash(
         tp_levels = [float(x) for x in tp_levels if float(x) > 0][:3]
 
         pos = PositionState(
-            id=str(h.get("id")),
-            sid=str(h.get("sid") or ""),
-            strategy=str(h.get("strategy") or "unknown"),
-            source=str(h.get("source") or "Unknown"),
-            symbol=str(h.get("symbol") or "UNKNOWN"),
-            tf=str(h.get("tf") or "tick"),
+            id=str(h.get("id"))
+            sid=str(h.get("sid") or "")
+            strategy=str(h.get("strategy") or "unknown")
+            source=str(h.get("source") or "Unknown")
+            symbol=str(h.get("symbol") or "UNKNOWN")
+            tf=str(h.get("tf") or "tick")
             # direction can come in multiple formats across components; normalize for stability.
-            direction=_normalize_side(h.get("direction") or "LONG"),
-            entry_price=float(h.get("entry_price") or 0.0),
-            entry_ts_ms=to_int_ms(h.get("entry_time"), 0),
-            lot=float(h.get("lot") or 0.0),
-            remaining_qty=float(h.get("remaining_qty") or h.get("lot") or 0.0),
-            sl=float(h.get("sl") or 0.0),
-            tp_levels=tp_levels,
-            tp_hits=int(float(h.get("tp_hits") or 0)),
-            tp1_hit=str(h.get("tp1_hit") or "0") == "1",
-            tp2_hit=str(h.get("tp2_hit") or "0") == "1",
-            tp3_hit=str(h.get("tp3_hit") or "0") == "1",
-            trailing_started=str(h.get("trailing_started") or "0") == "1",
-            trailing_active=str(h.get("trailing_active") or "0") == "1",
-            trailing_moves_count=int(float(h.get("trailing_moves") or 0)),
-            trailing_distance=float(h.get("trailing_distance") or 0.0),
-            trailing_point=float(h.get("trailing_point") or 0.0),
-            max_favorable_price=float(h.get("max_favorable_price") or 0.0),
-            max_favorable_ts=to_int_ms(h.get("max_favorable_ts"), 0),
-            atr=float(h.get("atr") or 0.0),
-            is_virtual=str(h.get("is_virtual") or "0") == "1",
-            v_gate_status=str(h.get("v_gate_status") or "na"),
-            v_gate_reason=str(h.get("v_gate_reason") or ""),
+            direction=_normalize_side(h.get("direction") or "LONG")
+            entry_price=float(h.get("entry_price") or 0.0)
+            entry_ts_ms=to_int_ms(h.get("entry_time"), 0)
+            lot=float(h.get("lot") or 0.0)
+            remaining_qty=float(h.get("remaining_qty") or h.get("lot") or 0.0)
+            sl=float(h.get("sl") or 0.0)
+            tp_levels=tp_levels
+            tp_hits=int(float(h.get("tp_hits") or 0))
+            tp1_hit=str(h.get("tp1_hit") or "0") == "1"
+            tp2_hit=str(h.get("tp2_hit") or "0") == "1"
+            tp3_hit=str(h.get("tp3_hit") or "0") == "1"
+            trailing_started=str(h.get("trailing_started") or "0") == "1"
+            trailing_active=str(h.get("trailing_active") or "0") == "1"
+            trailing_moves_count=int(float(h.get("trailing_moves") or 0))
+            trailing_distance=float(h.get("trailing_distance") or 0.0)
+            trailing_point=float(h.get("trailing_point") or 0.0)
+            max_favorable_price=float(h.get("max_favorable_price") or 0.0)
+            max_favorable_ts=to_int_ms(h.get("max_favorable_ts"), 0)
+            atr=float(h.get("atr") or 0.0)
+            is_virtual=str(h.get("is_virtual") or "0") == "1"
+            v_gate_status=str(h.get("v_gate_status") or "na")
+            v_gate_reason=str(h.get("v_gate_reason") or "")
         )
 
         # Optional fields (best-effort)
@@ -365,15 +365,15 @@ def parse_open_position_hash(
 
 class TradeMonitorService:
     def __init__(
-        self,
-        redis_url: Optional[str] = None,
-        config: Optional[Dict[str, Any]] = None,
-        regime_guard=None,
-        health_metrics=None,
-        *,
-        redis_client=None,
-        repo=None,
-        metrics=None,
+        self
+        redis_url: Optional[str] = None
+        config: Optional[Dict[str, Any]] = None
+        regime_guard=None
+        health_metrics=None
+        *
+        redis_client=None
+        repo=None
+        metrics=None
     ):
         import redis as redis_lib
         # ------------------------------------------------------------
@@ -436,8 +436,8 @@ class TradeMonitorService:
         if self._rg_db_max_workers < 1:
             self._rg_db_max_workers = 1
         self._rg_db_executor = ThreadPoolExecutor(
-            max_workers=self._rg_db_max_workers,
-            thread_name_prefix="TM_RG_DB",
+            max_workers=self._rg_db_max_workers
+            thread_name_prefix="TM_RG_DB"
         ) if self._rg_async_persist else None
         self._rg_persist_sem = threading.BoundedSemaphore(self._rg_max_pending) if self._rg_async_persist else None
         self._rg_pending_guard = threading.Lock()
@@ -500,9 +500,9 @@ class TradeMonitorService:
         
         if r1_env == r1_env:  # Check if not NaN
             ratios = [
-                r1_env,
-                r2_env if r2_env == r2_env else 0.35,
-                r3_env if r3_env == r3_env else 0.35,
+                r1_env
+                r2_env if r2_env == r2_env else 0.35
+                r3_env if r3_env == r3_env else 0.35
             ]
         else:
             ratios = list(ratios_cfg) if isinstance(ratios_cfg, (list, tuple)) and len(ratios_cfg) >= 3 else [0.30, 0.35, 0.35]
@@ -885,7 +885,7 @@ class TradeMonitorService:
         """
         Формирует ключ для dedup внешних событий.
         
-        Использует namespace для изоляции между сервисами (scanner-trade-monitor,
+        Использует namespace для изоляции между сервисами (scanner-trade-monitor
         scanner-signal-tracker и т.д.), чтобы избежать race condition на общих ключах.
         """
         return f"dedup:trade_monitor:{self.namespace}:{kind}:{event_id}"
@@ -963,7 +963,7 @@ class TradeMonitorService:
         
         КРИТИЧЕСКИ ВАЖНО: использует namespace для изоляции между сервисами.
         Без namespace возникает race condition: scanner-signal-tracker и
-        scanner-trade-monitor соревнуются за один и тот же SID ключ в Redis,
+        scanner-trade-monitor соревнуются за один и тот же SID ключ в Redis
         что приводит к пропуску сигналов (как в случае BTCUSDT 16:17 UTC).
         
         Примеры ключей:
@@ -1079,17 +1079,17 @@ class TradeMonitorService:
             # Префиксуем поля, чтобы не конфликтовать с торговыми полями.
             # Используем те же имена, что у вас уже были в stream (health_*).
             out = {
-                "health_l2_stale_ratio_tick": str(h.get("l2_stale_ratio_tick", "0.0")),
-                "health_l2_stale_ratio_now": str(h.get("l2_stale_ratio_now", "0.0")),
-                "health_avg_l2_age_ms": str(h.get("avg_l2_age_ms", "0.0")),
-                "health_avg_l2_age_tick_ms": str(h.get("avg_l2_age_tick_ms", "0.0")),
-                "health_signal_emit_rate": str(h.get("signal_emit_rate", "0.0")),
-                "health_dlq_rate": str(h.get("dlq_rate", "0.0")),
-                "health_avg_book_lag_ms": str(h.get("avg_book_lag_ms", "0.0")),
-                "health_avg_ticks_lag_ms": str(h.get("avg_ticks_lag_ms", "0.0")),
-                "health_pending_len": str(h.get("pending_len", "0")),
-                "health_window_sec": str(h.get("window_sec", "0")),
-                "health_ts": str(h.get("ts", "0")),
+                "health_l2_stale_ratio_tick": str(h.get("l2_stale_ratio_tick", "0.0"))
+                "health_l2_stale_ratio_now": str(h.get("l2_stale_ratio_now", "0.0"))
+                "health_avg_l2_age_ms": str(h.get("avg_l2_age_ms", "0.0"))
+                "health_avg_l2_age_tick_ms": str(h.get("avg_l2_age_tick_ms", "0.0"))
+                "health_signal_emit_rate": str(h.get("signal_emit_rate", "0.0"))
+                "health_dlq_rate": str(h.get("dlq_rate", "0.0"))
+                "health_avg_book_lag_ms": str(h.get("avg_book_lag_ms", "0.0"))
+                "health_avg_ticks_lag_ms": str(h.get("avg_ticks_lag_ms", "0.0"))
+                "health_pending_len": str(h.get("pending_len", "0"))
+                "health_window_sec": str(h.get("window_sec", "0"))
+                "health_ts": str(h.get("ts", "0"))
             }
             return out
         except Exception:
@@ -1149,32 +1149,32 @@ class TradeMonitorService:
             tp_levels = extract_tp_levels(h)
 
             pos = PositionState(
-                id=str(h.get("id")),
-                sid=str(h.get("sid") or ""),
-                strategy=str(h.get("strategy") or "unknown"),
-                source=str(h.get("source") or "Unknown"),
-                symbol=str(h.get("symbol") or "UNKNOWN"),
-                tf=str(h.get("tf") or "tick"),
-                direction=normalize_side(h.get("direction") or "LONG"),
-                entry_price=float(h.get("entry_price") or 0.0),
+                id=str(h.get("id"))
+                sid=str(h.get("sid") or "")
+                strategy=str(h.get("strategy") or "unknown")
+                source=str(h.get("source") or "Unknown")
+                symbol=str(h.get("symbol") or "UNKNOWN")
+                tf=str(h.get("tf") or "tick")
+                direction=normalize_side(h.get("direction") or "LONG")
+                entry_price=float(h.get("entry_price") or 0.0)
                 # timestamps (ms)
-                entry_ts_ms=self._to_int_ms(h.get("entry_ts_ms") or h.get("entry_time"), 0),
-                lot=float(h.get("lot") or 0.0),
-                remaining_qty=float(h.get("remaining_qty") or h.get("lot") or 0.0),
-                sl=float(h.get("sl") or 0.0),
-                tp_levels=tp_levels,
-                tp_hits=int(float(h.get("tp_hits") or 0)),
-                tp1_hit=str(h.get("tp1_hit") or "0") == "1",
-                tp2_hit=str(h.get("tp2_hit") or "0") == "1",
-                tp3_hit=str(h.get("tp3_hit") or "0") == "1",
-                trailing_started=str(h.get("trailing_started") or "0") == "1",
-                trailing_active=str(h.get("trailing_active") or "0") == "1",
-                trailing_moves_count=int(float(h.get("trailing_moves") or 0)),
-                trailing_distance=float(h.get("trailing_distance") or 0.0),
-                trailing_point=float(h.get("trailing_point") or 0.0),
-                max_favorable_price=float(h.get("max_favorable_price") or 0.0),
-                max_favorable_ts=self._to_int_ms(h.get("max_favorable_ts"), 0),
-                atr=float(h.get("atr") or 0.0),
+                entry_ts_ms=self._to_int_ms(h.get("entry_ts_ms") or h.get("entry_time"), 0)
+                lot=float(h.get("lot") or 0.0)
+                remaining_qty=float(h.get("remaining_qty") or h.get("lot") or 0.0)
+                sl=float(h.get("sl") or 0.0)
+                tp_levels=tp_levels
+                tp_hits=int(float(h.get("tp_hits") or 0))
+                tp1_hit=str(h.get("tp1_hit") or "0") == "1"
+                tp2_hit=str(h.get("tp2_hit") or "0") == "1"
+                tp3_hit=str(h.get("tp3_hit") or "0") == "1"
+                trailing_started=str(h.get("trailing_started") or "0") == "1"
+                trailing_active=str(h.get("trailing_active") or "0") == "1"
+                trailing_moves_count=int(float(h.get("trailing_moves") or 0))
+                trailing_distance=float(h.get("trailing_distance") or 0.0)
+                trailing_point=float(h.get("trailing_point") or 0.0)
+                max_favorable_price=float(h.get("max_favorable_price") or 0.0)
+                max_favorable_ts=self._to_int_ms(h.get("max_favorable_ts"), 0)
+                atr=float(h.get("atr") or 0.0)
             )
             try:
                 pos.entry_tag = str(h.get("entry_tag") or "")
@@ -1226,15 +1226,15 @@ class TradeMonitorService:
 
         # Keep only the most useful fields on close to avoid bloating the event.
         snap = {
-            "health_l2_stale_ratio_tick": str(raw.get("l2_stale_ratio_tick", "0.0")),
-            "health_l2_stale_ratio_now": str(raw.get("l2_stale_ratio_now", "0.0")),
-            "health_avg_l2_age_ms": str(raw.get("avg_l2_age_ms", "0.0")),
-            "health_avg_l2_age_tick_ms": str(raw.get("avg_l2_age_tick_ms", "0.0")),
-            "health_signal_emit_rate": str(raw.get("signal_emit_rate", "0.0")),
-            "health_dlq_rate": str(raw.get("dlq_rate", "0.0")),
-            "health_pending_len": str(raw.get("pending_len", "0")),
-            "health_snapshot_ts": str(raw.get("ts", "0")),
-            "health_window_sec": str(raw.get("window_sec", "0")),
+            "health_l2_stale_ratio_tick": str(raw.get("l2_stale_ratio_tick", "0.0"))
+            "health_l2_stale_ratio_now": str(raw.get("l2_stale_ratio_now", "0.0"))
+            "health_avg_l2_age_ms": str(raw.get("avg_l2_age_ms", "0.0"))
+            "health_avg_l2_age_tick_ms": str(raw.get("avg_l2_age_tick_ms", "0.0"))
+            "health_signal_emit_rate": str(raw.get("signal_emit_rate", "0.0"))
+            "health_dlq_rate": str(raw.get("dlq_rate", "0.0"))
+            "health_pending_len": str(raw.get("pending_len", "0"))
+            "health_snapshot_ts": str(raw.get("ts", "0"))
+            "health_window_sec": str(raw.get("window_sec", "0"))
         }
         self._health_cache[sym] = (now_ms, snap)
         return snap
@@ -1270,15 +1270,15 @@ class TradeMonitorService:
 
         # Keep only the most useful fields on close to avoid bloating the event.
         snap = {
-            "health_l2_stale_ratio_tick": str(raw.get("l2_stale_ratio_tick", "0.0")),
-            "health_l2_stale_ratio_now": str(raw.get("l2_stale_ratio_now", "0.0")),
-            "health_avg_l2_age_ms": str(raw.get("avg_l2_age_ms", "0.0")),
-            "health_avg_l2_age_tick_ms": str(raw.get("avg_l2_age_tick_ms", "0.0")),
-            "health_signal_emit_rate": str(raw.get("signal_emit_rate", "0.0")),
-            "health_dlq_rate": str(raw.get("dlq_rate", "0.0")),
-            "health_pending_len": str(raw.get("pending_len", "0")),
-            "health_snapshot_ts": str(raw.get("ts", "0")),
-            "health_window_sec": str(raw.get("window_sec", "0")),
+            "health_l2_stale_ratio_tick": str(raw.get("l2_stale_ratio_tick", "0.0"))
+            "health_l2_stale_ratio_now": str(raw.get("l2_stale_ratio_now", "0.0"))
+            "health_avg_l2_age_ms": str(raw.get("avg_l2_age_ms", "0.0"))
+            "health_avg_l2_age_tick_ms": str(raw.get("avg_l2_age_tick_ms", "0.0"))
+            "health_signal_emit_rate": str(raw.get("signal_emit_rate", "0.0"))
+            "health_dlq_rate": str(raw.get("dlq_rate", "0.0"))
+            "health_pending_len": str(raw.get("pending_len", "0"))
+            "health_snapshot_ts": str(raw.get("ts", "0"))
+            "health_window_sec": str(raw.get("window_sec", "0"))
         }
         self._health_cache[sym] = (now_ms, snap)
         return snap
@@ -1403,13 +1403,13 @@ class TradeMonitorService:
                 closed_at = self._resolve_closed_at(dclosed)
 
                 persist_task = self.regime_guard.on_signal_closed(
-                    signal_id=signal_id,
-                    family=family,
-                    venue=venue,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    r_value=r_value,
-                    closed_at=closed_at,
+                    signal_id=signal_id
+                    family=family
+                    venue=venue
+                    symbol=symbol
+                    timeframe=timeframe
+                    r_value=r_value
+                    closed_at=closed_at
                 )
                 
                 if callable(persist_task):
@@ -1952,12 +1952,12 @@ class TradeMonitorService:
                 redis_client = getattr(self, "redis", None) or getattr(self, "redis_client", None)
                 if redis_client is not None and isinstance(data, dict):
                     maybe_apply_confidence_adjustment(
-                        redis_client,
-                        envelope=data,
-                        strategy=strategy,
-                        symbol=symbol,
-                        tf=tf,
-                        direction=direction,
+                        redis_client
+                        envelope=data
+                        strategy=strategy
+                        symbol=symbol
+                        tf=tf
+                        direction=direction
                     )
             except Exception:
                 pass
@@ -2013,20 +2013,20 @@ class TradeMonitorService:
                 data["trail_after_tp1_reason"] = ""
 
             return SignalNorm(
-                sid=sid,
-                strategy=strategy,
-                source=source,
-                symbol=symbol,
-                tf=tf,
+                sid=sid
+                strategy=strategy
+                source=source
+                symbol=symbol
+                tf=tf
                 direction=direction,  # type: ignore
-                entry_price=entry_price,
-                entry_ts_ms=entry_ts_ms,
-                lot=lot,
-                sl=sl,
-                tp_levels=tp_levels,
-                trail_profile=trail_profile,
-                payload=data if isinstance(data, dict) else {},
-                entry_tag=entry_tag,
+                entry_price=entry_price
+                entry_ts_ms=entry_ts_ms
+                lot=lot
+                sl=sl
+                tp_levels=tp_levels
+                trail_profile=trail_profile
+                payload=data if isinstance(data, dict) else {}
+                entry_tag=entry_tag
             )
         except Exception:
             return None
@@ -2189,10 +2189,10 @@ class TradeMonitorService:
                 #  - закрыть baseline-ветку (если она есть)
                 spec = self._get_spec(pos.symbol)
                 closed = finalize_trade(
-                    pos, spec,
-                    exit_price=float(exit_price),
-                    exit_ts_ms=int(exit_ts_ms),
-                    close_reason_raw=str(close_reason_raw),
+                    pos, spec
+                    exit_price=float(exit_price)
+                    exit_ts_ms=int(exit_ts_ms)
+                    close_reason_raw=str(close_reason_raw)
                     tp_ratios=self.tp_ratios
                 )
                 self._log_ab_closed_event(pos, closed, str(close_reason_raw))
@@ -2412,48 +2412,48 @@ class TradeMonitorService:
 
                         spec = self._get_spec(sym)
                         closed = finalize_trade(
-                            pos, spec,
-                            exit_price=float(exit_price),
-                            exit_ts_ms=int(exit_ts_ms or now_ms),
-                            close_reason_raw=str(raw),
+                            pos, spec
+                            exit_price=float(exit_price)
+                            exit_ts_ms=int(exit_ts_ms or now_ms)
+                            close_reason_raw=str(raw)
                             tp_ratios=self.tp_ratios
                         )
                         self._log_ab_closed_event(pos, closed, str(raw))
                         self._stamp_closed_trade_meta(pos, closed, str(raw))
 
                         orphan_ev = TradeEvent(
-                            event_type="ORPHAN_CLOSE",
-                            order_id=pos.id,
-                            sid=getattr(pos, "sid", ""),
-                            strategy=getattr(pos, "strategy", ""),
-                            source=getattr(pos, "source", ""),
-                            symbol=getattr(pos, "symbol", ""),
-                            tf=getattr(pos, "tf", ""),
-                            direction=getattr(pos, "direction", ""),
-                            ts_ms=int(exit_ts_ms or now_ms),
+                            event_type="ORPHAN_CLOSE"
+                            order_id=pos.id
+                            sid=getattr(pos, "sid", "")
+                            strategy=getattr(pos, "strategy", "")
+                            source=getattr(pos, "source", "")
+                            symbol=getattr(pos, "symbol", "")
+                            tf=getattr(pos, "tf", "")
+                            direction=getattr(pos, "direction", "")
+                            ts_ms=int(exit_ts_ms or now_ms)
                             payload={
-                                "exit_price": float(exit_price),
-                                "exit_ts_ms": int(exit_ts_ms or now_ms),
-                                "reason_raw": str(raw),
-                                "close_reason_detail": str(getattr(closed, "close_reason_detail", "") or ""),
-                                "orphan_now_ms": int(now_ms),
-                            },
+                                "exit_price": float(exit_price)
+                                "exit_ts_ms": int(exit_ts_ms or now_ms)
+                                "reason_raw": str(raw)
+                                "close_reason_detail": str(getattr(closed, "close_reason_detail", "") or "")
+                                "orphan_now_ms": int(now_ms)
+                            }
                         )
                         close_ev = TradeEvent(
-                            event_type="CLOSE",
-                            order_id=pos.id,
-                            sid=getattr(pos, "sid", ""),
-                            strategy=getattr(pos, "strategy", ""),
-                            source=getattr(pos, "source", ""),
-                            symbol=getattr(pos, "symbol", ""),
-                            tf=getattr(pos, "tf", ""),
-                            direction=getattr(pos, "direction", ""),
-                            ts_ms=int(exit_ts_ms or now_ms),
+                            event_type="CLOSE"
+                            order_id=pos.id
+                            sid=getattr(pos, "sid", "")
+                            strategy=getattr(pos, "strategy", "")
+                            source=getattr(pos, "source", "")
+                            symbol=getattr(pos, "symbol", "")
+                            tf=getattr(pos, "tf", "")
+                            direction=getattr(pos, "direction", "")
+                            ts_ms=int(exit_ts_ms or now_ms)
                             payload={
-                                "reason": str(getattr(closed, "close_reason", "") or ""),
-                                "reason_raw": str(getattr(closed, "close_reason_raw", "") or str(raw)),
-                                "close_reason_detail": str(getattr(closed, "close_reason_detail", "") or ""),
-                            },
+                                "reason": str(getattr(closed, "close_reason", "") or "")
+                                "reason_raw": str(getattr(closed, "close_reason_raw", "") or str(raw))
+                                "close_reason_detail": str(getattr(closed, "close_reason_detail", "") or "")
+                            }
                         )
 
                         pos_dict = dict(getattr(pos, "__dict__", {}) or {})
@@ -2471,8 +2471,8 @@ class TradeMonitorService:
                         io_tasks.append(_IOTask(lambda ev=close_ev: self.repo.append_event(ev), f"append_event:CLOSE_ORPHAN:{pos_id}"))
                         io_tasks.append(_IOTask(
                             lambda closed=closed, pos_dict=pos_dict, closed_dict=closed_dict:
-                                self._persist_closed_trade_io(closed, pos_dict, closed_dict),
-                            f"persist_closed_orphan:{pos_id}",
+                                self._persist_closed_trade_io(closed, pos_dict, closed_dict)
+                            f"persist_closed_orphan:{pos_id}"
                         ))
 
                     # I/O outside global lock
@@ -2526,7 +2526,7 @@ class TradeMonitorService:
             pos_list = list(shard.values()) if shard else []
 
             # 3) Collect IO steps OUTSIDE global _lock to reduce contention.
-            #    IO steps are executed inside symbol-lock (serialization per symbol),
+            #    IO steps are executed inside symbol-lock (serialization per symbol)
             #    but strictly outside self._lock.
             io_steps: list[tuple[str, Any]] = []
             report_triggers: list[tuple[str, str]] = []
@@ -2539,9 +2539,9 @@ class TradeMonitorService:
 
                 # process_tick is pure (no IO), safe under symbol-lock without _lock
                 events, closed = process_tick(
-                    pos, tick, spec,
-                    tp_ratios=self.tp_ratios,
-                    fill_policy=self.fill_policy,
+                    pos, tick, spec
+                    tp_ratios=self.tp_ratios
+                    fill_policy=self.fill_policy
                 )
 
                 # ---- accumulate events + repo side-effects in order ----
@@ -2551,21 +2551,21 @@ class TradeMonitorService:
                     if ev.event_type == "TP_HIT":
                         p = ev.payload or {}
                         io_steps.append(("save_tp_hit", {
-                            "pos": pos,
-                            "tp_level": int(p.get("tp_level", 0)),
-                            "fill_price": float(p.get("fill_price", 0.0)),
-                            "closed_qty": float(p.get("closed_qty", 0.0)),
-                            "pnl_part": float(p.get("pnl_part_gross", 0.0)),
-                            "ts_ms": int(tick.ts_ms),
+                            "pos": pos
+                            "tp_level": int(p.get("tp_level", 0))
+                            "fill_price": float(p.get("fill_price", 0.0))
+                            "closed_qty": float(p.get("closed_qty", 0.0))
+                            "pnl_part": float(p.get("pnl_part_gross", 0.0))
+                            "ts_ms": int(tick.ts_ms)
                         }))
 
                         # TP1_HIT event for external trailing orchestrator (crypto)
                         if int(p.get("tp_level", 0)) == 1 and getattr(pos, "sid", ""):
                             io_steps.append(("append_event", _ev_tp1_hit_external(
-                                pos,
-                                float(p.get("fill_price", 0.0)),
-                                float(p.get("closed_qty", 0.0)),
-                                int(tick.ts_ms),
+                                pos
+                                float(p.get("fill_price", 0.0))
+                                float(p.get("closed_qty", 0.0))
+                                int(tick.ts_ms)
                             )))
 
                             # Local fallback trailing after TP1 (pure in-memory) -> IO as steps
@@ -2583,12 +2583,12 @@ class TradeMonitorService:
                                                 new_sl = float(pos.entry_price + offset)
                                                 if new_sl > float(pos.sl):
                                                     ev_tr = apply_trailing_update(
-                                                        pos,
-                                                        new_sl=new_sl,
-                                                        ts_ms=int(tick.ts_ms),
-                                                        trailing_distance=float(offset),
-                                                        point_size=0.0,
-                                                        clear_future_tp_levels=bool(clear_tp),
+                                                        pos
+                                                        new_sl=new_sl
+                                                        ts_ms=int(tick.ts_ms)
+                                                        trailing_distance=float(offset)
+                                                        point_size=0.0
+                                                        clear_future_tp_levels=bool(clear_tp)
                                                     )
                                                     if ev_tr:
                                                         io_steps.append(("append_event", ev_tr))
@@ -2597,12 +2597,12 @@ class TradeMonitorService:
                                                 new_sl = float(pos.entry_price - offset)
                                                 if new_sl < float(pos.sl):
                                                     ev_tr = apply_trailing_update(
-                                                        pos,
-                                                        new_sl=new_sl,
-                                                        ts_ms=int(tick.ts_ms),
-                                                        trailing_distance=float(offset),
-                                                        point_size=0.0,
-                                                        clear_future_tp_levels=bool(clear_tp),
+                                                        pos
+                                                        new_sl=new_sl
+                                                        ts_ms=int(tick.ts_ms)
+                                                        trailing_distance=float(offset)
+                                                        point_size=0.0
+                                                        clear_future_tp_levels=bool(clear_tp)
                                                     )
                                                     if ev_tr:
                                                         io_steps.append(("append_event", ev_tr))
@@ -2613,10 +2613,10 @@ class TradeMonitorService:
                     elif ev.event_type == "TRAILING_MOVE":
                         pp = ev.payload or {}
                         io_steps.append(("save_trailing_move", {
-                            "pos": pos,
-                            "previous_sl": float(pp.get("previous_sl", 0.0)),
-                            "new_sl": float(pp.get("new_sl", 0.0)),
-                            "ts_ms": int(tick.ts_ms),
+                            "pos": pos
+                            "previous_sl": float(pp.get("previous_sl", 0.0))
+                            "new_sl": float(pp.get("new_sl", 0.0))
+                            "ts_ms": int(tick.ts_ms)
                         }))
 
                     elif ev.event_type == "TRAILING_SYNC":
@@ -2665,12 +2665,12 @@ class TradeMonitorService:
                     elif kind == "save_tp_hit":
                         d = payload
                         self.repo.save_tp_hit(
-                            d["pos"],
-                            tp_level=int(d["tp_level"]),
-                            fill_price=float(d["fill_price"]),
-                            closed_qty=float(d["closed_qty"]),
-                            pnl_part=float(d["pnl_part"]),
-                            ts_ms=int(d["ts_ms"]),
+                            d["pos"]
+                            tp_level=int(d["tp_level"])
+                            fill_price=float(d["fill_price"])
+                            closed_qty=float(d["closed_qty"])
+                            pnl_part=float(d["pnl_part"])
+                            ts_ms=int(d["ts_ms"])
                         )
                     elif kind == "save_trailing_move":
                         d = payload
@@ -2703,13 +2703,13 @@ class TradeMonitorService:
     # External trailing / SL sync
     # --------------------
     def update_trailing_sl(
-        self,
-        signal_id: str,
-        new_sl: float,
-        source: Optional[str] = None,
-        profile: Optional[str] = None,
-        event_id: Optional[str] = None,
-        clear_tp_levels: bool = False,
+        self
+        signal_id: str
+        new_sl: float
+        source: Optional[str] = None
+        profile: Optional[str] = None
+        event_id: Optional[str] = None
+        clear_tp_levels: bool = False
     ) -> bool:
         """
         Обновляет trailing SL для позиции (thread-safe, idempotent).
@@ -2752,19 +2752,19 @@ class TradeMonitorService:
                     return False
 
                 ev = apply_trailing_update(
-                    pos, new_sl=float(new_sl), ts_ms=ts,
-                    trailing_distance=0.0,
-                    point_size=0.0,
-                    clear_future_tp_levels=clear_tp_levels,
+                    pos, new_sl=float(new_sl), ts_ms=ts
+                    trailing_distance=0.0
+                    point_size=0.0
+                    clear_future_tp_levels=clear_tp_levels
                 )
                 if ev:
                     io_tasks.append(_IOTask(
-                        fn=(lambda ev=ev: self.repo.append_event(ev)),
-                        desc=f"append_event:TRAILING_UPDATE:{pos.id}",
+                        fn=(lambda ev=ev: self.repo.append_event(ev))
+                        desc=f"append_event:TRAILING_UPDATE:{pos.id}"
                     ))
                     io_tasks.append(_IOTask(
-                        fn=(lambda pos=pos, ts=ts: self.repo.save_trailing_sync(pos, ts)),
-                        desc=f"save_trailing_sync_update:{pos.id}",
+                        fn=(lambda pos=pos, ts=ts: self.repo.save_trailing_sync(pos, ts))
+                        desc=f"save_trailing_sync_update:{pos.id}"
                     ))
 
             if io_tasks:
@@ -2773,13 +2773,13 @@ class TradeMonitorService:
             return True
 
     def apply_trailing_sl_sync(
-        self,
-        sid: str,
-        new_sl: float,
-        ts_ms: Optional[int] = None,
-        trailing_distance: float = 0.0,
-        point_size: float = 0.0,
-        clear_future_tp_levels: bool = False,
+        self
+        sid: str
+        new_sl: float
+        ts_ms: Optional[int] = None
+        trailing_distance: float = 0.0
+        point_size: float = 0.0
+        clear_future_tp_levels: bool = False
     ) -> bool:
         """
         Применяет обновление trailing SL из внешнего источника (thread-safe).
@@ -2801,30 +2801,30 @@ class TradeMonitorService:
                     return False
 
                 ev = apply_trailing_update(
-                    pos, new_sl=float(new_sl), ts_ms=ts,
-                    trailing_distance=trailing_distance,
-                    point_size=point_size,
-                    clear_future_tp_levels=clear_future_tp_levels,
+                    pos, new_sl=float(new_sl), ts_ms=ts
+                    trailing_distance=trailing_distance
+                    point_size=point_size
+                    clear_future_tp_levels=clear_future_tp_levels
                 )
                 if ev:
                     io_tasks.append(_IOTask(
-                        fn=(lambda ev=ev: self.repo.append_event(ev)),
-                        desc=f"append_event:TRAILING_SYNC:{pos.id}",
+                        fn=(lambda ev=ev: self.repo.append_event(ev))
+                        desc=f"append_event:TRAILING_SYNC:{pos.id}"
                     ))
                     io_tasks.append(_IOTask(
-                        fn=(lambda pos=pos, ts=ts: self.repo.save_trailing_sync(pos, ts)),
-                        desc=f"save_trailing_sync:{pos.id}",
+                        fn=(lambda pos=pos, ts=ts: self.repo.save_trailing_sync(pos, ts))
+                        desc=f"save_trailing_sync:{pos.id}"
                     ))
             if io_tasks:
                 self._run_io_tasks(io_tasks)
             return True
 
     def apply_external_trailing_move(
-        self,
-        sid: str,
-        new_sl: float,
-        ts_ms: Optional[int] = None,
-        event_id: Optional[str] = None,
+        self
+        sid: str
+        new_sl: float
+        ts_ms: Optional[int] = None
+        event_id: Optional[str] = None
     ) -> bool:
         """
         Обрабатывает внешнее событие TRAILING_MOVE (идемпотентно).
@@ -2850,30 +2850,30 @@ class TradeMonitorService:
                     return False
 
                 ev = apply_trailing_update(
-                    pos, new_sl=float(new_sl), ts_ms=ts,
-                    trailing_distance=0.0,
-                    point_size=0.0,
-                    clear_future_tp_levels=False,
+                    pos, new_sl=float(new_sl), ts_ms=ts
+                    trailing_distance=0.0
+                    point_size=0.0
+                    clear_future_tp_levels=False
                 )
                 if ev:
                     io_tasks.append(_IOTask(
-                        fn=(lambda ev=ev: self.repo.append_event(ev)),
-                        desc=f"append_event:TRAILING_MOVE_EXT:{pos.id}",
+                        fn=(lambda ev=ev: self.repo.append_event(ev))
+                        desc=f"append_event:TRAILING_MOVE_EXT:{pos.id}"
                     ))
                     io_tasks.append(_IOTask(
-                        fn=(lambda pos=pos, ts=ts: self.repo.save_trailing_sync(pos, ts)),
-                        desc=f"save_trailing_sync_ext:{pos.id}",
+                        fn=(lambda pos=pos, ts=ts: self.repo.save_trailing_sync(pos, ts))
+                        desc=f"save_trailing_sync_ext:{pos.id}"
                     ))
             if io_tasks:
                 self._run_io_tasks(io_tasks)
             return True
 
     def apply_external_sl_hit(
-        self,
-        signal_id: str,
-        price: float,
-        timestamp: Optional[int] = None,
-        source: Optional[str] = None,
+        self
+        signal_id: str
+        price: float
+        timestamp: Optional[int] = None
+        source: Optional[str] = None
         event_id: Optional[str] = None
     ) -> bool:
         """
@@ -2888,7 +2888,7 @@ class TradeMonitorService:
             event_id: ID события для идемпотентности (опционально)
 
         Returns:
-            True если позиция закрыта или уже была закрыта (идемпотентно),
+            True если позиция закрыта или уже была закрыта (идемпотентно)
             False если позиция не найдена в системе
         """
         # ✅ Idempotency: атомарная проверка+установка dedup ключа
@@ -2956,10 +2956,10 @@ class TradeMonitorService:
 
             spec = self._get_spec(pos.symbol)
             closed = finalize_trade(
-                pos, spec,
-                exit_price=float(price),
-                exit_ts_ms=int(ts),
-                close_reason_raw=str(raw),
+                pos, spec
+                exit_price=float(price)
+                exit_ts_ms=int(ts)
+                close_reason_raw=str(raw)
                 tp_ratios=self.tp_ratios
             )
 
@@ -2975,38 +2975,38 @@ class TradeMonitorService:
             # Build events (in-memory)
             from domain.models import TradeEvent
             sl_event = TradeEvent(
-                event_type="SL_HIT",
-                order_id=pos.id,
-                sid=pos.sid,
-                strategy=pos.strategy,
-                source=pos.source,
-                symbol=pos.symbol,
-                tf=pos.tf,
-                direction=pos.direction,
-                ts_ms=int(ts),
+                event_type="SL_HIT"
+                order_id=pos.id
+                sid=pos.sid
+                strategy=pos.strategy
+                source=pos.source
+                symbol=pos.symbol
+                tf=pos.tf
+                direction=pos.direction
+                ts_ms=int(ts)
                 payload={
-                    "sl": float(getattr(pos, "sl", 0.0) or 0.0),
-                    "exit_price": float(price),
-                    "remaining_qty_closed": float(close_qty),
-                    "reason_raw": str(raw),
-                    "external_event_id": event_id,
-                },
+                    "sl": float(getattr(pos, "sl", 0.0) or 0.0)
+                    "exit_price": float(price)
+                    "remaining_qty_closed": float(close_qty)
+                    "reason_raw": str(raw)
+                    "external_event_id": event_id
+                }
             )
             close_event = TradeEvent(
-                event_type="CLOSE",
-                order_id=pos.id,
-                sid=pos.sid,
-                strategy=pos.strategy,
-                source=pos.source,
-                symbol=pos.symbol,
-                tf=pos.tf,
-                direction=pos.direction,
-                ts_ms=int(ts),
+                event_type="CLOSE"
+                order_id=pos.id
+                sid=pos.sid
+                strategy=pos.strategy
+                source=pos.source
+                symbol=pos.symbol
+                tf=pos.tf
+                direction=pos.direction
+                ts_ms=int(ts)
                 payload={
-                    "reason": getattr(closed, "close_reason", ""),
-                    "reason_raw": getattr(closed, "close_reason_raw", str(raw)),
-                    "external_event_id": event_id,
-                },
+                    "reason": getattr(closed, "close_reason", "")
+                    "reason_raw": getattr(closed, "close_reason_raw", str(raw))
+                    "external_event_id": event_id
+                }
             )
 
             # Prepare health snapshot (service-side, not in repo)
@@ -3048,10 +3048,10 @@ class TradeMonitorService:
         if report_trigger:
             # Async trigger (PeriodicReporter uses SYNC redis, must be offloaded)
             self._db_executor.submit(
-                self._safe_trigger_report,
-                report_trigger[0],
-                report_trigger[1],
-                "trades",
+                self._safe_trigger_report
+                report_trigger[0]
+                report_trigger[1]
+                "trades"
                 report_trigger[2]
             )
             # try:
@@ -3124,21 +3124,21 @@ class TradeMonitorService:
         tp_level_i = 1 if tp_level_i < 1 else (3 if tp_level_i > 3 else tp_level_i)
 
         return self._apply_external_tp_hit_impl(
-            signal_id=str(signal_id),
-            tp_level=tp_level_i,
-            price=float(price),
-            ts_ms=int(ts),
-            event_id=str(event_id or ""),
+            signal_id=str(signal_id)
+            tp_level=tp_level_i
+            price=float(price)
+            ts_ms=int(ts)
+            event_id=str(event_id or "")
         )
 
     def _apply_external_tp_hit_impl(
-        self,
-        *,
-        signal_id: str,
-        tp_level: int,
-        price: float,
-        ts_ms: int,
-        event_id: str,
+        self
+        *
+        signal_id: str
+        tp_level: int
+        price: float
+        ts_ms: int
+        event_id: str
     ) -> bool:
         """
         External TP fill event (authoritative).
@@ -3203,51 +3203,51 @@ class TradeMonitorService:
                 pass
 
             closed = finalize_trade(
-                pos, spec,
-                exit_price=float(price),
-                exit_ts_ms=int(ts_ms),
-                close_reason_raw=f"TP{int(tp_level)}",
-                tp_ratios=self.tp_ratios,
+                pos, spec
+                exit_price=float(price)
+                exit_ts_ms=int(ts_ms)
+                close_reason_raw=f"TP{int(tp_level)}"
+                tp_ratios=self.tp_ratios
             )
             self._log_ab_closed_event(pos, closed, f"TP{int(tp_level)}")
 
             from domain.models import TradeEvent
             tp_event = TradeEvent(
-                event_type="TP_HIT",
-                order_id=pos.id,
-                sid=pos.sid,
-                strategy=pos.strategy,
-                source=pos.source,
-                symbol=pos.symbol,
-                tf=pos.tf,
-                direction=pos.direction,
-                ts_ms=int(ts_ms),
+                event_type="TP_HIT"
+                order_id=pos.id
+                sid=pos.sid
+                strategy=pos.strategy
+                source=pos.source
+                symbol=pos.symbol
+                tf=pos.tf
+                direction=pos.direction
+                ts_ms=int(ts_ms)
                 payload={
-                    "tp_level": int(tp_level),
-                    "tp_price": float(price),
-                    "fill_price": float(price),
-                    "closed_qty": float(close_qty),
-                    "remaining_qty": 0.0,
-                    "pnl_part_gross": float(pnl_part),
-                    "tp_hits": int(getattr(pos, "tp_hits", int(tp_level))),
-                    "external_event_id": event_id,
-                },
+                    "tp_level": int(tp_level)
+                    "tp_price": float(price)
+                    "fill_price": float(price)
+                    "closed_qty": float(close_qty)
+                    "remaining_qty": 0.0
+                    "pnl_part_gross": float(pnl_part)
+                    "tp_hits": int(getattr(pos, "tp_hits", int(tp_level)))
+                    "external_event_id": event_id
+                }
             )
             close_event = TradeEvent(
-                event_type="CLOSE",
-                order_id=pos.id,
-                sid=pos.sid,
-                strategy=pos.strategy,
-                source=pos.source,
-                symbol=pos.symbol,
-                tf=pos.tf,
-                direction=pos.direction,
-                ts_ms=int(ts_ms),
+                event_type="CLOSE"
+                order_id=pos.id
+                sid=pos.sid
+                strategy=pos.strategy
+                source=pos.source
+                symbol=pos.symbol
+                tf=pos.tf
+                direction=pos.direction
+                ts_ms=int(ts_ms)
                 payload={
-                    "reason": getattr(closed, "close_reason", ""),
-                    "reason_raw": getattr(closed, "close_reason_raw", f"TP{int(tp_level)}"),
-                    "external_event_id": event_id,
-                },
+                    "reason": getattr(closed, "close_reason", "")
+                    "reason_raw": getattr(closed, "close_reason_raw", f"TP{int(tp_level)}")
+                    "external_event_id": event_id
+                }
             )
 
             if self._attach_health_on_close:
@@ -3286,10 +3286,10 @@ class TradeMonitorService:
         if report_trigger:
             # Async trigger
             self._db_executor.submit(
-                self._safe_trigger_report,
-                report_trigger[0],
-                report_trigger[1],
-                "trades",
+                self._safe_trigger_report
+                report_trigger[0]
+                report_trigger[1]
+                "trades"
                 report_trigger[2]
             )
             # try:
@@ -3442,12 +3442,12 @@ class TradeMonitorService:
                     
                     # [CHANGED] Сабмитим через наш безопасный метод
                     persist_task = self.regime_guard.on_signal_closed(
-                        signal_id=getattr(pos, 'sid', '') or getattr(closed, 'sid', ''),
-                        family=family,
-                        venue=venue,
-                        symbol=getattr(pos, 'symbol', 'unknown') or getattr(closed, 'symbol', 'unknown'),
-                        timeframe=getattr(pos, 'timeframe', 'unknown') or getattr(closed, 'timeframe', 'unknown'),
-                        r_value=self._calculate_r_value(pos, closed),
+                        signal_id=getattr(pos, 'sid', '') or getattr(closed, 'sid', '')
+                        family=family
+                        venue=venue
+                        symbol=getattr(pos, 'symbol', 'unknown') or getattr(closed, 'symbol', 'unknown')
+                        timeframe=getattr(pos, 'timeframe', 'unknown') or getattr(closed, 'timeframe', 'unknown')
+                        r_value=self._calculate_r_value(pos, closed)
                         closed_at=self._resolve_closed_at(closed)
                     )
 
@@ -3519,11 +3519,11 @@ class TradeMonitorService:
                         if spec:
                             side = str(getattr(pos, "direction", "") or "").upper()
                             risk_usd = float(spec.risk_money(
-                                float(pos.entry_price or 0.0),
-                                float(pos.sl or 0.0),
-                                float(pos.lot or 0.0),
-                                side,
-                                str(pos.symbol or ""),
+                                float(pos.entry_price or 0.0)
+                                float(pos.sl or 0.0)
+                                float(pos.lot or 0.0)
+                                side
+                                str(pos.symbol or "")
                             ) or 0.0)
                     except Exception:
                         pass
@@ -3548,10 +3548,10 @@ class TradeMonitorService:
                     pass
 
                 extra = {
-                    "risk_usd": float(risk_usd),
-                    "ab_arm": str(ab_arm or ""),
-                    "ab_group": str(ab_group or ""),
-                    "regime": str(rg or "na"),
+                    "risk_usd": float(risk_usd)
+                    "ab_arm": str(ab_arm or "")
+                    "ab_group": str(ab_group or "")
+                    "regime": str(rg or "na")
                 }
 
                 # === AB attribution + entry context (flattened into event payload) ===
@@ -3565,37 +3565,37 @@ class TradeMonitorService:
                     r_usd = float(risk_usd or getattr(pos, "risk_usd", 0.0) or 0.0)
                     
                     extra.update({
-                        "ab_arm": str(ab.get("arm", getattr(pos, "ab_arm", "A"))).upper(),
-                        "ab_group": str(ab.get("group", getattr(pos, "ab_group", "default"))).lower(),
-                        "ab_key": str(ab.get("key", getattr(pos, "ab_key", ""))),
-                        "arm_ver": int(ab.get("arm_ver", getattr(pos, "arm_ver", 0))),
-                        "ab_split_reason": str(ab.get("split_reason","")),
+                        "ab_arm": str(ab.get("arm", getattr(pos, "ab_arm", "A"))).upper()
+                        "ab_group": str(ab.get("group", getattr(pos, "ab_group", "default"))).lower()
+                        "ab_key": str(ab.get("key", getattr(pos, "ab_key", "")))
+                        "arm_ver": int(ab.get("arm_ver", getattr(pos, "arm_ver", 0)))
+                        "ab_split_reason": str(ab.get("split_reason",""))
                         "scenario": str(dec).lower(),  # continuation|reversal
-                        "regime": str(ctx.get("regime", getattr(pos, "regime", "na"))).lower(),
-                        "entry_adx_q": float(ctx.get("adx_q", 0.5) or 0.5),
-                        "entry_spread_z": float(ctx.get("spread_z", 0.0) or 0.0),
-                        "entry_pressure_sps": float(ctx.get("pressure_sps", 0.0) or 0.0),
-                        "entry_cooldown_sps": float(ctx.get("cooldown_sps", 0.0) or 0.0),
-                        "entry_obi_age_ms": int(ctx.get("obi_age_ms", 0) or 0),
-                        "entry_abs_th_unstable": int(ctx.get("abs_th_unstable", 0) or 0),
-                        "entry_news_blocked": int(ctx.get("news_blocked", 0) or 0),
-                        "risk_usd": r_usd,
+                        "regime": str(ctx.get("regime", getattr(pos, "regime", "na"))).lower()
+                        "entry_adx_q": float(ctx.get("adx_q", 0.5) or 0.5)
+                        "entry_spread_z": float(ctx.get("spread_z", 0.0) or 0.0)
+                        "entry_pressure_sps": float(ctx.get("pressure_sps", 0.0) or 0.0)
+                        "entry_cooldown_sps": float(ctx.get("cooldown_sps", 0.0) or 0.0)
+                        "entry_obi_age_ms": int(ctx.get("obi_age_ms", 0) or 0)
+                        "entry_abs_th_unstable": int(ctx.get("abs_th_unstable", 0) or 0)
+                        "entry_news_blocked": int(ctx.get("news_blocked", 0) or 0)
+                        "risk_usd": r_usd
                         # CRITICAL: Pass full signal_payload for PeriodicReporter metrics (of_confirm, ml, etc.)
-                        "signal_payload": sp,
+                        "signal_payload": sp
                     })
 
                     # --- NEW: Precise Policy Fields (Autopilot) ---
                     pol = sp.get("policy") or {}
                     if isinstance(pol, dict):
                         extra.update({
-                            "abs_lvl_tier": int(pol.get("abs_lvl_tier", -1)),
-                            "dn_tier": int(pol.get("dn_tier", -1)),
-                            "book_health_ok": int(pol.get("book_health_ok", -1)),
-                            "of_confirm_ok": int(pol.get("of_confirm_ok", 0)),
-                            "of_confirm_score": float(pol.get("of_confirm_score", 0.0)),
-                            "spread_bp": float(pol.get("spread_bp", 0.0)),
-                            "book_age_ms": int(pol.get("book_age_ms", 0)),
-                            "book_rate_hz": float(pol.get("book_rate_hz", 0.0)),
+                            "abs_lvl_tier": int(pol.get("abs_lvl_tier", -1))
+                            "dn_tier": int(pol.get("dn_tier", -1))
+                            "book_health_ok": int(pol.get("book_health_ok", -1))
+                            "of_confirm_ok": int(pol.get("of_confirm_ok", 0))
+                            "of_confirm_score": float(pol.get("of_confirm_score", 0.0))
+                            "spread_bp": float(pol.get("spread_bp", 0.0))
+                            "book_age_ms": int(pol.get("book_age_ms", 0))
+                            "book_rate_hz": float(pol.get("book_rate_hz", 0.0))
                         })
 
                     if r_usd > 1e-9:
@@ -3780,78 +3780,78 @@ class TradeMonitorService:
                 fee_bps = 0.0
 
             self.events_logger.log_position_closed(
-                sid=str(getattr(pos, "sid", "")),
-                symbol=str(getattr(pos, "symbol", "")),
+                sid=str(getattr(pos, "sid", ""))
+                symbol=str(getattr(pos, "symbol", ""))
                 # A3 time contract: use exchange close timestamp as primary
-                ts_ms=int(exit_ts_ms or 0),
-                exit_ts_ms=int(exit_ts_ms or 0),
+                ts_ms=int(exit_ts_ms or 0)
+                exit_ts_ms=int(exit_ts_ms or 0)
                 # A3 join-critical exec fields
-                order_id=order_id,
-                side=str(getattr(pos, "direction", "") or "").upper(),
-                venue=str(getattr(pos, "source", "") or ""),
-                qty=float(getattr(pos, "lot", 0.0) or 0.0),
-                fee_bps=float(fee_bps),
-                close_price=float(getattr(closed, "exit_price", 0.0) or 0.0),
-                pnl=float(getattr(closed, "total_pnl", 0.0) or 0.0),
-                position_id=str(getattr(pos, "pos_id", "") or getattr(pos, "id", "")),
-                lot=float(getattr(pos, "lot", 0.0) or 0.0),
-                source=str(getattr(pos, "source", "mt5")),
-                close_reason=str(close_reason),
-                metadata=md,
+                order_id=order_id
+                side=str(getattr(pos, "direction", "") or "").upper()
+                venue=str(getattr(pos, "source", "") or "")
+                qty=float(getattr(pos, "lot", 0.0) or 0.0)
+                fee_bps=float(fee_bps)
+                close_price=float(getattr(closed, "exit_price", 0.0) or 0.0)
+                pnl=float(getattr(closed, "total_pnl", 0.0) or 0.0)
+                position_id=str(getattr(pos, "pos_id", "") or getattr(pos, "id", ""))
+                lot=float(getattr(pos, "lot", 0.0) or 0.0)
+                source=str(getattr(pos, "source", "mt5"))
+                close_reason=str(close_reason)
+                metadata=md
                 payload={
-                    "ab_arm": ab_arm,
-                    "ab_group": ab_group,
-                    "ab_key": ab_key,
-                    "arm_ver": int(arm_ver),
-                    "regime": regime,
+                    "ab_arm": ab_arm
+                    "ab_group": ab_group
+                    "ab_key": ab_key
+                    "arm_ver": int(arm_ver)
+                    "regime": regime
                     "regime_group": regime_group,  # For stratified DiD analysis
-                    "scenario": scenario,
+                    "scenario": scenario
                     "scenario_v4": scenario_v4,  # For additional stratification
-                    "risk_usd": float(risk_usd),
-                    "r_mult": float(r_mult),
-                    "exit_ts_ms": int(exit_ts_ms or 0),
+                    "risk_usd": float(risk_usd)
+                    "r_mult": float(r_mult)
+                    "exit_ts_ms": int(exit_ts_ms or 0)
                     # A3: duplicate in payload for legacy consumers that read from here
-                    "ts_fill_ms": int(exit_ts_ms or 0),
-                    "order_id": str(order_id),
-                    "qty": float(getattr(pos, "lot", 0.0) or 0.0),
-                    "side": str(getattr(pos, "direction", "") or "").upper(),
-                    "venue": str(getattr(pos, "source", "") or ""),
-                    "fee_bps": float(fee_bps),
-                    "abs_lvl_tier": int(abs_lvl_tier),
-                    "dn_tier": int(dn_tier),
-                    "book_health_ok": int(book_health_ok),
-                    "book_age_ms": int(book_age_ms),
-                    "spread_bp": float(spread_bp),
+                    "ts_fill_ms": int(exit_ts_ms or 0)
+                    "order_id": str(order_id)
+                    "qty": float(getattr(pos, "lot", 0.0) or 0.0)
+                    "side": str(getattr(pos, "direction", "") or "").upper()
+                    "venue": str(getattr(pos, "source", "") or "")
+                    "fee_bps": float(fee_bps)
+                    "abs_lvl_tier": int(abs_lvl_tier)
+                    "dn_tier": int(dn_tier)
+                    "book_health_ok": int(book_health_ok)
+                    "book_age_ms": int(book_age_ms)
+                    "spread_bp": float(spread_bp)
                     # Cost-aware evaluator inputs (entry-time)
                     # cost snapshot at entry (fallback to p0_features_snapshot if direct fields are empty)
                     "p0_spread_bps_at_entry": float(
                         (getattr(pos, "p0_spread_bps_at_entry", 0.0) or 0.0)
                         or ((getattr(pos, "p0_features_snapshot", None) or {}).get("spread_bps") or 0.0)
                         or ((getattr(pos, "p0_features_snapshot", None) or {}).get("p0_spread_bps_at_entry") or 0.0)
-                    ),
+                    )
                     "p0_slippage_bps_est": float(
                         (getattr(pos, "p0_slippage_bps_est", 0.0) or 0.0)
                         or ((getattr(pos, "p0_features_snapshot", None) or {}).get("expected_slippage_bps") or 0.0)
                         or ((getattr(pos, "p0_features_snapshot", None) or {}).get("p0_slippage_bps_est") or 0.0)
-                    ),
-                    "p0_book_age_ms": int(getattr(pos, "p0_book_age_ms", 0) or 0),
+                    )
+                    "p0_book_age_ms": int(getattr(pos, "p0_book_age_ms", 0) or 0)
                     # Fees (avoid double-counting in evaluator by config)
-                    "fees_usd": float(getattr(closed, "fees", 0.0) or getattr(pos, "fees", 0.0) or 0.0),
+                    "fees_usd": float(getattr(closed, "fees", 0.0) or getattr(pos, "fees", 0.0) or 0.0)
                     # Turnover (needed to convert slippage bps -> USD)
-                    "turnover_roundtrip": float(getattr(closed, "turnover_roundtrip", 0.0) or 0.0),
-                    "of_confirm_ok": int(of_confirm_ok),
-                    "of_confirm_score": float(of_confirm_score),
-                    "atr_bps_exec": float(atr_bps_exec),
-                    "atr_unified_th_bps": float(atr_unified_th_bps),
-                    "atr_floor_th_bps": float(atr_floor_th_bps),
-                    "atr_fees_th_bps": float(atr_fees_th_bps),
-                    "meta_enforce_applied": int(meta_enforce_applied) if meta_enforce_applied is not None else None,
+                    "turnover_roundtrip": float(getattr(closed, "turnover_roundtrip", 0.0) or 0.0)
+                    "of_confirm_ok": int(of_confirm_ok)
+                    "of_confirm_score": float(of_confirm_score)
+                    "atr_bps_exec": float(atr_bps_exec)
+                    "atr_unified_th_bps": float(atr_unified_th_bps)
+                    "atr_floor_th_bps": float(atr_floor_th_bps)
+                    "atr_fees_th_bps": float(atr_fees_th_bps)
+                    "meta_enforce_applied": int(meta_enforce_applied) if meta_enforce_applied is not None else None
                     # CRITICAL for Stage2 optimization: meta_veto must be written ALWAYS (even when meta_enforce_applied=0)
-                    "meta_veto": int(meta_veto),
-                    "meta_enforce_key": str(meta_enforce_key),
-                    "meta_enforce_salt": str(meta_enforce_salt),
-                },
-                extra_payload=extra,
+                    "meta_veto": int(meta_veto)
+                    "meta_enforce_key": str(meta_enforce_key)
+                    "meta_enforce_salt": str(meta_enforce_salt)
+                }
+                extra_payload=extra
             )
         except Exception:
             pass

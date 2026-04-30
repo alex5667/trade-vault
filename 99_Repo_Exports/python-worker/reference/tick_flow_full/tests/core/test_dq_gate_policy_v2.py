@@ -5,31 +5,31 @@ from tick_flow_full.core.dq_gate_v1 import eval_dq_gate
 
 def _base_cfg(dq_mode: str) -> dict:
     return {
-        "dq_gate_enable": 1,
-        "dq_gate_mode": "penalty",
-        "dq_mode": dq_mode,
-        "dq_pen_max": 0.10,
-        "dq_tick_gap_min_samples": 50,
-        "dq_tick_gap_requires_seq": 1,
-        "dq_data_health_min": 0.85,
-        "dq_data_health_hard_min": 0.70,
-        "dq_tick_age_ms_max": 5000,
-        "dq_skew_ema_ms_max": 1000,
+        "dq_gate_enable": 1
+        "dq_gate_mode": "penalty"
+        "dq_mode": dq_mode
+        "dq_pen_max": 0.10
+        "dq_tick_gap_min_samples": 50
+        "dq_tick_gap_requires_seq": 1
+        "dq_data_health_min": 0.85
+        "dq_data_health_hard_min": 0.70
+        "dq_tick_age_ms_max": 5000
+        "dq_skew_ema_ms_max": 1000
     }
 
 
 def _base_ind() -> dict:
     return {
-        "data_health": 1.0,
-        "book_health_ok": 1.0,
-        "tick_time_age_ms": 0.0,
-        "tick_ts_source_now_ema": 0.0,
-        "tick_ts_source_stream_id_ema": 0.0,
-        "tick_unknown_side_ema": 0.0,
-        "tick_gap_p95_ms": 0.0,
-        "tick_gap_n": 0,
-        "tick_missing_seq_ema": 0.0,
-        "book_missing_seq_ema": 0.0,
+        "data_health": 1.0
+        "book_health_ok": 1.0
+        "tick_time_age_ms": 0.0
+        "tick_ts_source_now_ema": 0.0
+        "tick_ts_source_stream_id_ema": 0.0
+        "tick_unknown_side_ema": 0.0
+        "tick_gap_p95_ms": 0.0
+        "tick_gap_n": 0
+        "tick_missing_seq_ema": 0.0
+        "book_missing_seq_ema": 0.0
     }
 
 

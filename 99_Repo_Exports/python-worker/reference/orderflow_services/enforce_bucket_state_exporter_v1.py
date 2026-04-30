@@ -210,62 +210,62 @@ of_enforce_state_exporter_up = Gauge("of_enforce_state_exporter_up", "exporter l
 # of_enforce_state_exporter_poll_ts_ms is updated every loop iteration (even on error)
 # so a Prometheus staleness check detects if the whole exporter is frozen/dead.
 of_enforce_state_exporter_poll_ts_ms = Gauge(
-    "of_enforce_state_exporter_poll_ts_ms",
-    "timestamp (ms) of last exporter loop tick",
+    "of_enforce_state_exporter_poll_ts_ms"
+    "timestamp (ms) of last exporter loop tick"
 )
 of_enforce_state_exporter_errors_total = Gauge(
-    "of_enforce_state_exporter_errors_total",
-    "cumulative exporter loop errors (monotonic-ish)",
+    "of_enforce_state_exporter_errors_total"
+    "cumulative exporter loop errors (monotonic-ish)"
 )
 
 of_enforce_bucket_flag = Gauge(
-    "of_enforce_bucket_flag",
-    "enforce bucket allowlist flag (1/0)",
-    ["component", "sym", "bucket"],
+    "of_enforce_bucket_flag"
+    "enforce bucket allowlist flag (1/0)"
+    ["component", "sym", "bucket"]
 )
 
 of_slippage_decomp_impact_coeff_bps = Gauge(
-    "of_slippage_decomp_impact_coeff_bps",
-    "slippage decomp impact coefficient (bps per impact_proxy unit)",
-    ["sym", "bucket"],
+    "of_slippage_decomp_impact_coeff_bps"
+    "slippage decomp impact coefficient (bps per impact_proxy unit)"
+    ["sym", "bucket"]
 )
 
 # V8: age of each coeff computed from companion timestamp key written by calibrator.
 # Key pattern: cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{bucket}
 of_slippage_decomp_impact_coeff_age_sec = Gauge(
-    "of_slippage_decomp_impact_coeff_age_sec",
-    "age of slippage decomp impact coefficient in seconds (from ts key)",
-    ["sym", "bucket"],
+    "of_slippage_decomp_impact_coeff_age_sec"
+    "age of slippage decomp impact coefficient in seconds (from ts key)"
+    ["sym", "bucket"]
 )
 
 # V8: last successful nightly slippage calibrator run age (from state:slippage_calib:last_ok_ts_ms)
 of_slippage_calib_last_ok_age_sec = Gauge(
-    "of_slippage_calib_last_ok_age_sec",
+    "of_slippage_calib_last_ok_age_sec"
     "age of last successful nightly slippage calibrator run in seconds"
 )
 
 # V8: number of (sym,bucket) groups updated in last calibrator run
 of_slippage_calib_last_updated_groups = Gauge(
-    "of_slippage_calib_last_updated_groups",
+    "of_slippage_calib_last_updated_groups"
     "number of (sym,bucket) groups updated in last slippage calibrator run"
 )
 
 # V10: total (sym,bucket) groups discovered in last calibrator run
 of_slippage_calib_last_groups_total = Gauge(
-    "of_slippage_calib_last_groups_total",
-    "number of (sym,bucket) groups discovered in last slippage calibrator run",
+    "of_slippage_calib_last_groups_total"
+    "number of (sym,bucket) groups discovered in last slippage calibrator run"
 )
 
 # V10: exec slippage eval rowcount probe (P77) — written by exec_slippage_eval_rowcount_probe_p77_v1
 of_exec_slippage_eval_rows_24h = Gauge(
-    "of_exec_slippage_eval_rows_24h",
-    "rowcount of v_exec_slippage_eval in last 24 hours by exec_regime_bucket",
-    ["bucket"],
+    "of_exec_slippage_eval_rows_24h"
+    "rowcount of v_exec_slippage_eval in last 24 hours by exec_regime_bucket"
+    ["bucket"]
 )
 
 of_exec_slippage_eval_rows_24h_age_sec = Gauge(
-    "of_exec_slippage_eval_rows_24h_age_sec",
-    "age seconds since exec slippage eval rowcount probe last updated",
+    "of_exec_slippage_eval_rows_24h_age_sec"
+    "age seconds since exec slippage eval rowcount probe last updated"
 )
 
 of_enforce_promoter_report_age_sec = Gauge(
@@ -280,9 +280,9 @@ of_enforce_promoter_last_ok = Gauge(
 )
 
 of_enforce_promoter_last_added_bucket = Gauge(
-    "of_enforce_promoter_last_added_bucket",
-    "last added bucket marker (1/0)",
-    ["component", "bucket"],
+    "of_enforce_promoter_last_added_bucket"
+    "last added bucket marker (1/0)"
+    ["component", "bucket"]
 )
 
 of_enforce_promoter_bucket_resid_p95_bps = Gauge(
@@ -304,9 +304,9 @@ of_enforce_promoter_bucket_ok_soft_rate = Gauge(
 # P89: per-bucket DB edge_minus_expected_bps < 0 share (reads from promoter bucket_health status)
 # Used by OF_EnforcedBucketEdgeNegShareHigh_Warn / Crit alerts
 of_enforce_promoter_bucket_edge_neg_share = Gauge(
-    "of_enforce_promoter_bucket_edge_neg_share",
-    "DB edge_minus_expected_bps < 0 share for bucket (lookback window)",
-    ["bucket"],
+    "of_enforce_promoter_bucket_edge_neg_share"
+    "DB edge_minus_expected_bps < 0 share for bucket (lookback window)"
+    ["bucket"]
 )
 
 of_enforce_promoter_last_apply_ts_ms = Gauge(
@@ -333,170 +333,170 @@ of_enforce_promoter_rollback_active = Gauge(
 
 # Stats refresher
 of_exec_slip_stats_refresh_last_ok_ts_ms = Gauge(
-    "of_exec_slip_stats_refresh_last_ok_ts_ms",
-    "exec slip stats MV refresher last ok ts ms",
+    "of_exec_slip_stats_refresh_last_ok_ts_ms"
+    "exec slip stats MV refresher last ok ts ms"
 )
 
 of_exec_slip_stats_refresh_last_ok_age_sec = Gauge(
-    "of_exec_slip_stats_refresh_last_ok_age_sec",
-    "age seconds since exec slip stats refresher last ok",
+    "of_exec_slip_stats_refresh_last_ok_age_sec"
+    "age seconds since exec slip stats refresher last ok"
 )
 
 of_exec_slip_stats_refresh_last_dur_ms = Gauge(
-    "of_exec_slip_stats_refresh_last_dur_ms",
-    "duration ms of last exec slip stats refresh",
+    "of_exec_slip_stats_refresh_last_dur_ms"
+    "duration ms of last exec slip stats refresh"
 )
 
 of_exec_slip_stats_refresh_last_ok = Gauge(
-    "of_exec_slip_stats_refresh_last_ok",
-    "1 if last refresh ok",
+    "of_exec_slip_stats_refresh_last_ok"
+    "1 if last refresh ok"
 )
 
 
 # Prometheus rules bundle validation state (nightly smoke-check)
 of_prom_rules_bundle_last_ok = Gauge(
-    "of_prom_rules_bundle_last_ok",
-    "1 if last rules bundle validation succeeded (state:prom_rules_bundle:last_ok)",
+    "of_prom_rules_bundle_last_ok"
+    "1 if last rules bundle validation succeeded (state:prom_rules_bundle:last_ok)"
 )
 
 of_prom_rules_bundle_last_ok_age_sec = Gauge(
-    "of_prom_rules_bundle_last_ok_age_sec",
-    "age seconds since last successful rules bundle validation (state:prom_rules_bundle:last_ok_ts_ms)",
+    "of_prom_rules_bundle_last_ok_age_sec"
+    "age seconds since last successful rules bundle validation (state:prom_rules_bundle:last_ok_ts_ms)"
 )
 
 of_prom_rules_bundle_last_files_checked = Gauge(
-    "of_prom_rules_bundle_last_files_checked",
-    "number of rules files discovered in last validation run (state:prom_rules_bundle:last_files_checked)",
+    "of_prom_rules_bundle_last_files_checked"
+    "number of rules files discovered in last validation run (state:prom_rules_bundle:last_files_checked)"
 )
 
 of_prom_rules_bundle_last_error_n = Gauge(
-    "of_prom_rules_bundle_last_error_n",
-    "number of validation errors in last run (state:prom_rules_bundle:last_error_n)",
+    "of_prom_rules_bundle_last_error_n"
+    "number of validation errors in last run (state:prom_rules_bundle:last_error_n)"
 )
 
 # Prometheus rules loaded probe (runtime include-list correctness)
 # Written by prom_rules_loaded_probe_v1.py (hourly at :10 via of_timers_worker)
 rules_loaded_probe_last_ok = Gauge(
-    "rules_loaded_probe_last_ok",
-    "1 if last runtime rules-loaded probe succeeded (state:prom_rules_loaded:last_ok)",
+    "rules_loaded_probe_last_ok"
+    "1 if last runtime rules-loaded probe succeeded (state:prom_rules_loaded:last_ok)"
 )
 
 rules_loaded_probe_last_ok_age_sec = Gauge(
-    "rules_loaded_probe_last_ok_age_sec",
-    "age seconds since last successful rules-loaded probe (state:prom_rules_loaded:last_ok_ts_ms)",
+    "rules_loaded_probe_last_ok_age_sec"
+    "age seconds since last successful rules-loaded probe (state:prom_rules_loaded:last_ok_ts_ms)"
 )
 
 rules_loaded_probe_last_run_age_sec = Gauge(
-    "rules_loaded_probe_last_run_age_sec",
-    "age seconds since last probe run (state:prom_rules_loaded:last_run_ts_ms)",
+    "rules_loaded_probe_last_run_age_sec"
+    "age seconds since last probe run (state:prom_rules_loaded:last_run_ts_ms)"
 )
 
 rules_files_expected = Gauge(
-    "rules_files_expected",
-    "expected rules file count from manifest (state:prom_rules_loaded:files_expected)",
+    "rules_files_expected"
+    "expected rules file count from manifest (state:prom_rules_loaded:files_expected)"
 )
 
 rules_files_loaded = Gauge(
-    "rules_files_loaded",
-    "number of expected rule files observed as loaded in Prometheus (state:prom_rules_loaded:files_loaded)",
+    "rules_files_loaded"
+    "number of expected rule files observed as loaded in Prometheus (state:prom_rules_loaded:files_loaded)"
 )
 
 rules_files_missing = Gauge(
-    "rules_files_missing",
-    "expected - loaded (state:prom_rules_loaded:missing_n)",
+    "rules_files_missing"
+    "expected - loaded (state:prom_rules_loaded:missing_n)"
 )
 
 
 
 # Slippage calibrator staleness metrics
 of_slippage_calibrator_last_ok_ts_ms = Gauge(
-    "of_slippage_calibrator_last_ok_ts_ms",
-    "slippage calibrator last ok timestamp (ms)",
+    "of_slippage_calibrator_last_ok_ts_ms"
+    "slippage calibrator last ok timestamp (ms)"
 )
 
 of_slippage_calibrator_last_ok_age_sec = Gauge(
-    "of_slippage_calibrator_last_ok_age_sec",
-    "age seconds since last slippage calibrator ok",
+    "of_slippage_calibrator_last_ok_age_sec"
+    "age seconds since last slippage calibrator ok"
 )
 
 of_slippage_calibrator_last_dur_ms = Gauge(
-    "of_slippage_calibrator_last_dur_ms",
-    "slippage calibrator last duration (ms)",
+    "of_slippage_calibrator_last_dur_ms"
+    "slippage calibrator last duration (ms)"
 )
 
 of_slippage_calibrator_last_ok = Gauge(
-    "of_slippage_calibrator_last_ok",
-    "1 if last slippage calibrator run ok",
+    "of_slippage_calibrator_last_ok"
+    "1 if last slippage calibrator run ok"
 )
 
 
 # P86: DB-based residual/edge validation metrics (low cardinality: sym x bucket)
 of_exec_slip_stats_db_up = Gauge(
-    "of_exec_slip_stats_db_up",
-    "1 if last DB residual stats query succeeded, 0 if failed",
+    "of_exec_slip_stats_db_up"
+    "1 if last DB residual stats query succeeded, 0 if failed"
 )
 
 of_exec_slip_stats_db_query_dur_ms = Gauge(
-    "of_exec_slip_stats_db_query_dur_ms",
-    "duration ms of last DB residual stats query",
+    "of_exec_slip_stats_db_query_dur_ms"
+    "duration ms of last DB residual stats query"
 )
 
 of_exec_slip_resid_p95_bps = Gauge(
-    "of_exec_slip_resid_p95_bps",
-    "residual P95 bps per sym/bucket (max over lookback from DB)",
-    ["sym", "bucket"],
+    "of_exec_slip_resid_p95_bps"
+    "residual P95 bps per sym/bucket (max over lookback from DB)"
+    ["sym", "bucket"]
 )
 
 of_exec_slip_resid_p99_bps = Gauge(
-    "of_exec_slip_resid_p99_bps",
-    "residual P99 bps per sym/bucket (max over lookback from DB)",
-    ["sym", "bucket"],
+    "of_exec_slip_resid_p99_bps"
+    "residual P99 bps per sym/bucket (max over lookback from DB)"
+    ["sym", "bucket"]
 )
 
 of_exec_slip_edge_neg_share = Gauge(
-    "of_exec_slip_edge_neg_share",
-    "share of trades with edge_minus_expected_bps < 0 per sym/bucket (max over lookback)",
-    ["sym", "bucket"],
+    "of_exec_slip_edge_neg_share"
+    "share of trades with edge_minus_expected_bps < 0 per sym/bucket (max over lookback)"
+    ["sym", "bucket"]
 )
 
 # P90: Optional model-vs-expected validation gauges (same cardinality: sym x bucket)
 of_exec_slip_model_resid_p95_bps = Gauge(
-    "of_exec_slip_model_resid_p95_bps",
-    "model residual P95 bps per sym/bucket (max over lookback from DB)",
-    ["sym", "bucket"],
+    "of_exec_slip_model_resid_p95_bps"
+    "model residual P95 bps per sym/bucket (max over lookback from DB)"
+    ["sym", "bucket"]
 )
 
 of_exec_slip_model_resid_p99_bps = Gauge(
-    "of_exec_slip_model_resid_p99_bps",
-    "model residual P99 bps per sym/bucket (max over lookback from DB)",
-    ["sym", "bucket"],
+    "of_exec_slip_model_resid_p99_bps"
+    "model residual P99 bps per sym/bucket (max over lookback from DB)"
+    ["sym", "bucket"]
 )
 
 of_exec_slip_model_edge_neg_share = Gauge(
-    "of_exec_slip_model_edge_neg_share",
-    "share of trades with edge_minus_expected_model_bps < 0 per sym/bucket (max over lookback)",
-    ["sym", "bucket"],
+    "of_exec_slip_model_edge_neg_share"
+    "share of trades with edge_minus_expected_model_bps < 0 per sym/bucket (max over lookback)"
+    ["sym", "bucket"]
 )
 
 
 of_exec_slip_db_n = Gauge(
-    "of_exec_slip_db_n",
-    "number of DB samples per sym/bucket (sum over lookback)",
-    ["sym", "bucket"],
+    "of_exec_slip_db_n"
+    "number of DB samples per sym/bucket (sum over lookback)"
+    ["sym", "bucket"]
 )
 
 
 # Freezer
 of_enforce_freezer_block_active = Gauge(
-    "of_enforce_freezer_block_active",
-    "1 if slo freezer blocked auto-apply (from status)",
-    ["sym", "bucket"],
+    "of_enforce_freezer_block_active"
+    "1 if slo freezer blocked auto-apply (from status)"
+    ["sym", "bucket"]
 )
 
 of_enforce_freezer_last_block_age_sec = Gauge(
-    "of_enforce_freezer_last_block_age_sec",
-    "age seconds since last freezer block action",
-    ["sym"],
+    "of_enforce_freezer_last_block_age_sec"
+    "age seconds since last freezer block action"
+    ["sym"]
 )
 
 
@@ -514,26 +514,26 @@ class Exporter:
             self.buckets = ["NORMAL", "LOW_LIQ", "HIGH_VOL", "HIGH_VOL_LOW_LIQ"]
 
         self.promoter_status_path = os.getenv(
-            "ENFORCE_PROMOTER_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/promoter/enforce_bucket_promoter_status.json",
+            "ENFORCE_PROMOTER_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/promoter/enforce_bucket_promoter_status.json"
         )
         self.promoter_report_key = os.getenv(
             "ENFORCE_PROMOTER_REPORT_KEY", "proposal:enforce_bucket_promotion_report"
         )
 
         self.exec_slip_stats_status_path = os.getenv(
-            "EXEC_SLIP_STATS_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json",
+            "EXEC_SLIP_STATS_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json"
         )
 
         self.slippage_cal_status_path = os.getenv(
-            "SLIPPAGE_CAL_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/stats/slippage_calibrator_status.json",
+            "SLIPPAGE_CAL_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/stats/slippage_calibrator_status.json"
         )
 
         self.freezer_status_path = os.getenv(
-            "ENFORCE_FREEZER_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json",
+            "ENFORCE_FREEZER_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json"
         )
 
         self.auto_apply_block_prefix = os.getenv(
@@ -777,7 +777,7 @@ class Exporter:
     def _export_exec_slip_residual_stats(self) -> None:
         """P86: Query DB for slippage residual/edge distribution per regime bucket.
 
-        Prefer materialized view mv_exec_slippage_eval_1h_stats (pre-aggregated hourly),
+        Prefer materialized view mv_exec_slippage_eval_1h_stats (pre-aggregated hourly)
         fallback to raw view v_exec_slippage_eval.
         Disabled by default; enable via ENFORCE_STATE_EXPORTER_DB_STATS=1.
         """
@@ -816,25 +816,25 @@ class Exporter:
             has_model = False
 
             # Prefer pre-aggregated MV (fast, uses t column).
-            # Backward compatible: if MV lacks model columns, fall back to legacy query,
+            # Backward compatible: if MV lacks model columns, fall back to legacy query
             # then to raw view queries.
             try:
                 cur.execute(
                     f"""
-                    select sym,
-                           exec_regime_bucket,
-                           sum(n)::bigint as n,
-                           max(resid_p95_bps) as resid_p95_bps,
-                           max(resid_p99_bps) as resid_p99_bps,
-                           max(edge_neg_share) as edge_neg_share,
-                           max(resid_model_p95_bps) as resid_model_p95_bps,
-                           max(resid_model_p99_bps) as resid_model_p99_bps,
+                    select sym
+                           exec_regime_bucket
+                           sum(n)::bigint as n
+                           max(resid_p95_bps) as resid_p95_bps
+                           max(resid_p99_bps) as resid_p99_bps
+                           max(edge_neg_share) as edge_neg_share
+                           max(resid_model_p95_bps) as resid_model_p95_bps
+                           max(resid_model_p99_bps) as resid_model_p99_bps
                            max(edge_neg_share_model) as edge_neg_share_model
                     from {mv}
                     where sym = any(%s) and t >= now() - (%s || ' hours')::interval
                     group by 1,2
-                    """,
-                    (syms, int(lookback_h)),
+                    """
+                    (syms, int(lookback_h))
                 )
                 rows = cur.fetchall()
                 has_model = True
@@ -842,17 +842,17 @@ class Exporter:
                 try:
                     cur.execute(
                         f"""
-                        select sym,
-                               exec_regime_bucket,
-                               sum(n)::bigint as n,
-                               max(resid_p95_bps) as resid_p95_bps,
-                               max(resid_p99_bps) as resid_p99_bps,
+                        select sym
+                               exec_regime_bucket
+                               sum(n)::bigint as n
+                               max(resid_p95_bps) as resid_p95_bps
+                               max(resid_p99_bps) as resid_p99_bps
                                max(edge_neg_share) as edge_neg_share
                         from {mv}
                         where sym = any(%s) and t >= now() - (%s || ' hours')::interval
                         group by 1,2
-                        """,
-                        (syms, int(lookback_h)),
+                        """
+                        (syms, int(lookback_h))
                     )
                     rows = cur.fetchall()
                     has_model = False
@@ -860,37 +860,37 @@ class Exporter:
                     try:
                         cur.execute(
                             f"""
-                            select sym,
-                                   exec_regime_bucket,
-                                   count(*)::bigint as n,
-                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
-                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
-                                   avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share,
-                                   percentile_cont(0.95) within group (order by slippage_residual_model_bps) as resid_model_p95_bps,
-                                   percentile_cont(0.99) within group (order by slippage_residual_model_bps) as resid_model_p99_bps,
+                            select sym
+                                   exec_regime_bucket
+                                   count(*)::bigint as n
+                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps
+                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps
+                                   avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
+                                   percentile_cont(0.95) within group (order by slippage_residual_model_bps) as resid_model_p95_bps
+                                   percentile_cont(0.99) within group (order by slippage_residual_model_bps) as resid_model_p99_bps
                                    avg(case when edge_minus_expected_model_bps < 0 then 1 else 0 end) as edge_neg_share_model
                             from {view}
                             where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
                             group by 1,2
-                            """,
-                            (syms, int(lookback_h)),
+                            """
+                            (syms, int(lookback_h))
                         )
                         rows = cur.fetchall()
                         has_model = True
                     except Exception:
                         cur.execute(
                             f"""
-                            select sym,
-                                   exec_regime_bucket,
-                                   count(*)::bigint as n,
-                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
-                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
+                            select sym
+                                   exec_regime_bucket
+                                   count(*)::bigint as n
+                                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps
+                                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps
                                    avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
                             from {view}
                             where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
                             group by 1,2
-                            """,
-                            (syms, int(lookback_h)),
+                            """
+                            (syms, int(lookback_h))
                         )
                         rows = cur.fetchall()
                         has_model = False

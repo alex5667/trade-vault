@@ -31,7 +31,7 @@ return {1, id}
 
 class SignalBridgeDispatcher:
     """
-    Reads bridge streams from MAIN redis (consumer-group), delivers into DUAL redis atomically (Lua),
+    Reads bridge streams from MAIN redis (consumer-group), delivers into DUAL redis atomically (Lua)
     then ACKs bridge message in MAIN redis.
     """
     def __init__(self, *, mode: str):

@@ -12,9 +12,9 @@ class QuarantineDenylistDecision:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'allowed': bool(self.allowed),
-            'matched_sid': str(self.matched_sid or ''),
-            'candidates': list(self.candidates or []),
+            'allowed': bool(self.allowed)
+            'matched_sid': str(self.matched_sid or '')
+            'candidates': list(self.candidates or [])
         }
 
 

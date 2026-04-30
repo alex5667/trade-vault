@@ -12,16 +12,16 @@ spec.loader.exec_module(mod)
 
 def test_materialized_state_builds_nested_algo_refs():
     doc = mod.build_materialized_state_view({
-        'binance_order_id': 11,
-        'entry_client_order_id': 'ent-1',
-        'sl_algo_id': 21,
-        'sl_client_algo_id': 'sl-1',
-        'tp1_algo_id': 31,
-        'tp1_client_algo_id': 'tp-1',
-        'tp2_algo_id': 32,
-        'tp2_client_algo_id': 'tp-2',
-        'trail_algo_id': 41,
-        'trail_client_id': 'tr-1',
+        'binance_order_id': 11
+        'entry_client_order_id': 'ent-1'
+        'sl_algo_id': 21
+        'sl_client_algo_id': 'sl-1'
+        'tp1_algo_id': 31
+        'tp1_client_algo_id': 'tp-1'
+        'tp2_algo_id': 32
+        'tp2_client_algo_id': 'tp-2'
+        'trail_algo_id': 41
+        'trail_client_id': 'tr-1'
     })
     assert doc['entry']['order_id'] == 11
     assert doc['protective']['sl_algo_id'] == 21

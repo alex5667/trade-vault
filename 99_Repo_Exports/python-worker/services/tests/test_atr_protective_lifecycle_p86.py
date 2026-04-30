@@ -42,7 +42,7 @@ class TestProtectiveLifecyclePhase86(unittest.TestCase):
     def test_mirror_on_position_opened(self):
         """Test OPEN hook."""
         self.mirror.on_position_opened(
-            signal_id="sig123", symbol="BTCUSDT", side="LONG",
+            signal_id="sig123", symbol="BTCUSDT", side="LONG"
             entry_price=60000.0, sl=59000.0, tp1=61000.0, ts_ms=1000
         )
         # Bounded symbol check

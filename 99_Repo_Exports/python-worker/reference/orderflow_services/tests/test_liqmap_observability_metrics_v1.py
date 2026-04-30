@@ -51,16 +51,16 @@ def _fresh_liqmap_counters():
     from prometheus_client import Counter, Gauge, CollectorRegistry
     reg = CollectorRegistry()
     age_gauge = Gauge(
-        "liqmap_snapshot_age_ms_test",
-        "Test gauge",
-        ["symbol", "window"],
-        registry=reg,
+        "liqmap_snapshot_age_ms_test"
+        "Test gauge"
+        ["symbol", "window"]
+        registry=reg
     )
     parse_errs = Counter(
-        "liqmap_parse_errors_total_test",
-        "Test counter",
-        ["symbol", "window", "where"],
-        registry=reg,
+        "liqmap_parse_errors_total_test"
+        "Test counter"
+        ["symbol", "window", "where"]
+        registry=reg
     )
     return age_gauge, parse_errs, reg
 

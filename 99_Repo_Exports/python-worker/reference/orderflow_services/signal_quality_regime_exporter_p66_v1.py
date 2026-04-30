@@ -83,10 +83,10 @@ class Cfg:
 
 def load_cfg() -> Cfg:
     return Cfg(
-        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        dyn_cfg_key=_env("DYN_CFG_KEY", "settings:dynamic_cfg"),
-        port=_i(_env("SIGNAL_QUALITY_REGIME_EXPORTER_PORT", "9817"), 9817),
-        interval_s=float(_env("SIGNAL_QUALITY_REGIME_EXPORTER_INTERVAL_S", "5") or 5),
+        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+        dyn_cfg_key=_env("DYN_CFG_KEY", "settings:dynamic_cfg")
+        port=_i(_env("SIGNAL_QUALITY_REGIME_EXPORTER_PORT", "9817"), 9817)
+        interval_s=float(_env("SIGNAL_QUALITY_REGIME_EXPORTER_INTERVAL_S", "5") or 5)
     )
 
 
@@ -96,27 +96,27 @@ def load_cfg() -> Cfg:
 
 # Mean R (expectancy) per regime — primary signal quality indicator
 G_EXPECT = Gauge(
-    "signal_quality_expectancy_r_24h_by_regime",
-    "Mean R over last 24h by dq/drift regime",
-    ["regime"],
+    "signal_quality_expectancy_r_24h_by_regime"
+    "Mean R over last 24h by dq/drift regime"
+    ["regime"]
 )
 # Win rate in top 5% highest-scored signals per regime
 G_PREC = Gauge(
-    "signal_quality_precision_top5p_24h_by_regime",
-    "Win rate in top 5% by score over last 24h by dq/drift regime",
-    ["regime"],
+    "signal_quality_precision_top5p_24h_by_regime"
+    "Win rate in top 5% by score over last 24h by dq/drift regime"
+    ["regime"]
 )
 # Expected Calibration Error per regime (lower is better)
 G_ECE = Gauge(
-    "signal_quality_ece_24h_by_regime",
-    "ECE over last 24h by dq/drift regime",
-    ["regime"],
+    "signal_quality_ece_24h_by_regime"
+    "ECE over last 24h by dq/drift regime"
+    ["regime"]
 )
 # Sample count per regime — used to gate alert significance
 G_N = Gauge(
-    "signal_quality_n_24h_by_regime",
-    "N over last 24h by dq/drift regime",
-    ["regime"],
+    "signal_quality_n_24h_by_regime"
+    "N over last 24h by dq/drift regime"
+    ["regime"]
 )
 # Timestamps for staleness detection
 G_LAST_TS = Gauge("signal_quality_last_ts_ms", "Timestamp of last signal-quality calc (ms)")

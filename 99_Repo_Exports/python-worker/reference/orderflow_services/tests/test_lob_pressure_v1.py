@@ -32,12 +32,12 @@ class TestBasicHappyPath:
         bids, asks = _book()
         res = compute_lob_pressure(bids=bids, asks=asks)
         expected_keys = [
-            "qi_l1", "qi_l2", "qi_l3", "qi_l4", "qi_l5",
-            "qi_mean", "qi_max_abs", "qi_slope",
-            "micro_mid_div_bps", "micro_shift_bps",
-            "depth_slope_bid", "depth_slope_ask", "depth_slope_imb",
-            "depth_convexity_bid", "depth_convexity_ask", "depth_convexity_imb",
-            "dw_obi",
+            "qi_l1", "qi_l2", "qi_l3", "qi_l4", "qi_l5"
+            "qi_mean", "qi_max_abs", "qi_slope"
+            "micro_mid_div_bps", "micro_shift_bps"
+            "depth_slope_bid", "depth_slope_ask", "depth_slope_imb"
+            "depth_convexity_bid", "depth_convexity_ask", "depth_convexity_imb"
+            "dw_obi"
         ]
         for k in expected_keys:
             assert k in res, f"Missing key: {k}"

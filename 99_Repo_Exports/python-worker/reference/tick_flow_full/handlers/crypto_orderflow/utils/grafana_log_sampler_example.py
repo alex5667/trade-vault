@@ -45,8 +45,8 @@ def simulate_trade_veto_logs():
         symbol = symbols[i % len(symbols)]
 
         sampled_info(
-            logger,
-            f"trade_veto_{reason.lower()}",
+            logger
+            f"trade_veto_{reason.lower()}"
             f"Trade veto: {reason} for {symbol} (attempt {i})"
         )
 
@@ -63,8 +63,8 @@ def simulate_periodic_reporter_logs():
         total_trades = 0 if i % 100 == 0 else i % 50  # Mostly 0 trades, some with trades
 
         sampled_info(
-            logger,
-            "PERIODIC_REPORTER_SUMMARY",
+            logger
+            "PERIODIC_REPORTER_SUMMARY"
             f"📊 Итого собрано {total_trades} сделок для {source}/{symbol} "
             f"(окно 100 trades, matched={total_trades} из 192, processed_order_ids={total_trades})"
         )
@@ -76,7 +76,7 @@ def simulate_periodic_reporter_logs():
 if __name__ == "__main__":
     # Configure logging to show output
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.INFO
         format='%(asctime)s %(name)s %(levelname)s %(message)s'
     )
 

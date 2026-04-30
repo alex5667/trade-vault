@@ -48,16 +48,16 @@ class LegacyReasonMap:
 
 # NOTE: добавляйте сюда по мере миграции остальных veto-веток.
 _LEGACY_MAP: list[LegacyReasonMap] = [
-    LegacyReasonMap("ok", ReasonCode.OK),
-    LegacyReasonMap("conf_below_min_veto", ReasonCode.VETO_CONF_BELOW_MIN),
-    LegacyReasonMap("spread_wide", ReasonCode.VETO_SPREAD_WIDE),
-    LegacyReasonMap("bo_l2_missing", ReasonCode.VETO_L2_MISSING),
-    LegacyReasonMap("bo_l2_stale", ReasonCode.VETO_L2_STALE),
-    LegacyReasonMap("bo_l2_bad", ReasonCode.VETO_L2_BAD),
+    LegacyReasonMap("ok", ReasonCode.OK)
+    LegacyReasonMap("conf_below_min_veto", ReasonCode.VETO_CONF_BELOW_MIN)
+    LegacyReasonMap("spread_wide", ReasonCode.VETO_SPREAD_WIDE)
+    LegacyReasonMap("bo_l2_missing", ReasonCode.VETO_L2_MISSING)
+    LegacyReasonMap("bo_l2_stale", ReasonCode.VETO_L2_STALE)
+    LegacyReasonMap("bo_l2_bad", ReasonCode.VETO_L2_BAD)
     LegacyReasonMap("bo_l2_veto", ReasonCode.VETO_L2_BAD),  # legacy umbrella -> лучше уточнять
-    LegacyReasonMap("range_breakout_veto", ReasonCode.VETO_REGIME_RANGE_BREAKOUT),
-    LegacyReasonMap("wall_near_veto", ReasonCode.VETO_WALL_NEAR),
-    LegacyReasonMap("l3_spoof_risk", ReasonCode.VETO_L3_SPOOF_RISK),
+    LegacyReasonMap("range_breakout_veto", ReasonCode.VETO_REGIME_RANGE_BREAKOUT)
+    LegacyReasonMap("wall_near_veto", ReasonCode.VETO_WALL_NEAR)
+    LegacyReasonMap("l3_spoof_risk", ReasonCode.VETO_L3_SPOOF_RISK)
 ]
 
 

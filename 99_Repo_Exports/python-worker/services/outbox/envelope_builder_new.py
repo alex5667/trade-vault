@@ -66,20 +66,20 @@ def build_trace_sidecar_meta(*, ctx: Any, sid: str) -> Dict[str, Any]:
         sample_rate = 0.0
 
     return {
-        "trace_id": trace_id,
-        "span_id": span_id,
-        "trace_meta_key": f"{OUTBOX_META_PREFIX}{sid}",
-        "sample_rate": sample_rate,
+        "trace_id": trace_id
+        "span_id": span_id
+        "trace_meta_key": f"{OUTBOX_META_PREFIX}{sid}"
+        "sample_rate": sample_rate
     }
 
 
 def build_envelope(
-    *,
-    sid: str,
-    payload: Dict[str, Any],
-    targets_obj: Dict[str, Any],
-    meta: Optional[Dict[str, Any]] = None,
-    ctx: Optional[Any] = None,
+    *
+    sid: str
+    payload: Dict[str, Any]
+    targets_obj: Dict[str, Any]
+    meta: Optional[Dict[str, Any]] = None
+    ctx: Optional[Any] = None
 ) -> Dict[str, Any]:
     """Build a dispatcher-compatible outbox envelope.
 
@@ -91,12 +91,12 @@ def build_envelope(
     """
 
     env: Dict[str, Any] = {
-        "v": 1,
-        "sid": sid,
-        "ts_ms": _now_ms(),
-        "payload": payload if isinstance(payload, dict) else {},
-        "targets": targets_obj if isinstance(targets_obj, dict) else {},
-        "meta": meta if isinstance(meta, dict) else {},
+        "v": 1
+        "sid": sid
+        "ts_ms": _now_ms()
+        "payload": payload if isinstance(payload, dict) else {}
+        "targets": targets_obj if isinstance(targets_obj, dict) else {}
+        "meta": meta if isinstance(meta, dict) else {}
     }
 
     # Ensure required metadata exists.
@@ -127,16 +127,16 @@ def build_envelope(
 
 
 def build_entry_policy_diag_event(
-    *,
-    sid: str,
-    trace_id: str,
-    kind: str,
-    symbol: str,
-    stage: str,
-    name: str,
-    reason_code: str,
-    metrics: Optional[Dict[str, Any]] = None,
-    extra: Optional[Dict[str, Any]] = None,
+    *
+    sid: str
+    trace_id: str
+    kind: str
+    symbol: str
+    stage: str
+    name: str
+    reason_code: str
+    metrics: Optional[Dict[str, Any]] = None
+    extra: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Create a bounded diagnostics-only event.
 
@@ -144,27 +144,27 @@ def build_entry_policy_diag_event(
     """
 
     return {
-        "v": 1,
-        "type": "entry_policy_diag",
-        "ts_ms": _now_ms(),
-        "sid": sid,
-        "trace_id": trace_id,
-        "kind": kind,
-        "symbol": symbol,
-        "stage": stage,
-        "name": name,
-        "reason_code": reason_code,
-        "metrics": metrics or {},
-        "extra": extra or {},
+        "v": 1
+        "type": "entry_policy_diag"
+        "ts_ms": _now_ms()
+        "sid": sid
+        "trace_id": trace_id
+        "kind": kind
+        "symbol": symbol
+        "stage": stage
+        "name": name
+        "reason_code": reason_code
+        "metrics": metrics or {}
+        "extra": extra or {}
     }
 
 
 def emit_entry_policy_diag_best_effort(
-    redis: Any,
-    event: Dict[str, Any],
-    *,
-    stream: Optional[str] = None,
-    maxlen: int = 100_000,
+    redis: Any
+    event: Dict[str, Any]
+    *
+    stream: Optional[str] = None
+    maxlen: int = 100_000
 ) -> bool:
     """Best-effort emit to diagnostics stream.
 

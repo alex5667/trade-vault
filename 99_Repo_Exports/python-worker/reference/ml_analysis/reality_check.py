@@ -87,13 +87,13 @@ def normalize_row(row: Mapping[str, Any]) -> Dict[str, Any]:
     period = str(_pick(row, 'period', 'bucket', 'day', 'date', 'ts_bucket', default='')).strip()
     variant = str(_pick(row, 'variant', 'arm', 'model_id', 'policy_id', 'config_id', default='baseline')).strip() or 'baseline'
     return {
-        'score': score,
-        'label': 1 if label > 0 else 0,
-        'gross_r': gross_r,
-        'net_r': net_r,
-        'cost_bps': cost_bps,
-        'period': period,
-        'variant': variant,
+        'score': score
+        'label': 1 if label > 0 else 0
+        'gross_r': gross_r
+        'net_r': net_r
+        'cost_bps': cost_bps
+        'period': period
+        'variant': variant
     }
 
 
@@ -125,10 +125,10 @@ def entropy_binary_probs(values: Sequence[float]) -> float:
 
 
 def evaluate_rows(
-    rows: Sequence[Mapping[str, Any]],
-    *,
-    top_frac: float = 0.05,
-    primary_metric: str = 'net_expectancy',
+    rows: Sequence[Mapping[str, Any]]
+    *
+    top_frac: float = 0.05
+    primary_metric: str = 'net_expectancy'
 ) -> Dict[str, Any]:
     """Evaluate a sequence of dataset rows and return a metrics dict.
 
@@ -137,21 +137,21 @@ def evaluate_rows(
     norm = [normalize_row(r) for r in rows]
     if not norm:
         return {
-            'rows': 0,
-            'primary_metric_name': str(primary_metric),
-            'primary_metric_value': 0.0,
-            'net_expectancy': 0.0,
-            'precision_at_top_x': 0.0,
-            'mean_r': 0.0,
-            'downside_adjusted_return': 0.0,
-            'hit_rate_conditioned_on_cost': 0.0,
-            'avg_cost_bps': 0.0,
-            'score_entropy': 0.0,
-            'period_count': 0,
-            'variant_count': 0,
-            'per_period_net': [],
-            'variant_period_matrix': {},
-            'net_series': [],
+            'rows': 0
+            'primary_metric_name': str(primary_metric)
+            'primary_metric_value': 0.0
+            'net_expectancy': 0.0
+            'precision_at_top_x': 0.0
+            'mean_r': 0.0
+            'downside_adjusted_return': 0.0
+            'hit_rate_conditioned_on_cost': 0.0
+            'avg_cost_bps': 0.0
+            'score_entropy': 0.0
+            'period_count': 0
+            'variant_count': 0
+            'per_period_net': []
+            'variant_period_matrix': {}
+            'net_series': []
         }
 
     ordered = sorted(norm, key=lambda r: (float(r['score']), float(r['net_r'])), reverse=True)
@@ -162,14 +162,14 @@ def evaluate_rows(
     cost_vals = [float(r['cost_bps']) for r in norm]
 
     metrics = {
-        'rows': len(norm),
-        'net_expectancy': mean(net_vals),
-        'precision_at_top_x': mean([float(r['label']) for r in top_rows]),
-        'mean_r': mean(gross_vals),
-        'downside_adjusted_return': downside_adjusted_return(net_vals),
-        'hit_rate_conditioned_on_cost': mean([1.0 if float(r['net_r']) > 0.0 else 0.0 for r in norm]),
-        'avg_cost_bps': mean(cost_vals),
-        'score_entropy': entropy_binary_probs([float(r['score']) for r in norm]),
+        'rows': len(norm)
+        'net_expectancy': mean(net_vals)
+        'precision_at_top_x': mean([float(r['label']) for r in top_rows])
+        'mean_r': mean(gross_vals)
+        'downside_adjusted_return': downside_adjusted_return(net_vals)
+        'hit_rate_conditioned_on_cost': mean([1.0 if float(r['net_r']) > 0.0 else 0.0 for r in norm])
+        'avg_cost_bps': mean(cost_vals)
+        'score_entropy': entropy_binary_probs([float(r['score']) for r in norm])
     }
     metrics['primary_metric_name'] = str(primary_metric)
     metrics['primary_metric_value'] = float(metrics.get(str(primary_metric), metrics['net_expectancy']))

@@ -18,7 +18,7 @@ def render_scorecard_message(change_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to build scorecard for rendering {change_id}: {e}")
         return {
-            "text": f"⚠️ Error building scorecard for {change_id}: {e}",
+            "text": f"⚠️ Error building scorecard for {change_id}: {e}"
             "parse_mode": "HTML"
         }
 
@@ -28,17 +28,17 @@ def render_scorecard_message(change_id: str) -> Dict[str, Any]:
     icon = "✅" if decision == "allow" else "⚠️" if decision == "allow_with_override" else "🚫"
 
     msg_lines = [
-        f"{icon} <b>ATR Release Readiness</b>\n",
-        f"Change: <code>{change_id}</code>",
-        f"Decision: <b>{decision.upper()}</b>",
+        f"{icon} <b>ATR Release Readiness</b>\n"
+        f"Change: <code>{change_id}</code>"
+        f"Decision: <b>{decision.upper()}</b>"
         f"Score: <b>{score:.1f}</b>\n"
     ]
 
     summary = scorecard.get("summary", {})
     msg_lines.extend([
-        f"Replay: {summary.get('replay_status')}",
-        f"Rollout cert: {summary.get('rollout_cert_status')}",
-        f"Open SEV-1 incidents: {summary.get('incidents_open')}",
+        f"Replay: {summary.get('replay_status')}"
+        f"Rollout cert: {summary.get('rollout_cert_status')}"
+        f"Open SEV-1 incidents: {summary.get('incidents_open')}"
         f"Overdue actions: {summary.get('overdue_actions')}\n"
     ])
 
@@ -65,24 +65,24 @@ def render_scorecard_message(change_id: str) -> Dict[str, Any]:
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "Approve release", "callback_data": f"/release approve {change_id}"},
+                {"text": "Approve release", "callback_data": f"/release approve {change_id}"}
                 {"text": "Deny release",    "callback_data": f"/release deny {change_id}"}
-            ],
+            ]
             [
                 {"text": "Override release", "callback_data": f"/release override {change_id}"}
-            ],
+            ]
             [
-                {"text": "📊 Graph board",   "callback_data": "/release graph_board"},
-                {"text": "🌊 Drift board",   "callback_data": "/release drift_board"},
-            ] if _GRAPH_GATE_ENABLE else [],
+                {"text": "📊 Graph board",   "callback_data": "/release graph_board"}
+                {"text": "🌊 Drift board",   "callback_data": "/release drift_board"}
+            ] if _GRAPH_GATE_ENABLE else []
         ]
     }
     # remove empty rows
     keyboard["inline_keyboard"] = [r for r in keyboard["inline_keyboard"] if r]
 
     return {
-        "text": text,
-        "parse_mode": "HTML",
+        "text": text
+        "parse_mode": "HTML"
         "reply_markup": json.dumps(keyboard)
     }
 
@@ -96,7 +96,7 @@ def _render_graph_board() -> Dict[str, Any]:
         ) as cur:
             cur.execute(
                 """
-                SELECT change_id, scope_value, legacy_decision,
+                SELECT change_id, scope_value, legacy_decision
                        graph_decision, status, created_at
                 FROM v_governance_release_graph_board
                 LIMIT 10
@@ -234,7 +234,7 @@ def handle_telegram_callback(callback_query: Dict[str, Any]) -> Dict[str, Any]:
             change_id, scorecard_id, from_user, "approve_release", "OPERATOR_APPROVED", scorecard
         )
         return {
-            "text": f"✅ Change <code>{change_id}</code> approved by {from_user}",
+            "text": f"✅ Change <code>{change_id}</code> approved by {from_user}"
             "parse_mode": "HTML"
         }
 
@@ -243,7 +243,7 @@ def handle_telegram_callback(callback_query: Dict[str, Any]) -> Dict[str, Any]:
             change_id, scorecard_id, from_user, "deny_release", "OPERATOR_DENIED", scorecard
         )
         return {
-            "text": f"🚫 Change <code>{change_id}</code> denied by {from_user}",
+            "text": f"🚫 Change <code>{change_id}</code> denied by {from_user}"
             "parse_mode": "HTML"
         }
 
@@ -262,7 +262,7 @@ def handle_telegram_callback(callback_query: Dict[str, Any]) -> Dict[str, Any]:
             "text": (
                 f"⚠️ Change <code>{change_id}</code> "
                 f"APPROVED WITH OVERRIDE by {from_user}"
-            ),
+            )
             "parse_mode": "HTML"
         }
 

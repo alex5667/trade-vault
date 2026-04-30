@@ -52,12 +52,12 @@ def _now_ms() -> int:
 
 
 def maybe_snapshot_time_buckets(
-    pos: Any,
-    *,
-    mid_price: float,
-    ts_ms: int,
-    spec: Any,
-    tf: str,
+    pos: Any
+    *
+    mid_price: float
+    ts_ms: int
+    spec: Any
+    tf: str
 ) -> None:
     """
     Writes *time-bucket* MFE/MAE snapshots into the open position (fail-open).
@@ -159,7 +159,7 @@ def maybe_snapshot_time_buckets(
 
 def attach_timebucket_snapshots_to_closed(pos: Any, closed: Any) -> None:
     """
-    Copies pos.mfe_pnl_t / pos.mae_pnl_t into TradeClosed object as flat fields,
+    Copies pos.mfe_pnl_t / pos.mae_pnl_t into TradeClosed object as flat fields
     so Redis repo can persist them and StatsAggregator can consume them.
 
     Output fields on closed:

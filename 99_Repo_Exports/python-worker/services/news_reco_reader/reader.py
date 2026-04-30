@@ -40,14 +40,14 @@ def _env_bool(name: str, default: str = "0") -> bool:
 
 class NewsRecoReader:
     def __init__(
-        self,
-        *,
-        redis_url: str,
-        map_key: str,
-        poll_ms: int,
-        jitter_ms: int,
-        stale_fail_open_ms: int,
-        max_symbols: int,
+        self
+        *
+        redis_url: str
+        map_key: str
+        poll_ms: int
+        jitter_ms: int
+        stale_fail_open_ms: int
+        max_symbols: int
     ) -> None:
         self._redis_url = redis_url
         self._map_key = map_key
@@ -125,12 +125,12 @@ class NewsRecoReader:
             import redis.asyncio as redis_async  # type: ignore
 
             self._redis_async = redis_async.from_url(
-                self._redis_url,
-                socket_connect_timeout=connect_timeout_s,
-                socket_timeout=socket_timeout_s,
-                max_connections=max_conn,
-                decode_responses=True,
-                retry_on_timeout=False,
+                self._redis_url
+                socket_connect_timeout=connect_timeout_s
+                socket_timeout=socket_timeout_s
+                max_connections=max_conn
+                decode_responses=True
+                retry_on_timeout=False
             )
             return
         except Exception:
@@ -141,11 +141,11 @@ class NewsRecoReader:
             import redis  # type: ignore
 
             self._redis_sync = redis.from_url(
-                self._redis_url,
-                socket_connect_timeout=connect_timeout_s,
-                socket_timeout=socket_timeout_s,
-                decode_responses=True,
-                retry_on_timeout=False,
+                self._redis_url
+                socket_connect_timeout=connect_timeout_s
+                socket_timeout=socket_timeout_s
+                decode_responses=True
+                retry_on_timeout=False
             )
         except Exception as exc:
             raise RuntimeError(f"redis client init failed: {exc}") from exc
@@ -256,12 +256,12 @@ async def ensure_started() -> Optional[NewsRecoReader]:
         max_symbols = int(os.getenv("TRADE_NEWS_RECO_MAX_SYMBOLS", "2000"))
 
         _SINGLETON = NewsRecoReader(
-            redis_url=redis_url,
-            map_key=map_key,
-            poll_ms=poll_ms,
-            jitter_ms=jitter_ms,
-            stale_fail_open_ms=stale_ms,
-            max_symbols=max_symbols,
+            redis_url=redis_url
+            map_key=map_key
+            poll_ms=poll_ms
+            jitter_ms=jitter_ms
+            stale_fail_open_ms=stale_ms
+            max_symbols=max_symbols
         )
         await _SINGLETON.start()
         return _SINGLETON

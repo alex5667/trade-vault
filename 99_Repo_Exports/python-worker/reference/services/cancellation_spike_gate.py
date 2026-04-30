@@ -176,16 +176,16 @@ class CancellationSpikeGate:
         self._st: Dict[str, _SymState] = {}
 
     def check(
-        self,
-        *,
-        symbol: str,
-        direction: str,
-        cancel_bid_rate_ema: float,
-        cancel_ask_rate_ema: float,
-        taker_buy_rate_ema: float,
-        taker_sell_rate_ema: float,
-        bucket_id: Optional[int],
-        cfg2: Optional[Dict[str, Any]] = None,
+        self
+        *
+        symbol: str
+        direction: str
+        cancel_bid_rate_ema: float
+        cancel_ask_rate_ema: float
+        taker_buy_rate_ema: float
+        taker_sell_rate_ema: float
+        bucket_id: Optional[int]
+        cfg2: Optional[Dict[str, Any]] = None
     ) -> GateDecision:
         """
         Returns GateDecision:
@@ -271,7 +271,7 @@ class CancellationSpikeGate:
             spike_opp = _is_spike(opp, base_opp, ratio_opp, z_opp, len(ho))
 
             # “Pull without aggression”:
-            # If opposite-side cancellations spike but the matching taker aggression is low,
+            # If opposite-side cancellations spike but the matching taker aggression is low
             # the move can be a "vacuum" / spoof-like impulse (less reliable).
             dir_taker = tkr_buy if d == "LONG" else tkr_sell
             veto_pull_wo_aggr = bool(spike_opp and (dir_taker < p.min_taker_rate))
@@ -302,23 +302,23 @@ class CancellationSpikeGate:
                 reason = "cancel_spike_monitor_" + reason
 
             meta = {
-                "mode": p.mode,
-                "ready": int(ready),
-                "direction": d,
-                "support_side": support_side,
-                "support": float(support),
-                "base_support": float(base_support),
-                "ratio_support": float(ratio_support),
-                "z_support": float(z_support),
-                "opp_side": opp_side,
-                "opp": float(opp),
-                "base_opp": float(base_opp),
-                "ratio_opp": float(ratio_opp),
-                "z_opp": float(z_opp),
-                "taker_buy_rate_ema": float(tkr_buy),
-                "taker_sell_rate_ema": float(tkr_sell),
-                "dir_taker": float(dir_taker),
-                "veto_kind": veto_kind,
+                "mode": p.mode
+                "ready": int(ready)
+                "direction": d
+                "support_side": support_side
+                "support": float(support)
+                "base_support": float(base_support)
+                "ratio_support": float(ratio_support)
+                "z_support": float(z_support)
+                "opp_side": opp_side
+                "opp": float(opp)
+                "base_opp": float(base_opp)
+                "ratio_opp": float(ratio_opp)
+                "z_opp": float(z_opp)
+                "taker_buy_rate_ema": float(tkr_buy)
+                "taker_sell_rate_ema": float(tkr_sell)
+                "dir_taker": float(dir_taker)
+                "veto_kind": veto_kind
             }
 
             # --- state update AFTER decision (important) ---
@@ -344,29 +344,29 @@ class CancellationSpikeGate:
                 if st is None:
                     return {"version": 1, "symbols": {}}
                 return {
-                    "version": 1,
+                    "version": 1
                     "symbols": {
                         str(symbol): {
-                            "base_bid": float(st.base_bid),
-                            "base_ask": float(st.base_ask),
-                            "hist_bid": list(st.hist_bid),
-                            "hist_ask": list(st.hist_ask),
-                            "last_bucket_id": st.last_bucket_id,
-                            "hist_maxlen": int(st.hist_bid.maxlen or 0),
+                            "base_bid": float(st.base_bid)
+                            "base_ask": float(st.base_ask)
+                            "hist_bid": list(st.hist_bid)
+                            "hist_ask": list(st.hist_ask)
+                            "last_bucket_id": st.last_bucket_id
+                            "hist_maxlen": int(st.hist_bid.maxlen or 0)
                         }
-                    },
+                    }
                 }
             # all symbols
             symbols: Dict[str, Any] = {}
             for sym, st in (self._st or {}).items():
                 try:
                     symbols[str(sym)] = {
-                        "base_bid": float(st.base_bid),
-                        "base_ask": float(st.base_ask),
-                        "hist_bid": list(st.hist_bid),
-                        "hist_ask": list(st.hist_ask),
-                        "last_bucket_id": st.last_bucket_id,
-                        "hist_maxlen": int(st.hist_bid.maxlen or 0),
+                        "base_bid": float(st.base_bid)
+                        "base_ask": float(st.base_ask)
+                        "hist_bid": list(st.hist_bid)
+                        "hist_ask": list(st.hist_ask)
+                        "last_bucket_id": st.last_bucket_id
+                        "hist_maxlen": int(st.hist_bid.maxlen or 0)
                     }
                 except Exception:
                     continue
@@ -434,20 +434,20 @@ class CancellationSpikeGate:
                 if not st:
                     return {"symbol": sym, "present": False}
                 return {
-                    "symbol": sym,
-                    "present": True,
-                    "last_bucket_id": st.last_bucket_id,
+                    "symbol": sym
+                    "present": True
+                    "last_bucket_id": st.last_bucket_id
                     "n_samples": len(st.hist_bid),  # approximate sample count (both sides should be same length)
                     "bid": {
-                        "baseline_ema": float(st.base_bid),
-                        "hist": list(st.hist_bid),
-                        "hist_maxlen": int(st.hist_bid.maxlen or 0),
-                    },
+                        "baseline_ema": float(st.base_bid)
+                        "hist": list(st.hist_bid)
+                        "hist_maxlen": int(st.hist_bid.maxlen or 0)
+                    }
                     "ask": {
-                        "baseline_ema": float(st.base_ask),
-                        "hist": list(st.hist_ask),
-                        "hist_maxlen": int(st.hist_ask.maxlen or 0),
-                    },
+                        "baseline_ema": float(st.base_ask)
+                        "hist": list(st.hist_ask)
+                        "hist_maxlen": int(st.hist_ask.maxlen or 0)
+                    }
                 }
             # full snapshot (compatible with export_state format)
             return self.export_state()
@@ -580,13 +580,13 @@ class CancellationSpikeGate:
                 # Since we don't track ratios directly, we approximate from baseline
                 # Format: {"n": int, "mean": float, "m2": float}
                 w_long = {
-                    "n": int(len(st.hist_bid)),
-                    "mean": float(st.base_bid),
+                    "n": int(len(st.hist_bid))
+                    "mean": float(st.base_bid)
                     "m2": 0.0,  # Not tracked in current implementation
                 }
                 w_short = {
-                    "n": int(len(st.hist_ask)),
-                    "mean": float(st.base_ask),
+                    "n": int(len(st.hist_ask))
+                    "mean": float(st.base_ask)
                     "m2": 0.0,  # Not tracked in current implementation
                 }
                 

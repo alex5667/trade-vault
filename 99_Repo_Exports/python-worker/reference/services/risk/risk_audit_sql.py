@@ -45,16 +45,16 @@ def _metric(factory, name: str, *args, **kwargs):
 
 
 TRADE_RISK_AUDIT_WRITE_FAIL_TOTAL = _metric(
-    Counter,
-    'trade_risk_audit_write_fail_total',
-    'Number of failed SQL writes for risk decision audit storage.',
-    ['stage'],
+    Counter
+    'trade_risk_audit_write_fail_total'
+    'Number of failed SQL writes for risk decision audit storage.'
+    ['stage']
 )
 TRADE_RISK_AUDIT_WRITE_TOTAL = _metric(
-    Counter,
-    'trade_risk_audit_write_total',
-    'Number of successful SQL writes for risk decision audit storage.',
-    ['table'],
+    Counter
+    'trade_risk_audit_write_total'
+    'Number of successful SQL writes for risk decision audit storage.'
+    ['table']
 )
 
 
@@ -87,12 +87,12 @@ class RiskAuditSqlSink:
         return psycopg.connect(self.dsn)
 
     def record_decision(
-        self,
-        *,
-        decision_id: str,
-        signal: Dict[str, Any],
-        risk_input: Any,
-        risk_decision: Any,
+        self
+        *
+        decision_id: str
+        signal: Dict[str, Any]
+        risk_input: Any
+        risk_decision: Any
     ) -> bool:
         """Mirror a risk decision into SQL.
 
@@ -147,48 +147,48 @@ class RiskAuditSqlSink:
                     cur.execute(
                         """
                         insert into risk_decision_audit (
-                            decision_id, signal_id, sid, symbol, cluster, tier, level,
-                            allow_trade_publish, effective_execution_policy,
-                            requested_notional_usd, adjusted_notional_usd,
-                            leverage_cap, risk_multiplier, clamp_ratio,
-                            decision_latency_ms, reasons_jsonb, snapshot_jsonb,
+                            decision_id, signal_id, sid, symbol, cluster, tier, level
+                            allow_trade_publish, effective_execution_policy
+                            requested_notional_usd, adjusted_notional_usd
+                            leverage_cap, risk_multiplier, clamp_ratio
+                            decision_latency_ms, reasons_jsonb, snapshot_jsonb
                             signal_jsonb, created_ts_ms
                         ) values (
-                            %s,%s,%s,%s,%s,%s,%s,
-                            %s,%s,
-                            %s,%s,
-                            %s,%s,%s,
-                            %s,%s::jsonb,%s::jsonb,
+                            %s,%s,%s,%s,%s,%s,%s
+                            %s,%s
+                            %s,%s
+                            %s,%s,%s
+                            %s,%s::jsonb,%s::jsonb
                             %s::jsonb,%s
                         )
                         on conflict (decision_id) do update set
-                            signal_id = excluded.signal_id,
-                            sid = excluded.sid,
-                            symbol = excluded.symbol,
-                            cluster = excluded.cluster,
-                            tier = excluded.tier,
-                            level = excluded.level,
-                            allow_trade_publish = excluded.allow_trade_publish,
-                            effective_execution_policy = excluded.effective_execution_policy,
-                            requested_notional_usd = excluded.requested_notional_usd,
-                            adjusted_notional_usd = excluded.adjusted_notional_usd,
-                            leverage_cap = excluded.leverage_cap,
-                            risk_multiplier = excluded.risk_multiplier,
-                            clamp_ratio = excluded.clamp_ratio,
-                            decision_latency_ms = excluded.decision_latency_ms,
-                            reasons_jsonb = excluded.reasons_jsonb,
-                            snapshot_jsonb = excluded.snapshot_jsonb,
-                            signal_jsonb = excluded.signal_jsonb,
+                            signal_id = excluded.signal_id
+                            sid = excluded.sid
+                            symbol = excluded.symbol
+                            cluster = excluded.cluster
+                            tier = excluded.tier
+                            level = excluded.level
+                            allow_trade_publish = excluded.allow_trade_publish
+                            effective_execution_policy = excluded.effective_execution_policy
+                            requested_notional_usd = excluded.requested_notional_usd
+                            adjusted_notional_usd = excluded.adjusted_notional_usd
+                            leverage_cap = excluded.leverage_cap
+                            risk_multiplier = excluded.risk_multiplier
+                            clamp_ratio = excluded.clamp_ratio
+                            decision_latency_ms = excluded.decision_latency_ms
+                            reasons_jsonb = excluded.reasons_jsonb
+                            snapshot_jsonb = excluded.snapshot_jsonb
+                            signal_jsonb = excluded.signal_jsonb
                             created_ts_ms = excluded.created_ts_ms
-                        """,
+                        """
                         (
-                            decision_id, signal_id, sid, symbol, cluster, tier, level,
-                            allow_trade_publish, effective_execution_policy,
-                            requested_notional_usd, adjusted_notional_usd,
-                            leverage_cap, risk_multiplier, clamp_ratio,
-                            decision_latency_ms, _json(reasons), _json(snapshot),
-                            _json(signal), created_ts_ms,
-                        ),
+                            decision_id, signal_id, sid, symbol, cluster, tier, level
+                            allow_trade_publish, effective_execution_policy
+                            requested_notional_usd, adjusted_notional_usd
+                            leverage_cap, risk_multiplier, clamp_ratio
+                            decision_latency_ms, _json(reasons), _json(snapshot)
+                            _json(signal), created_ts_ms
+                        )
                     )
                     if TRADE_RISK_AUDIT_WRITE_TOTAL:
                         TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_decision_audit').inc()
@@ -197,32 +197,32 @@ class RiskAuditSqlSink:
                     cur.execute(
                         """
                         insert into risk_snapshot (
-                            decision_id, sid, signal_id, symbol, cluster, tier, level,
-                            effective_execution_policy, adjusted_notional_usd, leverage_cap,
+                            decision_id, sid, signal_id, symbol, cluster, tier, level
+                            effective_execution_policy, adjusted_notional_usd, leverage_cap
                             clamp_ratio, decision_latency_ms, snapshot_jsonb, updated_ts_ms
                         ) values (
                             %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s
                         )
                         on conflict (decision_id) do update set
-                            sid = excluded.sid,
-                            signal_id = excluded.signal_id,
-                            symbol = excluded.symbol,
-                            cluster = excluded.cluster,
-                            tier = excluded.tier,
-                            level = excluded.level,
-                            effective_execution_policy = excluded.effective_execution_policy,
-                            adjusted_notional_usd = excluded.adjusted_notional_usd,
-                            leverage_cap = excluded.leverage_cap,
-                            clamp_ratio = excluded.clamp_ratio,
-                            decision_latency_ms = excluded.decision_latency_ms,
-                            snapshot_jsonb = excluded.snapshot_jsonb,
+                            sid = excluded.sid
+                            signal_id = excluded.signal_id
+                            symbol = excluded.symbol
+                            cluster = excluded.cluster
+                            tier = excluded.tier
+                            level = excluded.level
+                            effective_execution_policy = excluded.effective_execution_policy
+                            adjusted_notional_usd = excluded.adjusted_notional_usd
+                            leverage_cap = excluded.leverage_cap
+                            clamp_ratio = excluded.clamp_ratio
+                            decision_latency_ms = excluded.decision_latency_ms
+                            snapshot_jsonb = excluded.snapshot_jsonb
                             updated_ts_ms = excluded.updated_ts_ms
-                        """,
+                        """
                         (
-                            decision_id, sid, signal_id, symbol, cluster, tier, level,
-                            effective_execution_policy, adjusted_notional_usd, leverage_cap,
-                            clamp_ratio, decision_latency_ms, _json(snapshot), created_ts_ms,
-                        ),
+                            decision_id, sid, signal_id, symbol, cluster, tier, level
+                            effective_execution_policy, adjusted_notional_usd, leverage_cap
+                            clamp_ratio, decision_latency_ms, _json(snapshot), created_ts_ms
+                        )
                     )
                     if TRADE_RISK_AUDIT_WRITE_TOTAL:
                         TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_snapshot').inc()

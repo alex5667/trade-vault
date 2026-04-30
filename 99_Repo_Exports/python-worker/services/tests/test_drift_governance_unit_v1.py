@@ -42,7 +42,7 @@ class TestDriftGovernance(unittest.TestCase):
     def test_check_dataset_validity_expired(self):
         # Mock DB response for expired dataset
         self.cur.fetchone.return_value = {
-            'status': 'valid',
+            'status': 'valid'
             'valid_until': datetime.now(timezone.utc) - timedelta(hours=1)
         }
         
@@ -54,8 +54,8 @@ class TestDriftGovernance(unittest.TestCase):
         # Mock active drift events
         self.cur.fetchall.return_value = [
             {
-                'drift_family': 'EXECUTION_COST_DRIFT',
-                'severity': 'critical',
+                'drift_family': 'EXECUTION_COST_DRIFT'
+                'severity': 'critical'
                 'scope_value': 'BTCUSDT'
             }
         ]

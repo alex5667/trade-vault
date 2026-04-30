@@ -23,11 +23,11 @@ import os
 from typing import Any
 
 ALLOWED_PURPOSES = {
-    'latency_contract_sensitive_apply',
-    'conf_score_guardrails_apply',
-    'conf_score_guardrails_promote',
-    'meta_cov_rollout_controller',
-    'conf_score_guardrails_autopromo_controller',
+    'latency_contract_sensitive_apply'
+    'conf_score_guardrails_apply'
+    'conf_score_guardrails_promote'
+    'meta_cov_rollout_controller'
+    'conf_score_guardrails_autopromo_controller'
 }
 
 
@@ -47,9 +47,9 @@ def main() -> int:
         description='Latency contract rollout preflight gate check'
     )
     ap.add_argument(
-        '--purpose',
-        default='latency_contract_sensitive_apply',
-        help='Identifier of the job being preflight-checked (logged only)',
+        '--purpose'
+        default='latency_contract_sensitive_apply'
+        help='Identifier of the job being preflight-checked (logged only)'
     )
     ns = ap.parse_args()
     if ns.purpose not in ALLOWED_PURPOSES:

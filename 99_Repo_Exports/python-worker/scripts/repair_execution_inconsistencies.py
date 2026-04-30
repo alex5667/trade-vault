@@ -8,7 +8,7 @@ Purpose
 -------
 P7 adds a conservative repair utility that treats Redis ``orders:state:*`` and
 recent ``orders:exec`` events as the operational source of truth for *current*
-execution state, while SQL remains the durable mirror used by BI, dashboards,
+execution state, while SQL remains the durable mirror used by BI, dashboards
 and incident review.
 
 The tool is intentionally narrow:
@@ -60,13 +60,13 @@ except Exception:
 
 # Fields representing protective algo order IDs stored in a separate SQL table
 PROTECTION_FIELDS = (
-    'sl_algo_id',
-    'sl_client_algo_id',
-    'tp1_algo_id',
-    'tp2_algo_id',
-    'tp3_algo_id',
-    'trail_algo_id',
-    'trail_client_algo_id',
+    'sl_algo_id'
+    'sl_client_algo_id'
+    'tp1_algo_id'
+    'tp2_algo_id'
+    'tp3_algo_id'
+    'trail_algo_id'
+    'trail_client_algo_id'
 )
 
 
@@ -86,9 +86,9 @@ def _s(v: Any) -> str:
 
 
 def select_best_source(
-    redis_doc: Mapping[str, Any],
-    stream_doc: Mapping[str, Any],
-    sql_doc: Mapping[str, Any],
+    redis_doc: Mapping[str, Any]
+    stream_doc: Mapping[str, Any]
+    sql_doc: Mapping[str, Any]
 ) -> Tuple[str, Dict[str, Any]]:
     """Choose the least lossy mirror for SQL repair.
 
@@ -105,11 +105,11 @@ def select_best_source(
 
 
 def build_repair_plan(
-    mismatches: Iterable[consistency.ConsistencyMismatch],
-    redis_state: Mapping[str, Mapping[str, Any]],
-    stream_latest: Mapping[str, Mapping[str, Any]],
-    sql_orders: Mapping[str, Mapping[str, Any]],
-    sql_refs: Mapping[str, Mapping[str, Any]],
+    mismatches: Iterable[consistency.ConsistencyMismatch]
+    redis_state: Mapping[str, Mapping[str, Any]]
+    stream_latest: Mapping[str, Mapping[str, Any]]
+    sql_orders: Mapping[str, Mapping[str, Any]]
+    sql_refs: Mapping[str, Mapping[str, Any]]
 ) -> List[Dict[str, Any]]:
     """Build an ordered list of repair steps per sid.
 
@@ -145,12 +145,12 @@ def build_repair_plan(
             if not sql_doc:
                 actions.append('upsert_execution_order')
         plan.append({
-            'sid': sid,
-            'source': source_name,
-            'actions': sorted(set(actions)),
-            'source_doc': source_doc,
-            'source_ref_doc': redis_doc or sql_ref_doc,
-            'categories': sorted(categories),
+            'sid': sid
+            'source': source_name
+            'actions': sorted(set(actions))
+            'source_doc': source_doc
+            'source_ref_doc': redis_doc or sql_ref_doc
+            'categories': sorted(categories)
         })
     return plan
 
@@ -170,9 +170,9 @@ class SQLRepairWriter:
     def apply(self, plan: Iterable[Mapping[str, Any]]) -> Dict[str, int]:
         """Execute the plan; returns counters dict with orders_upserted/orders_synced/refs_synced."""
         counters = {
-            'orders_upserted': 0,
-            'orders_synced': 0,
-            'refs_synced': 0,
+            'orders_upserted': 0
+            'orders_synced': 0
+            'refs_synced': 0
         }
         with self.conn:
             with self.conn.cursor() as cur:
@@ -191,33 +191,33 @@ class SQLRepairWriter:
                             INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms)
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                             ON CONFLICT (sid) DO UPDATE SET
-                              symbol = EXCLUDED.symbol,
-                              action = EXCLUDED.action,
-                              status = EXCLUDED.status,
-                              fsm_state = EXCLUDED.fsm_state,
-                              execution_policy = EXCLUDED.execution_policy,
-                              venue = EXCLUDED.venue,
-                              position_mode = EXCLUDED.position_mode,
-                              position_side = EXCLUDED.position_side,
-                              working_type_policy = EXCLUDED.working_type_policy,
-                              state_jsonb = EXCLUDED.state_jsonb,
+                              symbol = EXCLUDED.symbol
+                              action = EXCLUDED.action
+                              status = EXCLUDED.status
+                              fsm_state = EXCLUDED.fsm_state
+                              execution_policy = EXCLUDED.execution_policy
+                              venue = EXCLUDED.venue
+                              position_mode = EXCLUDED.position_mode
+                              position_side = EXCLUDED.position_side
+                              working_type_policy = EXCLUDED.working_type_policy
+                              state_jsonb = EXCLUDED.state_jsonb
                               updated_at_ms = GREATEST(execution_orders.updated_at_ms, EXCLUDED.updated_at_ms)
-                            """,
+                            """
                             (
-                                sid,
-                                _s(doc.get('symbol')),
-                                _s(doc.get('action')),
-                                _s(doc.get('status')),
-                                _s(doc.get('fsm_state')),
-                                _s(doc.get('execution_policy')),
-                                _s(doc.get('venue') or 'binance'),
-                                _s(doc.get('position_mode')),
-                                _s(doc.get('position_side')),
-                                _s(doc.get('working_type_policy')),
-                                json.dumps(doc, ensure_ascii=False, default=str),
-                                _i(doc.get('created_at_ms') or doc.get('ts_ms') or get_ny_time_millis()),
-                                _i(doc.get('updated_at_ms') or doc.get('ts_ms') or get_ny_time_millis()),
-                            ),
+                                sid
+                                _s(doc.get('symbol'))
+                                _s(doc.get('action'))
+                                _s(doc.get('status'))
+                                _s(doc.get('fsm_state'))
+                                _s(doc.get('execution_policy'))
+                                _s(doc.get('venue') or 'binance')
+                                _s(doc.get('position_mode'))
+                                _s(doc.get('position_side'))
+                                _s(doc.get('working_type_policy'))
+                                json.dumps(doc, ensure_ascii=False, default=str)
+                                _i(doc.get('created_at_ms') or doc.get('ts_ms') or get_ny_time_millis())
+                                _i(doc.get('updated_at_ms') or doc.get('ts_ms') or get_ny_time_millis())
+                            )
                         )
                         if 'upsert_execution_order' in actions:
                             counters['orders_upserted'] += 1
@@ -232,42 +232,42 @@ class SQLRepairWriter:
                             INSERT INTO execution_protection_refs (sid, symbol, sl_algo_id, sl_client_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id, trail_client_algo_id, updated_at_ms)
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             ON CONFLICT (sid) DO UPDATE SET
-                              symbol = EXCLUDED.symbol,
-                              sl_algo_id = COALESCE(EXCLUDED.sl_algo_id, execution_protection_refs.sl_algo_id),
-                              sl_client_algo_id = COALESCE(NULLIF(EXCLUDED.sl_client_algo_id, ''), execution_protection_refs.sl_client_algo_id),
-                              tp1_algo_id = COALESCE(EXCLUDED.tp1_algo_id, execution_protection_refs.tp1_algo_id),
-                              tp2_algo_id = COALESCE(EXCLUDED.tp2_algo_id, execution_protection_refs.tp2_algo_id),
-                              tp3_algo_id = COALESCE(EXCLUDED.tp3_algo_id, execution_protection_refs.tp3_algo_id),
-                              trail_algo_id = COALESCE(EXCLUDED.trail_algo_id, execution_protection_refs.trail_algo_id),
-                              trail_client_algo_id = COALESCE(NULLIF(EXCLUDED.trail_client_algo_id, ''), execution_protection_refs.trail_client_algo_id),
+                              symbol = EXCLUDED.symbol
+                              sl_algo_id = COALESCE(EXCLUDED.sl_algo_id, execution_protection_refs.sl_algo_id)
+                              sl_client_algo_id = COALESCE(NULLIF(EXCLUDED.sl_client_algo_id, ''), execution_protection_refs.sl_client_algo_id)
+                              tp1_algo_id = COALESCE(EXCLUDED.tp1_algo_id, execution_protection_refs.tp1_algo_id)
+                              tp2_algo_id = COALESCE(EXCLUDED.tp2_algo_id, execution_protection_refs.tp2_algo_id)
+                              tp3_algo_id = COALESCE(EXCLUDED.tp3_algo_id, execution_protection_refs.tp3_algo_id)
+                              trail_algo_id = COALESCE(EXCLUDED.trail_algo_id, execution_protection_refs.trail_algo_id)
+                              trail_client_algo_id = COALESCE(NULLIF(EXCLUDED.trail_client_algo_id, ''), execution_protection_refs.trail_client_algo_id)
                               updated_at_ms = GREATEST(execution_protection_refs.updated_at_ms, EXCLUDED.updated_at_ms)
-                            """,
+                            """
                             (
-                                sid,
-                                _s(src.get('symbol')),
-                                _i(src.get('sl_algo_id'), 0) or None,
-                                _s(src.get('sl_client_algo_id')),
-                                _i(src.get('tp1_algo_id'), 0) or None,
-                                _i(src.get('tp2_algo_id'), 0) or None,
-                                _i(src.get('tp3_algo_id'), 0) or None,
-                                _i(src.get('trail_algo_id'), 0) or None,
-                                _s(src.get('trail_client_algo_id')),
-                                _i(src.get('updated_at_ms') or src.get('ts_ms') or get_ny_time_millis()),
-                            ),
+                                sid
+                                _s(src.get('symbol'))
+                                _i(src.get('sl_algo_id'), 0) or None
+                                _s(src.get('sl_client_algo_id'))
+                                _i(src.get('tp1_algo_id'), 0) or None
+                                _i(src.get('tp2_algo_id'), 0) or None
+                                _i(src.get('tp3_algo_id'), 0) or None
+                                _i(src.get('trail_algo_id'), 0) or None
+                                _s(src.get('trail_client_algo_id'))
+                                _i(src.get('updated_at_ms') or src.get('ts_ms') or get_ny_time_millis())
+                            )
                         )
                         counters['refs_synced'] += 1
         return counters
 
 
 def run_repair(
-    *,
-    redis_url: str,
-    journal_dsn: str,
-    state_prefix: str,
-    exec_stream: str,
-    stream_count: int,
-    dry_run: bool = False,
-    ledger_dsn: str = '',
+    *
+    redis_url: str
+    journal_dsn: str
+    state_prefix: str
+    exec_stream: str
+    stream_count: int
+    dry_run: bool = False
+    ledger_dsn: str = ''
 ) -> Dict[str, Any]:
     """Orchestrate the full repair flow: read mirrors → diff → plan → (optionally) apply."""
     import redis as redislib  # type: ignore
@@ -285,12 +285,12 @@ def run_repair(
     mismatches, _, _ = consistency.compare_execution_views(redis_state, stream_latest, sql_orders, sql_refs)
     plan = build_repair_plan(mismatches, redis_state, stream_latest, sql_orders, sql_refs)
     result: Dict[str, Any] = {
-        'checked_at_ms': get_ny_time_millis(),
-        'mismatches_total': len(mismatches),
-        'repair_steps_total': len([p for p in plan if p.get('actions')]),
-        'plan': plan,
-        'applied': False,
-        'counters': {'orders_upserted': 0, 'orders_synced': 0, 'refs_synced': 0},
+        'checked_at_ms': get_ny_time_millis()
+        'mismatches_total': len(mismatches)
+        'repair_steps_total': len([p for p in plan if p.get('actions')])
+        'plan': plan
+        'applied': False
+        'counters': {'orders_upserted': 0, 'orders_synced': 0, 'refs_synced': 0}
     }
     if not dry_run:
         writer = SQLRepairWriter(sql_conn)
@@ -299,12 +299,12 @@ def run_repair(
     if ledger_dsn and QuarantineLedgerSink is not None:
         now_ms = get_ny_time_millis()
         QuarantineLedgerSink(dsn=ledger_dsn).record_repair_run({
-            'run_kind': 'manual_repair',
-            'source': 'repair_execution_inconsistencies',
-            'status': 'dry_run' if dry_run else 'applied',
-            'summary': result,
-            'started_at_ms': int(result.get('checked_at_ms') or now_ms),
-            'finished_at_ms': now_ms,
+            'run_kind': 'manual_repair'
+            'source': 'repair_execution_inconsistencies'
+            'status': 'dry_run' if dry_run else 'applied'
+            'summary': result
+            'started_at_ms': int(result.get('checked_at_ms') or now_ms)
+            'finished_at_ms': now_ms
         })
     return result
 
@@ -324,13 +324,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         raise SystemExit('EXECUTION_JOURNAL_DSN/--journal-dsn is required')
 
     result = run_repair(
-        redis_url=args.redis_url,
-        journal_dsn=args.journal_dsn,
-        state_prefix=args.state_prefix,
-        exec_stream=args.exec_stream,
-        stream_count=args.stream_count,
-        dry_run=args.dry_run,
-        ledger_dsn=args.ledger_dsn,
+        redis_url=args.redis_url
+        journal_dsn=args.journal_dsn
+        state_prefix=args.state_prefix
+        exec_stream=args.exec_stream
+        stream_count=args.stream_count
+        dry_run=args.dry_run
+        ledger_dsn=args.ledger_dsn
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

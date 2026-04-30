@@ -32,23 +32,23 @@ except Exception:
 
 # Detector -> incident mapping rule
 DETECTOR_TO_INCIDENT_CLASS = {
-    "book_stale": "DATA_QUALITY_FREEZE",
-    "tick_gap_critical": "DATA_QUALITY_FREEZE",
-    "atr_unavailable": "DATA_QUALITY_FREEZE",
-    "drift:hard": "FEATURE_DRIFT_FREEZE",
-    "negative_ev": "EDGE_COST_SHOCK",
-    "spread_too_wide": "EDGE_COST_SHOCK",
-    "TRADE_RETCODE_REQUOTE": "VENUE_MT5_DEGRADED",
-    "TRADE_RETCODE_CONNECTION": "VENUE_MT5_DOWN",
+    "book_stale": "DATA_QUALITY_FREEZE"
+    "tick_gap_critical": "DATA_QUALITY_FREEZE"
+    "atr_unavailable": "DATA_QUALITY_FREEZE"
+    "drift:hard": "FEATURE_DRIFT_FREEZE"
+    "negative_ev": "EDGE_COST_SHOCK"
+    "spread_too_wide": "EDGE_COST_SHOCK"
+    "TRADE_RETCODE_REQUOTE": "VENUE_MT5_DEGRADED"
+    "TRADE_RETCODE_CONNECTION": "VENUE_MT5_DOWN"
     "redis_health_ping_failed": "REDIS_BLIND"
 }
 
 CLASS_TO_SEVERITY = {
-    "REDIS_BLIND": "SEV-1",
-    "VENUE_MT5_DOWN": "SEV-1",
-    "DATA_QUALITY_FREEZE": "SEV-1",
-    "FEATURE_DRIFT_FREEZE": "SEV-2",
-    "VENUE_MT5_DEGRADED": "SEV-2",
+    "REDIS_BLIND": "SEV-1"
+    "VENUE_MT5_DOWN": "SEV-1"
+    "DATA_QUALITY_FREEZE": "SEV-1"
+    "FEATURE_DRIFT_FREEZE": "SEV-2"
+    "VENUE_MT5_DEGRADED": "SEV-2"
     "EDGE_COST_SHOCK": "SEV-3"
 }
 
@@ -70,17 +70,17 @@ def determine_incident_class_from_detector(reason_code: str) -> str:
     return "UNKNOWN_INCIDENT"
 
 def open_incident(
-    scope_kind: str,
-    detected_by: str,
-    reason_code: str,
-    incident_json: Dict[str, Any],
-    source: str = "",
-    venue: str = "",
-    symbol: str = "",
-    scenario: str = "",
-    regime: str = "",
-    risk_horizon_bucket: str = "",
-    layer: str = "",
+    scope_kind: str
+    detected_by: str
+    reason_code: str
+    incident_json: Dict[str, Any]
+    source: str = ""
+    venue: str = ""
+    symbol: str = ""
+    scenario: str = ""
+    regime: str = ""
+    risk_horizon_bucket: str = ""
+    layer: str = ""
     policy_ver: int = 0
 ) -> Optional[str]:
     """Detects and opens a new incident, recording it in the DB and triggering advisory alerts."""
@@ -105,17 +105,17 @@ def open_incident(
 
             cur.execute("""
                 INSERT INTO atr_incidents (
-                    incident_id, incident_class, severity, scope_kind, source, venue, symbol,
+                    incident_id, incident_class, severity, scope_kind, source, venue, symbol
                     scenario, regime, risk_horizon_bucket, layer, policy_ver, status, owner, 
                     detected_by, reason_code, incident_json, opened_at_ms, updated_at_ms
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s
                     %s, %s, %s, %s, %s
                 )
             """, (
-                incident_id, incident_class, severity, scope_kind, source, venue, symbol,
-                scenario, regime, risk_horizon_bucket, layer, policy_ver, status, "unassigned",
+                incident_id, incident_class, severity, scope_kind, source, venue, symbol
+                scenario, regime, risk_horizon_bucket, layer, policy_ver, status, "unassigned"
                 detected_by, reason_code, json.dumps(incident_json), now_ms, now_ms
             ))
             
@@ -127,12 +127,12 @@ def open_incident(
             # Advisory Mode: Write to Redis for Telegram notification, without automated no_new_risk applies yet.
             r = get_redis()
             payload = {
-                "incident_id": incident_id,
-                "class": incident_class,
-                "severity": severity,
-                "scope": scope_kind,
-                "symbol": symbol,
-                "reason": reason_code,
+                "incident_id": incident_id
+                "class": incident_class
+                "severity": severity
+                "scope": scope_kind
+                "symbol": symbol
+                "reason": reason_code
                 "ts": now_ms
             }
             r.xadd("notify:telegram", {"channel": "ops", "type": "incident_opened", "payload": json.dumps(payload)})
@@ -163,11 +163,11 @@ def change_status(incident_id: str, new_status: str, actor: str, reason_code: st
             old_status = row["status"]
             # Enforce state machine simplified: OPEN -> ACKED -> MITIGATING -> STABILIZED -> RECOVERING -> RECOVERED -> CLOSED
             valid_forward = {
-                "OPEN": ["ACKED"],
-                "ACKED": ["MITIGATING", "STABILIZED"],
-                "MITIGATING": ["STABILIZED"],
-                "STABILIZED": ["RECOVERING"],
-                "RECOVERING": ["RECOVERED"],
+                "OPEN": ["ACKED"]
+                "ACKED": ["MITIGATING", "STABILIZED"]
+                "MITIGATING": ["STABILIZED"]
+                "STABILIZED": ["RECOVERING"]
+                "RECOVERING": ["RECOVERED"]
                 "RECOVERED": ["CLOSED"]
             }
             

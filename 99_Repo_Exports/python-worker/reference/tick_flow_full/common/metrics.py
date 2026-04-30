@@ -22,18 +22,18 @@ METRICS: Any = _NoopMetrics()
 
 # --- OK/OF-gate metrics emission health (telemetry about telemetry) ---
 ok_metrics_emitted_total = _get_or_create_prom_counter(
-    "ok_metrics_emitted_total",
-    "Total decision/ok metric rows emitted to Redis streams",
-    ["src"],
+    "ok_metrics_emitted_total"
+    "Total decision/ok metric rows emitted to Redis streams"
+    ["src"]
 )
 ok_metrics_skipped_total = _get_or_create_prom_counter(
-    "ok_metrics_skipped_total",
-    "Total decision/ok metric rows skipped (sampling/disabled/invalid)",
-    ["src", "why"],
+    "ok_metrics_skipped_total"
+    "Total decision/ok metric rows skipped (sampling/disabled/invalid)"
+    ["src", "why"]
 )
 ok_metrics_error_total = _get_or_create_prom_counter(
-    "ok_metrics_error_total",
-    "Total decision/ok metric emission errors",
-    ["src", "where"],
+    "ok_metrics_error_total"
+    "Total decision/ok metric emission errors"
+    ["src", "where"]
 )
 

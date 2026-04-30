@@ -47,10 +47,10 @@ def _metric(factory, name: str, *args, **kwargs):
 
 
 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL = _metric(
-    Counter,
-    'trade_execution_journal_write_fail_total',
-    'Number of execution journal DB write failures.',
-    ['kind'],
+    Counter
+    'trade_execution_journal_write_fail_total'
+    'Number of execution journal DB write failures.'
+    ['kind']
 )
 
 # psycopg3 preferred, psycopg2 as fallback (both provide compatible context-manager API)
@@ -142,13 +142,13 @@ class ExecutionJournalSink:
             with conn:
                 with conn.cursor() as cur:
                     cur.execute(sql, (
-                        _s(payload.get('sid')),
-                        _s(payload.get('symbol')),
-                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
-                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
-                        _s(payload.get('event_type') or payload.get('action') or 'event'),
-                        _i(payload.get('ts_ms') or get_ny_time_millis()),
-                        json.dumps(payload, ensure_ascii=False, default=str),
+                        _s(payload.get('sid'))
+                        _s(payload.get('symbol'))
+                        _first_text(payload, 'signal_id', 'decision_id', 'id')
+                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id')
+                        _s(payload.get('event_type') or payload.get('action') or 'event')
+                        _i(payload.get('ts_ms') or get_ny_time_millis())
+                        json.dumps(payload, ensure_ascii=False, default=str)
                     ))
             return True
         except Exception:
@@ -165,7 +165,7 @@ class ExecutionJournalSink:
         if not self.enabled:
             return False
         sql = (
-            # P5: extended columns — entry_policy, exit_policy, signal_id, execution_plan_id,
+            # P5: extended columns — entry_policy, exit_policy, signal_id, execution_plan_id
             # entry_order_ref, exit_order_ref, closed_trade_id.  COALESCE on chain refs ensures
             # partial updates (TP watchdog, trail arming) do not wipe the original chain.
             "INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, entry_policy, exit_policy, "
@@ -190,27 +190,27 @@ class ExecutionJournalSink:
             with conn:
                 with conn.cursor() as cur:
                     cur.execute(sql, (
-                        _s(doc.get('sid')),
-                        _s(doc.get('symbol')),
-                        _s(doc.get('action')),
-                        _s(doc.get('status')),
-                        _s(doc.get('fsm_state')),
-                        _s(doc.get('execution_policy')),
+                        _s(doc.get('sid'))
+                        _s(doc.get('symbol'))
+                        _s(doc.get('action'))
+                        _s(doc.get('status'))
+                        _s(doc.get('fsm_state'))
+                        _s(doc.get('execution_policy'))
                         # entry_policy fallback to execution_policy for pre-P5 rows
-                        _s(doc.get('entry_policy') or doc.get('execution_policy')),
-                        _s(doc.get('exit_policy')),
-                        _first_text(doc, 'signal_id', 'decision_id', 'id'),
-                        _first_text(doc, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
-                        _optional_text(doc.get('entry_order_ref')),
-                        _optional_text(doc.get('exit_order_ref')),
-                        _optional_text(doc.get('closed_trade_id')),
-                        _s(doc.get('venue') or 'binance'),
-                        _s(doc.get('position_mode')),
-                        _s(doc.get('position_side')),
-                        _s(doc.get('working_type_policy')),
-                        json.dumps(doc, ensure_ascii=False, default=str),
-                        _i(doc.get('created_at_ms') or now_ms),
-                        _i(doc.get('updated_at_ms') or now_ms),
+                        _s(doc.get('entry_policy') or doc.get('execution_policy'))
+                        _s(doc.get('exit_policy'))
+                        _first_text(doc, 'signal_id', 'decision_id', 'id')
+                        _first_text(doc, 'execution_plan_id', 'decision_id', 'signal_id', 'id')
+                        _optional_text(doc.get('entry_order_ref'))
+                        _optional_text(doc.get('exit_order_ref'))
+                        _optional_text(doc.get('closed_trade_id'))
+                        _s(doc.get('venue') or 'binance')
+                        _s(doc.get('position_mode'))
+                        _s(doc.get('position_side'))
+                        _s(doc.get('working_type_policy'))
+                        json.dumps(doc, ensure_ascii=False, default=str)
+                        _i(doc.get('created_at_ms') or now_ms)
+                        _i(doc.get('updated_at_ms') or now_ms)
                     ))
             return True
         except Exception:
@@ -247,16 +247,16 @@ class ExecutionJournalSink:
             with conn:
                 with conn.cursor() as cur:
                     cur.execute(sql, (
-                        sid,
-                        _s(s.get('symbol')),
-                        s.get('sl_algo_id'),
-                        _optional_text(s.get('sl_client_algo_id')),
-                        s.get('tp1_algo_id'),
-                        s.get('tp2_algo_id'),
-                        s.get('tp3_algo_id'),
-                        s.get('trail_algo_id'),
-                        _optional_text(s.get('trail_client_algo_id')),
-                        _i(s.get('updated_at_ms') or get_ny_time_millis()),
+                        sid
+                        _s(s.get('symbol'))
+                        s.get('sl_algo_id')
+                        _optional_text(s.get('sl_client_algo_id'))
+                        s.get('tp1_algo_id')
+                        s.get('tp2_algo_id')
+                        s.get('tp3_algo_id')
+                        s.get('trail_algo_id')
+                        _optional_text(s.get('trail_client_algo_id'))
+                        _i(s.get('updated_at_ms') or get_ny_time_millis())
                     ))
             return True
         except Exception:
@@ -283,15 +283,15 @@ class ExecutionJournalSink:
             with conn:
                 with conn.cursor() as cur:
                     cur.execute(sql, (
-                        _s(payload.get('sid')),
-                        _s(payload.get('symbol')),
-                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
-                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
-                        payload.get('tp_level'),
-                        _s(payload.get('tp_state') or payload.get('watchdog_state') or ''),
-                        _s(payload.get('event_type') or 'watchdog'),
-                        _i(payload.get('ts_ms') or get_ny_time_millis()),
-                        json.dumps(payload, ensure_ascii=False, default=str),
+                        _s(payload.get('sid'))
+                        _s(payload.get('symbol'))
+                        _first_text(payload, 'signal_id', 'decision_id', 'id')
+                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id')
+                        payload.get('tp_level')
+                        _s(payload.get('tp_state') or payload.get('watchdog_state') or '')
+                        _s(payload.get('event_type') or 'watchdog')
+                        _i(payload.get('ts_ms') or get_ny_time_millis())
+                        json.dumps(payload, ensure_ascii=False, default=str)
                     ))
             return True
         except Exception:

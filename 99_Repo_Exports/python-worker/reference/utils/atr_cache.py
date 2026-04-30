@@ -34,13 +34,13 @@ _log = logging.getLogger(__name__)
 # Timeframe normalisation table (lowercase input -> tracker uppercase key)
 # ---------------------------------------------------------------------------
 _TF_MAP: dict[str, str] = {
-    "1m": "M1",  "m1": "M1",
-    "5m": "M5",  "m5": "M5",
-    "15m": "M15", "m15": "M15",
-    "30m": "M30", "m30": "M30",
-    "1h": "H1",  "h1": "H1",
-    "4h": "H4",  "h4": "H4",
-    "1d": "D1",  "d1": "D1",
+    "1m": "M1",  "m1": "M1"
+    "5m": "M5",  "m5": "M5"
+    "15m": "M15", "m15": "M15"
+    "30m": "M30", "m30": "M30"
+    "1h": "H1",  "h1": "H1"
+    "4h": "H4",  "h4": "H4"
+    "1d": "D1",  "d1": "D1"
 }
 
 
@@ -55,8 +55,8 @@ class ATRCache:
     """
 
     def __init__(
-        self,
-        ttl: int = 3600,
+        self
+        ttl: int = 3600
         redis_client: redis.Redis | None = None,  # type: ignore[type-arg]
     ) -> None:
         if redis_client is not None:
@@ -78,11 +78,11 @@ class ATRCache:
         return atr
 
     def get_with_meta(
-        self,
-        symbol: str,
-        timeframe: str | None = None,
-        now_ms: int | None = None,
-        prefer_src: str = "",
+        self
+        symbol: str
+        timeframe: str | None = None
+        now_ms: int | None = None
+        prefer_src: str = ""
     ) -> tuple[float | None, dict[str, Any]]:
         """Return ``(atr_value, meta)`` using the best available source.
 
@@ -143,11 +143,11 @@ class ATRCache:
         return None, {"src": "none", "tf": tf, "ts_ms": 0, "age_ms": 0}
 
     def get_candidates(
-        self,
-        *,
-        symbol: str,
-        timeframe: str,
-        now_ms: int | None = None,
+        self
+        *
+        symbol: str
+        timeframe: str
+        now_ms: int | None = None
     ) -> list[dict[str, Any]]:
         """Return ALL available candidates with metadata for source selection.
 
@@ -169,9 +169,9 @@ class ATRCache:
                 ts_ms = _i(v_ts, 0) if v_ts else 0
                 age = max(0, nm - ts_ms) if ts_ms > 0 else 0
                 out.append({
-                    "atr": atr, "src": "atr_tracker", "key": tracker_key,
-                    "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age,
-                    "has_ts": int(ts_ms > 0),
+                    "atr": atr, "src": "atr_tracker", "key": tracker_key
+                    "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age
+                    "has_ts": int(ts_ms > 0)
                 })
         except Exception:  # noqa: BLE001
             pass
@@ -184,9 +184,9 @@ class ATRCache:
                 atr = _f(raw, 0.0)
                 pttl = self._pttl_ms(key2)
                 out.append({
-                    "atr": atr, "src": "atr_string", "key": key2,
-                    "tf": tf_norm, "ts_ms": 0, "age_ms": 0,
-                    "has_ts": 0, "pttl_ms": pttl,
+                    "atr": atr, "src": "atr_string", "key": key2
+                    "tf": tf_norm, "ts_ms": 0, "age_ms": 0
+                    "has_ts": 0, "pttl_ms": pttl
                 })
         except Exception:  # noqa: BLE001
             pass
@@ -199,9 +199,9 @@ class ATRCache:
                 atr = _f(raw, 0.0)
                 pttl = self._pttl_ms(key2b)
                 out.append({
-                    "atr": atr, "src": "atr_val", "key": key2b,
-                    "tf": tf_norm, "ts_ms": 0, "age_ms": 0,
-                    "has_ts": 0, "pttl_ms": pttl,
+                    "atr": atr, "src": "atr_val", "key": key2b
+                    "tf": tf_norm, "ts_ms": 0, "age_ms": 0
+                    "has_ts": 0, "pttl_ms": pttl
                 })
         except Exception:  # noqa: BLE001
             pass
@@ -217,9 +217,9 @@ class ATRCache:
                 if atr > 0:
                     age = max(0, nm - ts_ms) if ts_ms > 0 else 0
                     out.append({
-                        "atr": atr, "src": "atr_json", "key": key3,
-                        "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age,
-                        "has_ts": int(ts_ms > 0),
+                        "atr": atr, "src": "atr_json", "key": key3
+                        "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age
+                        "has_ts": int(ts_ms > 0)
                     })
         except Exception:  # noqa: BLE001
             pass
@@ -237,11 +237,11 @@ class ATRCache:
                     age = max(0, nm - ts_ms) if ts_ms > 0 else 0
                     tf_mismatch = int(bool(src_tf) and src_tf != tf_norm)
                     out.append({
-                        "atr": atr, "src": "ta_last", "key": last_key,
-                        "tf": src_tf if src_tf else tf_norm,
-                        "ts_ms": ts_ms, "age_ms": age,
-                        "has_ts": int(ts_ms > 0),
-                        "tf_mismatch": tf_mismatch,
+                        "atr": atr, "src": "ta_last", "key": last_key
+                        "tf": src_tf if src_tf else tf_norm
+                        "ts_ms": ts_ms, "age_ms": age
+                        "has_ts": int(ts_ms > 0)
+                        "tf_mismatch": tf_mismatch
                     })
         except Exception:  # noqa: BLE001
             pass
@@ -305,12 +305,12 @@ def _normalize_tracker_tf(tf: str) -> str:
 def _candidate_meta(c: dict[str, Any], requested_tf: str) -> dict[str, Any]:
     """Build a normalised meta dict from a candidate entry."""
     return {
-        "src": str(c.get("src", "unknown")),
-        "key": str(c.get("key", "")),
-        "tf": str(c.get("tf", requested_tf)),
-        "ts_ms": int(c.get("ts_ms", 0) or 0),
-        "age_ms": int(c.get("age_ms", 0) or 0),
-        "tf_mismatch": int(c.get("tf_mismatch", 0)),
+        "src": str(c.get("src", "unknown"))
+        "key": str(c.get("key", ""))
+        "tf": str(c.get("tf", requested_tf))
+        "ts_ms": int(c.get("ts_ms", 0) or 0)
+        "age_ms": int(c.get("age_ms", 0) or 0)
+        "tf_mismatch": int(c.get("tf_mismatch", 0))
     }
 
 

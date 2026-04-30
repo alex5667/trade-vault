@@ -1,7 +1,7 @@
 from utils.time_utils import get_ny_time_millis
 """
 Cleanup script for virtual trades created before the risk-based lot sizing fix.
-This script scans Redis for closed trades, identifies virtual ones,
+This script scans Redis for closed trades, identifies virtual ones
 and cleans them up to prevent them from corrupting the R-multiples and Expectancy R in periodic reports.
 """
 import os

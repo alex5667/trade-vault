@@ -42,11 +42,11 @@ def test_tick_trade_id_gap_dup_reorder_separation():
 
     ind = {}
     TickProcessor._update_strict_dq_trackers(
-        runtime=runtime,
-        tick={"trade_id": 100},
-        tick_ts_ms=1_000,
-        cfg_eff=runtime.config,
-        indicators=ind,
+        runtime=runtime
+        tick={"trade_id": 100}
+        tick_ts_ms=1_000
+        cfg_eff=runtime.config
+        indicators=ind
     )
 
     assert runtime.last_trade_id == 100
@@ -57,11 +57,11 @@ def test_tick_trade_id_gap_dup_reorder_separation():
     # DUP: tid == last_tid
     ind = {}
     TickProcessor._update_strict_dq_trackers(
-        runtime=runtime,
-        tick={"trade_id": 100},
-        tick_ts_ms=1_100,
-        cfg_eff=runtime.config,
-        indicators=ind,
+        runtime=runtime
+        tick={"trade_id": 100}
+        tick_ts_ms=1_100
+        cfg_eff=runtime.config
+        indicators=ind
     )
     assert runtime.last_trade_id == 100
     assert ind.get("tick_dup_count") == 1
@@ -72,11 +72,11 @@ def test_tick_trade_id_gap_dup_reorder_separation():
     # REORDER: tid < last_tid (must NOT regress last_trade_id)
     ind = {}
     TickProcessor._update_strict_dq_trackers(
-        runtime=runtime,
-        tick={"trade_id": 99},
-        tick_ts_ms=1_200,
-        cfg_eff=runtime.config,
-        indicators=ind,
+        runtime=runtime
+        tick={"trade_id": 99}
+        tick_ts_ms=1_200
+        cfg_eff=runtime.config
+        indicators=ind
     )
     assert runtime.last_trade_id == 100
     assert ind.get("tick_reorder_count") == 1
@@ -86,11 +86,11 @@ def test_tick_trade_id_gap_dup_reorder_separation():
     # GAP: tid > last_tid + 1 (missing) -> tick_missing_seq_ema increases
     ind = {}
     TickProcessor._update_strict_dq_trackers(
-        runtime=runtime,
-        tick={"trade_id": 103},
-        tick_ts_ms=1_300,
-        cfg_eff=runtime.config,
-        indicators=ind,
+        runtime=runtime
+        tick={"trade_id": 103}
+        tick_ts_ms=1_300
+        cfg_eff=runtime.config
+        indicators=ind
     )
 
     assert runtime.last_trade_id == 103

@@ -19,12 +19,12 @@ import pytest
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from orderflow_services.enforce_bucket_state_exporter_v1 import (
-    _as_float,
-    _as_int,
-    _as_str,
-    _load_json,
-    _parse_list,
-    Exporter,
+    _as_float
+    _as_int
+    _as_str
+    _load_json
+    _parse_list
+    Exporter
 )
 
 
@@ -161,15 +161,15 @@ def test_exporter_reads_status_file(tmp_path, monkeypatch):
     monkeypatch.setenv("ENFORCE_PROMOTER_STATUS_PATH", str(tmp_path / "status.json"))
 
     report = {
-        "ts_ms": 1000000000,
-        "apply": False,
+        "ts_ms": 1000000000
+        "apply": False
         "decisions": {
-            "slippage": {"ok": True, "added": "HIGH_VOL", "reasons": []},
-            "taker": {"ok": False, "added": "", "reasons": []},
-        },
+            "slippage": {"ok": True, "added": "HIGH_VOL", "reasons": []}
+            "taker": {"ok": False, "added": "", "reasons": []}
+        }
         "bucket_health": {
             "HIGH_VOL": {"db_n": 500, "resid_p95": 1.5, "resid_p99": 3.0, "gate_n": 1000, "ok_soft_rate": 0.20}
-        },
+        }
     }
     (tmp_path / "status.json").write_text(json.dumps(report), encoding="utf-8")
 
@@ -197,17 +197,17 @@ def test_exporter_edge_neg_share_gauge_set_from_status(tmp_path, monkeypatch):
     monkeypatch.setenv("ENFORCE_PROMOTER_STATUS_PATH", str(tmp_path / "status.json"))
 
     report = {
-        "ts_ms": 1700000000000,
-        "apply": False,
+        "ts_ms": 1700000000000
+        "apply": False
         "decisions": {
-            "slippage": {"ok": False, "added": "", "reasons": []},
-            "taker": {"ok": False, "added": "", "reasons": []},
-        },
+            "slippage": {"ok": False, "added": "", "reasons": []}
+            "taker": {"ok": False, "added": "", "reasons": []}
+        }
         # P89: edge_neg_share now included in bucket_health
         "bucket_health": {
-            "HIGH_VOL": {"db_n": 300, "resid_p95": 2.1, "resid_p99": 4.5, "edge_neg_share": 0.42, "gate_n": 600, "ok_soft_rate": 0.10},
-            "HIGH_VOL_LOW_LIQ": {"db_n": 100, "resid_p95": 1.0, "resid_p99": 2.0, "edge_neg_share": 0.12, "gate_n": 200, "ok_soft_rate": 0.15},
-        },
+            "HIGH_VOL": {"db_n": 300, "resid_p95": 2.1, "resid_p99": 4.5, "edge_neg_share": 0.42, "gate_n": 600, "ok_soft_rate": 0.10}
+            "HIGH_VOL_LOW_LIQ": {"db_n": 100, "resid_p95": 1.0, "resid_p99": 2.0, "edge_neg_share": 0.12, "gate_n": 200, "ok_soft_rate": 0.15}
+        }
     }
     (tmp_path / "status.json").write_text(json.dumps(report), encoding="utf-8")
 

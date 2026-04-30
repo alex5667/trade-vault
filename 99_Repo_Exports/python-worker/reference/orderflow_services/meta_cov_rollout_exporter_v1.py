@@ -102,151 +102,151 @@ GAUGE_SQ_N_24H_BY_REGIME = Gauge("signal_quality_n_24h_by_regime", "N over last 
 
 # P70: export per-policy-mode breakdown (breaker modes, low cardinality)
 GAUGE_SQ_EXPECTANCY_R_24H_BY_POLICY_MODE = Gauge(
-    "signal_quality_expectancy_r_24h_by_policy_mode",
-    "Mean R over last 24h by policy effective mode",
-    ["mode"],
+    "signal_quality_expectancy_r_24h_by_policy_mode"
+    "Mean R over last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_SQ_PRECISION_TOP5P_24H_BY_POLICY_MODE = Gauge(
-    "signal_quality_precision_top5p_24h_by_policy_mode",
-    "Win rate in top 5%% by score over last 24h by policy effective mode",
-    ["mode"],
+    "signal_quality_precision_top5p_24h_by_policy_mode"
+    "Win rate in top 5%% by score over last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_SQ_ECE_24H_BY_POLICY_MODE = Gauge(
-    "signal_quality_ece_24h_by_policy_mode",
-    "ECE over last 24h by policy effective mode",
-    ["mode"],
+    "signal_quality_ece_24h_by_policy_mode"
+    "ECE over last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_SQ_N_24H_BY_POLICY_MODE = Gauge(
-    "signal_quality_n_24h_by_policy_mode",
-    "N over last 24h by policy effective mode",
-    ["mode"],
+    "signal_quality_n_24h_by_policy_mode"
+    "N over last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_SQ_POLICY_MODE_LAST_TS_MS = Gauge(
-    "signal_quality_policy_mode_last_ts_ms",
-    "Last KPI compute timestamp for policy mode breakdown (ms)",
+    "signal_quality_policy_mode_last_ts_ms"
+    "Last KPI compute timestamp for policy mode breakdown (ms)"
 )
 
 # P71: Policy effectiveness report (coverage shares + delta vs ok for each policy mode)
 GAUGE_POLICY_EFF_SHARE_24H = Gauge(
-    "policy_effectiveness_share_24h",
-    "Share of trades in last 24h by policy effective mode",
-    ["mode"],
+    "policy_effectiveness_share_24h"
+    "Share of trades in last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_POLICY_EFF_EXPECTANCY_R_DELTA_24H = Gauge(
-    "policy_effectiveness_expectancy_r_delta_24h",
-    "Delta mean R vs ok over last 24h by policy effective mode",
-    ["mode"],
+    "policy_effectiveness_expectancy_r_delta_24h"
+    "Delta mean R vs ok over last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_POLICY_EFF_PRECISION_TOP5P_DELTA_24H = Gauge(
-    "policy_effectiveness_precision_top5p_delta_24h",
-    "Delta precision@top5%% vs ok over last 24h by policy effective mode",
-    ["mode"],
+    "policy_effectiveness_precision_top5p_delta_24h"
+    "Delta precision@top5%% vs ok over last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_POLICY_EFF_ECE_DELTA_24H = Gauge(
-    "policy_effectiveness_ece_delta_24h",
-    "Delta ECE vs ok over last 24h by policy effective mode",
-    ["mode"],
+    "policy_effectiveness_ece_delta_24h"
+    "Delta ECE vs ok over last 24h by policy effective mode"
+    ["mode"]
 )
 GAUGE_POLICY_EFF_BASELINE_OK_PRESENT = Gauge(
-    "policy_effectiveness_baseline_ok_present",
-    "1 if ok baseline exists for delta computations in last report",
+    "policy_effectiveness_baseline_ok_present"
+    "1 if ok baseline exists for delta computations in last report"
 )
 GAUGE_POLICY_EFF_LAST_TS_MS = Gauge(
-    "policy_effectiveness_last_ts_ms",
-    "Last policy effectiveness report timestamp (ms)",
+    "policy_effectiveness_last_ts_ms"
+    "Last policy effectiveness report timestamp (ms)"
 )
 GAUGE_POLICY_EFF_STALENESS_SEC = Gauge(
-    "policy_effectiveness_staleness_sec",
-    "Age of policy effectiveness report (seconds)",
+    "policy_effectiveness_staleness_sec"
+    "Age of policy effectiveness report (seconds)"
 )
 
 # P72: Policy regime effectiveness report (deltas within each dq/drift cell)
 GAUGE_POLICY_REGIME_EFF_LAST_TS_MS = Gauge(
-    "policy_regime_effectiveness_last_ts_ms",
-    "Last policy-regime effectiveness report timestamp (ms)",
+    "policy_regime_effectiveness_last_ts_ms"
+    "Last policy-regime effectiveness report timestamp (ms)"
 )
 GAUGE_POLICY_REGIME_EFF_STALENESS_SEC = Gauge(
-    "policy_regime_effectiveness_staleness_sec",
-    "Age of policy-regime effectiveness report (seconds)",
+    "policy_regime_effectiveness_staleness_sec"
+    "Age of policy-regime effectiveness report (seconds)"
 )
 GAUGE_POLICY_REGIME_EFF_CELLS_TOTAL = Gauge(
-    "policy_regime_effectiveness_cells_total",
-    "Number of (dq_state, drift_state) regime cells with any data in last report",
+    "policy_regime_effectiveness_cells_total"
+    "Number of (dq_state, drift_state) regime cells with any data in last report"
 )
 GAUGE_POLICY_REGIME_EFF_CELLS_OK_BASELINE = Gauge(
-    "policy_regime_effectiveness_cells_ok_baseline",
-    "Number of regime cells with ok baseline (min N) in last report",
+    "policy_regime_effectiveness_cells_ok_baseline"
+    "Number of regime cells with ok baseline (min N) in last report"
 )
 GAUGE_POLICY_REGIME_EFF_WORST_WARN_EXPECTANCY_DELTA = Gauge(
-    "policy_regime_effectiveness_worst_warn_expectancy_r_delta",
-    "Worst (min) expectancy delta vs ok within regime among warn cells",
+    "policy_regime_effectiveness_worst_warn_expectancy_r_delta"
+    "Worst (min) expectancy delta vs ok within regime among warn cells"
 )
 GAUGE_POLICY_REGIME_EFF_WORST_WARN_PRECISION_DELTA = Gauge(
-    "policy_regime_effectiveness_worst_warn_precision_top5p_delta",
-    "Worst (min) precision@top5%% delta vs ok within regime among warn cells",
+    "policy_regime_effectiveness_worst_warn_precision_top5p_delta"
+    "Worst (min) precision@top5%% delta vs ok within regime among warn cells"
 )
 GAUGE_POLICY_REGIME_EFF_WORST_WARN_ECE_DELTA = Gauge(
-    "policy_regime_effectiveness_worst_warn_ece_delta",
-    "Worst (max) ECE delta vs ok within regime among warn cells",
+    "policy_regime_effectiveness_worst_warn_ece_delta"
+    "Worst (max) ECE delta vs ok within regime among warn cells"
 )
 GAUGE_POLICY_REGIME_EFF_WORST_BLOCK_EXPECTANCY_DELTA = Gauge(
-    "policy_regime_effectiveness_worst_block_expectancy_r_delta",
-    "Worst (min) expectancy delta vs ok within regime among block cells",
+    "policy_regime_effectiveness_worst_block_expectancy_r_delta"
+    "Worst (min) expectancy delta vs ok within regime among block cells"
 )
 GAUGE_POLICY_REGIME_EFF_WORST_BLOCK_PRECISION_DELTA = Gauge(
-    "policy_regime_effectiveness_worst_block_precision_top5p_delta",
-    "Worst (min) precision@top5%% delta vs ok within regime among block cells",
+    "policy_regime_effectiveness_worst_block_precision_top5p_delta"
+    "Worst (min) precision@top5%% delta vs ok within regime among block cells"
 )
 GAUGE_POLICY_REGIME_EFF_WORST_BLOCK_ECE_DELTA = Gauge(
-    "policy_regime_effectiveness_worst_block_ece_delta",
-    "Worst (max) ECE delta vs ok within regime among block cells",
+    "policy_regime_effectiveness_worst_block_ece_delta"
+    "Worst (max) ECE delta vs ok within regime among block cells"
 )
 
 
 # P74: Policy calibration suggester (advisory action codes + severity)
 GAUGE_POLICY_CAL_SUG_LAST_TS_MS = Gauge(
-    "policy_calibration_suggest_last_ts_ms",
-    "Last policy calibration suggestion timestamp (ms)",
+    "policy_calibration_suggest_last_ts_ms"
+    "Last policy calibration suggestion timestamp (ms)"
 )
 GAUGE_POLICY_CAL_SUG_STALENESS_SEC = Gauge(
-    "policy_calibration_suggest_staleness_sec",
-    "Age of policy calibration suggestion (seconds)",
+    "policy_calibration_suggest_staleness_sec"
+    "Age of policy calibration suggestion (seconds)"
 )
 GAUGE_POLICY_CAL_SUG_INPUTS_STALE = Gauge(
-    "policy_calibration_suggest_inputs_stale",
-    "1 if inputs (P71/P72) are stale beyond configured max",
+    "policy_calibration_suggest_inputs_stale"
+    "1 if inputs (P71/P72) are stale beyond configured max"
 )
 GAUGE_POLICY_CAL_SUG_OK_BASELINE_PRESENT = Gauge(
-    "policy_calibration_suggest_ok_baseline_present",
-    "1 if ok baseline exists (deltas are reliable)",
+    "policy_calibration_suggest_ok_baseline_present"
+    "1 if ok baseline exists (deltas are reliable)"
 )
 GAUGE_POLICY_CAL_SUG_WARN_ACTION_CODE = Gauge(
-    "policy_calibration_suggest_warn_action_code",
-    "Advisory action for WARN threshold (-1 loosen, 0 none, +1 tighten)",
+    "policy_calibration_suggest_warn_action_code"
+    "Advisory action for WARN threshold (-1 loosen, 0 none, +1 tighten)"
 )
 GAUGE_POLICY_CAL_SUG_WARN_SEVERITY = Gauge(
-    "policy_calibration_suggest_warn_severity",
-    "Severity score for WARN mode (normalized max delta)",
+    "policy_calibration_suggest_warn_severity"
+    "Severity score for WARN mode (normalized max delta)"
 )
 GAUGE_POLICY_CAL_SUG_WARN_SHARE_24H = Gauge(
-    "policy_calibration_suggest_warn_share_24h",
-    "Share of WARN mode in last 24h",
+    "policy_calibration_suggest_warn_share_24h"
+    "Share of WARN mode in last 24h"
 )
 GAUGE_POLICY_CAL_SUG_BLOCK_ACTION_CODE = Gauge(
-    "policy_calibration_suggest_block_action_code",
-    "Advisory action for BLOCK threshold (-1 loosen, 0 none, +1 tighten)",
+    "policy_calibration_suggest_block_action_code"
+    "Advisory action for BLOCK threshold (-1 loosen, 0 none, +1 tighten)"
 )
 GAUGE_POLICY_CAL_SUG_BLOCK_SEVERITY = Gauge(
-    "policy_calibration_suggest_block_severity",
-    "Severity score for BLOCK mode (normalized max delta)",
+    "policy_calibration_suggest_block_severity"
+    "Severity score for BLOCK mode (normalized max delta)"
 )
 GAUGE_POLICY_CAL_SUG_BLOCK_SHARE_24H = Gauge(
-    "policy_calibration_suggest_block_share_24h",
-    "Share of BLOCK mode in last 24h",
+    "policy_calibration_suggest_block_share_24h"
+    "Share of BLOCK mode in last 24h"
 )
 GAUGE_POLICY_CAL_SUG_UNKNOWN_SHARE_24H = Gauge(
-    "policy_calibration_suggest_unknown_share_24h",
-    "Share of UNKNOWN mode in last 24h",
+    "policy_calibration_suggest_unknown_share_24h"
+    "Share of UNKNOWN mode in last 24h"
 )
 
 

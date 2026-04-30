@@ -25,8 +25,8 @@ MIN_SEVERITY = os.getenv("MIN_SEVERITY", "warning").lower()
 
 # Severity levels
 SEVERITY_LEVELS = {
-    "info": 0,
-    "warning": 1,
+    "info": 0
+    "warning": 1
     "error": 2
 }
 
@@ -97,10 +97,10 @@ def main():
     # Main loop
     while True:
         msgs = r.xreadgroup(
-            GROUP,
-            CONSUMER,
-            {EXEC_STREAM: ">"},
-            count=50,
+            GROUP
+            CONSUMER
+            {EXEC_STREAM: ">"}
+            count=50
             block=2000
         )
         

@@ -94,10 +94,10 @@ def _probe_status_path(reports_dir: str) -> Tuple[str, str]:
     if env_path:
         return env_path, "env"
     candidates = [
-        "confidence_calibration_live_status.json",
-        "conf_cal_live_status.json",
-        "confidence_cal_live_status.json",
-        "live_status.json",
+        "confidence_calibration_live_status.json"
+        "conf_cal_live_status.json"
+        "confidence_cal_live_status.json"
+        "live_status.json"
     ]
     for name in candidates:
         p = os.path.join(reports_dir, name)
@@ -123,9 +123,9 @@ class _CtrlState:
     last_bump_ts: int = 0
 
 class ProofStateController:
-    def __init__(self, *, reports_dir: str, proof_path: str, state_path: str,
-                 min_good_runs: int, min_bad_runs: int, max_live_age_sec: int,
-                 canary_enable: bool, canary_start: float, canary_step: float,
+    def __init__(self, *, reports_dir: str, proof_path: str, state_path: str
+                 min_good_runs: int, min_bad_runs: int, max_live_age_sec: int
+                 canary_enable: bool, canary_start: float, canary_step: float
                  canary_max: float, canary_bump_min_sec: int) -> None:
         self.reports_dir = str(reports_dir)
         self.proof_path = str(proof_path)
@@ -156,16 +156,16 @@ class ProofStateController:
 
     def _save_state(self, now_sec: int) -> None:
         _write_json_atomic(self.state_path, {
-            "ts": int(now_sec),
-            "good_streak": int(self.state.good_streak),
-            "bad_streak": int(self.state.bad_streak),
-            "valid": bool(self.state.valid),
-            "evidence_ts": int(self.state.evidence_ts),
-            "canary_share": float(self.state.canary_share),
-            "ramp_started_ts": int(self.state.ramp_started_ts),
-            "last_bump_ts": int(self.state.last_bump_ts),
-            "status_path": str(self.status_path),
-            "status_path_reason": str(self.status_path_reason),
+            "ts": int(now_sec)
+            "good_streak": int(self.state.good_streak)
+            "bad_streak": int(self.state.bad_streak)
+            "valid": bool(self.state.valid)
+            "evidence_ts": int(self.state.evidence_ts)
+            "canary_share": float(self.state.canary_share)
+            "ramp_started_ts": int(self.state.ramp_started_ts)
+            "last_bump_ts": int(self.state.last_bump_ts)
+            "status_path": str(self.status_path)
+            "status_path_reason": str(self.status_path_reason)
         })
 
     def _extract_guard_passed(self, status: Dict[str, Any]) -> Optional[bool]:
@@ -230,7 +230,7 @@ class ProofStateController:
             return proof
         age_sec = self._status_age_sec(status, now_ms)
         if age_sec > float(self.max_live_age_sec):
-            proof = self._emit_proof(now_sec, reason=f"status_stale>{int(self.max_live_age_sec)}s",
+            proof = self._emit_proof(now_sec, reason=f"status_stale>{int(self.max_live_age_sec)}s"
                                      status=status, status_age_sec=age_sec)
             self._save_state(now_sec)
             return proof
@@ -275,13 +275,13 @@ class ProofStateController:
             reasons = g.get("reasons") if isinstance(g, dict) else None
             if isinstance(reasons, list) and reasons:
                 reason = "bad:" + ",".join(str(x) for x in reasons[:3])
-        proof = self._emit_proof(now_sec, reason=reason, status=status, status_age_sec=age_sec,
+        proof = self._emit_proof(now_sec, reason=reason, status=status, status_age_sec=age_sec
                                  guard_passed=guard_passed, skipped=skipped, skip_reason=skip_reason)
         self._save_state(now_sec)
         return proof
 
-    def _emit_proof(self, now_sec: int, *, reason: str, status: Optional[Dict[str, Any]],
-                    status_age_sec: Optional[float] = None, guard_passed: Optional[bool] = None,
+    def _emit_proof(self, now_sec: int, *, reason: str, status: Optional[Dict[str, Any]]
+                    status_age_sec: Optional[float] = None, guard_passed: Optional[bool] = None
                     skipped: bool = False, skip_reason: str = "") -> Dict[str, Any]:
         status_ts_ms = _as_int(status.get("ts_ms"), 0) if isinstance(status, dict) else 0
         if status_age_sec is None:
@@ -290,19 +290,19 @@ class ProofStateController:
             except Exception:
                 status_age_sec = float("inf")
         proof: Dict[str, Any] = {
-            "ts": int(now_sec),
-            "evidence_ts": int(self.state.evidence_ts),
-            "valid": bool(self.state.valid),
-            "reason": str(reason),
-            "canary_share": float(_clamp01(float(self.state.canary_share))) if self.state.valid else 0.0,
+            "ts": int(now_sec)
+            "evidence_ts": int(self.state.evidence_ts)
+            "valid": bool(self.state.valid)
+            "reason": str(reason)
+            "canary_share": float(_clamp01(float(self.state.canary_share))) if self.state.valid else 0.0
             "source": {
-                "status_path": str(self.status_path),
-                "status_path_reason": str(self.status_path_reason),
-                "status_ts_ms": int(status_ts_ms),
-                "status_age_sec": float(status_age_sec),
-            },
-            "streaks": {"good": int(self.state.good_streak), "bad": int(self.state.bad_streak)},
-            "last": {"guard_passed": guard_passed, "skipped": bool(skipped), "skip_reason": str(skip_reason)},
+                "status_path": str(self.status_path)
+                "status_path_reason": str(self.status_path_reason)
+                "status_ts_ms": int(status_ts_ms)
+                "status_age_sec": float(status_age_sec)
+            }
+            "streaks": {"good": int(self.state.good_streak), "bad": int(self.state.bad_streak)}
+            "last": {"guard_passed": guard_passed, "skipped": bool(skipped), "skip_reason": str(skip_reason)}
         }
         _write_json_atomic(self.proof_path, proof)
         return proof
@@ -321,10 +321,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     canary_max = float(os.getenv("CONF_CAL_PROOF_CANARY_MAX", "1.0") or 1.0)
     canary_bump = int(os.getenv("CONF_CAL_PROOF_CANARY_BUMP_MIN_SEC", "1800") or 1800)
     ctl = ProofStateController(
-        reports_dir=str(reports_dir), proof_path=str(proof_path), state_path=str(state_path),
-        min_good_runs=min_good, min_bad_runs=min_bad, max_live_age_sec=max_live_age_sec,
-        canary_enable=canary_enable, canary_start=canary_start, canary_step=canary_step,
-        canary_max=canary_max, canary_bump_min_sec=canary_bump,
+        reports_dir=str(reports_dir), proof_path=str(proof_path), state_path=str(state_path)
+        min_good_runs=min_good, min_bad_runs=min_bad, max_live_age_sec=max_live_age_sec
+        canary_enable=canary_enable, canary_start=canary_start, canary_step=canary_step
+        canary_max=canary_max, canary_bump_min_sec=canary_bump
     )
     proof = ctl.step()
     print(json.dumps({"ok": True, "proof_path": proof_path, "valid": bool(proof.get("valid")), "reason": proof.get("reason")}, ensure_ascii=False))

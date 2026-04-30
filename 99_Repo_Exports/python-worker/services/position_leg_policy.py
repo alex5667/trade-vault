@@ -29,23 +29,23 @@ class PositionLeg:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "entry": self.entry,
-            "qty": self.qty,
-            "side": self.side,
-            "signal_id": self.signal_id,
-            "ts_ms": self.ts_ms,
-            "seq": self.seq,
+            "entry": self.entry
+            "qty": self.qty
+            "side": self.side
+            "signal_id": self.signal_id
+            "ts_ms": self.ts_ms
+            "seq": self.seq
         }
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "PositionLeg":
         return cls(
-            entry=float(d.get("entry") or 0.0),
-            qty=float(d.get("qty") or 0.0),
-            side=str(d.get("side") or "LONG").upper(),
-            signal_id=str(d.get("signal_id") or ""),
-            ts_ms=int(d.get("ts_ms") or 0),
-            seq=int(d.get("seq") or 0),
+            entry=float(d.get("entry") or 0.0)
+            qty=float(d.get("qty") or 0.0)
+            side=str(d.get("side") or "LONG").upper()
+            signal_id=str(d.get("signal_id") or "")
+            ts_ms=int(d.get("ts_ms") or 0)
+            seq=int(d.get("seq") or 0)
         )
 
 
@@ -85,10 +85,10 @@ def worst_case_loss_usdt(legs: List[PositionLeg], sl: float) -> float:
 
 
 def max_add_qty_for_budget(
-    legs: List[PositionLeg],
-    sl: float,
-    budget_usdt: float,
-    new_entry: float = 0.0,
+    legs: List[PositionLeg]
+    sl: float
+    budget_usdt: float
+    new_entry: float = 0.0
 ) -> float:
     """Max additional qty that can be added without exceeding risk budget.
 
@@ -123,10 +123,10 @@ def max_add_qty_for_budget(
 # ---------------------------------------------------------------------------
 
 def build_scale_in_tp_schema(
-    existing_legs: List[PositionLeg],
-    new_qty: float,
-    tp_prices: List[float],
-    original_tp_qtys: Optional[List[float]] = None,
+    existing_legs: List[PositionLeg]
+    new_qty: float
+    tp_prices: List[float]
+    original_tp_qtys: Optional[List[float]] = None
 ) -> Tuple[List[float], List[float], int]:
     """Build TP prices + qty allocation for a scale-in resize.
 

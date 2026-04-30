@@ -48,12 +48,12 @@ class EdgeGateReporter:
     def _fetch_stats(self) -> List[Dict]:
         query = """
             SELECT
-                symbol,
-                count(*) AS n,
-                avg(CASE WHEN passed THEN 1.0 ELSE 0.0 END) AS pass_rate,
-                percentile_cont(0.5) WITHIN GROUP (ORDER BY margin_bps) as p50_margin,
-                percentile_cont(0.9) WITHIN GROUP (ORDER BY margin_bps) as p90_margin,
-                percentile_cont(0.5) WITHIN GROUP (ORDER BY req_bps) as p50_req,
+                symbol
+                count(*) AS n
+                avg(CASE WHEN passed THEN 1.0 ELSE 0.0 END) AS pass_rate
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY margin_bps) as p50_margin
+                percentile_cont(0.9) WITHIN GROUP (ORDER BY margin_bps) as p90_margin
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY req_bps) as p50_req
                 avg(fees_bps) as avg_fees
             FROM edge_gate_events
             WHERE ts >= now() - interval '%s hours'

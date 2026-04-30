@@ -74,15 +74,15 @@ class ManipulationTracker:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def update_from_book(
-        self,
-        *,
-        ts_ms: int,
-        bid_depth_usd: float,
-        ask_depth_usd: float,
-        book_update_rate_z: float,
-        cancel_rate_z: float,
-        trade_msg_rate_hz: float,
-        mid_px: float,
+        self
+        *
+        ts_ms: int
+        bid_depth_usd: float
+        ask_depth_usd: float
+        book_update_rate_z: float
+        cancel_rate_z: float
+        trade_msg_rate_hz: float
+        mid_px: float
     ) -> None:
         """
         Called by BookProcessor on every book snapshot.
@@ -101,18 +101,18 @@ class ManipulationTracker:
 
             # 1. Quote stuffing detection
             self._update_quote_stuffing(
-                book_update_rate_z=float(book_update_rate_z),
-                cancel_rate_z=float(cancel_rate_z),
-                flags=flags,
+                book_update_rate_z=float(book_update_rate_z)
+                cancel_rate_z=float(cancel_rate_z)
+                flags=flags
             )
 
             # 2. Layering detection
             self._update_layering(
-                ts_ms=int(ts_ms),
-                bid_depth_usd=float(bid_depth_usd),
-                ask_depth_usd=float(ask_depth_usd),
-                trade_msg_rate_hz=float(trade_msg_rate_hz),
-                flags=flags,
+                ts_ms=int(ts_ms)
+                bid_depth_usd=float(bid_depth_usd)
+                ask_depth_usd=float(ask_depth_usd)
+                trade_msg_rate_hz=float(trade_msg_rate_hz)
+                flags=flags
             )
 
             self.manip_flags = ",".join(flags) if flags else ""
@@ -123,10 +123,10 @@ class ManipulationTracker:
     # ── Internal: Quote Stuffing ──────────────────────────────────────────────
 
     def _update_quote_stuffing(
-        self,
-        book_update_rate_z: float,
-        cancel_rate_z: float,
-        flags: list,
+        self
+        book_update_rate_z: float
+        cancel_rate_z: float
+        flags: list
     ) -> None:
         """
         Quote stuffing score = composite of book update rate Z + cancel rate Z.
@@ -168,12 +168,12 @@ class ManipulationTracker:
     # ── Internal: Layering ────────────────────────────────────────────────────
 
     def _update_layering(
-        self,
-        ts_ms: int,
-        bid_depth_usd: float,
-        ask_depth_usd: float,
-        trade_msg_rate_hz: float,
-        flags: list,
+        self
+        ts_ms: int
+        bid_depth_usd: float
+        ask_depth_usd: float
+        trade_msg_rate_hz: float
+        flags: list
     ) -> None:
         """
         Layering state machine (L2 approximation).
@@ -289,7 +289,7 @@ class ManipulationTracker:
     def snapshot(self) -> dict:
         """Lightweight dict for strategy / indicators / sidecar."""
         return {
-            "quote_stuffing_score": float(self.quote_stuffing_score),
-            "layering_score": float(self.layering_score),
-            "manip_flags": str(self.manip_flags),
+            "quote_stuffing_score": float(self.quote_stuffing_score)
+            "layering_score": float(self.layering_score)
+            "manip_flags": str(self.manip_flags)
         }

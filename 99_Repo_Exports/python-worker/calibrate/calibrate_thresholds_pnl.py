@@ -19,9 +19,9 @@ from typing import Tuple, Optional
 
 
 def objective(
-    df: pd.DataFrame,
-    dz: float,
-    obi: float,
+    df: pd.DataFrame
+    dz: float
+    obi: float
     require_weak: bool = False
 ) -> Tuple[float, float, int]:
     """
@@ -125,11 +125,11 @@ def main():
         score = weight_profit * mu + weight_sharpe * sh
         
         results.append({
-            "dz": dz,
-            "obi": ob,
-            "mean_profit": mu,
-            "sharpe": sh,
-            "samples": n,
+            "dz": dz
+            "obi": ob
+            "mean_profit": mu
+            "sharpe": sh
+            "samples": n
             "score": score
         })
         

@@ -65,13 +65,13 @@ def spread_bps_from_tick(tick: Any, mid: Optional[float] = None) -> Optional[flo
 
 
 def _ema_key(
-    cfg: SlippageModelConfig,
-    *,
-    symbol: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: str,
+    cfg: SlippageModelConfig
+    *
+    symbol: str
+    venue: str
+    session: str
+    tf: str
+    kind: str
 ) -> str:
     # Back-compat: if kind empty -> "na"
     k = (kind or "").strip().lower() or "na"
@@ -79,16 +79,16 @@ def _ema_key(
 
 
 def estimate_slippage_bps(
-    *,
-    cfg: SlippageModelConfig,
-    ctx: Any,
-    tick: Any,
-    symbol: str,
-    venue: str,
-    tf: str,
-    kind: str,
-    redis_client: Any = None,
-    mid: Optional[float] = None,
+    *
+    cfg: SlippageModelConfig
+    ctx: Any
+    tick: Any
+    symbol: str
+    venue: str
+    tf: str
+    kind: str
+    redis_client: Any = None
+    mid: Optional[float] = None
 ) -> float:
     """
     Uses strict ts normalization:
@@ -112,12 +112,12 @@ def estimate_slippage_bps(
         return float(base)
 
     key = _ema_key(
-        cfg,
-        symbol=str(symbol),
-        venue=str(venue or "na"),
-        session=str(session),
-        tf=str(tf or "na"),
-        kind=str(kind),
+        cfg
+        symbol=str(symbol)
+        venue=str(venue or "na")
+        session=str(session)
+        tf=str(tf or "na")
+        kind=str(kind)
     )
 
     try:

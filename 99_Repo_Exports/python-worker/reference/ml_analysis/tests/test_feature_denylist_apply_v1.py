@@ -18,12 +18,12 @@ def test_approve_requires_ab_done_and_gate_pass(tmp_path, monkeypatch):
     _write_json(report, {"gate_pass": 1, "manifest": str(manifest)})
 
     m = {
-        "kind": "feature_denylist_proposal_v1",
-        "proposal_hash": "ph",
-        "created_utc": "2026-02-25T00:00:00+00:00",
+        "kind": "feature_denylist_proposal_v1"
+        "proposal_hash": "ph"
+        "created_utc": "2026-02-25T00:00:00+00:00"
         "status": "pending_ab",  # wrong status – must be ab_done
-        "ab": {"gate_pass": 1, "report_json": str(report)},
-        "denylist_after": {"deny_num": ["n:x"], "deny_bool": []},
+        "ab": {"gate_pass": 1, "report_json": str(report)}
+        "denylist_after": {"deny_num": ["n:x"], "deny_bool": []}
     }
     _write_json(manifest, m)
 
@@ -75,12 +75,12 @@ def test_approve_then_apply_happy_path(tmp_path, monkeypatch):
     _write_json(report, {"gate_pass": 1, "manifest": str(manifest)})
 
     m = {
-        "kind": "feature_denylist_proposal_v1",
-        "proposal_hash": "ph",
-        "created_utc": "2026-02-25T00:00:00+00:00",
-        "status": "ab_done",
-        "ab": {"gate_pass": 1, "report_json": str(report)},
-        "denylist_after": {"deny_num": ["n:keep", "n:add1"], "deny_bool": ["b:keep", "b:add1"]},
+        "kind": "feature_denylist_proposal_v1"
+        "proposal_hash": "ph"
+        "created_utc": "2026-02-25T00:00:00+00:00"
+        "status": "ab_done"
+        "ab": {"gate_pass": 1, "report_json": str(report)}
+        "denylist_after": {"deny_num": ["n:keep", "n:add1"], "deny_bool": ["b:keep", "b:add1"]}
     }
     _write_json(manifest, m)
 
@@ -100,13 +100,13 @@ def test_approve_then_apply_happy_path(tmp_path, monkeypatch):
     old = _sys.argv
     try:
         _sys.argv = [
-            "apply",
-            "--manifest",
-            str(manifest),
-            "--denylist-path",
-            str(deny),
-            "--apply",
-            "1",
+            "apply"
+            "--manifest"
+            str(manifest)
+            "--denylist-path"
+            str(deny)
+            "--apply"
+            "1"
         ]
         assert apply_tool.main() == 0
     finally:
@@ -135,9 +135,9 @@ def test_apply_rejects_non_approved_status(tmp_path):
 
     manifest = proposals_dir / "denylist_proposal_test.manifest.json"
     _write_json(manifest, {
-        "kind": "feature_denylist_proposal_v1",
+        "kind": "feature_denylist_proposal_v1"
         "status": "ab_done",  # not approved
-        "denylist_after": {"deny_num": [], "deny_bool": []},
+        "denylist_after": {"deny_num": [], "deny_bool": []}
     })
 
     import sys as _sys
@@ -162,9 +162,9 @@ def test_apply_dry_run(tmp_path):
 
     manifest = proposals_dir / "denylist_proposal_test.manifest.json"
     _write_json(manifest, {
-        "kind": "feature_denylist_proposal_v1",
-        "status": "approved",
-        "denylist_after": {"deny_num": ["n:old", "n:new"], "deny_bool": ["b:new"]},
+        "kind": "feature_denylist_proposal_v1"
+        "status": "approved"
+        "denylist_after": {"deny_num": ["n:old", "n:new"], "deny_bool": ["b:new"]}
     })
 
     import sys as _sys
@@ -192,12 +192,12 @@ def test_approve_optional_ab_report_json_uses_manifest(tmp_path):
     _write_json(report, {"gate_pass": 1})
 
     m = {
-        "kind": "feature_denylist_proposal_v1",
-        "proposal_hash": "ph",
-        "created_utc": "2026-02-25T00:00:00+00:00",
-        "status": "ab_done",
-        "ab": {"gate_pass": 1, "report_json": str(report)},
-        "denylist_after": {"deny_num": [], "deny_bool": []},
+        "kind": "feature_denylist_proposal_v1"
+        "proposal_hash": "ph"
+        "created_utc": "2026-02-25T00:00:00+00:00"
+        "status": "ab_done"
+        "ab": {"gate_pass": 1, "report_json": str(report)}
+        "denylist_after": {"deny_num": [], "deny_bool": []}
     }
     _write_json(manifest, m)
 

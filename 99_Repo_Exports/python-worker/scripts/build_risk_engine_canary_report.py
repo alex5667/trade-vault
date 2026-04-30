@@ -54,20 +54,20 @@ def main() -> int:
         description='Build risk-engine quality canary report from SQL audit tables.'
     )
     parser.add_argument(
-        '--dsn',
-        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),
+        '--dsn'
+        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', ''))
     )
     parser.add_argument(
-        '--hours',
-        type=int,
-        default=int(os.getenv('RISK_CANARY_LOOKBACK_HOURS', '24')),
+        '--hours'
+        type=int
+        default=int(os.getenv('RISK_CANARY_LOOKBACK_HOURS', '24'))
     )
     parser.add_argument(
-        '--out',
+        '--out'
         default=os.getenv(
-            'RISK_CANARY_REPORT_PATH',
-            '/var/lib/trade-runbook/reports/latest_risk_engine_canary.json',
-        ),
+            'RISK_CANARY_REPORT_PATH'
+            '/var/lib/trade-runbook/reports/latest_risk_engine_canary.json'
+        )
     )
     args = parser.parse_args()
 
@@ -90,16 +90,16 @@ def main() -> int:
                           where ts >= (now() - (%s * interval '1 hour'))
                         )
                         select
-                          count(*) as total_decisions,
-                          coalesce(sum(case when clamp_ratio < 0.999 then 1 else 0 end), 0) as clamp_count,
-                          coalesce(sum(case when jsonb_path_exists(reasons_jsonb, '$[*] ? (@ == "confidence_below_tier_floor")') then 1 else 0 end), 0) as confidence_denials,
-                          coalesce(sum(case when allow_trade_publish then 1 else 0 end), 0) as allow_count,
-                          coalesce(sum(case when not allow_trade_publish then 1 else 0 end), 0) as deny_count,
-                          coalesce(avg(decision_latency_ms), 0) as decision_latency_avg_ms,
+                          count(*) as total_decisions
+                          coalesce(sum(case when clamp_ratio < 0.999 then 1 else 0 end), 0) as clamp_count
+                          coalesce(sum(case when jsonb_path_exists(reasons_jsonb, '$[*] ? (@ == "confidence_below_tier_floor")') then 1 else 0 end), 0) as confidence_denials
+                          coalesce(sum(case when allow_trade_publish then 1 else 0 end), 0) as allow_count
+                          coalesce(sum(case when not allow_trade_publish then 1 else 0 end), 0) as deny_count
+                          coalesce(avg(decision_latency_ms), 0) as decision_latency_avg_ms
                           coalesce(avg(clamp_ratio), 1.0) as avg_clamp_ratio
                         from base
-                        """,
-                        (args.hours,),
+                        """
+                        (args.hours,)
                     )
                     row = cur.fetchone() or (0, 0, 0, 0, 0, 0.0, 1.0)
             break
@@ -130,19 +130,19 @@ def main() -> int:
     score += min(max(0.0, (float(avg_clamp) - 0.9)) * 50.0, 5.0)
 
     report = {
-        'window_hours': int(args.hours),
-        'total_decisions': int(total),
-        'allow_count': int(allow_count),
-        'deny_count': int(deny_count),
-        'clamp_count': int(clamp_count),
-        'confidence_denials': int(conf_denials),
-        'clamp_rate': float(clamp_rate),
-        'deny_rate': float(deny_rate),
-        'confidence_denial_rate': float(conf_rate),
-        'decision_latency_avg_ms': float(avg_lat),
-        'avg_clamp_ratio': float(avg_clamp),
-        'score': round(max(0.0, min(100.0, score)), 2),
-        'bucket': _bucket(score),
+        'window_hours': int(args.hours)
+        'total_decisions': int(total)
+        'allow_count': int(allow_count)
+        'deny_count': int(deny_count)
+        'clamp_count': int(clamp_count)
+        'confidence_denials': int(conf_denials)
+        'clamp_rate': float(clamp_rate)
+        'deny_rate': float(deny_rate)
+        'confidence_denial_rate': float(conf_rate)
+        'decision_latency_avg_ms': float(avg_lat)
+        'avg_clamp_ratio': float(avg_clamp)
+        'score': round(max(0.0, min(100.0, score)), 2)
+        'bucket': _bucket(score)
     }
 
     out = Path(args.out)

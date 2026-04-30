@@ -85,12 +85,12 @@ class TestSchemaHash:
 class TestStreamIntegrityGate:
     def _gate(self, mode: str = "veto", max_gap_rate: float = 0.1, max_gap_window: int = 20) -> StreamIntegrityGate:
         return StreamIntegrityGate(
-            enabled=True,
-            mode=mode,
-            max_gap_rate_ema=max_gap_rate,
-            max_dup_rate_ema=0.0,
-            max_gap_window=max_gap_window,
-            veto_on_schema_change=False,
+            enabled=True
+            mode=mode
+            max_gap_rate_ema=max_gap_rate
+            max_dup_rate_ema=0.0
+            max_gap_window=max_gap_window
+            veto_on_schema_change=False
         )
 
     def test_no_flags_no_action(self):

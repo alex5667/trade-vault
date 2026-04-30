@@ -69,11 +69,11 @@ def test_executor_does_not_materialize_cache_inline_when_projection_worker_is_en
     ex = _mk_exec(r, inline_projection=False)
     sid = 'sid-inline-off'
     ex._transition_state(
-        sid,
-        symbol='BTCUSDT',
-        action='open',
-        next_state='ENTRY_ACKED',
-        details={'entry_client_order_id': 'cid-1', 'binance_order_id': 111},
+        sid
+        symbol='BTCUSDT'
+        action='open'
+        next_state='ENTRY_ACKED'
+        details={'entry_client_order_id': 'cid-1', 'binance_order_id': 111}
     )
     # With inline_projection=False, no cache write should happen
     assert r.get(f'orders:state:{sid}') in (None, '')
@@ -94,15 +94,15 @@ def test_save_order_state_emits_state_patch_and_worker_applies_it_in_order():
     ex = _mk_exec(r, inline_projection=False)
     sid = 'sid-patch'
     ex._exec_event({
-        'sid': sid,
-        'symbol': 'ETHUSDT',
-        'action': 'open',
-        'event_type': 'state_transition',
-        'status': 'ok',
-        'fsm_state': 'PROTECTED',
-        'binance_order_id': 501,
-        'tp1_algo_id': 601,
-        'tp1_client_algo_id': 'tp1-a',
+        'sid': sid
+        'symbol': 'ETHUSDT'
+        'action': 'open'
+        'event_type': 'state_transition'
+        'status': 'ok'
+        'fsm_state': 'PROTECTED'
+        'binance_order_id': 501
+        'tp1_algo_id': 601
+        'tp1_client_algo_id': 'tp1-a'
     })
     ex._save_order_state(sid, {'trail_algo_id': 701, 'trail_client_algo_id': 'trail-a', 'symbol': 'ETHUSDT'})
     # No inline cache write
@@ -123,19 +123,19 @@ def test_projection_worker_cursor_makes_repeated_runs_idempotent():
     ex = _mk_exec(r, inline_projection=False)
     sid = 'sid-cursor'
     ex._exec_event({
-        'sid': sid,
-        'symbol': 'SOLUSDT',
-        'action': 'open',
-        'event_type': 'state_transition',
-        'status': 'ok',
-        'fsm_state': 'ENTRY_FILLED',
-        'binance_order_id': 901,
+        'sid': sid
+        'symbol': 'SOLUSDT'
+        'action': 'open'
+        'event_type': 'state_transition'
+        'status': 'ok'
+        'fsm_state': 'ENTRY_FILLED'
+        'binance_order_id': 901
     })
     worker = worker_mod.ExecutionProjectionWorker(
-        r,
-        exec_stream='orders:exec',
-        state_key_prefix='orders:state:',
-        cursor_key='orders:exec:projection:cursor',
+        r
+        exec_stream='orders:exec'
+        state_key_prefix='orders:state:'
+        cursor_key='orders:exec:projection:cursor'
     )
     first = worker.run_once()
     second = worker.run_once()

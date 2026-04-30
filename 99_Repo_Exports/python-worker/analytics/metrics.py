@@ -31,9 +31,9 @@ class ROCResult:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "fpr": self.fpr,
-            "tpr": self.tpr,
-            "thresholds": self.thresholds,
+            "fpr": self.fpr
+            "tpr": self.tpr
+            "thresholds": self.thresholds
             "auc": round(self.auc, 4)
         }
 
@@ -42,7 +42,7 @@ logger = setup_logger("Metrics")
 
 
 def calculate_roc_auc(
-    scores: List[float],
+    scores: List[float]
     labels: List[int]
 ) -> ROCResult:
     """
@@ -105,15 +105,15 @@ def calculate_roc_auc(
     auc = float(np.trapz(tpr_arr, fpr_arr))
 
     return ROCResult(
-        fpr=fpr_arr.tolist(),
-        tpr=tpr_arr.tolist(),
-        thresholds=thr_arr.tolist(),
+        fpr=fpr_arr.tolist()
+        tpr=tpr_arr.tolist()
+        thresholds=thr_arr.tolist()
         auc=abs(auc)
     )
 
 
 def roc_from_signals(
-    signals: List[Any],
+    signals: List[Any]
     order_by_signal: Dict[str, Any]
 ) -> Optional[ROCResult]:
     """
@@ -161,8 +161,8 @@ def roc_from_signals(
 
 
 def calculate_precision_recall(
-    tp: int,
-    fp: int,
+    tp: int
+    fp: int
     fn: int
 ) -> Tuple[float, float, float]:
     """
@@ -184,8 +184,8 @@ def calculate_precision_recall(
 
 
 def calculate_confusion_matrix(
-    scores: List[float],
-    labels: List[int],
+    scores: List[float]
+    labels: List[int]
     threshold: float
 ) -> Tuple[int, int, int, int]:
     """
@@ -228,7 +228,7 @@ def calculate_youden_index(tpr: float, fpr: float) -> float:
 
 
 def find_best_threshold(
-    roc: ROCResult,
+    roc: ROCResult
     method: str = "youden"
 ) -> Tuple[float, Dict[str, float]]:
     """
@@ -261,9 +261,9 @@ def find_best_threshold(
             best_score = score
             best_threshold = threshold
             best_metrics = {
-                "tpr": tpr,
-                "fpr": fpr,
-                "youden_j": calculate_youden_index(tpr, fpr),
+                "tpr": tpr
+                "fpr": fpr
+                "youden_j": calculate_youden_index(tpr, fpr)
                 "score": score
             }
 

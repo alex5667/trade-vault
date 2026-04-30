@@ -143,9 +143,9 @@ class L2ConfirmBreakout:
         support_notional = _sum_notional(support_levels)
         if support_notional < min_near_notional:
             return ConfirmationResult(
-                False,
-                "low_support_near",
-                {"support_notional": support_notional, "min_near_notional": min_near_notional, "near_bps": near_bps},
+                False
+                "low_support_near"
+                {"support_notional": support_notional, "min_near_notional": min_near_notional, "near_bps": near_bps}
             )
 
         # Opposing wall too close is bad (resistance for bull -> asks wall; support wall for bear -> bids wall)
@@ -153,19 +153,19 @@ class L2ConfirmBreakout:
         opp_wall_dist = _min_wall_dist_bps(opp_levels, price, min_wall_notional)
         if _is_finite(opp_wall_dist) and opp_wall_dist <= max_opp_wall_bps:
             return ConfirmationResult(
-                False,
-                "opp_wall_too_close",
-                {"opp_wall_dist_bps": opp_wall_dist, "max_opp_wall_dist_bps": max_opp_wall_bps, "min_wall_notional": min_wall_notional},
+                False
+                "opp_wall_too_close"
+                {"opp_wall_dist_bps": opp_wall_dist, "max_opp_wall_dist_bps": max_opp_wall_bps, "min_wall_notional": min_wall_notional}
             )
 
         return ConfirmationResult(
-            True,
-            "ok",
+            True
+            "ok"
             {
-                "support_notional": support_notional,
-                "opp_wall_dist_bps": opp_wall_dist,
-                "near_bps": near_bps,
-            },
+                "support_notional": support_notional
+                "opp_wall_dist_bps": opp_wall_dist
+                "near_bps": near_bps
+            }
         )
 
 
@@ -204,15 +204,15 @@ class L2ConfirmAbsorption:
         bids = getattr(snap, "bids", []) or []
         asks = getattr(snap, "asks", []) or []
 
-        # Absorption expects an opposing wall close: for bullish absorption -> ask wall close (sellers absorbed),
+        # Absorption expects an opposing wall close: for bullish absorption -> ask wall close (sellers absorbed)
         # for bearish absorption -> bid wall close (buyers absorbed).
         wall_levels = asks if side > 0 else bids
         wall_dist = _min_wall_dist_bps(wall_levels, price, min_wall_notional)
         if (not _is_finite(wall_dist)) or wall_dist > max_wall_dist_bps:
             return ConfirmationResult(
-                False,
-                "no_close_wall",
-                {"wall_dist_bps": wall_dist, "max_wall_dist_bps": max_wall_dist_bps, "min_wall_notional": min_wall_notional},
+                False
+                "no_close_wall"
+                {"wall_dist_bps": wall_dist, "max_wall_dist_bps": max_wall_dist_bps, "min_wall_notional": min_wall_notional}
             )
 
         # Defensive near liquidity: bull needs bids near; bear needs asks near
@@ -220,13 +220,13 @@ class L2ConfirmAbsorption:
         def_notional = _sum_notional(def_levels)
         if def_notional < min_def_notional:
             return ConfirmationResult(
-                False,
-                "low_def_near",
-                {"def_notional": def_notional, "min_def_notional": min_def_notional, "near_bps": near_bps},
+                False
+                "low_def_near"
+                {"def_notional": def_notional, "min_def_notional": min_def_notional, "near_bps": near_bps}
             )
 
         return ConfirmationResult(
-            True,
-            "ok",
-            {"wall_dist_bps": wall_dist, "def_notional": def_notional, "near_bps": near_bps},
+            True
+            "ok"
+            {"wall_dist_bps": wall_dist, "def_notional": def_notional, "near_bps": near_bps}
         )

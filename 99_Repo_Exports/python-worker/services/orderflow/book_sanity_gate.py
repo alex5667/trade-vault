@@ -5,7 +5,7 @@ from __future__ import annotations
 A separate gate from DataQualityGate:
 - DataQualityGate focuses on time (epoch ms, lag, out-of-order) and upstream
   quarantine semantics.
-- BookSanityGate focuses on market microstructure sanity (crossed BBO, NaNs,
+- BookSanityGate focuses on market microstructure sanity (crossed BBO, NaNs
   negative depth) and tick-to-book symptoms.
 
 Policy:
@@ -37,12 +37,12 @@ def _profile() -> str:
 
 class BookSanityGate:
     def __init__(
-        self,
-        *,
-        enabled: bool,
-        mode: str,
-        veto_trade_outside_bbo: bool = False,
-        outside_bbo_max_dist_bps: float = 0.0,
+        self
+        *
+        enabled: bool
+        mode: str
+        veto_trade_outside_bbo: bool = False
+        outside_bbo_max_dist_bps: float = 0.0
     ) -> None:
         self.enabled = bool(enabled)
         self.mode = str(mode or "auto").strip().lower()
@@ -55,10 +55,10 @@ class BookSanityGate:
         enabled = bool(int(os.getenv("BOOK_SANITY_GATE_ENABLED", "1") or 1))
         mode = os.getenv("BOOK_SANITY_MODE", "auto")
         return BookSanityGate(
-            enabled=enabled,
-            mode=str(mode),
-            veto_trade_outside_bbo=bool(int(os.getenv("BOOK_SANITY_VETO_TRADE_OUTSIDE_BBO", "0") or 0)),
-            outside_bbo_max_dist_bps=float(os.getenv("BOOK_SANITY_OUTSIDE_BBO_MAX_DIST_BPS", "0") or 0.0),
+            enabled=enabled
+            mode=str(mode)
+            veto_trade_outside_bbo=bool(int(os.getenv("BOOK_SANITY_VETO_TRADE_OUTSIDE_BBO", "0") or 0))
+            outside_bbo_max_dist_bps=float(os.getenv("BOOK_SANITY_OUTSIDE_BBO_MAX_DIST_BPS", "0") or 0.0)
         )
 
     def _effective_mode(self) -> str:
@@ -109,12 +109,12 @@ class BookSanityGate:
 
         if mode != "veto":
             return BookSanityDecision(
-                apply=True,
-                veto=False,
-                gate="BookSanityGate",
-                reason_code="BOOK_SANITY_FLAGS",
-                flags=flags,
-                notes=f"mode={mode}",
+                apply=True
+                veto=False
+                gate="BookSanityGate"
+                reason_code="BOOK_SANITY_FLAGS"
+                flags=flags
+                notes=f"mode={mode}"
             )
 
         if do_veto or do_trade_outside_veto:
@@ -130,19 +130,19 @@ class BookSanityGate:
                 reason = "VETO_TRADE_OUTSIDE_BBO"
 
             return BookSanityDecision(
-                apply=True,
-                veto=True,
-                gate="BookSanityGate",
-                reason_code=str(reason),
-                flags=flags + (["trade_outside_bbo"] if outside_bbo and "trade_outside_bbo" not in flags else []),
-                notes=f"symbol={symbol} dist_bps={outside_bbo_dist_bps:.4f}",
+                apply=True
+                veto=True
+                gate="BookSanityGate"
+                reason_code=str(reason)
+                flags=flags + (["trade_outside_bbo"] if outside_bbo and "trade_outside_bbo" not in flags else [])
+                notes=f"symbol={symbol} dist_bps={outside_bbo_dist_bps:.4f}"
             )
 
         return BookSanityDecision(
-            apply=True,
-            veto=False,
-            gate="BookSanityGate",
-            reason_code="BOOK_SANITY_FLAGS",
-            flags=flags,
-            notes=f"mode={mode}",
+            apply=True
+            veto=False
+            gate="BookSanityGate"
+            reason_code="BOOK_SANITY_FLAGS"
+            flags=flags
+            notes=f"mode={mode}"
         )

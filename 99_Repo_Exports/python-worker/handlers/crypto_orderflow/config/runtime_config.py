@@ -53,15 +53,15 @@ class _RuntimeCfg:
         # NEW: TTL после входа (в барах).
         # Рекомендуемое стартовое: 3 * expiry_bars, но лучше задавать явно.
         max_lifetime_bars_after_entry = cls._i(
-            "ORDERFLOW_MAX_LIFETIME_BARS_AFTER_ENTRY",
-            str(max(3 * expiry_bars, 180)),
+            "ORDERFLOW_MAX_LIFETIME_BARS_AFTER_ENTRY"
+            str(max(3 * expiry_bars, 180))
         )
 
         # NEW: fallback TTL по времени (мс). Например 60 минут = 3_600_000.
         # 0 = выключено (используется только баровый TTL).
         max_lifetime_ms_after_entry = cls._i(
-            "ORDERFLOW_MAX_LIFETIME_MS_AFTER_ENTRY",
-            "0",
+            "ORDERFLOW_MAX_LIFETIME_MS_AFTER_ENTRY"
+            "0"
         )
 
         # NEW: как часто запускать housekeeping (мс).
@@ -69,15 +69,15 @@ class _RuntimeCfg:
         housekeeping_every_ms = cls._i("ORDERFLOW_HOUSEKEEPING_EVERY_MS", "1000")
 
         return cls(
-            qf_pack_u16=cls._b("QF_PACK_U16", "1"),
-            strict_reason_codes=cls._b("STRICT_REASON_CODES", "0"),
-            audit_compact=cls._b("AUDIT_COMPACT", "1"),
-            candidate_log_every_ms=cls._i("CANDIDATE_LOG_EVERY_MS", "5000"),
+            qf_pack_u16=cls._b("QF_PACK_U16", "1")
+            strict_reason_codes=cls._b("STRICT_REASON_CODES", "0")
+            audit_compact=cls._b("AUDIT_COMPACT", "1")
+            candidate_log_every_ms=cls._i("CANDIDATE_LOG_EVERY_MS", "5000")
             signal_log_every_ms=cls._i("SIGNAL_LOG_EVERY_MS", "0"),  # keep 0 if you already do "1 signal = 1 JSON"
-            pack_soft_u16=cls._b("PACK_SOFT_U16", "1"),
+            pack_soft_u16=cls._b("PACK_SOFT_U16", "1")
             # NEW fields
-            max_lifetime_bars_after_entry=max_lifetime_bars_after_entry,
-            max_lifetime_ms_after_entry=max_lifetime_ms_after_entry,
-            housekeeping_every_ms=housekeeping_every_ms,
-            expiry_bars=expiry_bars,
+            max_lifetime_bars_after_entry=max_lifetime_bars_after_entry
+            max_lifetime_ms_after_entry=max_lifetime_ms_after_entry
+            housekeeping_every_ms=housekeeping_every_ms
+            expiry_bars=expiry_bars
         )

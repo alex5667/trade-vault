@@ -162,11 +162,11 @@ def _expectancy_topk(r: List[float], p: List[float], frac: float = 0.05) -> floa
 
 def _report(y: List[int], r: List[float], p: List[float]) -> Dict[str, float]:
     return {
-        "rows": float(len(y)),
-        "ece": _ece(y, p),
-        "brier": _brier(y, p),
-        "precision_top5pct": _precision_topk(y, p, 0.05),
-        "expectancy_r_top5pct": _expectancy_topk(r, p, 0.05),
+        "rows": float(len(y))
+        "ece": _ece(y, p)
+        "brier": _brier(y, p)
+        "precision_top5pct": _precision_topk(y, p, 0.05)
+        "expectancy_r_top5pct": _expectancy_topk(r, p, 0.05)
     }
 
 
@@ -184,10 +184,10 @@ def _get_indicator(ind: Dict[str, Any], keys: List[str]) -> Optional[float]:
 
 
 def _load_joined_jsonl(
-    path: str,
-    *,
-    raw_keys: List[str],
-    cal_keys: List[str],
+    path: str
+    *
+    raw_keys: List[str]
+    cal_keys: List[str]
 ) -> Tuple[List[int], List[float], List[float], List[float]]:
     y: List[int] = []
     r: List[float] = []
@@ -286,22 +286,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument("--out_dir", default=os.environ.get("CONF_CAL_OUT_DIR", "/var/lib/trade/of_calibrators"))
     ap.add_argument(
-        "--reports_dir",
-        default=os.environ.get("CONF_CAL_LIVE_REPORTS_DIR", "/var/lib/trade/of_reports/out/confidence_cal_live"),
+        "--reports_dir"
+        default=os.environ.get("CONF_CAL_LIVE_REPORTS_DIR", "/var/lib/trade/of_reports/out/confidence_cal_live")
     )
     ap.add_argument("--lookback_hours", type=int, default=int(os.environ.get("CONF_CAL_LIVE_LOOKBACK_HOURS", "24")))
     ap.add_argument("--min_rows", type=int, default=int(os.environ.get("CONF_CAL_LIVE_MIN_ROWS", "800")))
     ap.add_argument("--bad_streak", type=int, default=int(os.environ.get("CONF_CAL_LIVE_BAD_STREAK", "3")))
     ap.add_argument("--ece_worse_abs", type=float, default=float(os.environ.get("CONF_CAL_LIVE_ECE_WORSE_ABS", "0.01")))
     ap.add_argument(
-        "--brier_worse_abs",
-        type=float,
-        default=float(os.environ.get("CONF_CAL_LIVE_BRIER_WORSE_ABS", "0.002")),
+        "--brier_worse_abs"
+        type=float
+        default=float(os.environ.get("CONF_CAL_LIVE_BRIER_WORSE_ABS", "0.002"))
     )
     ap.add_argument(
-        "--rollback_cooldown_min",
-        type=int,
-        default=int(os.environ.get("CONF_CAL_LIVE_ROLLBACK_COOLDOWN_MIN", "360")),
+        "--rollback_cooldown_min"
+        type=int
+        default=int(os.environ.get("CONF_CAL_LIVE_ROLLBACK_COOLDOWN_MIN", "360"))
     )
     ap.add_argument("--signals_count", type=int, default=int(os.environ.get("SIGNALS_COUNT", "200000")))
     ap.add_argument("--closes_count", type=int, default=int(os.environ.get("CLOSES_COUNT", "200000")))
@@ -327,44 +327,44 @@ def main(argv: Optional[List[str]] = None) -> int:
     prev_rb_ts = int(prev.get("last_rollback_ts_ms", 0) or 0)
 
     status: Dict[str, Any] = {
-        "ts_ms": now,
-        "since_ms": int(since_ms),
-        "lookback_hours": int(args.lookback_hours),
+        "ts_ms": now
+        "since_ms": int(since_ms)
+        "lookback_hours": int(args.lookback_hours)
         "paths": {
-            "dataset_jsonl": dataset_path,
-            "dataset_report": dataset_report,
-            "quarantine_jsonl": quarantine_path,
-            "latest_calibrator": latest_path,
-        },
-        "ok": False,
-        "skipped": False,
-        "bad_streak": prev_streak,
-        "guard_passed": None,
-        "rollback": {"performed": False},
+            "dataset_jsonl": dataset_path
+            "dataset_report": dataset_report
+            "quarantine_jsonl": quarantine_path
+            "latest_calibrator": latest_path
+        }
+        "ok": False
+        "skipped": False
+        "bad_streak": prev_streak
+        "guard_passed": None
+        "rollback": {"performed": False}
     }
 
     # 1) Build dataset (deterministic join)
     try:
         rc = build_dataset_main(
             [
-                "--redis_url",
-                str(args.redis_url),
-                "--out_jsonl",
-                dataset_path,
-                "--out_report_json",
-                dataset_report,
-                "--out_quarantine_jsonl",
-                quarantine_path,
-                "--signals_count",
-                str(int(args.signals_count)),
-                "--closes_count",
-                str(int(args.closes_count)),
-                "--since_ms",
-                str(int(since_ms)),
-                "--until_ms",
-                str(int(now)),
-                "--y_min_r",
-                str(float(args.y_min_r)),
+                "--redis_url"
+                str(args.redis_url)
+                "--out_jsonl"
+                dataset_path
+                "--out_report_json"
+                dataset_report
+                "--out_quarantine_jsonl"
+                quarantine_path
+                "--signals_count"
+                str(int(args.signals_count))
+                "--closes_count"
+                str(int(args.closes_count))
+                "--since_ms"
+                str(int(since_ms))
+                "--until_ms"
+                str(int(now))
+                "--y_min_r"
+                str(float(args.y_min_r))
             ]
         )
     except redis.exceptions.RedisError as e:
@@ -380,9 +380,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # 2) Load + compute metrics
     y, r, p_raw, p_cal_all = _load_joined_jsonl(
-        dataset_path,
-        raw_keys=["confidence_v1", "confidence"],
-        cal_keys=["confidence_cal_v1"],
+        dataset_path
+        raw_keys=["confidence_v1", "confidence"]
+        cal_keys=["confidence_cal_v1"]
     )
     status["rows_raw"] = int(len(p_raw))
 
@@ -436,14 +436,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         reasons.append("brier_worse")
 
     status["guard"] = {
-        "ece_worse_abs": float(args.ece_worse_abs),
-        "brier_worse_abs": float(args.brier_worse_abs),
-        "raw_ece": raw_ece,
-        "raw_brier": raw_brier,
-        "cal_ece": cal_ece,
-        "cal_brier": cal_brier,
-        "fail": bool(guard_fail),
-        "reasons": reasons,
+        "ece_worse_abs": float(args.ece_worse_abs)
+        "brier_worse_abs": float(args.brier_worse_abs)
+        "raw_ece": raw_ece
+        "raw_brier": raw_brier
+        "cal_ece": cal_ece
+        "cal_brier": cal_brier
+        "fail": bool(guard_fail)
+        "reasons": reasons
     }
 
     if guard_fail:

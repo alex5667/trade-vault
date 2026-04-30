@@ -137,8 +137,8 @@ def apply_kind_rules(kind: str, ctx: Any, quality_flags: Optional[Dict[str, Any]
         level = getattr(ctx, "level_price", None) or getattr(ctx, "breakout_level", None)
         if level is not None:
             labels["post_acceptance_probe"] = {
-                "horizon_s": BREAKOUT_POST_ACCEPT_HORIZON_S,
-                "level_price": level,
+                "horizon_s": BREAKOUT_POST_ACCEPT_HORIZON_S
+                "level_price": level
             }
 
     # ---------------- Absorption ----------------

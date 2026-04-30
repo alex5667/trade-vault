@@ -672,7 +672,8 @@ services:
     environment:
     - REDIS_ADDR=redis://redis-worker-2:6379
     - REDIS_EXPORTER_LOG_FORMAT=txt
-    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=orders:exec,orders:queue:binance,orders:queue:binance:dlq,dlq:signals,dlq:ticks,dlq:events,dlq:book_deltas
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=orders:exec,dlq:signals,dlq:ticks,dlq:events,dlq:book_deltas
+    - REDIS_EXPORTER_CHECK_KEYS=orders:queue:binance,orders:queue:binance:dlq
     - REDIS_EXPORTER_STREAMS_GROUPS_LIST=orders:exec::execution-worker,orders:queue:binance::binance-executor
     - TZ=UTC
     expose:
@@ -716,7 +717,8 @@ services:
     environment:
     - REDIS_ADDR=redis://redis-worker-2b:6379
     - REDIS_EXPORTER_LOG_FORMAT=txt
-    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=orders:exec,orders:queue:binance,orders:queue:binance:dlq,dlq:signals,dlq:ticks,dlq:events,dlq:book_deltas
+    - REDIS_EXPORTER_CHECK_SINGLE_STREAMS=orders:exec,dlq:signals,dlq:ticks,dlq:events,dlq:book_deltas
+    - REDIS_EXPORTER_CHECK_KEYS=orders:queue:binance,orders:queue:binance:dlq
     - REDIS_EXPORTER_STREAMS_GROUPS_LIST=orders:exec::execution-worker,orders:queue:binance::binance-executor
     - TZ=UTC
     expose:

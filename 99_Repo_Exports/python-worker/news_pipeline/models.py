@@ -105,15 +105,15 @@ class NewsAnalysisCompact:
     def to_stream_fields(self) -> dict[str, str]:
         """Конвертирует в поля Redis Stream (все строки)."""
         return {
-            "uid": self.uid,
-            "ts_ms": str(self.ts_ms),
-            "symbols": ",".join(self.symbols),
-            "risk": f"{self.risk:.6f}",
-            "surprise": f"{self.surprise:.6f}",
-            "tags_mask": str(self.tags_mask),
-            "primary_tag_id": str(self.primary_tag_id),
-            "confidence": f"{self.confidence:.6f}",
-            "news_ref": self.news_ref,
+            "uid": self.uid
+            "ts_ms": str(self.ts_ms)
+            "symbols": ",".join(self.symbols)
+            "risk": f"{self.risk:.6f}"
+            "surprise": f"{self.surprise:.6f}"
+            "tags_mask": str(self.tags_mask)
+            "primary_tag_id": str(self.primary_tag_id)
+            "confidence": f"{self.confidence:.6f}"
+            "news_ref": self.news_ref
         }
 
     @classmethod
@@ -123,15 +123,15 @@ class NewsAnalysisCompact:
         symbols = [s for s in symbols if s]  # убираем пустые
 
         return cls(
-            uid=fields.get("uid", ""),
-            ts_ms=int(fields.get("ts_ms", "0")),
-            symbols=symbols,
-            risk=float(fields.get("risk", "0.0")),
-            surprise=float(fields.get("surprise", "0.0")),
-            tags_mask=int(fields.get("tags_mask", "0")),
-            primary_tag_id=int(fields.get("primary_tag_id", "0")),
-            confidence=float(fields.get("confidence", "0.0")),
-            news_ref=fields.get("news_ref", ""),
+            uid=fields.get("uid", "")
+            ts_ms=int(fields.get("ts_ms", "0"))
+            symbols=symbols
+            risk=float(fields.get("risk", "0.0"))
+            surprise=float(fields.get("surprise", "0.0"))
+            tags_mask=int(fields.get("tags_mask", "0"))
+            primary_tag_id=int(fields.get("primary_tag_id", "0"))
+            confidence=float(fields.get("confidence", "0.0"))
+            news_ref=fields.get("news_ref", "")
         )
 
 
@@ -155,13 +155,13 @@ class CalendarEvent:
     def to_stream_fields(self) -> dict[str, str]:
         """Конвертирует в поля Redis Stream."""
         return {
-            "event_id": self.event_id,
-            "title": self.title,
-            "ts_ms": str(self.ts_ms),
-            "grade_id": str(self.grade_id),
-            "currency": self.currency,
-            "region": self.region,
-            "symbols": ",".join(self.symbols),
+            "event_id": self.event_id
+            "title": self.title
+            "ts_ms": str(self.ts_ms)
+            "grade_id": str(self.grade_id)
+            "currency": self.currency
+            "region": self.region
+            "symbols": ",".join(self.symbols)
         }
 
     @classmethod
@@ -171,11 +171,11 @@ class CalendarEvent:
         symbols = [s for s in symbols if s]
 
         return cls(
-            event_id=fields.get("event_id", ""),
-            title=fields.get("title", ""),
-            ts_ms=int(fields.get("ts_ms", "0")),
-            grade_id=int(fields.get("grade_id", "0")),
-            currency=fields.get("currency", ""),
-            region=fields.get("region", ""),
-            symbols=symbols,
+            event_id=fields.get("event_id", "")
+            title=fields.get("title", "")
+            ts_ms=int(fields.get("ts_ms", "0"))
+            grade_id=int(fields.get("grade_id", "0"))
+            currency=fields.get("currency", "")
+            region=fields.get("region", "")
+            symbols=symbols
         )

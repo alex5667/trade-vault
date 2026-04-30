@@ -57,20 +57,20 @@ class FakeHistogram(FakeCounter):
 class TestRecordExecHealthObservability(unittest.TestCase):
     def _make_fake_metrics(self):
         return {
-            "exec_health_apply_total": FakeCounter(),
-            "exec_health_decision_total": FakeCounter(),
-            "exec_health_flag_total": FakeCounter(),
-            "exec_health_reader_errors_total": FakeCounter(),
-            "exec_health_rollup_present": FakeGauge(),
-            "exec_health_rollup_value_bps": FakeGauge(),
-            "exec_health_rollup_worst_delta_sec": FakeGauge(),
-            "exec_health_policy_threshold_bps": FakeGauge(),
-            "exec_health_policy_mode": FakeGauge(),
-            "exec_health_tighten_add_bps_scoped": FakeHistogram(),
-            "exec_health_tighten_add_bps": FakeHistogram(),
-            "exec_health_tighten_k": FakeGauge(),
-            "exec_health_veto_total": FakeCounter(),
-            "exec_health_last_event_ts_ms": FakeGauge(),
+            "exec_health_apply_total": FakeCounter()
+            "exec_health_decision_total": FakeCounter()
+            "exec_health_flag_total": FakeCounter()
+            "exec_health_reader_errors_total": FakeCounter()
+            "exec_health_rollup_present": FakeGauge()
+            "exec_health_rollup_value_bps": FakeGauge()
+            "exec_health_rollup_worst_delta_sec": FakeGauge()
+            "exec_health_policy_threshold_bps": FakeGauge()
+            "exec_health_policy_mode": FakeGauge()
+            "exec_health_tighten_add_bps_scoped": FakeHistogram()
+            "exec_health_tighten_add_bps": FakeHistogram()
+            "exec_health_tighten_k": FakeGauge()
+            "exec_health_veto_total": FakeCounter()
+            "exec_health_last_event_ts_ms": FakeGauge()
         }
 
     def _patch_and_call(self, fake_metrics, **call_kwargs):
@@ -92,12 +92,12 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         fakes = self._make_fake_metrics()
         rollups = {"is_p95_bps": 3.5, "perm_impact_p95_bps": 1.2}
         self._patch_and_call(
-            fakes,
-            symbol="BTCUSDT",
-            scope="edge",
-            profile="default",
-            rollups=rollups,
-            decision=None,
+            fakes
+            symbol="BTCUSDT"
+            scope="edge"
+            profile="default"
+            rollups=rollups
+            decision=None
         )
         calls = fakes["exec_health_rollup_present"].calls
         assert any(c.get("metric") == "is_p95_bps" and c.get("symbol") == "BTCUSDT" for c in calls)
@@ -111,12 +111,12 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         dec = _make_decision(apply=True, veto=True, mode="veto", reason_code="VETO_IS_P95", flags=["IS_P95_HIGH"])
         rollups = {"is_p95_bps": 12.5}
         self._patch_and_call(
-            fakes,
-            symbol="ETHUSDT",
-            scope="pipeline",
-            profile="hard",
-            rollups=rollups,
-            decision=dec,
+            fakes
+            symbol="ETHUSDT"
+            scope="pipeline"
+            profile="hard"
+            rollups=rollups
+            decision=dec
         )
         veto_calls = fakes["exec_health_veto_total"].calls
         assert any(c.get("reason") == "VETO_IS_P95" for c in veto_calls), f"expected veto call; got {veto_calls}"
@@ -127,12 +127,12 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         fakes = self._make_fake_metrics()
         dec = _make_decision(apply=True, veto=False, mode="tighten", tighten_add_bps=2.5)
         self._patch_and_call(
-            fakes,
-            symbol="SOLUSDT",
-            scope="entry_policy",
-            profile="strict",
-            rollups={},
-            decision=dec,
+            fakes
+            symbol="SOLUSDT"
+            scope="entry_policy"
+            profile="strict"
+            rollups={}
+            decision=dec
         )
         hist_calls = fakes["exec_health_tighten_add_bps_scoped"].calls
         assert any(c.get("scope") == "entry_policy" and c.get("symbol") == "SOLUSDT" for c in hist_calls)
@@ -157,12 +157,12 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         fakes = self._make_fake_metrics()
         rollups = {"is_p95_bps": float("nan"), "perm_impact_p95_bps": float("inf")}
         self._patch_and_call(
-            fakes,
-            symbol="BTCUSDT",
-            scope="edge",
-            profile="default",
-            rollups=rollups,
-            decision=None,
+            fakes
+            symbol="BTCUSDT"
+            scope="edge"
+            profile="default"
+            rollups=rollups
+            decision=None
         )  # No exception expected
 
     def test_empty_rollups_all_metrics_set_absent(self):
@@ -170,12 +170,12 @@ class TestRecordExecHealthObservability(unittest.TestCase):
 
         fakes = self._make_fake_metrics()
         self._patch_and_call(
-            fakes,
-            symbol="XRPUSDT",
-            scope="edge",
-            profile="default",
-            rollups={},
-            decision=None,
+            fakes
+            symbol="XRPUSDT"
+            scope="edge"
+            profile="default"
+            rollups={}
+            decision=None
         )
         presence_calls = fakes["exec_health_rollup_present"].calls
         # All three rollup metrics should be marked as absent (0.0)
@@ -188,12 +188,12 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         fakes = self._make_fake_metrics()
         dec = _make_decision(apply=True, veto=False, flags=["IS_P95_HIGH", "PERM_IMPACT_HIGH"])
         self._patch_and_call(
-            fakes,
-            symbol="BTCUSDT",
-            scope="edge",
-            profile="default",
-            rollups={"is_p95_bps": 5.0},
-            decision=dec,
+            fakes
+            symbol="BTCUSDT"
+            scope="edge"
+            profile="default"
+            rollups={"is_p95_bps": 5.0}
+            decision=dec
         )
         flag_calls = fakes["exec_health_flag_total"].calls
         flags_emitted = {c["flag"] for c in flag_calls}

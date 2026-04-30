@@ -139,19 +139,19 @@ class PgWriter:
     def ensure_tables(self) -> None:
         ddl = """
         CREATE TABLE IF NOT EXISTS of_inputs_dlq_events (
-          stream TEXT NOT NULL,
-          dlq_id TEXT NOT NULL,
-          ts_ms BIGINT NOT NULL,
-          ts TIMESTAMPTZ NOT NULL,
-          src_stream TEXT,
-          src_stream_id TEXT,
-          err TEXT,
-          dq_code TEXT,
-          attempt_version INT,
-          published_version INT,
-          missing_fields TEXT,
-          payload_json JSONB,
-          inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          stream TEXT NOT NULL
+          dlq_id TEXT NOT NULL
+          ts_ms BIGINT NOT NULL
+          ts TIMESTAMPTZ NOT NULL
+          src_stream TEXT
+          src_stream_id TEXT
+          err TEXT
+          dq_code TEXT
+          attempt_version INT
+          published_version INT
+          missing_fields TEXT
+          payload_json JSONB
+          inserted_at TIMESTAMPTZ NOT NULL DEFAULT now()
           PRIMARY KEY (stream, dlq_id)
         );
         CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_ts_idx ON of_inputs_dlq_events (ts DESC);
@@ -172,9 +172,9 @@ class PgWriter:
             return 0
         sql = """
         INSERT INTO of_inputs_dlq_events (
-          stream, dlq_id, ts_ms, ts,
-          src_stream, src_stream_id, err,
-          dq_code, attempt_version, published_version, missing_fields,
+          stream, dlq_id, ts_ms, ts
+          src_stream, src_stream_id, err
+          dq_code, attempt_version, published_version, missing_fields
           payload_json
         ) VALUES %s
         ON CONFLICT (stream, dlq_id) DO NOTHING
@@ -211,14 +211,14 @@ def _s(x: Any) -> str:
 def _as_payload_guess(fields: Dict[str, Any]) -> Dict[str, Any]:
     """If no explicit 'payload' field exists, treat the remaining fields as payload."""
     drop = {
-        "err",
-        "error",
-        "stream",
-        "src_stream",
-        "stream_id",
-        "src_stream_id",
-        "data",
-        "payload",
+        "err"
+        "error"
+        "stream"
+        "src_stream"
+        "stream_id"
+        "src_stream_id"
+        "data"
+        "payload"
     }
     out: Dict[str, Any] = {}
     for k, v in (fields or {}).items():
@@ -270,18 +270,18 @@ def parse_event(stream: str, dlq_id: str, fields: Dict[str, Any]) -> Tuple[Tuple
         mf_s = ""
 
     row = (
-        str(stream),
-        str(dlq_id),
-        int(ts_ms),
-        ts,
-        src_stream or None,
-        src_stream_id or None,
-        err or None,
-        str(dq_code) if dq_code is not None else None,
-        int(float(attempt_version)) if attempt_version is not None and str(attempt_version).strip() != "" else None,
-        int(float(published_version)) if published_version is not None and str(published_version).strip() != "" else None,
-        mf_s or None,
-        json.dumps(payload, ensure_ascii=False),
+        str(stream)
+        str(dlq_id)
+        int(ts_ms)
+        ts
+        src_stream or None
+        src_stream_id or None
+        err or None
+        str(dq_code) if dq_code is not None else None
+        int(float(attempt_version)) if attempt_version is not None and str(attempt_version).strip() != "" else None
+        int(float(published_version)) if published_version is not None and str(published_version).strip() != "" else None
+        mf_s or None
+        json.dumps(payload, ensure_ascii=False)
     )
     return row, str(dlq_id)
 
@@ -302,8 +302,8 @@ def _write_metrics(r, key: str, last_stream_id: str, inserted_delta: int, error_
     try:
         pipe = r.pipeline()
         pipe.hset(key, mapping={
-            "last_run_ts_ms": str(now_ms),
-            "last_stream_id": str(last_stream_id),
+            "last_run_ts_ms": str(now_ms)
+            "last_stream_id": str(last_stream_id)
         })
         if inserted_delta:
             pipe.hincrby(key, "inserted_total", int(inserted_delta))
@@ -421,8 +421,8 @@ def run_once(args: argparse.Namespace) -> int:
 
 def main() -> None:
     default_streams = env(
-        "OF_INPUTS_DLQ_DB_ARCHIVE_STREAMS",
-        "stream:dlq:of_inputs,quarantine:signals:of:inputs",
+        "OF_INPUTS_DLQ_DB_ARCHIVE_STREAMS"
+        "stream:dlq:of_inputs,quarantine:signals:of:inputs"
     )
 
     ap = argparse.ArgumentParser()

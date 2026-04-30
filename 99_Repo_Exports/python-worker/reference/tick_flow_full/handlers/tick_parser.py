@@ -31,7 +31,7 @@ class Tick:
     """
     Минимальная модель тика для ваших пайплайнов.
     Если в проекте уже есть Tick — можно:
-      - либо заменить импорт в handler на ваш общий Tick,
+      - либо заменить импорт в handler на ваш общий Tick
       - либо оставить этот класс только для тестов/парсера (не экспортировать наружу).
     """
     ts: int                 # timestamp в ms (после нормализации)
@@ -264,13 +264,13 @@ def parse_tick(raw: Any, *, now_ms: Optional[int] = None) -> Optional[Tick]:
         return None
 
     return Tick(
-        ts=int(ts),
-        bid=bid_f,
-        ask=ask_f,
-        last=last_f,
-        volume=max(0.0, vol_f),
-        flags=int(flags),
-        is_buyer_maker=ibm,
+        ts=int(ts)
+        bid=bid_f
+        ask=ask_f
+        last=last_f
+        volume=max(0.0, vol_f)
+        flags=int(flags)
+        is_buyer_maker=ibm
         raw=None,  # оставляем пустым: в outbox/логи это не должно утечь
     )
 

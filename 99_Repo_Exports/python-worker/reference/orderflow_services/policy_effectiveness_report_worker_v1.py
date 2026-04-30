@@ -103,15 +103,15 @@ def _build_mode_kpis(cfg: Dict[str, str]) -> Dict[str, ModeKPI]:
 
 def _as_csv(rows: List[Dict[str, Any]]) -> str:
     cols = [
-        "mode",
-        "n",
-        "share_24h",
-        "expectancy_r_24h",
-        "precision_top5p_24h",
-        "ece_24h",
-        "expectancy_r_delta_24h",
-        "precision_top5p_delta_24h",
-        "ece_delta_24h",
+        "mode"
+        "n"
+        "share_24h"
+        "expectancy_r_24h"
+        "precision_top5p_24h"
+        "ece_24h"
+        "expectancy_r_delta_24h"
+        "precision_top5p_delta_24h"
+        "ece_delta_24h"
     ]
     lines = [",".join(cols)]
     for r in rows:
@@ -161,24 +161,24 @@ def run_once() -> int:
             d_ece = 0.0
         rows.append(
             {
-                "mode": mode,
-                "n": int(m.n),
-                "share_24h": float(share),
-                "expectancy_r_24h": float(m.expectancy_r),
-                "precision_top5p_24h": float(m.precision_top5p),
-                "ece_24h": float(m.ece),
-                "expectancy_r_delta_24h": float(d_exp),
-                "precision_top5p_delta_24h": float(d_prec),
-                "ece_delta_24h": float(d_ece),
+                "mode": mode
+                "n": int(m.n)
+                "share_24h": float(share)
+                "expectancy_r_24h": float(m.expectancy_r)
+                "precision_top5p_24h": float(m.precision_top5p)
+                "ece_24h": float(m.ece)
+                "expectancy_r_delta_24h": float(d_exp)
+                "precision_top5p_delta_24h": float(d_prec)
+                "ece_delta_24h": float(d_ece)
             }
         )
 
     now_ms = _now_ms()
     hset_map: Dict[str, Any] = {
-        "policy_effectiveness_last_ts_ms": str(now_ms),
-        "policy_effectiveness_baseline_ok_present": str(int(baseline_ok_present)),
-        "policy_effectiveness_input_last_ts_ms": str(int(last_in_ts_ms)),
-        "policy_effectiveness_total_n_24h": str(int(total_n)),
+        "policy_effectiveness_last_ts_ms": str(now_ms)
+        "policy_effectiveness_baseline_ok_present": str(int(baseline_ok_present))
+        "policy_effectiveness_input_last_ts_ms": str(int(last_in_ts_ms))
+        "policy_effectiveness_total_n_24h": str(int(total_n))
     }
     for row in rows:
         mode = row["mode"]
@@ -194,21 +194,21 @@ def run_once() -> int:
         return 2
 
     report = {
-        "ts_ms": now_ms,
-        "lookback_h": 24,
-        "source": "settings:dynamic_cfg (signal_quality_*_policy_*)",
-        "input_last_ts_ms": int(last_in_ts_ms),
+        "ts_ms": now_ms
+        "lookback_h": 24
+        "source": "settings:dynamic_cfg (signal_quality_*_policy_*)"
+        "input_last_ts_ms": int(last_in_ts_ms)
         "baseline": {
-            "mode": "ok",
-            "min_n": int(baseline_min_n),
-            "present": int(baseline_ok_present),
-            "n": int(ok.n),
-            "expectancy_r": float(ok.expectancy_r),
-            "precision_top5p": float(ok.precision_top5p),
-            "ece": float(ok.ece),
-        },
-        "total_n": int(total_n),
-        "rows": rows,
+            "mode": "ok"
+            "min_n": int(baseline_min_n)
+            "present": int(baseline_ok_present)
+            "n": int(ok.n)
+            "expectancy_r": float(ok.expectancy_r)
+            "precision_top5p": float(ok.precision_top5p)
+            "ece": float(ok.ece)
+        }
+        "total_n": int(total_n)
+        "rows": rows
     }
     report_json = json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     report_csv = _as_csv(rows)
@@ -233,10 +233,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="Run once and exit")
     ap.add_argument(
-        "--interval-sec",
-        type=int,
-        default=_to_int(os.environ.get("POLICY_EFF_INTERVAL_SEC", "600"), 600),
-        help="Loop interval (seconds) when not --once",
+        "--interval-sec"
+        type=int
+        default=_to_int(os.environ.get("POLICY_EFF_INTERVAL_SEC", "600"), 600)
+        help="Loop interval (seconds) when not --once"
     )
     args = ap.parse_args()
 

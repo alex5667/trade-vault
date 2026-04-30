@@ -92,22 +92,22 @@ class BBOStoreCfg:
         allow = {s.strip().upper() for s in raw_allow.split(",") if s.strip()} if raw_allow else set()
         venue_default = os.getenv("BBO_TS_VENUE_DEFAULT", "binance")
         return BBOStoreCfg(
-            enabled=enabled,
-            stream=stream,
-            stream_maxlen=stream_maxlen,
-            schema_version=schema_version,
-            min_interval_ms=min_interval_ms,
-            symbols_allow=allow,
-            venue_default=venue_default,
+            enabled=enabled
+            stream=stream
+            stream_maxlen=stream_maxlen
+            schema_version=schema_version
+            min_interval_ms=min_interval_ms
+            symbols_allow=allow
+            venue_default=venue_default
         )
 
 
 async def maybe_publish_bbo(
-    *,
-    publisher: Any,
-    cfg: BBOStoreCfg,
-    runtime: Any,
-    book_ts_ms: int,
+    *
+    publisher: Any
+    cfg: BBOStoreCfg
+    runtime: Any
+    book_ts_ms: int
 ) -> None:
     """Publish a compact BBO snapshot into `events:bbo_ts`.
 
@@ -171,14 +171,14 @@ async def maybe_publish_bbo(
     venue = (venue or cfg.venue_default or "binance").strip().lower()
 
     payload: Dict[str, Any] = {
-        "schema_version": int(cfg.schema_version),
-        "producer": str(os.getenv("SERVICE_NAME", "python-worker")),
-        "ts_ms": int(ts_ms),
-        "symbol": symbol,
-        "venue": venue,
-        "bid": float(bid),
-        "ask": float(ask),
-        "mid": float(mid),
+        "schema_version": int(cfg.schema_version)
+        "producer": str(os.getenv("SERVICE_NAME", "python-worker"))
+        "ts_ms": int(ts_ms)
+        "symbol": symbol
+        "venue": venue
+        "bid": float(bid)
+        "ask": float(ask)
+        "mid": float(mid)
     }
 
     # Persist throttle state only after payload is built.
@@ -220,11 +220,11 @@ async def maybe_publish_bbo(
         async with _bbo_semaphore:
             try:
                 await publisher.xadd_json(
-                    sink=sink,
-                    payload=payload,
-                    symbol=symbol,
-                    approximate=True,
-                    no_retry=True,
+                    sink=sink
+                    payload=payload
+                    symbol=symbol
+                    approximate=True
+                    no_retry=True
                     timeout_sec=None,  # Rely on ASYNC_PUB_TIMEOUT_SEC
                 )
             except Exception:

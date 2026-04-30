@@ -6,19 +6,19 @@ import sys, os
 
 import pytest
 from services.observability.latency_semconv import (
-    as_int_ms,
-    non_negative_delta_ms,
-    ensure_epoch_ms_fields,
-    compute_contract_deltas,
-    parse_allowlist,
-    label_symbol,
-    STAGE_REDIS_TO_FEATURE,
-    STAGE_FEATURE_TO_EMIT,
-    STAGE_END_TO_END_EVENT,
-    FIELD_TS_EVENT_MS,
-    FIELD_TS_REDIS_READ_MS,
-    FIELD_TS_FEATURE_MS,
-    FIELD_TS_EMIT_MS,
+    as_int_ms
+    non_negative_delta_ms
+    ensure_epoch_ms_fields
+    compute_contract_deltas
+    parse_allowlist
+    label_symbol
+    STAGE_REDIS_TO_FEATURE
+    STAGE_FEATURE_TO_EMIT
+    STAGE_END_TO_END_EVENT
+    FIELD_TS_EVENT_MS
+    FIELD_TS_REDIS_READ_MS
+    FIELD_TS_FEATURE_MS
+    FIELD_TS_EMIT_MS
 )
 
 
@@ -88,10 +88,10 @@ class TestEnsureEpochMsFields:
 class TestComputeContractDeltas:
     def test_redis_to_feature(self):
         p = {
-            FIELD_TS_REDIS_READ_MS: 1000,
-            FIELD_TS_FEATURE_MS: 1050,
-            FIELD_TS_EMIT_MS: 1150,
-            FIELD_TS_EVENT_MS: 900,
+            FIELD_TS_REDIS_READ_MS: 1000
+            FIELD_TS_FEATURE_MS: 1050
+            FIELD_TS_EMIT_MS: 1150
+            FIELD_TS_EVENT_MS: 900
         }
         d = compute_contract_deltas(p)
         assert d[STAGE_REDIS_TO_FEATURE] == 50
@@ -107,7 +107,7 @@ class TestComputeContractDeltas:
 
     def test_non_monotonic_yields_zero(self):
         p = {
-            FIELD_TS_REDIS_READ_MS: 2000,
+            FIELD_TS_REDIS_READ_MS: 2000
             FIELD_TS_FEATURE_MS: 1000,  # earlier than redis_read – non-monotonic
         }
         d = compute_contract_deltas(p)

@@ -54,15 +54,15 @@ class LocalCalibrationStore:
         try:
             sql = """
                 SELECT
-                    symbol,
-                    session,
-                    regime,
-                    metric,
-                    q90,
-                    q95,
-                    q98,
-                    chosen_threshold,
-                    count_samples,
+                    symbol
+                    session
+                    regime
+                    metric
+                    q90
+                    q95
+                    q98
+                    chosen_threshold
+                    count_samples
                     cdf_points
                 FROM signal_local_calibration
             """
@@ -71,24 +71,24 @@ class LocalCalibrationStore:
                 data: Dict[ClusterMetricKey, ClusterMetricCfg] = {}
                 for r in cur:
                     key: ClusterMetricKey = (
-                        r["symbol"],
-                        r["session"],
-                        r["regime"],
-                        r["metric"],
+                        r["symbol"]
+                        r["session"]
+                        r["regime"]
+                        r["metric"]
                     )
                     cdf_points = r["cdf_points"]
                     if isinstance(cdf_points, str):
                         cdf_points = json.loads(cdf_points)
 
                     data[key] = ClusterMetricCfg(
-                        q90=float(r["q90"]) if r["q90"] is not None else float("nan"),
-                        q95=float(r["q95"]) if r["q95"] is not None else float("nan"),
-                        q98=float(r["q98"]) if r["q98"] is not None else float("nan"),
+                        q90=float(r["q90"]) if r["q90"] is not None else float("nan")
+                        q95=float(r["q95"]) if r["q95"] is not None else float("nan")
+                        q98=float(r["q98"]) if r["q98"] is not None else float("nan")
                         threshold=float(r["chosen_threshold"])
                         if r["chosen_threshold"] is not None
-                        else float("nan"),
-                        cdf_points=list(cdf_points or []),
-                        count_samples=int(r["count_samples"]),
+                        else float("nan")
+                        cdf_points=list(cdf_points or [])
+                        count_samples=int(r["count_samples"])
                     )
             self._cfg = data
             print(f"Loaded {len(data)} calibration entries from database")
@@ -96,11 +96,11 @@ class LocalCalibrationStore:
             conn.close()
 
     def get_metric_cfg(
-        self,
-        symbol: str,
-        session: str,
-        regime: str,
-        metric: str,
+        self
+        symbol: str
+        session: str
+        regime: str
+        metric: str
     ) -> ClusterMetricCfg | None:
         """Получает конфигурацию метрики для кластера"""
         key: ClusterMetricKey = (symbol, session, regime, metric)
@@ -119,10 +119,10 @@ class LocalCalibrationStore:
         return self._cfg.get(key3)
 
     def get_cluster_metrics(
-        self,
-        symbol: str,
-        session: str,
-        regime: str,
+        self
+        symbol: str
+        session: str
+        regime: str
     ) -> Dict[str, ClusterMetricCfg]:
         """Получает все метрики для кластера"""
         metrics = {}

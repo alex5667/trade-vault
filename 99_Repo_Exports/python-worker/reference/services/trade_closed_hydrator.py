@@ -37,12 +37,12 @@ def _normalize_profile_aliases(d: Dict[str, str]) -> Dict[str, str]:
 
 
 def hydrate_trade_closed(
-    redis,
-    fields: Dict[str, Any],
-    *,
-    compact_env: str = "TRADES_CLOSED_STREAM_COMPACT",
-    require_closed: bool = True,
-    merge_precedence: str = "hash",
+    redis
+    fields: Dict[str, Any]
+    *
+    compact_env: str = "TRADES_CLOSED_STREAM_COMPACT"
+    require_closed: bool = True
+    merge_precedence: str = "hash"
 ) -> Dict[str, str]:
     """
     Делает запись закрытой сделки "максимально полной".
@@ -63,10 +63,10 @@ def hydrate_trade_closed(
 
     if not need_hash:
         required_keys = (
-            "exit_ts_ms", "pnl_net", "close_reason", "status",
-            "one_r_money", "risk_amount",
-            "mfe_pnl", "mfe_usd", "pnl_pct", "pnl_if_fixed_exit",
-            "sl_atr", "tp_atr", "atr",
+            "exit_ts_ms", "pnl_net", "close_reason", "status"
+            "one_r_money", "risk_amount"
+            "mfe_pnl", "mfe_usd", "pnl_pct", "pnl_if_fixed_exit"
+            "sl_atr", "tp_atr", "atr"
             "signal_payload"
         )
         for k in required_keys:
@@ -103,12 +103,12 @@ def hydrate_trade_closed(
 
 
 def hydrate_trade_closed_batch(
-    redis,
-    rows: List[Dict[str, Any]],
-    *,
-    compact_env: str = "TRADES_CLOSED_STREAM_COMPACT",
-    require_closed: bool = False,
-    merge_precedence: str = "hash",
+    redis
+    rows: List[Dict[str, Any]]
+    *
+    compact_env: str = "TRADES_CLOSED_STREAM_COMPACT"
+    require_closed: bool = False
+    merge_precedence: str = "hash"
 ) -> List[Dict[str, str]]:
     """
     Batch-версия для ускорения consumer'ов:
@@ -131,10 +131,10 @@ def hydrate_trade_closed_batch(
         if not need:
             # Expanded required fields to ensure R-metrics and Exit Stats are calculated
             required_keys = (
-                "exit_ts_ms", "pnl_net", "close_reason", "status",
-                "one_r_money", "risk_amount",
-                "mfe_pnl", "mfe_usd", "pnl_pct", "pnl_if_fixed_exit",
-                "sl_atr", "tp_atr", "atr",
+                "exit_ts_ms", "pnl_net", "close_reason", "status"
+                "one_r_money", "risk_amount"
+                "mfe_pnl", "mfe_usd", "pnl_pct", "pnl_if_fixed_exit"
+                "sl_atr", "tp_atr", "atr"
                 "signal_payload"
             )
             for k in required_keys:

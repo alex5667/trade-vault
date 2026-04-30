@@ -36,12 +36,12 @@ def _chunks(text: str, limit: int = _CHUNK_SIZE) -> list[str]:
 
 
 def send_telegram_message(
-    *,
-    text: str,
-    parse_mode: str = "Markdown",
-    disable_web_page_preview: bool = True,
-    bot_token: str | None = None,
-    chat_id: str | None = None,
+    *
+    text: str
+    parse_mode: str = "Markdown"
+    disable_web_page_preview: bool = True
+    bot_token: str | None = None
+    chat_id: str | None = None
 ) -> bool:
     """Send *text* to a Telegram chat, splitting into chunks if needed.
 
@@ -76,14 +76,14 @@ def send_telegram_message(
     try:
         for part in _chunks(text):
             resp = _requests.post(
-                url,
-                timeout=10,
+                url
+                timeout=10
                 json={
-                    "chat_id": cid,
-                    "text": part,
-                    "parse_mode": parse_mode,
-                    "disable_web_page_preview": bool(disable_web_page_preview),
-                },
+                    "chat_id": cid
+                    "text": part
+                    "parse_mode": parse_mode
+                    "disable_web_page_preview": bool(disable_web_page_preview)
+                }
             )
             ok_any = ok_any or bool(resp.ok)
     except Exception:  # noqa: BLE001 — fail-open by design

@@ -12,32 +12,32 @@ logger = logging.getLogger(__name__)
 
 # Metrics
 ATR_PROGRAM_CLOSURE_PACKAGES_TOTAL = Counter(
-    "atr_program_closure_packages_total",
-    "Total closure packages built",
+    "atr_program_closure_packages_total"
+    "Total closure packages built"
     ["status", "verdict"]
 )
 
 ATR_PROGRAM_HANDOFFS_TOTAL = Counter(
-    "atr_program_handoffs_total",
-    "Total handoffs recorded",
+    "atr_program_handoffs_total"
+    "Total handoffs recorded"
     ["domain", "status"]
 )
 
 ATR_PROGRAM_RESIDUAL_BACKLOG_TOTAL = Counter(
-    "atr_program_residual_backlog_total",
-    "Total backlog items recorded",
+    "atr_program_residual_backlog_total"
+    "Total backlog items recorded"
     ["domain", "backlog_class", "status"]
 )
 
 ATR_PROGRAM_CLOSURE_BLOCK_TOTAL = Counter(
-    "atr_program_closure_block_total",
-    "Total times closure was blocked",
+    "atr_program_closure_block_total"
+    "Total times closure was blocked"
     ["reason_code"]
 )
 
 ATR_PROGRAM_STABILIZATION_WINDOW_TOTAL = Gauge(
-    "atr_program_stabilization_window_total",
-    "Current status of stabilization window",
+    "atr_program_stabilization_window_total"
+    "Current status of stabilization window"
     ["status"]
 )
 
@@ -69,12 +69,12 @@ class ResidualBacklogClass(str, Enum):
 class ATRProgramClosureService:
     def __init__(self):
         self.required_domains = [
-            "signal_and_gates",
-            "dispatch_and_runtime",
-            "execution",
-            "protective_lifecycle",
-            "control_plane_governance",
-            "dr_replay_archive",
+            "signal_and_gates"
+            "dispatch_and_runtime"
+            "execution"
+            "protective_lifecycle"
+            "control_plane_governance"
+            "dr_replay_archive"
         ]
 
     def check_stabilization_window(self, conn, required_days: int = 14) -> Dict[str, Any]:
@@ -126,10 +126,10 @@ class ATRProgramClosureService:
                 ATR_PROGRAM_STABILIZATION_WINDOW_TOTAL.labels(status="passed" if passed else "insufficient").set(streak_days)
                 
                 return {
-                    "passed": passed,
-                    "reason": "STABILIZATION_IN_PROGRESS" if not passed else "WINDOW_PASSED",
-                    "days_stable": streak_days,
-                    "required_days": required_days,
+                    "passed": passed
+                    "reason": "STABILIZATION_IN_PROGRESS" if not passed else "WINDOW_PASSED"
+                    "days_stable": streak_days
+                    "required_days": required_days
                     "golive_date": signed_at.isoformat()
                 }
         except Exception as e:
@@ -141,12 +141,12 @@ class ATRProgramClosureService:
         Automatically collect evidence for program closure.
         """
         evidence = {
-            "charter_active": False,
-            "enforcement_map_active": False,
-            "critical_coverage_gaps": 1,
-            "e2e_acceptance_passed": False,
-            "go_live_signed": False,
-            "critical_quarantine_active": True,
+            "charter_active": False
+            "enforcement_map_active": False
+            "critical_coverage_gaps": 1
+            "e2e_acceptance_passed": False
+            "go_live_signed": False
+            "critical_quarantine_active": True
             "stabilization_passed": False
         }
         
@@ -193,12 +193,12 @@ class ATRProgramClosureService:
         return evidence
         
     def evaluate_closure_criteria(
-        self,
-        charter_active: bool,
-        enforcement_map_active: bool,
-        critical_coverage_gaps: int,
-        e2e_acceptance_passed: bool,
-        go_live_signed: bool,
+        self
+        charter_active: bool
+        enforcement_map_active: bool
+        critical_coverage_gaps: int
+        e2e_acceptance_passed: bool
+        go_live_signed: bool
         critical_quarantine_active: bool
     ) -> bool:
         """
@@ -252,13 +252,13 @@ class ATRProgramClosureService:
                 logger.warning(f"Domain {domain} missing primary_owner")
                 
             matrix.append({
-                "handoff_id": f"{package_id}_{domain}",
-                "package_id": package_id,
-                "domain": domain,
-                "primary_owner": primary_owner,
-                "secondary_owner": h.get("secondary_owner"),
-                "oncall_route": h.get("oncall_route"),
-                "status": status,
+                "handoff_id": f"{package_id}_{domain}"
+                "package_id": package_id
+                "domain": domain
+                "primary_owner": primary_owner
+                "secondary_owner": h.get("secondary_owner")
+                "oncall_route": h.get("oncall_route")
+                "status": status
                 "handoff_json": h.get("handoff_json", {})
             })
             
@@ -284,22 +284,22 @@ class ATRProgramClosureService:
                 backlog_class = ResidualBacklogClass.BLOCKING
 
             classified.append({
-                "item_id": item.get("item_id", f"{package_id}_bl_{i}"),
-                "package_id": package_id,
-                "domain": item.get("domain", "unknown"),
-                "priority": item.get("priority", "P1"),
-                "status": item.get("status", "open"),
-                "backlog_class": backlog_class,
-                "title": item.get("title", "Untitled backlog item"),
-                "reason_code": item.get("reason_code", "UNKNOWN"),
+                "item_id": item.get("item_id", f"{package_id}_bl_{i}")
+                "package_id": package_id
+                "domain": item.get("domain", "unknown")
+                "priority": item.get("priority", "P1")
+                "status": item.get("status", "open")
+                "backlog_class": backlog_class
+                "title": item.get("title", "Untitled backlog item")
+                "reason_code": item.get("reason_code", "UNKNOWN")
                 "backlog_json": item.get("backlog_json", {})
             })
         return classified
 
     def compute_program_closure_verdict(
-        self,
-        criteria_pass: bool,
-        handoff_matrix: list[Dict[str, Any]],
+        self
+        criteria_pass: bool
+        handoff_matrix: list[Dict[str, Any]]
         classified_backlog: list[Dict[str, Any]]
     ) -> ProgramClosureVerdict:
         """
@@ -339,23 +339,23 @@ class ATRProgramClosureService:
         return ProgramClosureVerdict.PROGRAM_CLOSED
 
     def build_program_closure_package(
-        self,
-        package_id: str,
-        charter_version: str,
-        target_scope: str,
-        criteria_inputs: Dict[str, Any],
-        handoffs_input: list[Dict[str, Any]],
+        self
+        package_id: str
+        charter_version: str
+        target_scope: str
+        criteria_inputs: Dict[str, Any]
+        handoffs_input: list[Dict[str, Any]]
         backlog_input: list[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
         Builds the entire closure package, computes verdict, and creates records.
         """
         criteria_pass = self.evaluate_closure_criteria(
-            charter_active=criteria_inputs.get("charter_active", False),
-            enforcement_map_active=criteria_inputs.get("enforcement_map_active", False),
-            critical_coverage_gaps=criteria_inputs.get("critical_coverage_gaps", 1),
-            e2e_acceptance_passed=criteria_inputs.get("e2e_acceptance_passed", False),
-            go_live_signed=criteria_inputs.get("go_live_signed", False),
+            charter_active=criteria_inputs.get("charter_active", False)
+            enforcement_map_active=criteria_inputs.get("enforcement_map_active", False)
+            critical_coverage_gaps=criteria_inputs.get("critical_coverage_gaps", 1)
+            e2e_acceptance_passed=criteria_inputs.get("e2e_acceptance_passed", False)
+            go_live_signed=criteria_inputs.get("go_live_signed", False)
             critical_quarantine_active=criteria_inputs.get("critical_quarantine_active", True)
         )
         
@@ -369,17 +369,17 @@ class ATRProgramClosureService:
             status = ProgramClosureStatus.REJECTED
             
         package = {
-            "package_id": package_id,
-            "charter_version": charter_version,
-            "target_scope": target_scope,
-            "status": status,
-            "verdict": verdict,
+            "package_id": package_id
+            "charter_version": charter_version
+            "target_scope": target_scope
+            "status": status
+            "verdict": verdict
             "summary_json": {
-                "criteria_eval": criteria_inputs,
-                "handoff_count": len(handoffs),
+                "criteria_eval": criteria_inputs
+                "handoff_count": len(handoffs)
                 "backlog_count": len(backlog)
-            },
-            "handoffs": handoffs,
+            }
+            "handoffs": handoffs
             "backlog": backlog
         }
         
@@ -387,20 +387,20 @@ class ATRProgramClosureService:
         
         # Emit metrics
         ATR_PROGRAM_CLOSURE_PACKAGES_TOTAL.labels(
-            status=package["status"],
+            status=package["status"]
             verdict=package["verdict"]
         ).inc()
         
         for h in package["handoffs"]:
             ATR_PROGRAM_HANDOFFS_TOTAL.labels(
-                domain=h["domain"],
+                domain=h["domain"]
                 status=h["status"]
             ).inc()
             
         for b in package["backlog"]:
             ATR_PROGRAM_RESIDUAL_BACKLOG_TOTAL.labels(
-                domain=b["domain"],
-                backlog_class=b["backlog_class"],
+                domain=b["domain"]
+                backlog_class=b["backlog_class"]
                 status=b["status"]
             ).inc()
             
@@ -421,16 +421,16 @@ class ATRProgramClosureService:
                         (package_id, charter_version, target_scope, status, verdict, summary_json)
                         VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (package_id) DO UPDATE SET
-                            status = EXCLUDED.status,
-                            verdict = EXCLUDED.verdict,
+                            status = EXCLUDED.status
+                            verdict = EXCLUDED.verdict
                             summary_json = EXCLUDED.summary_json
-                        """,
+                        """
                         (
-                            package["package_id"],
-                            package["charter_version"],
-                            package["target_scope"],
-                            package["status"],
-                            package["verdict"],
+                            package["package_id"]
+                            package["charter_version"]
+                            package["target_scope"]
+                            package["status"]
+                            package["verdict"]
                             json.dumps(package["summary_json"])
                         )
                     )
@@ -443,18 +443,18 @@ class ATRProgramClosureService:
                             (handoff_id, package_id, domain, primary_owner, secondary_owner, oncall_route, status, handoff_json)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (handoff_id) DO UPDATE SET
-                                status = EXCLUDED.status,
-                                primary_owner = EXCLUDED.primary_owner,
+                                status = EXCLUDED.status
+                                primary_owner = EXCLUDED.primary_owner
                                 handoff_json = EXCLUDED.handoff_json
-                            """,
+                            """
                             (
-                                h["handoff_id"],
-                                h["package_id"],
-                                h["domain"],
-                                h["primary_owner"],
-                                h["secondary_owner"],
-                                h["oncall_route"],
-                                h["status"],
+                                h["handoff_id"]
+                                h["package_id"]
+                                h["domain"]
+                                h["primary_owner"]
+                                h["secondary_owner"]
+                                h["oncall_route"]
+                                h["status"]
                                 json.dumps(h["handoff_json"])
                             )
                         )
@@ -467,18 +467,18 @@ class ATRProgramClosureService:
                             (item_id, package_id, domain, priority, status, backlog_class, title, reason_code, backlog_json)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (item_id) DO UPDATE SET
-                                status = EXCLUDED.status,
+                                status = EXCLUDED.status
                                 backlog_class = EXCLUDED.backlog_class
-                            """,
+                            """
                             (
-                                b["item_id"],
-                                b["package_id"],
-                                b["domain"],
-                                b["priority"],
-                                b["status"],
-                                b["backlog_class"],
-                                b["title"],
-                                b["reason_code"],
+                                b["item_id"]
+                                b["package_id"]
+                                b["domain"]
+                                b["priority"]
+                                b["status"]
+                                b["backlog_class"]
+                                b["title"]
+                                b["reason_code"]
                                 json.dumps(b["backlog_json"])
                             )
                         )

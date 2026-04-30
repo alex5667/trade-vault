@@ -41,36 +41,36 @@ def compute_quantiles(values: List[float]) -> BaselineQuantiles:
     """Вычисляет все необходимые квантили для списка значений."""
     if not values:
         return BaselineQuantiles(
-            p05=None,
-            p10=None,
-            p25=None,
-            p50=None,
-            p75=None,
-            p90=None,
-            p95=None,
-            sample_size=0,
+            p05=None
+            p10=None
+            p25=None
+            p50=None
+            p75=None
+            p90=None
+            p95=None
+            sample_size=0
         )
 
     return BaselineQuantiles(
-        p05=_quantile(values, 0.05),
-        p10=_quantile(values, 0.10),
-        p25=_quantile(values, 0.25),
-        p50=_quantile(values, 0.50),
-        p75=_quantile(values, 0.75),
-        p90=_quantile(values, 0.90),
-        p95=_quantile(values, 0.95),
-        sample_size=len(values),
+        p05=_quantile(values, 0.05)
+        p10=_quantile(values, 0.10)
+        p25=_quantile(values, 0.25)
+        p50=_quantile(values, 0.50)
+        p75=_quantile(values, 0.75)
+        p90=_quantile(values, 0.90)
+        p95=_quantile(values, 0.95)
+        sample_size=len(values)
     )
 
 
 def compute_family_baseline(
-    rows: List[SignalExecRow],
-    window_size: int,
+    rows: List[SignalExecRow]
+    window_size: int
 ) -> Dict[str, BaselineQuantiles]:
     """
     Вычисляет baseline для одной пары symbol+family.
 
-    rows — сигналы по одному symbol+family (за horizon_days),
+    rows — сигналы по одному symbol+family (за horizon_days)
     отсортированные по opened_at.
 
     Возвращает квантили для 'hit_rate' и 'expectancy_R'.
@@ -98,6 +98,6 @@ def compute_family_baseline(
         expectancies.append(expectancy_r)
 
     return {
-        "hit_rate": compute_quantiles(hit_rates),
-        "expectancy_R": compute_quantiles(expectancies),
+        "hit_rate": compute_quantiles(hit_rates)
+        "expectancy_R": compute_quantiles(expectancies)
     }

@@ -22,7 +22,7 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
 
 def _canon_tf(x: Any) -> str:
     """
-    Минимальная нормализация tf (без зависимости от canon_tf),
+    Минимальная нормализация tf (без зависимости от canon_tf)
     чтобы ключи EMA были стабильными.
     """
     try:
@@ -45,7 +45,7 @@ def session_from_ts_ms(ts_ms: int) -> str:
     Простая (и самодостаточная) классификация "сессии" по часу UTC.
     Это deliberately lightweight: достаточно для ключа EMA.
 
-    Если у вас уже есть session_service.py и вы хотите полное соответствие — скажите,
+    Если у вас уже есть session_service.py и вы хотите полное соответствие — скажите
     я переподключу сюда вашу функцию без изменения протокола ключей.
     """
     try:
@@ -109,23 +109,23 @@ class SlippageEmaConfig:
         key_prefix = str(os.getenv("SLIPPAGE_EMA_KEY_PREFIX", "slipema:") or "slipema:")
         use_kind_dim = _env_bool("SLIPPAGE_EMA_USE_KIND_DIM", True)
         return SlippageEmaConfig(
-            enabled=enabled,
-            alpha=float(alpha),
-            ttl_sec=int(ttl_sec),
-            min_samples=int(min_samples),
-            key_prefix=key_prefix,
-            use_kind_dim=bool(use_kind_dim),
+            enabled=enabled
+            alpha=float(alpha)
+            ttl_sec=int(ttl_sec)
+            min_samples=int(min_samples)
+            key_prefix=key_prefix
+            use_kind_dim=bool(use_kind_dim)
         )
 
 
 def _key(
-    cfg: SlippageEmaConfig,
-    *,
-    symbol: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: Optional[str] = None,
+    cfg: SlippageEmaConfig
+    *
+    symbol: str
+    venue: str
+    session: str
+    tf: str
+    kind: Optional[str] = None
 ) -> str:
     """
     Key format:
@@ -147,17 +147,17 @@ def _key(
 
 
 def update_slippage_ema(
-    redis_client: Any,
-    *,
-    cfg: SlippageEmaConfig,
-    symbol: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: Optional[str] = None,
-    now_ms: int,
-    realized_slippage_bps: float,
-    realized_spread_bps: float = 0.0,
+    redis_client: Any
+    *
+    cfg: SlippageEmaConfig
+    symbol: str
+    venue: str
+    session: str
+    tf: str
+    kind: Optional[str] = None
+    now_ms: int
+    realized_slippage_bps: float
+    realized_spread_bps: float = 0.0
 ) -> None:
     """
     Пишем EMA в Redis:
@@ -217,10 +217,10 @@ def update_slippage_ema(
 
         pipe = redis_client.pipeline(transaction=False)
         pipe.hset(k, mapping={
-            "samples": int(samples + 1),
-            "ema_slippage_bps": float(ema_new),
-            "ema_spread_bps": float(ema_sp_new),
-            "last_ts_ms": int(now_ms),
+            "samples": int(samples + 1)
+            "ema_slippage_bps": float(ema_new)
+            "ema_spread_bps": float(ema_sp_new)
+            "last_ts_ms": int(now_ms)
         })
         if cfg.ttl_sec > 0:
             pipe.expire(k, int(cfg.ttl_sec))
@@ -230,14 +230,14 @@ def update_slippage_ema(
 
 
 def read_slippage_ema(
-    redis_client: Any,
-    *,
-    cfg: SlippageEmaConfig,
-    symbol: str,
-    venue: str,
-    session: str,
-    tf: str,
-    kind: Optional[str] = None,
+    redis_client: Any
+    *
+    cfg: SlippageEmaConfig
+    symbol: str
+    venue: str
+    session: str
+    tf: str
+    kind: Optional[str] = None
 ) -> Optional[Dict[str, float]]:
     """
     Чтение EMA (для gate).

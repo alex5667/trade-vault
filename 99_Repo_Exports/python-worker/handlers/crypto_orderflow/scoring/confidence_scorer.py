@@ -5,10 +5,10 @@ from typing import Any, Dict, Tuple
 
 
 def _crypto_conf_factor(
-    ctx: "SignalContext",
-    signal_kind: str,
-    *,
-    side: str | None = None,
+    ctx: "SignalContext"
+    signal_kind: str
+    *
+    side: str | None = None
 ) -> Tuple[float, Dict[str, float] | None]:
     """
     Returns confidence in [0..1] + parts dict.
@@ -90,13 +90,13 @@ def _crypto_conf_factor(
     # -----------------------------
     atr_q = float(
         getattr(
-            ctx,
-            "atr_q_main",
+            ctx
+            "atr_q_main"
             getattr(
-                ctx,
-                "atr_q_lookback",
-                getattr(ctx, "atr_quantile", getattr(ctx, "atrQ", 0.5)),
-            ),
+                ctx
+                "atr_q_lookback"
+                getattr(ctx, "atr_quantile", getattr(ctx, "atrQ", 0.5))
+            )
         )
         or 0.5
     )
@@ -128,9 +128,9 @@ def _crypto_conf_factor(
     main_z = float(
         abs(
             getattr(
-                ctx,
-                "main_z",
-                getattr(ctx, "deltaSpikeZ", getattr(ctx, "cluster_z", 0.0)),
+                ctx
+                "main_z"
+                getattr(ctx, "deltaSpikeZ", getattr(ctx, "cluster_z", 0.0))
             )
             or 0.0
         )
@@ -151,9 +151,9 @@ def _crypto_conf_factor(
     # 3) OBI persistence
     # -----------------------------
     obi_levels = getattr(
-        ctx,
-        "OBI_windowLevels",
-        getattr(ctx, "obi_windowLevels", getattr(ctx, "obi_window_levels", [])),
+        ctx
+        "OBI_windowLevels"
+        getattr(ctx, "obi_windowLevels", getattr(ctx, "obi_window_levels", []))
     )
 
     obi_persist_score = 0.0
@@ -293,16 +293,16 @@ def _crypto_conf_factor(
     # 7.1) structured bonuses (allowlist + tuned weights)
     # -----------------------------
     _ALLOW = {
-        "reclaim",
-        "obi_stable",
-        "ice_strict",
-        "iceberg_strict",
-        "fp_edge_absorb",
-        "rsi_agree",
-        "div_match",
-        "sweep",
-        "sweep_eqh",
-        "sweep_eql",
+        "reclaim"
+        "obi_stable"
+        "ice_strict"
+        "iceberg_strict"
+        "fp_edge_absorb"
+        "rsi_agree"
+        "div_match"
+        "sweep"
+        "sweep_eqh"
+        "sweep_eql"
     }
 
     flags: Dict[str, str] = {}
@@ -383,15 +383,15 @@ def _crypto_conf_factor(
         return _cfgf(bkey, default)
 
     b = {
-        "reclaim": _bonus("bonus_reclaim", 0.05),
-        "obi_stable": _bonus("bonus_obi_stable", 0.04),
-        "iceberg_strict": _bonus("bonus_iceberg_strict", 0.04),
-        "fp_edge_absorb": _bonus("bonus_fp_edge_absorb", 0.03),
-        "rsi_agree": _bonus("bonus_rsi_agree", 0.03),
-        "div_match": _bonus("bonus_div_match", 0.04),
-        "sweep": _bonus("bonus_sweep", 0.02),
-        "sweep_eqh": _bonus("bonus_sweep_eqh", 0.02),
-        "sweep_eql": _bonus("bonus_sweep_eql", 0.02),
+        "reclaim": _bonus("bonus_reclaim", 0.05)
+        "obi_stable": _bonus("bonus_obi_stable", 0.04)
+        "iceberg_strict": _bonus("bonus_iceberg_strict", 0.04)
+        "fp_edge_absorb": _bonus("bonus_fp_edge_absorb", 0.03)
+        "rsi_agree": _bonus("bonus_rsi_agree", 0.03)
+        "div_match": _bonus("bonus_div_match", 0.04)
+        "sweep": _bonus("bonus_sweep", 0.02)
+        "sweep_eqh": _bonus("bonus_sweep_eqh", 0.02)
+        "sweep_eql": _bonus("bonus_sweep_eql", 0.02)
     }
 
     # anti-correlation (oscillators in strong momentum)
@@ -438,7 +438,7 @@ def _crypto_conf_factor(
     # Phase-2 anti-correlation tuning
     # Supports Phase-2 tuning shapes:
     #   tuning = {
-    #     "anti_corr": {"trend": {"rsi_agree": 0.55, ...}},
+    #     "anti_corr": {"trend": {"rsi_agree": 0.55, ...}}
     #     "by_regime": {"trend": {"anti_corr": {...}}}
     #   }
     def _anti_corr_override(key: str, default_mult: float) -> float:

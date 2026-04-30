@@ -32,9 +32,9 @@ def test_taker_flow_gate_pass():
 
 def test_taker_flow_gate_contra_long_enforce():
     cfg2 = {
-        "taker_flow_gate_mode": "enforce",
-        "taker_flow_contra_imb_hard": 0.2,
-        "taker_flow_contra_z_hard": 2.0,
+        "taker_flow_gate_mode": "enforce"
+        "taker_flow_contra_imb_hard": 0.2
+        "taker_flow_contra_z_hard": 2.0
     }
     indicators = {"taker_flow_imb": -0.3, "taker_flow_imb_z": -2.5, "taker_buy_rate_ema": 100.0}
     res = eval_taker_flow_gate("LONG", indicators, cfg2)
@@ -45,9 +45,9 @@ def test_taker_flow_gate_contra_long_enforce():
 
 def test_taker_flow_gate_shadow_mode():
     cfg2 = {
-        "taker_flow_gate_mode": "shadow",
-        "taker_flow_contra_imb_hard": 0.2,
-        "taker_flow_contra_z_hard": 2.0,
+        "taker_flow_gate_mode": "shadow"
+        "taker_flow_contra_imb_hard": 0.2
+        "taker_flow_contra_z_hard": 2.0
     }
     indicators = {"taker_flow_imb": -0.3, "taker_flow_imb_z": -2.5, "taker_buy_rate_ema": 100.0}
     res = eval_taker_flow_gate("LONG", indicators, cfg2)

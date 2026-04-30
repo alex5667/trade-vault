@@ -53,20 +53,20 @@ class BinanceScenarioRunner:
         with running_binance_mock() as mock:
             runner = BinanceScenarioRunner(mock_server=mock)
             runner.run_timeline([
-                {"at": "t0", "op": "queue_open", "payload": {...}},
-                {"at": "t0", "op": "run_executor_once"},
-                {"at": "t1", "op": "drain_user_stream"},
+                {"at": "t0", "op": "queue_open", "payload": {...}}
+                {"at": "t0", "op": "run_executor_once"}
+                {"at": "t1", "op": "drain_user_stream"}
                 ...
             ], sid="sid-1")
     """
 
     def __init__(
-        self,
-        *,
-        mock_server: Any,
-        redis_client: Optional[InMemoryRedis] = None,
-        api_key: str = "k",
-        api_secret: str = "s",
+        self
+        *
+        mock_server: Any
+        redis_client: Optional[InMemoryRedis] = None
+        api_key: str = "k"
+        api_secret: str = "s"
     ) -> None:
         self.mock = mock_server
         self.base_url = str(mock_server.base_url)
@@ -81,26 +81,26 @@ class BinanceScenarioRunner:
 
     def _new_client(self) -> BinanceFuturesClient:
         return BinanceFuturesClient(
-            api_key=self.api_key,
-            api_secret=self.api_secret,
-            base_url=self.base_url,
-            timeout_s=1.0,
-            recv_window=3000,
+            api_key=self.api_key
+            api_secret=self.api_secret
+            base_url=self.base_url
+            timeout_s=1.0
+            recv_window=3000
         )
 
     def _new_executor(self) -> BinanceExecutor:
         """Instantiate a fresh BinanceExecutor bound to the shared mock+redis."""
         return BinanceExecutor(
-            redis_client=self.redis,
-            prod_client=self._new_client(),
-            telegram_client=None,
+            redis_client=self.redis
+            prod_client=self._new_client()
+            telegram_client=None
         )
 
     def _new_worker(self) -> BinanceUserStreamWorker:
         """Instantiate a fresh BinanceUserStreamWorker bound to the shared mock+redis."""
         return BinanceUserStreamWorker(
-            redis_client=self.redis,
-            client=self._new_client(),
+            redis_client=self.redis
+            client=self._new_client()
         )
 
     # --- Live user-stream bridge ---
@@ -153,16 +153,16 @@ class BinanceScenarioRunner:
         self.redis.lpush(queue_key, json.dumps(payload))
 
     def enqueue_open_burst(
-        self,
-        *,
-        sid_prefix: str,
-        count: int,
-        symbol: str = "BTCUSDT",
-        side: str = "BUY",
-        qty: float = 1.0,
-        order_type: str = "MARKET",
-        sl: Optional[float] = None,
-        tp_levels: Optional[List[float]] = None,
+        self
+        *
+        sid_prefix: str
+        count: int
+        symbol: str = "BTCUSDT"
+        side: str = "BUY"
+        qty: float = 1.0
+        order_type: str = "MARKET"
+        sl: Optional[float] = None
+        tp_levels: Optional[List[float]] = None
     ) -> None:
         """Push `count` open-position signals into the executor queue.
 
@@ -171,12 +171,12 @@ class BinanceScenarioRunner:
         """
         for idx in range(int(count)):
             payload: Dict[str, Any] = {
-                "action": "open",
-                "sid": f"{sid_prefix}-{idx}",
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "type": order_type,
+                "action": "open"
+                "sid": f"{sid_prefix}-{idx}"
+                "symbol": symbol
+                "side": side
+                "qty": qty
+                "type": order_type
             }
             if sl is not None:
                 payload["sl"] = sl
@@ -232,13 +232,13 @@ class BinanceScenarioRunner:
     # --- HTTP fault injection ---
 
     def set_http_fault(
-        self,
-        method: str,
-        path: str,
-        *,
-        status: int,
-        payload: Dict[str, Any],
-        repeat: int = 1,
+        self
+        method: str
+        path: str
+        *
+        status: int
+        payload: Dict[str, Any]
+        repeat: int = 1
     ) -> None:
         """Inject `repeat` HTTP fault responses for (method, path)."""
         self.mock.state.set_http_fault(method, path, status=status, payload=payload, repeat=repeat)
@@ -288,22 +288,22 @@ class BinanceScenarioRunner:
                 except Exception:
                     state_doc = {"_raw": raw}
         return {
-            "sid": sid or "",
-            "state": state_doc,
-            "position_qty": float(self.mock.state.positions.get(str(symbol).upper(), 0.0)),
-            "exec_events": len(self.redis.xrange("orders:exec")),
-            "user_stream_events": len(self.redis.xrange("orders:user_stream")),
-            "request_count": len(self.mock.state.request_log),
+            "sid": sid or ""
+            "state": state_doc
+            "position_qty": float(self.mock.state.positions.get(str(symbol).upper(), 0.0))
+            "exec_events": len(self.redis.xrange("orders:exec"))
+            "user_stream_events": len(self.redis.xrange("orders:user_stream"))
+            "request_count": len(self.mock.state.request_log)
         }
 
     # --- Timeline runner ---
 
     def run_timeline(
-        self,
-        steps: List[Dict[str, Any]],
-        *,
-        sid: Optional[str] = None,
-        symbol: str = "BTCUSDT",
+        self
+        steps: List[Dict[str, Any]]
+        *
+        sid: Optional[str] = None
+        symbol: str = "BTCUSDT"
     ) -> List[Dict[str, Any]]:
         """Execute a list of scripted steps in order, returning step-by-step report.
 
@@ -342,8 +342,8 @@ class BinanceScenarioRunner:
             elif op == "run_executor_until_idle":
                 result = {
                     "processed_count": self.run_executor_until_idle(
-                        timeout=int(step.get("timeout", 0)),
-                        max_items=int(step.get("max_items", 256)),
+                        timeout=int(step.get("timeout", 0))
+                        max_items=int(step.get("max_items", 256))
                     )
                 }
 
@@ -383,11 +383,11 @@ class BinanceScenarioRunner:
 
             elif op == "http_fault":
                 self.set_http_fault(
-                    str(step.get("method") or "GET"),
-                    str(step.get("path") or ""),
-                    status=int(step.get("status") or 500),
-                    payload=dict(step.get("payload") or {"code": -1000, "msg": "fault"}),
-                    repeat=int(step.get("repeat") or 1),
+                    str(step.get("method") or "GET")
+                    str(step.get("path") or "")
+                    status=int(step.get("status") or 500)
+                    payload=dict(step.get("payload") or {"code": -1000, "msg": "fault"})
+                    repeat=int(step.get("repeat") or 1)
                 )
                 result = {"fault_queued": True}
 
@@ -399,9 +399,9 @@ class BinanceScenarioRunner:
                 raise ValueError(f"unknown scenario op: {op!r}")
 
             report.append({
-                "at": at,
-                "op": op,
-                "result": result,
-                "snapshot": self.snapshot(sid=sid, symbol=symbol),
+                "at": at
+                "op": op
+                "result": result
+                "snapshot": self.snapshot(sid=sid, symbol=symbol)
             })
         return report

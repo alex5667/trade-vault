@@ -9,8 +9,8 @@ def test_contract_contains_expected_services():
 
 def test_evaluate_client_list_against_contract_ok_subset():
     raw = "\n".join([
-        'id=1 user=exec_health_freeze_writer name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer',
-        'id=2 user=exec_health_freeze_audit name=exec-health-freeze-acl-drift-exporter-v1 lib-name=exec-health-freeze-audit',
+        'id=1 user=exec_health_freeze_writer name=exec-health-freeze-override-v1 lib-name=exec-health-freeze-writer'
+        'id=2 user=exec_health_freeze_audit name=exec-health-freeze-acl-drift-exporter-v1 lib-name=exec-health-freeze-audit'
     ])
     res = evaluate_client_list_against_contract(raw, required_services=['exec_health_freeze_override_v1', 'exec_health_freeze_acl_drift_exporter_v1'])
     assert res['ok'] is True

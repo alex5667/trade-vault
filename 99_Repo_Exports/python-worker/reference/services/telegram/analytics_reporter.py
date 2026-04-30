@@ -253,54 +253,54 @@ class AnalyticsReporter:
         impact = self._compute_impact()
 
         payload: dict[str, Any] = {
-            "type": "sem_dedup_analytics",
-            "ts_ms": _now_ms(),
-            "window_s": int(self._interval_s),
+            "type": "sem_dedup_analytics"
+            "ts_ms": _now_ms()
+            "window_s": int(self._interval_s)
             "totals": {
-                "sem_dedup_hits_total": int(total_hits),
-                "sem_dedup_writes_total": int(total_writes),
-                "sem_dedup_ratio": float(total_hits) / float(total_hits + total_writes) if (total_hits + total_writes) else 0.0,
-                "downstream_dups_total": int(total_dups),
-            },
+                "sem_dedup_hits_total": int(total_hits)
+                "sem_dedup_writes_total": int(total_writes)
+                "sem_dedup_ratio": float(total_hits) / float(total_hits + total_writes) if (total_hits + total_writes) else 0.0
+                "downstream_dups_total": int(total_dups)
+            }
             "thresholds": {
-                "default_high": float(self._high_default),
-                "default_low": float(self._low_default),
-                "high_by_kind": dict(self._high_by_kind),
-                "low_by_kind": dict(self._low_by_kind),
-                "min_events": int(self._min_events),
-            },
-            "impact": impact,
+                "default_high": float(self._high_default)
+                "default_low": float(self._low_default)
+                "high_by_kind": dict(self._high_by_kind)
+                "low_by_kind": dict(self._low_by_kind)
+                "min_events": int(self._min_events)
+            }
+            "impact": impact
             "offenders": {
-                "overtight": [],
-                "undertight": [],
-                "top_hits": [],
-            },
+                "overtight": []
+                "undertight": []
+                "top_hits": []
+            }
         }
 
         if offenders_high:
             for sym, kind, r, h, w, d in offenders_high[:6]:
                 payload["offenders"]["overtight"].append({
-                    "symbol": sym,
-                    "kind": kind,
-                    "ratio": float(r),
-                    "hits": int(h),
-                    "writes": int(w),
-                    "downstream_dups": int(d),
-                    "high_thr": float(self._thr_high(kind)),
-                    "hint": "ослабьте semantic key (уберите level для части kinds), увеличьте bucket_ms или уменьшите TTL",
+                    "symbol": sym
+                    "kind": kind
+                    "ratio": float(r)
+                    "hits": int(h)
+                    "writes": int(w)
+                    "downstream_dups": int(d)
+                    "high_thr": float(self._thr_high(kind))
+                    "hint": "ослабьте semantic key (уберите level для части kinds), увеличьте bucket_ms или уменьшите TTL"
                 })
 
         if offenders_low:
             for sym, kind, r, h, w, d in offenders_low[:6]:
                 payload["offenders"]["undertight"].append({
-                    "symbol": sym,
-                    "kind": kind,
-                    "ratio": float(r),
-                    "hits": int(h),
-                    "writes": int(w),
-                    "downstream_dups": int(d),
-                    "low_thr": float(self._thr_low(kind)),
-                    "hint": "усильте semantic key: venue+timeframe, включите level для breakout/absorption, увеличьте TTL или уменьшите bucket_ms",
+                    "symbol": sym
+                    "kind": kind
+                    "ratio": float(r)
+                    "hits": int(h)
+                    "writes": int(w)
+                    "downstream_dups": int(d)
+                    "low_thr": float(self._thr_low(kind))
+                    "hint": "усильте semantic key: venue+timeframe, включите level для breakout/absorption, увеличьте TTL или уменьшите bucket_ms"
                 })
 
         # sem_dedup_hits_total explanation: top offenders by absolute hits
@@ -312,11 +312,11 @@ class AnalyticsReporter:
         if top_by_hits:
             for hits, sym, kind, writes, r, soft_counts in top_by_hits[:6]:
                 row: dict[str, Any] = {
-                    "symbol": sym,
-                    "kind": kind,
-                    "hits": int(hits),
-                    "writes": int(writes),
-                    "ratio": float(r),
+                    "symbol": sym
+                    "kind": kind
+                    "hits": int(hits)
+                    "writes": int(writes)
+                    "ratio": float(r)
                 }
                 # soft reasons: show top-N u16 ids (wire-stable). Human mapping can be done in dashboards.
                 if soft_counts:
@@ -376,22 +376,22 @@ class AnalyticsReporter:
 
             if hits_growth >= self._impact_hits_growth and dup_drop < self._impact_dup_drop_min:
                 bad_pairs.append({
-                    "symbol": sym,
-                    "kind": kind,
-                    "hits_prev": int(prev.hits),
-                    "hits_now": int(pc.hits),
-                    "hits_growth": float(hits_growth),
-                    "dups_prev": int(prev.downstream_dups),
-                    "dups_now": int(pc.downstream_dups),
-                    "dup_drop": float(dup_drop),
-                    "hint": "semantic key вероятно блокирует не те дубли (ложные блокировки) или downstream dedup считает по другой оси",
+                    "symbol": sym
+                    "kind": kind
+                    "hits_prev": int(prev.hits)
+                    "hits_now": int(pc.hits)
+                    "hits_growth": float(hits_growth)
+                    "dups_prev": int(prev.downstream_dups)
+                    "dups_now": int(pc.downstream_dups)
+                    "dup_drop": float(dup_drop)
+                    "hint": "semantic key вероятно блокирует не те дубли (ложные блокировки) или downstream dedup считает по другой оси"
                 })
 
         if bad_pairs:
             return {
-                "status": "bad",
-                "hits_growth_pct": float(self._impact_hits_growth),
-                "dup_drop_min_pct": float(self._impact_dup_drop_min),
-                "pairs": bad_pairs[:10],
+                "status": "bad"
+                "hits_growth_pct": float(self._impact_hits_growth)
+                "dup_drop_min_pct": float(self._impact_dup_drop_min)
+                "pairs": bad_pairs[:10]
             }
         return {"status": "ok"}

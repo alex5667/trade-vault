@@ -76,7 +76,7 @@ class NewsPriorDTO:
     """Prior signal published to Redis key news:prior:<SYMBOL>.
 
     TTL is calculated from expires_ms: px = expires_ms - now_ms.
-    This ensures the key expires exactly when the prior becomes stale,
+    This ensures the key expires exactly when the prior becomes stale
     rather than using a fixed TTL that could be miscalibrated.
     """
     schema_ver: str = "v1"

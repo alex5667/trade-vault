@@ -51,14 +51,14 @@ class NewsFeatureStoreWorker(StreamWorker):
 
     def __init__(self, *, redis: redis.Redis, pg: Optional[NewsPostgresWriter] = None):
         super().__init__(
-            redis=redis,
-            stream=NEWS_ANALYSIS_STREAM,
-            group=GROUP,
-            consumer=CONSUMER,
-            dlq_stream=DLQ,
-            block_ms=2000,
-            count=200,
-            claim_idle_ms=60_000,
+            redis=redis
+            stream=NEWS_ANALYSIS_STREAM
+            group=GROUP
+            consumer=CONSUMER
+            dlq_stream=DLQ
+            block_ms=2000
+            count=200
+            claim_idle_ms=60_000
         )
         self.pg = pg
 
@@ -113,18 +113,18 @@ class NewsFeatureStoreWorker(StreamWorker):
 
         pipe = self.r.pipeline(transaction=False)
         pipe.hset(
-            key,
+            key
             mapping={
-                "ref": ref,
-                "risk_ema": float(risk_ema),
-                "surprise_ema": float(surprise_ema),
-                "news_grade_id": int(news_grade_id),
-                "tags_mask": int(tags_mask),
-                "primary_tag_id": int(primary_tag_id),
-                "horizon_sec": int(horizon_sec),
-                "confidence": float(confidence),
-                "asof_ts_ms": int(asof_ts_ms),
-            },
+                "ref": ref
+                "risk_ema": float(risk_ema)
+                "surprise_ema": float(surprise_ema)
+                "news_grade_id": int(news_grade_id)
+                "tags_mask": int(tags_mask)
+                "primary_tag_id": int(primary_tag_id)
+                "horizon_sec": int(horizon_sec)
+                "confidence": float(confidence)
+                "asof_ts_ms": int(asof_ts_ms)
+            }
         )
         pipe.expire(key, AGG_TTL_SEC)
         pipe.execute()
@@ -133,24 +133,24 @@ class NewsFeatureStoreWorker(StreamWorker):
             try:
                 # Insert analysis
                 self.pg.insert_news_analysis(
-                    uid=uid,
-                    symbol=symbol,
-                    ts_ms=published_ts_ms or asof_ts_ms,
-                    source=str(fields.get("source") or "unknown"),
-                    risk=risk_new,
-                    surprise=surprise_new,
-                    tags_mask=tags_mask_new,
-                    primary_tag=primary_tag_new,
+                    uid=uid
+                    symbol=symbol
+                    ts_ms=published_ts_ms or asof_ts_ms
+                    source=str(fields.get("source") or "unknown")
+                    risk=risk_new
+                    surprise=surprise_new
+                    tags_mask=tags_mask_new
+                    primary_tag=primary_tag_new
                     payload_json=dict(fields)
                 )
                 # Insert features
                 self.pg.insert_news_features_symbol(
-                    symbol=symbol,
-                    ts_ms=asof_ts_ms,
-                    risk=risk_ema,
-                    surprise=surprise_ema,
-                    tags_mask=tags_mask,
-                    primary_tag=primary_tag_id,
+                    symbol=symbol
+                    ts_ms=asof_ts_ms
+                    risk=risk_ema
+                    surprise=surprise_ema
+                    tags_mask=tags_mask
+                    primary_tag=primary_tag_id
                     ref=ref
                 )
             except Exception:

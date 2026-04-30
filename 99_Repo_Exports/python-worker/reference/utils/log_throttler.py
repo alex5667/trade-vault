@@ -56,10 +56,10 @@ class LogThrottler:
             self._counters[message_key] = 0
 
     def log_with_count(
-        self,
-        message_key: str,
-        message: str,
-        every_n: int = 10_000,
+        self
+        message_key: str
+        message: str
+        every_n: int = 10_000
     ) -> bool:
         """Log *message* via ``logging.info`` if this occurrence should be emitted.
 

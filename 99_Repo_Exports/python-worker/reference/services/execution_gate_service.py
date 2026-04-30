@@ -41,64 +41,64 @@ from prometheus_client import Counter, Gauge, start_http_server
 # Metrics
 # ---------------------------------------------------------------------------
 orders_published_total = Counter(
-    "exec_gate_orders_published_total",
-    "Total verified orders published",
-    ["symbol", "direction"],
+    "exec_gate_orders_published_total"
+    "Total verified orders published"
+    ["symbol", "direction"]
 )
 proposals_received_total = Counter(
-    "exec_gate_proposals_received_total",
-    "Total signal proposals received",
-    ["symbol"],
+    "exec_gate_proposals_received_total"
+    "Total signal proposals received"
+    ["symbol"]
 )
 proposals_bypassed_total = Counter(
-    "exec_gate_proposals_bypassed_total",
-    "Total proposals bypassed (PASS-THROUGH mode)",
-    ["symbol"],
+    "exec_gate_proposals_bypassed_total"
+    "Total proposals bypassed (PASS-THROUGH mode)"
+    ["symbol"]
 )
 proposals_expired_total = Counter(
-    "exec_gate_proposals_expired_total",
-    "Total proposals expired by TTL",
-    ["symbol"],
+    "exec_gate_proposals_expired_total"
+    "Total proposals expired by TTL"
+    ["symbol"]
 )
 confirmations_received_total = Counter(
-    "exec_gate_confirmations_received_total",
-    "Total confirmations received",
-    ["symbol"],
+    "exec_gate_confirmations_received_total"
+    "Total confirmations received"
+    ["symbol"]
 )
 confirmations_expired_total = Counter(
-    "exec_gate_confirmations_expired_total",
-    "Total confirmations expired by TTL (no matching proposal)",
-    ["symbol"],
+    "exec_gate_confirmations_expired_total"
+    "Total confirmations expired by TTL (no matching proposal)"
+    ["symbol"]
 )
 confirmations_matched_total = Counter(
-    "exec_gate_confirmations_matched_total",
-    "Confirmations that matched a proposal",
-    ["symbol", "direction"],
+    "exec_gate_confirmations_matched_total"
+    "Confirmations that matched a proposal"
+    ["symbol", "direction"]
 )
 confirmations_orphan_total = Counter(
-    "exec_gate_confirmations_orphan_total",
-    "Confirmations buffered because no proposal was available yet",
-    ["symbol"],
+    "exec_gate_confirmations_orphan_total"
+    "Confirmations buffered because no proposal was available yet"
+    ["symbol"]
 )
 pending_proposals_gauge = Gauge(
-    "exec_gate_pending_proposals",
-    "Current number of pending proposals",
+    "exec_gate_pending_proposals"
+    "Current number of pending proposals"
 )
 pending_confirmations_gauge = Gauge(
-    "exec_gate_pending_confirmations",
-    "Current number of pending confirmations",
+    "exec_gate_pending_confirmations"
+    "Current number of pending confirmations"
 )
 mode_info = Gauge(
-    "exec_gate_enforce_mode",
-    "1 if ENFORCE mode, 0 if PASS-THROUGH",
+    "exec_gate_enforce_mode"
+    "1 if ENFORCE mode, 0 if PASS-THROUGH"
 )
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=os.getenv("LOG_LEVEL", "INFO")
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("execution_gate_service")
 
@@ -171,9 +171,9 @@ class ExecutionGateService:
         mode_info.set(1 if self.require_of_confirm else 0)
 
         tasks = [
-            safe_create_task(self._consume_raw_signals()),
-            safe_create_task(self._consume_confirmations()),
-            safe_create_task(self._cleanup_loop()),
+            safe_create_task(self._consume_raw_signals())
+            safe_create_task(self._consume_confirmations())
+            safe_create_task(self._cleanup_loop())
         ]
         await asyncio.gather(*tasks)
 
@@ -230,10 +230,10 @@ class ExecutionGateService:
             ts_ms = int(data.get("generated_at", get_ny_time_millis()))
 
             proposal = Proposal(
-                symbol=symbol,
-                direction=direction,
-                ts_ms=ts_ms,
-                payload=data,
+                symbol=symbol
+                direction=direction
+                ts_ms=ts_ms
+                payload=data
             )
 
             # Always count
@@ -352,10 +352,10 @@ class ExecutionGateService:
 
             # 2. F3 fix: no proposal yet — buffer the confirmation
             confirm_obj = Confirmation(
-                symbol=symbol,
-                direction=direction,
-                ts_ms=ts_ms,
-                data=data,
+                symbol=symbol
+                direction=direction
+                ts_ms=ts_ms
+                data=data
             )
             self.confirmations.setdefault(symbol, []).append(confirm_obj)
             confirmations_orphan_total.labels(symbol=symbol).inc()

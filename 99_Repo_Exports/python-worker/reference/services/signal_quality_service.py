@@ -16,20 +16,20 @@ class SignalQualityService:
         self.redis = get_redis()
         
         self.policy = WorkerPolicy(
-            ack_mode="lossless",
-            read_count=50,
-            block_ms=2000,
+            ack_mode="lossless"
+            read_count=50
+            block_ms=2000
             dlq_stream="dlq:signal_quality"
         )
         
         self.worker = StreamWorker(
-            name="signal-quality",
-            client=self.redis,
-            group="scanner-signal-quality",
-            consumer="worker-1",
-            build_streams=lambda: ["trades:closed"],
-            process=self.process_closed_trade,
-            policy=self.policy,
+            name="signal-quality"
+            client=self.redis
+            group="scanner-signal-quality"
+            consumer="worker-1"
+            build_streams=lambda: ["trades:closed"]
+            process=self.process_closed_trade
+            policy=self.policy
             logger=logger
         )
 
@@ -61,7 +61,7 @@ class SignalQualityService:
 
             # Slices to update
             slices = [
-                "global",
+                "global"
                 f"symbol:{symbol}"
             ]
             

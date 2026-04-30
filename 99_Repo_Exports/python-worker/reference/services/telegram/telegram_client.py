@@ -38,10 +38,10 @@ class TelegramClient:
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             parse_mode = (os.getenv("TELEGRAM_PARSE_MODE") or "HTML").strip() or "HTML"
             data = {
-                "chat_id": self.chat_id,
-                "text": text,
-                "parse_mode": parse_mode,
-                "disable_web_page_preview": True,
+                "chat_id": self.chat_id
+                "text": text
+                "parse_mode": parse_mode
+                "disable_web_page_preview": True
             }
             body = urllib.parse.urlencode(data).encode("utf-8")
             req = urllib.request.Request(url, data=body, method="POST")

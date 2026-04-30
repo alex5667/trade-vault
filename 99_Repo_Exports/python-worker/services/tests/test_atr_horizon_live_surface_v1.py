@@ -6,21 +6,21 @@ import pytest
 from services.atr_horizon_live_surface import build_live_risk_surface
 
 
-def _make_signal(side, entry, atr_value, atr_tf_ms=60_000, atr_pct=0.04,
+def _make_signal(side, entry, atr_value, atr_tf_ms=60_000, atr_pct=0.04
                  sl_mult=1.5, tp1_mult=2.0, max_age_ms=90_000):
     return {
-        "side": side,
-        "entry_price": entry,
+        "side": side
+        "entry_price": entry
         "meta": {
-            "sl_atr_mult": sl_mult,
-            "tp1_atr_mult": tp1_mult,
-            "horizon": {"max_signal_age_ms": max_age_ms},
+            "sl_atr_mult": sl_mult
+            "tp1_atr_mult": tp1_mult
+            "horizon": {"max_signal_age_ms": max_age_ms}
             "atr_profile": {
-                "atr_value": atr_value,
-                "atr_tf_ms": atr_tf_ms,
-                "atr_pct": atr_pct,
-            },
-        },
+                "atr_value": atr_value
+                "atr_tf_ms": atr_tf_ms
+                "atr_pct": atr_pct
+            }
+        }
     }
 
 
@@ -120,12 +120,12 @@ class TestBuildLiveRiskSurfaceMultipliers:
         monkeypatch.setenv("ATR_HORIZON_LIVE_SL_ATR_MULT", "2.0")
         monkeypatch.setenv("ATR_HORIZON_LIVE_TP1_ATR_MULT", "3.0")
         sig = {
-            "side": "BUY",
-            "entry_price": 100.0,
+            "side": "BUY"
+            "entry_price": 100.0
             "meta": {
-                "horizon": {"max_signal_age_ms": 60_000},
-                "atr_profile": {"atr_value": 4.0, "atr_tf_ms": 60_000, "atr_pct": 0.04},
-            },
+                "horizon": {"max_signal_age_ms": 60_000}
+                "atr_profile": {"atr_value": 4.0, "atr_tf_ms": 60_000, "atr_pct": 0.04}
+            }
         }
         out = build_live_risk_surface(sig)
         assert out["sl_atr_mult"] == pytest.approx(2.0)

@@ -42,13 +42,13 @@ class TestBBOStore(unittest.TestCase):
         pub = DummyPublisher()
         rt = DummyRuntime()
         cfg = BBOStoreCfg(
-            enabled=True,
-            stream="events:bbo_ts",
-            stream_maxlen=100,
-            schema_version=1,
-            min_interval_ms=100,
-            symbols_allow=set(),
-            venue_default="binance",
+            enabled=True
+            stream="events:bbo_ts"
+            stream_maxlen=100
+            schema_version=1
+            min_interval_ms=100
+            symbols_allow=set()
+            venue_default="binance"
         )
 
         async def run():
@@ -66,13 +66,13 @@ class TestBBOStore(unittest.TestCase):
         pub = DummyPublisher()
         rt = DummyRuntime()
         cfg = BBOStoreCfg(
-            enabled=False,
-            stream="events:bbo_ts",
-            stream_maxlen=100,
-            schema_version=1,
-            min_interval_ms=100,
-            symbols_allow=set(),
-            venue_default="binance",
+            enabled=False
+            stream="events:bbo_ts"
+            stream_maxlen=100
+            schema_version=1
+            min_interval_ms=100
+            symbols_allow=set()
+            venue_default="binance"
         )
 
         async def run():
@@ -89,13 +89,13 @@ class TestBBOStore(unittest.TestCase):
         rt = DummyRuntime()
         rt.symbol = "ETHUSDT"
         cfg = BBOStoreCfg(
-            enabled=True,
-            stream="events:bbo_ts",
-            stream_maxlen=100,
-            schema_version=1,
-            min_interval_ms=100,
+            enabled=True
+            stream="events:bbo_ts"
+            stream_maxlen=100
+            schema_version=1
+            min_interval_ms=100
             symbols_allow={"BTCUSDT"},  # ETHUSDT not in list
-            venue_default="binance",
+            venue_default="binance"
         )
 
         async def run():

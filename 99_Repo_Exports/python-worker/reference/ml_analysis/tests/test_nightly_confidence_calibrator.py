@@ -7,7 +7,7 @@ from ml_analysis.tools.nightly_confidence_calibrator_v1 import main, _guard_ok
 class TestNightlyConfidenceCalibrator(unittest.TestCase):
     def test_guard_ok_logic(self):
         rep = {
-            "raw": {"ece": 0.1, "brier": 0.05},
+            "raw": {"ece": 0.1, "brier": 0.05}
             "cal": {"ece": 0.08, "brier": 0.04}
         }
         # ece diff 0.02 >= 0.01, brier diff 0.01 >= 0.005 -> OK

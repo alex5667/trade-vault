@@ -5,7 +5,7 @@ Reads proof/status JSON files written by conf_cal_promotion_manager_v1.py
 and exports per-arm / delta metrics to Prometheus.
 
 Arms: active, champion, challenger
-Metrics: ece_cal, mce_cal, brier_cal, calibration_slope, calibration_intercept,
+Metrics: ece_cal, mce_cal, brier_cal, calibration_slope, calibration_intercept
          sharpness_mean, sharpness_entropy, prob_mass_near_half, precision_top5p
 
 ENV:
@@ -108,15 +108,15 @@ class Exporter:
         g_promoted.set(1.0 if bool(status.get("promoted")) else 0.0)
 
         metric_names = [
-            "ece_cal",
-            "mce_cal",
-            "brier_cal",
-            "calibration_slope",
-            "calibration_intercept",
-            "sharpness_mean",
-            "sharpness_entropy",
-            "prob_mass_near_half",
-            "precision_top5p",
+            "ece_cal"
+            "mce_cal"
+            "brier_cal"
+            "calibration_slope"
+            "calibration_intercept"
+            "sharpness_mean"
+            "sharpness_entropy"
+            "prob_mass_near_half"
+            "precision_top5p"
         ]
         for arm in ("active", "champion", "challenger"):
             for metric in metric_names:

@@ -79,32 +79,32 @@ class HealthMetricsTracker:
             Dictionary with current metrics
         """
         metrics = {
-            "symbol": self.symbol,
-            "total_ticks": self._total_ticks,
-            "error_count": self._error_count,
-            "timestamp": time.time(),
+            "symbol": self.symbol
+            "total_ticks": self._total_ticks
+            "error_count": self._error_count
+            "timestamp": time.time()
         }
         
         # Calculate tick latency stats
         if self._tick_latencies:
             latencies = list(self._tick_latencies)
             metrics["tick_latency_ms"] = {
-                "avg": sum(latencies) / len(latencies),
-                "min": min(latencies),
-                "max": max(latencies),
-                "p50": sorted(latencies)[len(latencies) // 2],
-                "p95": sorted(latencies)[int(len(latencies) * 0.95)],
+                "avg": sum(latencies) / len(latencies)
+                "min": min(latencies)
+                "max": max(latencies)
+                "p50": sorted(latencies)[len(latencies) // 2]
+                "p95": sorted(latencies)[int(len(latencies) * 0.95)]
             }
         
         # Calculate L2 freshness stats
         if self._l2_freshness:
             freshness = list(self._l2_freshness)
             metrics["l2_freshness_ms"] = {
-                "avg": sum(freshness) / len(freshness),
-                "min": min(freshness),
-                "max": max(freshness),
-                "p50": sorted(freshness)[len(freshness) // 2],
-                "p95": sorted(freshness)[int(len(freshness) * 0.95)],
+                "avg": sum(freshness) / len(freshness)
+                "min": min(freshness)
+                "max": max(freshness)
+                "p50": sorted(freshness)[len(freshness) // 2]
+                "p95": sorted(freshness)[int(len(freshness) * 0.95)]
             }
         
         # Calculate error rate

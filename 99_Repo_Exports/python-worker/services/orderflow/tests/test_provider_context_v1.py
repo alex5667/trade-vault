@@ -4,29 +4,29 @@ from __future__ import annotations
 import json
 import pytest
 from services.orderflow.provider_context import (
-    ProviderContextSnapshot,
-    ctx_key,
-    from_dict,
-    from_json,
+    ProviderContextSnapshot
+    ctx_key
+    from_dict
+    from_json
 )
 
 _VALID = {
-    "schema_version": 1,
-    "symbol": "BTCUSDT",
-    "ts_ms": 1714000000000,
-    "provider_global_mcap": 2500e9,
-    "provider_total_volume": 120e9,
-    "provider_btc_dominance": 54.2,
-    "provider_eth_dominance": 17.1,
-    "mcap_disagreement_bps": 80.0,
-    "volume_disagreement_bps": 50.0,
-    "btc_dom_disagreement_bps": 20.0,
-    "provider_quality": "ok",
-    "provider_top_gainer": 0,
-    "provider_top_loser": 0,
-    "provider_rel_strength_24h": 2.5,
-    "provider_volume_mcap_ratio": 0.048,
-    "quality_status": "OK",
+    "schema_version": 1
+    "symbol": "BTCUSDT"
+    "ts_ms": 1714000000000
+    "provider_global_mcap": 2500e9
+    "provider_total_volume": 120e9
+    "provider_btc_dominance": 54.2
+    "provider_eth_dominance": 17.1
+    "mcap_disagreement_bps": 80.0
+    "volume_disagreement_bps": 50.0
+    "btc_dom_disagreement_bps": 20.0
+    "provider_quality": "ok"
+    "provider_top_gainer": 0
+    "provider_top_loser": 0
+    "provider_rel_strength_24h": 2.5
+    "provider_volume_mcap_ratio": 0.048
+    "quality_status": "OK"
 }
 
 

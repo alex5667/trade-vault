@@ -36,15 +36,15 @@ def sampled_debug(logger: Any, key: str, msg: str, *args: Any) -> None:
         return
 
 def safe_call_fail_open(
-    logger: Any,
-    *,
-    key: str,
-    fn: Callable[..., Any],
-    args: tuple[Any, ...] = (),
-    kwargs: Optional[dict[str, Any]] = None,
-    ctx: Any = None,
-    dq_flag: str = "",
-    append_flag_fn: Optional[Callable[[Any, str], None]] = None,
+    logger: Any
+    *
+    key: str
+    fn: Callable[..., Any]
+    args: tuple[Any, ...] = ()
+    kwargs: Optional[dict[str, Any]] = None
+    ctx: Any = None
+    dq_flag: str = ""
+    append_flag_fn: Optional[Callable[[Any, str], None]] = None
 ) -> bool:
     """
     Unified fail-open wrapper for critical paths.

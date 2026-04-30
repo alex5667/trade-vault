@@ -32,13 +32,13 @@ class BarManager:
         Normalize timeframe string to standard format.
         """
         mapping = {
-            "1m": "M1", "m1": "M1",
-            "5m": "M5", "m5": "M5",
-            "15m": "M15", "m15": "M15",
-            "30m": "M30", "m30": "M30",
-            "1h": "H1", "h1": "H1",
-            "4h": "H4", "h4": "H4",
-            "1d": "D1", "d1": "D1",
+            "1m": "M1", "m1": "M1"
+            "5m": "M5", "m5": "M5"
+            "15m": "M15", "m15": "M15"
+            "30m": "M30", "m30": "M30"
+            "1h": "H1", "h1": "H1"
+            "4h": "H4", "h4": "H4"
+            "1d": "D1", "d1": "D1"
         }
         tf_normalized = (tf or "1m").strip().lower()
         return mapping.get(tf_normalized, (tf or "M1").strip().upper())

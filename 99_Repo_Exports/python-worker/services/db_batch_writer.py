@@ -14,13 +14,13 @@ Usage
     from services.db_batch_writer import AsyncBatchWriter
 
     writer = AsyncBatchWriter(
-        table="execution_order_events",
-        columns=["sid", "symbol", "event_type", "event_ts_ms", "payload_jsonb"],
-        dsn=os.getenv("EXECUTION_JOURNAL_DSN", ""),
-        batch_size=int(os.getenv("JOURNAL_BATCH_SIZE", "200")),
-        flush_interval_s=float(os.getenv("JOURNAL_FLUSH_INTERVAL_S", "2.0")),
+        table="execution_order_events"
+        columns=["sid", "symbol", "event_type", "event_ts_ms", "payload_jsonb"]
+        dsn=os.getenv("EXECUTION_JOURNAL_DSN", "")
+        batch_size=int(os.getenv("JOURNAL_BATCH_SIZE", "200"))
+        flush_interval_s=float(os.getenv("JOURNAL_FLUSH_INTERVAL_S", "2.0"))
         # For tables with ON CONFLICT … DO NOTHING / DO UPDATE:
-        on_conflict_sql="ON CONFLICT DO NOTHING",
+        on_conflict_sql="ON CONFLICT DO NOTHING"
     )
     writer.start()
 
@@ -53,24 +53,40 @@ try:
         except ValueError:
             return (REGISTRY._names_to_collectors or {}).get(name)
 
-    _FLUSH_FAIL = _metric(Counter,
-        "db_batch_writer_flush_fail_total",
-        "Flush failures per table",
-        ["table"],
+    _FLUSH_FAIL = _metric(Counter
+        "db_batch_writer_flush_fail_total"
+        "Flush failures per table"
+        ["table"]
     )
-    _FLUSH_LATENCY = _metric(Histogram,
-        "db_batch_writer_flush_latency_seconds",
-        "Time to execute one batch flush",
-        ["table"],
-        buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+    _FLUSH_LATENCY = _metric(Histogram
+        "db_batch_writer_flush_latency_seconds"
+        "Time to execute one batch flush"
+        ["table"]
+        buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
     )
-    _ENQUEUE_TOTAL = _metric(Counter,
-        "db_batch_writer_enqueue_total",
-        "Rows enqueued per table",
-        ["table"],
+    _ENQUEUE_TOTAL = _metric(Counter
+        "db_batch_writer_enqueue_total"
+        "Rows enqueued per table"
+        ["table"]
+    )
+    _ROWS_DROPPED = _metric(Counter
+        "db_batch_writer_rows_dropped_total"
+        "Rows permanently dropped after all retries exhausted"
+        ["table"]
+    )
+    _DLQ_WRITE = _metric(Counter
+        "db_batch_writer_dlq_write_total"
+        "Rows written to durable DLQ after exhausted retries"
+        ["table"]
+    )
+    _DLQ_WRITE_FAIL = _metric(Counter
+        "db_batch_writer_dlq_write_fail_total"
+        "DLQ write failures (rows may be permanently lost)"
+        ["table"]
     )
 except Exception:  # pragma: no cover — prometheus not installed
     _FLUSH_FAIL = _FLUSH_LATENCY = _ENQUEUE_TOTAL = None
+    _ROWS_DROPPED = _DLQ_WRITE = _DLQ_WRITE_FAIL = None
 
 
 _LOG = logging.getLogger("db_batch_writer")
@@ -95,17 +111,17 @@ class AsyncBatchWriter:
     """
 
     def __init__(
-        self,
-        table: str,
-        columns: Sequence[str],
-        dsn: str,
-        batch_size: int = 200,
-        flush_interval_s: float = 2.0,
-        on_conflict_sql: str = "ON CONFLICT DO NOTHING",
-        max_retries: int = 3,
-        pool_minconn: int = 1,
-        pool_maxconn: int = 5,
-        extra_adapter: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        self
+        table: str
+        columns: Sequence[str]
+        dsn: str
+        batch_size: int = 200
+        flush_interval_s: float = 2.0
+        on_conflict_sql: str = "ON CONFLICT DO NOTHING"
+        max_retries: int = 3
+        pool_minconn: int = 1
+        pool_maxconn: int = 5
+        extra_adapter: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
     ) -> None:
         self.table = table
         self.columns: List[str] = list(columns)
@@ -144,14 +160,14 @@ class AsyncBatchWriter:
         if self._started:
             return self
         self._thread = threading.Thread(
-            target=self._run,
-            name=f"db-batch-{self.table}",
-            daemon=True,
+            target=self._run
+            name=f"db-batch-{self.table}"
+            daemon=True
         )
         self._thread.start()
         self._started = True
         atexit.register(self.shutdown)
-        _LOG.info("[AsyncBatchWriter] started for table=%s batch_size=%d interval=%.1fs",
+        _LOG.info("[AsyncBatchWriter] started for table=%s batch_size=%d interval=%.1fs"
                   self.table, self.batch_size, self.flush_interval_s)
         return self
 
@@ -215,9 +231,9 @@ class AsyncBatchWriter:
                 import psycopg2
                 from psycopg2 import pool as pgpool
                 self._pool = pgpool.ThreadedConnectionPool(
-                    self.pool_minconn,
-                    self.pool_maxconn,
-                    dsn=self.dsn,
+                    self.pool_minconn
+                    self.pool_maxconn
+                    dsn=self.dsn
                 )
                 _LOG.info("[AsyncBatchWriter] pool created for table=%s", self.table)
             except Exception as exc:
@@ -300,7 +316,7 @@ class AsyncBatchWriter:
                 conn.commit()
 
                 elapsed = time.monotonic() - t0
-                _LOG.debug("[AsyncBatchWriter] flushed %d rows to %s in %.3fs",
+                _LOG.debug("[AsyncBatchWriter] flushed %d rows to %s in %.3fs"
                            len(batch), self.table, elapsed)
                 if _FLUSH_LATENCY is not None:
                     _FLUSH_LATENCY.labels(table=self.table).observe(elapsed)
@@ -327,15 +343,64 @@ class AsyncBatchWriter:
                         pass
 
                 wait = min(0.5 * (2 ** (attempt - 1)), 8.0)
-                _LOG.warning("[AsyncBatchWriter] flush attempt %d/%d failed: %s — retry in %.1fs",
+                _LOG.warning("[AsyncBatchWriter] flush attempt %d/%d failed: %s — retry in %.1fs"
                              attempt, self.max_retries, exc, wait)
                 time.sleep(wait)
 
-        # All retries exhausted
-        _LOG.error("[AsyncBatchWriter] all %d retries failed for table=%s, dropping %d rows: %s",
+        # All retries exhausted — write to durable DLQ before dropping
+        _LOG.error("[AsyncBatchWriter] all %d retries failed for table=%s, dropping %d rows: %s"
                    self.max_retries, self.table, len(batch), last_exc)
         if _FLUSH_FAIL is not None:
             _FLUSH_FAIL.labels(table=self.table).inc()
+        if _ROWS_DROPPED is not None:
+            _ROWS_DROPPED.labels(table=self.table).inc(len(batch))
+        self._write_dlq(batch, last_exc)
+
+    def _write_dlq(self, batch: List[Dict[str, Any]], error: Optional[Exception]) -> None:
+        """Persist dropped batch to a durable DLQ so rows can be replayed manually."""
+        import json as _json
+        dlq_dir = os.getenv("DB_BATCH_DLQ_DIR", "/var/lib/scanner/db_batch_dlq")
+        dlq_stream = os.getenv("DB_BATCH_DLQ_STREAM", "db:batch:dlq")
+        payload = {
+            "table": self.table
+            "columns": self.columns
+            "rows": batch
+            "error": str(error)[:1000] if error else ""
+            "ts_ms": int(time.time() * 1000)
+        }
+        written = False
+        # Attempt 1: Redis Stream DLQ (preferred — survives process restart)
+        try:
+            import redis as _redis
+            dsn = self.dsn  # reuse same host is intentional only for logging; real DLQ is independent
+            dlq_redis_url = os.getenv("DB_BATCH_DLQ_REDIS_URL", "")
+            if dlq_redis_url:
+                r = _redis.from_url(dlq_redis_url, socket_connect_timeout=2, socket_timeout=2)
+                r.xadd(
+                    f"{dlq_stream}:{self.table}"
+                    {"data": _json.dumps(payload, default=str)}
+                    maxlen=50000
+                    approximate=True
+                )
+                written = True
+                if _DLQ_WRITE is not None:
+                    _DLQ_WRITE.labels(table=self.table).inc(len(batch))
+        except Exception as re:
+            _LOG.debug("[AsyncBatchWriter] Redis DLQ write failed: %s", re)
+        # Attempt 2: local NDJSON WAL file
+        if not written:
+            try:
+                os.makedirs(dlq_dir, exist_ok=True)
+                dlq_path = os.path.join(dlq_dir, f"{self.table}.ndjson")
+                with open(dlq_path, "a", encoding="utf-8") as fh:
+                    fh.write(_json.dumps(payload, default=str) + "\n")
+                written = True
+                if _DLQ_WRITE is not None:
+                    _DLQ_WRITE.labels(table=self.table).inc(len(batch))
+            except Exception as fe:
+                _LOG.error("[AsyncBatchWriter] DLQ file write also failed: %s", fe)
+                if _DLQ_WRITE_FAIL is not None:
+                    _DLQ_WRITE_FAIL.labels(table=self.table).inc(len(batch))
 
 
 # ---------------------------------------------------------------------------
@@ -347,10 +412,10 @@ _writers_lock = threading.Lock()
 
 
 def get_or_create_writer(
-    table: str,
-    columns: Sequence[str],
-    dsn: str,
-    **kwargs: Any,
+    table: str
+    columns: Sequence[str]
+    dsn: str
+    **kwargs: Any
 ) -> AsyncBatchWriter:
     """Get or create a shared AsyncBatchWriter for a given table.
 

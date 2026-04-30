@@ -8,7 +8,7 @@ Endpoints
 GET  /healthz                        → liveness probe
 GET  /api/binance-dust/state         → full denylist/cooldown state
 GET  /api/binance-dust/symbol/<sym>  → per-symbol state
-GET  /api/binance-dust/audit         → audit stream (symbol=, limit=)
+GET  /api/binance-dust/audit         → audit stream (symbol= limit=)
 
 POST /api/binance-dust/denylist/add  → {symbol, operator, reason, ticket, ttl_sec?}
 POST /api/binance-dust/denylist/remove → {symbol, operator, reason, ticket}
@@ -35,10 +35,10 @@ for _p in (REPO_ROOT,):
 
 from services.binance_dust_cleanup_admin import BinanceDustCleanupAdmin
 from services.binance_dust_cleanup_admin_ack import (
-    ack_reminder,
-    renew_reminder_ack,
-    revoke_reminder_ack,
-    ack_dashboard,
+    ack_reminder
+    renew_reminder_ack
+    revoke_reminder_ack
+    ack_dashboard
 )
 
 
@@ -88,68 +88,68 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if path == '/api/binance-dust/denylist/add':
                 payload = self.admin.add_denylist_symbol(
-                    doc.get('symbol') or '',
-                    operator=doc.get('operator') or '',
-                    reason=doc.get('reason') or '',
-                    ticket=doc.get('ticket') or '',
-                    ttl_sec=int(doc.get('ttl_sec') or 0),
+                    doc.get('symbol') or ''
+                    operator=doc.get('operator') or ''
+                    reason=doc.get('reason') or ''
+                    ticket=doc.get('ticket') or ''
+                    ttl_sec=int(doc.get('ttl_sec') or 0)
                 )
                 return self._send(200, payload)
             if path == '/api/binance-dust/denylist/remove':
                 payload = self.admin.remove_denylist_symbol(
-                    doc.get('symbol') or '',
-                    operator=doc.get('operator') or '',
-                    reason=doc.get('reason') or '',
-                    ticket=doc.get('ticket') or '',
+                    doc.get('symbol') or ''
+                    operator=doc.get('operator') or ''
+                    reason=doc.get('reason') or ''
+                    ticket=doc.get('ticket') or ''
                 )
                 return self._send(200, payload)
             if path == '/api/binance-dust/cooldown/clear':
                 payload = self.admin.clear_cooldown(
-                    doc.get('symbol') or '',
-                    operator=doc.get('operator') or '',
-                    reason=doc.get('reason') or '',
-                    ticket=doc.get('ticket') or '',
+                    doc.get('symbol') or ''
+                    operator=doc.get('operator') or ''
+                    reason=doc.get('reason') or ''
+                    ticket=doc.get('ticket') or ''
                 )
                 return self._send(200, payload)
             # P14: ACK workflow endpoints
             if path == '/api/binance-dust/ack':
                 return self._send(
-                    200,
+                    200
                     ack_reminder(
                         self.admin.r,  # type: ignore[attr-defined]
-                        kind=doc.get('kind', ''),
-                        symbol=doc.get('symbol', ''),
-                        operator=doc.get('operator', ''),
-                        reason=doc.get('reason', ''),
-                        ticket=doc.get('ticket', ''),
-                        ttl_sec=int(doc.get('ttl_sec', 1800)),
-                        fingerprint=doc.get('fingerprint', ''),
-                    ),
+                        kind=doc.get('kind', '')
+                        symbol=doc.get('symbol', '')
+                        operator=doc.get('operator', '')
+                        reason=doc.get('reason', '')
+                        ticket=doc.get('ticket', '')
+                        ttl_sec=int(doc.get('ttl_sec', 1800))
+                        fingerprint=doc.get('fingerprint', '')
+                    )
                 )
             if path == '/api/binance-dust/ack/renew':
                 return self._send(
-                    200,
+                    200
                     renew_reminder_ack(
                         self.admin.r,  # type: ignore[attr-defined]
-                        kind=doc.get('kind', ''),
-                        symbol=doc.get('symbol', ''),
-                        operator=doc.get('operator', ''),
-                        reason=doc.get('reason', ''),
-                        ticket=doc.get('ticket', ''),
-                        ttl_sec=int(doc.get('ttl_sec', 1800)),
-                    ),
+                        kind=doc.get('kind', '')
+                        symbol=doc.get('symbol', '')
+                        operator=doc.get('operator', '')
+                        reason=doc.get('reason', '')
+                        ticket=doc.get('ticket', '')
+                        ttl_sec=int(doc.get('ttl_sec', 1800))
+                    )
                 )
             if path == '/api/binance-dust/ack/revoke':
                 return self._send(
-                    200,
+                    200
                     revoke_reminder_ack(
                         self.admin.r,  # type: ignore[attr-defined]
-                        kind=doc.get('kind', ''),
-                        symbol=doc.get('symbol', ''),
-                        operator=doc.get('operator', ''),
-                        reason=doc.get('reason', ''),
-                        ticket=doc.get('ticket', ''),
-                    ),
+                        kind=doc.get('kind', '')
+                        symbol=doc.get('symbol', '')
+                        operator=doc.get('operator', '')
+                        reason=doc.get('reason', '')
+                        ticket=doc.get('ticket', '')
+                    )
                 )
             return self._send(404, {'ok': False, 'error': 'not_found'})
         except Exception as exc:

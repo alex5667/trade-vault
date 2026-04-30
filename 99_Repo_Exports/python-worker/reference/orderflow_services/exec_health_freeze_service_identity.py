@@ -47,16 +47,16 @@ def _s(x: Any, d: str = '') -> str:
 
 def build_service_identity_contract() -> Dict[str, ServiceIdentity]:
     rows = [
-        ServiceIdentity('exec_health_freeze_override_v1', 'writer', WRITER_USER, 'exec-health-freeze-override-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
-        ServiceIdentity('exec_health_slo_autoguard_v1', 'writer', WRITER_USER, 'exec-health-slo-autoguard-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
-        ServiceIdentity('exec_health_freeze_tamper_guard_v1', 'writer', WRITER_USER, 'exec-health-freeze-tamper-guard-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
-        ServiceIdentity('exec_health_freeze_acl_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
-        ServiceIdentity('exec_health_freeze_acl_drift_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-drift-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
-        ServiceIdentity('exec_health_freeze_client_name_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-client-name-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
-        ServiceIdentity('exec_health_freeze_acl_policy_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-acl-policy-apply-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
-        ServiceIdentity('exec_health_freeze_reconnect_rollout_gate_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-reconnect-rollout-gate-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL'),
-        ServiceIdentity('exec_health_freeze_rollout_preflight_v1', 'audit', AUDIT_USER, 'exec-health-freeze-rollout-preflight-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
-        ServiceIdentity('exec_health_freeze_service_identity_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-service-identity-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL'),
+        ServiceIdentity('exec_health_freeze_override_v1', 'writer', WRITER_USER, 'exec-health-freeze-override-v1', 'exec-health-freeze-writer', 'REDIS_URL')
+        ServiceIdentity('exec_health_slo_autoguard_v1', 'writer', WRITER_USER, 'exec-health-slo-autoguard-v1', 'exec-health-freeze-writer', 'REDIS_URL')
+        ServiceIdentity('exec_health_freeze_tamper_guard_v1', 'writer', WRITER_USER, 'exec-health-freeze-tamper-guard-v1', 'exec-health-freeze-writer', 'REDIS_URL')
+        ServiceIdentity('exec_health_freeze_acl_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL')
+        ServiceIdentity('exec_health_freeze_acl_drift_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-acl-drift-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL')
+        ServiceIdentity('exec_health_freeze_client_name_audit_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-client-name-audit-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL')
+        ServiceIdentity('exec_health_freeze_acl_policy_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-acl-policy-apply-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL')
+        ServiceIdentity('exec_health_freeze_reconnect_rollout_gate_v1', 'bootstrap', BOOTSTRAP_USER, 'exec-health-freeze-reconnect-rollout-gate-v1', 'exec-health-freeze-bootstrap', 'EXEC_HEALTH_REDIS_BOOTSTRAP_URL')
+        ServiceIdentity('exec_health_freeze_rollout_preflight_v1', 'audit', AUDIT_USER, 'exec-health-freeze-rollout-preflight-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL')
+        ServiceIdentity('exec_health_freeze_service_identity_exporter_v1', 'audit', AUDIT_USER, 'exec-health-freeze-service-identity-exporter-v1', 'exec-health-freeze-audit', 'EXEC_HEALTH_REDIS_AUDIT_URL')
     ]
     return {r.service: r for r in rows}
 
@@ -65,12 +65,12 @@ def render_service_identity_env_templates(host: str = 'redis-worker-1', port: in
     out: Dict[str, Dict[str, str]] = {}
     for s in build_service_identity_contract().values():
         out[s.service] = {
-            s.redis_url_env: f'redis://{s.redis_user}:<password>@{host}:{port}/{db}',
-            'EXEC_HEALTH_EXPECTED_REDIS_USER': s.redis_user,
-            'EXEC_HEALTH_REDIS_CLIENT_NAME': s.client_name,
-            'EXEC_HEALTH_REDIS_LIB_NAME': s.lib_name,
-            'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1',
-            'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME': '1',
+            s.redis_url_env: f'redis://{s.redis_user}:<password>@{host}:{port}/{db}'
+            'EXEC_HEALTH_EXPECTED_REDIS_USER': s.redis_user
+            'EXEC_HEALTH_REDIS_CLIENT_NAME': s.client_name
+            'EXEC_HEALTH_REDIS_LIB_NAME': s.lib_name
+            'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1'
+            'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME': '1'
         }
     return out
 
@@ -124,12 +124,12 @@ def _match_entry_to_service(entry: Mapping[str, Any], expected: ServiceIdentity)
     got_name = _s(entry.get('name'))
     got_lib_name = _s(entry.get('lib-name'))
     return {
-        'user': got_user,
-        'name': got_name,
-        'lib_name': got_lib_name,
-        'user_match': '1' if got_user == expected.redis_user else '0',
-        'name_match': '1' if got_name == expected.client_name else '0',
-        'lib_name_match': '1' if got_lib_name == expected.lib_name else '0',
+        'user': got_user
+        'name': got_name
+        'lib_name': got_lib_name
+        'user_match': '1' if got_user == expected.redis_user else '0'
+        'name_match': '1' if got_name == expected.client_name else '0'
+        'lib_name_match': '1' if got_lib_name == expected.lib_name else '0'
     }
 
 
@@ -161,12 +161,12 @@ def evaluate_client_list_against_contract(raw_client_list: Any, *, required_serv
         if match['lib_name_match'] != '1':
             violations.append({'kind': 'wrong_lib_name', 'service': service})
         services[service] = {
-            'seen': len(rows),
-            'role': exp.role,
-            'expected_user': exp.redis_user,
-            'expected_name': exp.client_name,
-            'expected_lib_name': exp.lib_name,
-            **{k: (int(v) if v in {'0','1'} else v) for k, v in match.items()},
+            'seen': len(rows)
+            'role': exp.role
+            'expected_user': exp.redis_user
+            'expected_name': exp.client_name
+            'expected_lib_name': exp.lib_name
+            **{k: (int(v) if v in {'0','1'} else v) for k, v in match.items()}
         }
     for ent in entries:
         name = _s(ent.get('name'))

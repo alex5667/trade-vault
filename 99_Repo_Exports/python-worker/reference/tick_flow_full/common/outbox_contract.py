@@ -26,18 +26,18 @@ class ContractViolation(Exception):
 
 # Tradeable message MUST NOT contain these anywhere.
 FORBIDDEN_TRADEABLE_KEYS: Set[str] = {
-    "trace",
-    "events",
-    "payload_meta",
-    "parts_full",
+    "trace"
+    "events"
+    "payload_meta"
+    "parts_full"
 }
 
 # Targets inside envelope are tradeable-ish: keep them clean too.
 FORBIDDEN_TARGET_KEYS: Set[str] = {
-    "trace",
-    "events",
-    "payload_meta",
-    "parts_full",
+    "trace"
+    "events"
+    "payload_meta"
+    "parts_full"
 }
 
 
@@ -200,12 +200,12 @@ def validate_outbox_envelope(env: Dict[str, Any]) -> None:
 
 
 def contract_check_best_effort(
-    *,
-    kind: str,
-    obj: Dict[str, Any],
-    where: str,
-    sid: str = "",
-    logger: Optional[Any] = None,
+    *
+    kind: str
+    obj: Dict[str, Any]
+    where: str
+    sid: str = ""
+    logger: Optional[Any] = None
 ) -> bool:
     """
     Enforcement wrapper:
@@ -235,12 +235,12 @@ def contract_check_best_effort(
                 logger.error(
                     dumps1(
                         {
-                            "event": "outbox_contract_violation",
-                            "where": str(where),
-                            "kind": str(kind),
-                            "sid": str(sid or ""),
-                            "reason": str(e.reason),
-                            "path": str(e.path),
+                            "event": "outbox_contract_violation"
+                            "where": str(where)
+                            "kind": str(kind)
+                            "sid": str(sid or "")
+                            "reason": str(e.reason)
+                            "path": str(e.path)
                         }
                     )
                 )

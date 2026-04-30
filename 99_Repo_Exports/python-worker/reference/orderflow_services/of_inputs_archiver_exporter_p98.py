@@ -38,29 +38,29 @@ except Exception:  # pragma: no cover
 
 
 GAUGE_LAST_RUN_TS_MS = Gauge(
-    "of_inputs_archiver_last_run_ts_ms",
-    "Timestamp of last archiver run in milliseconds since epoch",
-    ["kind"],
+    "of_inputs_archiver_last_run_ts_ms"
+    "Timestamp of last archiver run in milliseconds since epoch"
+    ["kind"]
 )
 GAUGE_STALENESS_SEC = Gauge(
-    "of_inputs_archiver_staleness_sec",
-    "Seconds elapsed since last archiver run",
-    ["kind"],
+    "of_inputs_archiver_staleness_sec"
+    "Seconds elapsed since last archiver run"
+    ["kind"]
 )
 GAUGE_LAST_STREAM_TS_MS = Gauge(
-    "of_inputs_archiver_last_stream_ts_ms",
-    "Timestamp extracted from last processed stream ID (ms)",
-    ["kind"],
+    "of_inputs_archiver_last_stream_ts_ms"
+    "Timestamp extracted from last processed stream ID (ms)"
+    ["kind"]
 )
 GAUGE_INSERTED_TOTAL = Gauge(
-    "of_inputs_archiver_inserted_total",
-    "Cumulative rows inserted (monotonic-ish gauge from Redis hash)",
-    ["kind"],
+    "of_inputs_archiver_inserted_total"
+    "Cumulative rows inserted (monotonic-ish gauge from Redis hash)"
+    ["kind"]
 )
 GAUGE_ERROR_TOTAL = Gauge(
-    "of_inputs_archiver_error_total",
-    "Cumulative error count (monotonic-ish gauge from Redis hash)",
-    ["kind"],
+    "of_inputs_archiver_error_total"
+    "Cumulative error count (monotonic-ish gauge from Redis hash)"
+    ["kind"]
 )
 
 

@@ -27,9 +27,9 @@ def _with_env(env_dict, fn):
     # Save originals
     saved = {}
     keys_to_clear = [
-        "POSITION_STRATEGY",
-        "EXEC_ROUTER_ENABLE", "EXEC_ROUTER_SCALE_IN_ENABLE",
-        "EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL",
+        "POSITION_STRATEGY"
+        "EXEC_ROUTER_ENABLE", "EXEC_ROUTER_SCALE_IN_ENABLE"
+        "EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL"
     ]
     for k in keys_to_clear:
         saved[k] = os.environ.pop(k, None)
@@ -80,8 +80,8 @@ def test_kill_switch_overrides_scale_in():
     """POSITION_STRATEGY=scale_in + EXEC_ROUTER_SCALE_IN_ENABLE=0 → scale_in disabled."""
     from services.position_strategy import resolve_strategy
     s = _with_env({
-        "POSITION_STRATEGY": "scale_in",
-        "EXEC_ROUTER_SCALE_IN_ENABLE": "0",
+        "POSITION_STRATEGY": "scale_in"
+        "EXEC_ROUTER_SCALE_IN_ENABLE": "0"
     }, resolve_strategy)
     assert s.scale_in_enable is False
     assert s.single_active is True  # kept from scale_in
@@ -93,7 +93,7 @@ def test_backward_compat_no_strategy_env():
     from services.position_strategy import resolve_strategy
     # Legacy: EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL=1 → single
     s = _with_env({
-        "EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL": "1",
+        "EXEC_SINGLE_ACTIVE_POSITION_PER_SYMBOL": "1"
     }, resolve_strategy)
     assert s.name == "single"
     assert s.single_active is True
@@ -112,7 +112,7 @@ def test_backward_compat_scale_in_flag():
     """No POSITION_STRATEGY but EXEC_ROUTER_SCALE_IN_ENABLE=1 → scale_in."""
     from services.position_strategy import resolve_strategy
     s = _with_env({
-        "EXEC_ROUTER_SCALE_IN_ENABLE": "1",
+        "EXEC_ROUTER_SCALE_IN_ENABLE": "1"
     }, resolve_strategy)
     assert s.name == "scale_in"
     assert s.scale_in_enable is True

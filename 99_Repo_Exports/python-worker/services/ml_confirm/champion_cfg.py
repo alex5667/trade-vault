@@ -60,10 +60,10 @@ def _as_str(v: Any, field: str) -> str:
 
 
 def validate_champion_cfg(
-    raw_json: str,
-    *,
-    allow_default_enforce_share: bool = False,
-    default_enforce_share: Optional[float] = None,
+    raw_json: str
+    *
+    allow_default_enforce_share: bool = False
+    default_enforce_share: Optional[float] = None
 ) -> Tuple[ChampionCfg, Dict[str, Any]]:
     """
     Strict validator.
@@ -116,17 +116,17 @@ def validate_champion_cfg(
         raise ChampionCfgError("mode=CANARY requires 0.0 < enforce_share < 1.0")
 
     cfg = ChampionCfg(
-        schema_version=schema_version,
-        kind=kind,
-        run_id=run_id,
-        created_ms=created_ms,
-        model_path=model_path,
-        mode=mode,
-        enforce_share=enforce_share,
-        calibrator_path=(obj.get("calibrator_path") or None),
-        feature_version=(obj.get("feature_version") or None),
-        model_type=(obj.get("model_type") or None),
-        checksum=(obj.get("checksum") or None),
+        schema_version=schema_version
+        kind=kind
+        run_id=run_id
+        created_ms=created_ms
+        model_path=model_path
+        mode=mode
+        enforce_share=enforce_share
+        calibrator_path=(obj.get("calibrator_path") or None)
+        feature_version=(obj.get("feature_version") or None)
+        model_type=(obj.get("model_type") or None)
+        checksum=(obj.get("checksum") or None)
     )
     return cfg, {"defaulted_fields": defaulted}
 

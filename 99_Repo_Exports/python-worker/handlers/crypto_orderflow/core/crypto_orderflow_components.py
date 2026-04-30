@@ -224,16 +224,16 @@ class RealizedSpreadTracker:
       сохраняет mid в момент сделки -> через горизонт вычисляет realized_bps.
     """
     __slots__ = (
-        "horizon_ms",
-        "alpha",
-        "max_pending",
-        "pending",
-        "_head",
-        "last_realized_bps",
-        "realized_ema_bps",
-        "adverse_ratio_ema",
-        "dropped_pending",
-        "settled",
+        "horizon_ms"
+        "alpha"
+        "max_pending"
+        "pending"
+        "_head"
+        "last_realized_bps"
+        "realized_ema_bps"
+        "adverse_ratio_ema"
+        "dropped_pending"
+        "settled"
     )
 
     def __init__(self, horizon_ms: int = 2000, alpha: float = 0.08, max_pending: int = 5000):
@@ -297,15 +297,15 @@ def _is_trade_tick(tick: Tick) -> bool:
 
 class MicrostructureEngine:
     def __init__(
-        self,
-        *,
-        rs: RealizedSpreadTracker,
-        momo_thr_bps: float,
-        meanrev_thr_bps: float,
-        momo_adverse_max: float,
-        meanrev_adverse_min: float,
-        taker_side_fn: Callable[[Tick], int],
-        mode_ema_alpha: float = 0.02,
+        self
+        *
+        rs: RealizedSpreadTracker
+        momo_thr_bps: float
+        meanrev_thr_bps: float
+        momo_adverse_max: float
+        meanrev_adverse_min: float
+        taker_side_fn: Callable[[Tick], int]
+        mode_ema_alpha: float = 0.02
     ) -> None:
         self.rs = rs
         self.momo_thr_bps = float(momo_thr_bps)
@@ -333,11 +333,11 @@ class MicrostructureEngine:
         side = self._taker_side(tick)
 
         spread_bps, last_realized_bps, realized_ema_bps, adverse_ratio_ema = self.rs.update(
-            ts=int(tick.ts),
-            bid=float(tick.bid),
-            ask=float(tick.ask),
-            is_trade=is_trade,
-            side=side,
+            ts=int(tick.ts)
+            bid=float(tick.bid)
+            ask=float(tick.ask)
+            is_trade=is_trade
+            side=side
         )
 
         mode = self._market_mode(float(realized_ema_bps), float(adverse_ratio_ema))
@@ -349,11 +349,11 @@ class MicrostructureEngine:
         self._mode_momo_ema = (1.0 - a) * self._mode_momo_ema + a * x
 
         self.last = MicroSnapshot(
-            spread_bps=float(spread_bps),
-            realized_bps=float(last_realized_bps),
-            realized_ema_bps=float(realized_ema_bps),
-            adverse_ratio_ema=float(adverse_ratio_ema),
-            market_mode=str(mode),
+            spread_bps=float(spread_bps)
+            realized_bps=float(last_realized_bps)
+            realized_ema_bps=float(realized_ema_bps)
+            adverse_ratio_ema=float(adverse_ratio_ema)
+            market_mode=str(mode)
         )
         return self.last
 
@@ -393,18 +393,18 @@ class RegimeDetectorCfg:
 class RegimeDetector:
     """
     Детектор режима рынка:
-      - может использовать существующую логику хендлера (feature_extractor/history_updater),
+      - может использовать существующую логику хендлера (feature_extractor/history_updater)
         чтобы НЕ менять семантику;
       - если extractor не передан — откат на микро market_mode.
     """
 
     def __init__(
-        self,
-        cfg: RegimeDetectorCfg,
-        *,
-        daily_open_cross_freq_provider: Optional[Callable[[str], Optional[float]]] = None,
-        htf_levels_provider: Optional[Callable[[str], Any]] = None,
-        now_provider: Optional[Callable[[], float]] = None,
+        self
+        cfg: RegimeDetectorCfg
+        *
+        daily_open_cross_freq_provider: Optional[Callable[[str], Optional[float]]] = None
+        htf_levels_provider: Optional[Callable[[str], Any]] = None
+        now_provider: Optional[Callable[[], float]] = None
     ) -> None:
         self.cfg = cfg
         self._daily_open_cross_freq_provider = daily_open_cross_freq_provider
@@ -443,20 +443,20 @@ class RegimeDetector:
         if wsum <= 0.0:
             return 0.0, {"wsum": 0.0, "reason": "no_weights_or_missing_features"}
         return float(score / wsum), {
-            "wsum": float(wsum),
+            "wsum": float(wsum)
             # raw
-            "vwap_dev_bps": feats.vwap_dev_bps,
-            "daily_open_dev_bps": feats.daily_open_dev_bps,
-            "daily_open_cross_freq": feats.daily_open_cross_freq,
-            "htf_level_dist_bps": feats.htf_level_dist_bps,
-            "atr_bias": feats.atr_bias,
-            "delta_dir_bias": feats.delta_dir_bias,
-            "vwap_dev_bias": feats.vwap_dev_bias,
-            "daily_open_dev_bias": feats.daily_open_dev_bias,
-            "daily_open_cross_bias": feats.daily_open_cross_bias,
-            "htf_prox_bias": feats.htf_prox_bias,
-            "weak_progress_bias": feats.weak_progress_bias,
-            "session_bias": feats.session_bias,
+            "vwap_dev_bps": feats.vwap_dev_bps
+            "daily_open_dev_bps": feats.daily_open_dev_bps
+            "daily_open_cross_freq": feats.daily_open_cross_freq
+            "htf_level_dist_bps": feats.htf_level_dist_bps
+            "atr_bias": feats.atr_bias
+            "delta_dir_bias": feats.delta_dir_bias
+            "vwap_dev_bias": feats.vwap_dev_bias
+            "daily_open_dev_bias": feats.daily_open_dev_bias
+            "daily_open_cross_bias": feats.daily_open_cross_bias
+            "htf_prox_bias": feats.htf_prox_bias
+            "weak_progress_bias": feats.weak_progress_bias
+            "session_bias": feats.session_bias
         }
 
     def update_history(self, ctx: Any) -> None:
@@ -497,13 +497,13 @@ class RegimeDetector:
 
         self._hist(str(symbol)).append(
             RegimeSample(
-                ts=ts,
-                price=p,
-                vwap_side=vwap_side,
-                daily_open_side=daily_open_side,
+                ts=ts
+                price=p
+                vwap_side=vwap_side
+                daily_open_side=daily_open_side
                 vol_total=0.0,  # заполнитель
                 notional=0.0,  # заполнитель
-                bar_index=None,
+                bar_index=None
             )
         )
 
@@ -637,19 +637,19 @@ class RegimeDetector:
 
         return RegimeFeatures(
             # raw
-            vwap_dev_bps=vwap_dev_bps,
-            daily_open_dev_bps=daily_open_dev_bps,
-            daily_open_cross_freq=daily_open_cross_freq,
-            htf_level_dist_bps=htf_level_dist_bps,
+            vwap_dev_bps=vwap_dev_bps
+            daily_open_dev_bps=daily_open_dev_bps
+            daily_open_cross_freq=daily_open_cross_freq
+            htf_level_dist_bps=htf_level_dist_bps
             # bias
-            atr_bias=atr_bias,
-            delta_dir_bias=delta_dir_bias,
-            vwap_dev_bias=vwap_dev_bias,
-            daily_open_dev_bias=daily_open_dev_bias,
-            daily_open_cross_bias=daily_open_cross_bias,
-            htf_prox_bias=htf_prox_bias,
-            weak_progress_bias=weak_progress_bias,
-            session_bias=session_bias,
+            atr_bias=atr_bias
+            delta_dir_bias=delta_dir_bias
+            vwap_dev_bias=vwap_dev_bias
+            daily_open_dev_bias=daily_open_dev_bias
+            daily_open_cross_bias=daily_open_cross_bias
+            htf_prox_bias=htf_prox_bias
+            weak_progress_bias=weak_progress_bias
+            session_bias=session_bias
         )
 
     def detect(self, ctx: Any) -> MarketRegime:
@@ -716,18 +716,18 @@ class ConfirmationResult:
 
 class L2ConfirmBreakout:
     def __init__(
-        self,
-        *,
-        require_obi20: bool,
-        mp_min_bps: float,
-        wall_max_dist_bps: float,
-        dep_min: float,
-        ref_max: float,
-        impact_max: float,
-        use_l3: bool,
-        l3_ctr_max: float,
-        l3_rate_min: float,
-        l3_eta_max: float,
+        self
+        *
+        require_obi20: bool
+        mp_min_bps: float
+        wall_max_dist_bps: float
+        dep_min: float
+        ref_max: float
+        impact_max: float
+        use_l3: bool
+        l3_ctr_max: float
+        l3_rate_min: float
+        l3_eta_max: float
     ) -> None:
         self.require_obi20 = bool(require_obi20)
         self.mp_min_bps = float(mp_min_bps)
@@ -786,16 +786,16 @@ class L2ConfirmBreakout:
 
 class L2ConfirmAbsorption:
     def __init__(
-        self,
-        *,
-        require_fresh_l2: bool,
-        refill_min: float,
-        wall_max_dist_bps: float,
-        use_micro_proxy: bool,
-        micro_adverse_min: float,
-        micro_realized_ema_max: float,
-        use_l3: bool,
-        l3_rate_min: float,
+        self
+        *
+        require_fresh_l2: bool
+        refill_min: float
+        wall_max_dist_bps: float
+        use_micro_proxy: bool
+        micro_adverse_min: float
+        micro_realized_ema_max: float
+        use_l3: bool
+        l3_rate_min: float
     ) -> None:
         self.require_fresh_l2 = bool(require_fresh_l2)
         self.refill_min = float(refill_min)
@@ -893,11 +893,11 @@ class ScoreModel:
     """
 
     def __init__(
-        self,
-        *,
-        conf_scorer: Callable[[Any, str], Tuple[float, Dict[str, Any]]],
-        kind_normalizer: Callable[[Any], str],
-        confidence_pct_k: float = 100.0,
+        self
+        *
+        conf_scorer: Callable[[Any, str], Tuple[float, Dict[str, Any]]]
+        kind_normalizer: Callable[[Any], str]
+        confidence_pct_k: float = 100.0
     ) -> None:
         self._conf_scorer = conf_scorer
         self._norm_kind = kind_normalizer
@@ -927,11 +927,11 @@ class ScoreModel:
         setattr(ctx, "confidence_parts", parts or {})
 
         return ScoreResult(
-            raw_score=float(raw_score),
-            conf_factor=float(cf),
-            final_score=float(fs),
-            confidence_pct=float(cpct),
-            parts=parts or {},
+            raw_score=float(raw_score)
+            conf_factor=float(cf)
+            final_score=float(fs)
+            confidence_pct=float(cpct)
+            parts=parts or {}
         )
 
 
@@ -941,12 +941,12 @@ class ScoreModel:
 
 class Emitter:
     def __init__(
-        self,
-        *,
-        manual_signal_enabled: bool,
-        manual_signal_stream: str,
-        audit_level: str = "full",
-        audit_max_bytes: int = 12_000,
+        self
+        *
+        manual_signal_enabled: bool
+        manual_signal_stream: str
+        audit_level: str = "full"
+        audit_max_bytes: int = 12_000
     ) -> None:
         self.manual_signal_enabled = bool(manual_signal_enabled)
         self.manual_signal_stream = str(manual_signal_stream or "")
@@ -968,35 +968,35 @@ class Emitter:
         return mp
 
     def extend_outbox_envelope(
-        self,
-        envelope: Dict[str, Any],
-        *,
-        signal: Any,
-        ctx: Any,
-        build_audit_full: Callable[[Any], Dict[str, Any]],
-        build_audit_compact: Callable[[Any], Dict[str, Any]],
+        self
+        envelope: Dict[str, Any]
+        *
+        signal: Any
+        ctx: Any
+        build_audit_full: Callable[[Any], Dict[str, Any]]
+        build_audit_compact: Callable[[Any], Dict[str, Any]]
     ) -> None:
         if not self.manual_signal_enabled or not self.manual_signal_stream:
             return
 
         manual_payload = {
-            "sid": getattr(signal, "sid", ""),
-            "ts": getattr(signal, "ts", envelope.get("ts", 0)),
-            "symbol": getattr(signal, "symbol", ""),
-            "side": getattr(signal, "side", ""),
-            "entry": getattr(signal, "entry", None),
-            "sl": getattr(signal, "sl", None),
-            "tp_levels": getattr(signal, "tp_levels", None),
-            "lot": getattr(signal, "lot", None),
-            "reason": getattr(signal, "reason", ""),
-            "source": "crypto-orderflow",
-            "confidence": getattr(signal, "confidence", getattr(ctx, "confidence_pct", 0.0)),
-            "atr": getattr(signal, "atr", getattr(ctx, "atr", None)),
-            "trail_after_tp1": getattr(signal, "trail_after_tp1", False),
-            "trail_profile": getattr(signal, "trail_profile", ""),
-            "indicators": getattr(signal, "indicators", {}) or {},
-            "metadata": getattr(signal, "metadata", None) or {},
-            "audit_context": build_audit_full(ctx) if self.audit_level != "compact" else build_audit_compact(ctx),
+            "sid": getattr(signal, "sid", "")
+            "ts": getattr(signal, "ts", envelope.get("ts", 0))
+            "symbol": getattr(signal, "symbol", "")
+            "side": getattr(signal, "side", "")
+            "entry": getattr(signal, "entry", None)
+            "sl": getattr(signal, "sl", None)
+            "tp_levels": getattr(signal, "tp_levels", None)
+            "lot": getattr(signal, "lot", None)
+            "reason": getattr(signal, "reason", "")
+            "source": "crypto-orderflow"
+            "confidence": getattr(signal, "confidence", getattr(ctx, "confidence_pct", 0.0))
+            "atr": getattr(signal, "atr", getattr(ctx, "atr", None))
+            "trail_after_tp1": getattr(signal, "trail_after_tp1", False)
+            "trail_profile": getattr(signal, "trail_profile", "")
+            "indicators": getattr(signal, "indicators", {}) or {}
+            "metadata": getattr(signal, "metadata", None) or {}
+            "audit_context": build_audit_full(ctx) if self.audit_level != "compact" else build_audit_compact(ctx)
         }
 
         if self.audit_max_bytes > 0:

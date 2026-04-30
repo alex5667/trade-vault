@@ -61,13 +61,13 @@ def _write_price_latest_from_tick_stream(r_ticks: object, r_signals: object, sym
         # price_stale_ms check always passes.  The original tick ts is stored
         # in tick_ts_ms for audit purposes.
         r_signals.hset(  # type: ignore[call-arg]
-            f"price:latest:{sym_up}",
+            f"price:latest:{sym_up}"
             mapping={
-                "mid": f"{price:.10f}",
-                "ts_ms": str(get_ny_time_millis()),
-                "tick_ts_ms": str(ts_ms),
-                "venue": "crypto_tick_stream",
-            },
+                "mid": f"{price:.10f}"
+                "ts_ms": str(get_ny_time_millis())
+                "tick_ts_ms": str(ts_ms)
+                "venue": "crypto_tick_stream"
+            }
         )
         return True
     except Exception as e:
@@ -102,9 +102,9 @@ def main() -> int:
     interval_ms = max(200, interval_ms)
 
     logger.info(
-        "SMT aggregator started. interval_ms=%d symbols=%s",
-        interval_ms,
-        symbols,
+        "SMT aggregator started. interval_ms=%d symbols=%s"
+        interval_ms
+        symbols
     )
 
     while True:

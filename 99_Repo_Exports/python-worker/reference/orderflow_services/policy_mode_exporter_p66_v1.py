@@ -54,10 +54,10 @@ class Cfg:
 
 def load_cfg() -> Cfg:
     return Cfg(
-        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        state_key=_env("POLICY_MODE_STATE_KEY", "metrics:policy_mode:state"),
-        port=_i(_env("POLICY_MODE_EXPORTER_PORT", "9818"), 9818),
-        interval_s=float(_env("POLICY_MODE_EXPORTER_INTERVAL_S", "5") or 5),
+        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
+        state_key=_env("POLICY_MODE_STATE_KEY", "metrics:policy_mode:state")
+        port=_i(_env("POLICY_MODE_EXPORTER_PORT", "9818"), 9818)
+        interval_s=float(_env("POLICY_MODE_EXPORTER_INTERVAL_S", "5") or 5)
     )
 
 
@@ -71,21 +71,21 @@ LAST_AGE = Gauge("policy_mode_last_age_seconds", "Age of last policy mode decisi
 TOTAL = Gauge("policy_mode_n_24h_total", "Total decisions observed (24h)")
 # Per-cell count: (regime x effective_mode) cross-section
 N = Gauge(
-    "policy_mode_n_24h",
-    "Decisions count (24h) by regime and effective mode",
-    ["regime", "effective_mode"],
+    "policy_mode_n_24h"
+    "Decisions count (24h) by regime and effective mode"
+    ["regime", "effective_mode"]
 )
 # Per-cell share: fraction of total
 SHARE = Gauge(
-    "policy_mode_share_24h",
-    "Decisions share (24h) by regime and effective mode",
-    ["regime", "effective_mode"],
+    "policy_mode_share_24h"
+    "Decisions share (24h) by regime and effective mode"
+    ["regime", "effective_mode"]
 )
 # Mismatch rates: how often policy enforcement deviates from expected
 MISM = Gauge(
-    "policy_mode_mismatch_share_24h",
-    "Mismatch share (24h) by kind",
-    ["kind"],
+    "policy_mode_mismatch_share_24h"
+    "Mismatch share (24h) by kind"
+    ["kind"]
 )
 
 # All valid regime and mode dimensions

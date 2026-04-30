@@ -49,9 +49,9 @@ except Exception:
 
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("EnforceBucketPreflight")
 
@@ -209,10 +209,10 @@ def main() -> int:
     min_rows = _env_int("ENFORCE_PREFLIGHT_MIN_DB_SAMPLES", "100")
 
     out: Dict[str, Any] = {
-        "ts_ms": _now_ms(),
-        "ok": False,
-        "redis": {"ok": False},
-        "db": {"ok": False},
+        "ts_ms": _now_ms()
+        "ok": False
+        "redis": {"ok": False}
+        "db": {"ok": False}
     }
 
     # Redis check

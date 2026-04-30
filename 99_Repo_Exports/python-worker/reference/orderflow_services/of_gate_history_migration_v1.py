@@ -135,17 +135,17 @@ def build_of_gate_row(stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...
     reason_code = str(payload.get("reason_code") or payload.get("reason") or "na")
 
     return (
-        stream_id,
-        ts_ms,
-        ts,
-        symbol,
-        scenario_v4,
-        int(schema_version),
-        int(ok),
-        int(ok_soft),
-        to_jsonb(missing_legs),
-        reason_code,
-        to_jsonb(payload) or "{}",
+        stream_id
+        ts_ms
+        ts
+        symbol
+        scenario_v4
+        int(schema_version)
+        int(ok)
+        int(ok_soft)
+        to_jsonb(missing_legs)
+        reason_code
+        to_jsonb(payload) or "{}"
     )
 
 
@@ -154,12 +154,12 @@ def pg_insert_of_gate_metrics(dsn: str, rows: List[Tuple[Any, ...]]) -> int:
         return 0
     sql = """
     INSERT INTO of_gate_metrics (
-      stream_id, ts_ms, ts,
-      symbol, scenario_v4,
-      schema_version,
-      ok, ok_soft,
-      missing_legs,
-      reason_code,
+      stream_id, ts_ms, ts
+      symbol, scenario_v4
+      schema_version
+      ok, ok_soft
+      missing_legs
+      reason_code
       payload_json
     ) VALUES %s
     ON CONFLICT (stream_id, ts) DO NOTHING
@@ -219,12 +219,12 @@ async def _update_metrics_hash(key: str, mapping: dict, incr_error: int = 0) -> 
 
 
 async def backfill_from_redis(
-    dsn: str,
-    redis_url: str,
-    stream: str,
-    start_id: str,
-    max_messages: int,
-    batch: int,
+    dsn: str
+    redis_url: str
+    stream: str
+    start_id: str
+    max_messages: int
+    batch: int
 ) -> int:
     """Backfill of_gate_metrics from Redis stream.
 
@@ -321,12 +321,12 @@ def main() -> None:
         redis_url = env("REDIS_URL", "redis://redis:6379/0")
         inserted = asyncio.run(
             backfill_from_redis(
-                dsn=dsn,
-                redis_url=redis_url,
-                stream=args.stream,
-                start_id=args.start_id,
-                max_messages=int(args.max_messages),
-                batch=int(args.batch),
+                dsn=dsn
+                redis_url=redis_url
+                stream=args.stream
+                start_id=args.start_id
+                max_messages=int(args.max_messages)
+                batch=int(args.batch)
             )
         )
         # Optional refresh after backfill (last 30 days to catch newly inserted rows)

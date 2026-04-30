@@ -124,16 +124,16 @@ class CostEdgeConfig:
         log_veto = bool(int(os.getenv("LOG_EDGE_VETO", "1")))
         
         return cls(
-            enabled=enabled,
-            default_cost_k=default_k,
-            symbol_cost_k=symbol_k,
-            fees_bps=fees_bps,
-            slippage_bps=slippage_bps,
-            slippage_use_spread_half=use_spread,
-            buffer_bps=default_buffer,
-            symbol_buffer_bps=symbol_buffer,
-            edge_mode=edge_mode,
-            log_veto=log_veto,
+            enabled=enabled
+            default_cost_k=default_k
+            symbol_cost_k=symbol_k
+            fees_bps=fees_bps
+            slippage_bps=slippage_bps
+            slippage_use_spread_half=use_spread
+            buffer_bps=default_buffer
+            symbol_buffer_bps=symbol_buffer
+            edge_mode=edge_mode
+            log_veto=log_veto
         )
 
 
@@ -320,10 +320,10 @@ class CostEdgeGate:
         return 0.0, "none"
     
     def evaluate(
-        self,
-        ctx: Any,
-        symbol: str,
-        entry_price: float,
+        self
+        ctx: Any
+        symbol: str
+        entry_price: float
     ) -> CostEdgeResult:
         """
         Оценивает, проходит ли сигнал через cost edge gate.
@@ -397,17 +397,17 @@ class CostEdgeGate:
         # Чтобы не дублировать логику, создадим объект результата, а затем, если нужно, выдернем str()
         
         res = CostEdgeResult(
-            passed=passed,
-            expected_edge_bps=edge_bps,
-            total_costs_bps=total_costs_bps,
-            cost_multiplier=cost_k,
-            required_edge_bps=required_edge_bps,
-            edge_ratio=edge_ratio,
-            fees_bps=fees_bps,
-            slippage_bps=slippage_bps,
-            buffer_bps=buffer_bps,
-            symbol=symbol,
-            edge_source=edge_source,
+            passed=passed
+            expected_edge_bps=edge_bps
+            total_costs_bps=total_costs_bps
+            cost_multiplier=cost_k
+            required_edge_bps=required_edge_bps
+            edge_ratio=edge_ratio
+            fees_bps=fees_bps
+            slippage_bps=slippage_bps
+            buffer_bps=buffer_bps
+            symbol=symbol
+            edge_source=edge_source
             veto_reason=None, # Заполним ниже с использованием str(res)
             reason_code=reason_code
         )

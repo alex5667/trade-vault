@@ -66,11 +66,11 @@ class _GuardHolder:
     """
 
     def __init__(
-        self,
-        redis: _FakeRedis,
-        *,
-        guard_on: bool = True,
-        key_prefix: str = "orders:active_symbol_sid:",
+        self
+        redis: _FakeRedis
+        *
+        guard_on: bool = True
+        key_prefix: str = "orders:active_symbol_sid:"
     ):
         self.exec_single_active_position_per_symbol = guard_on
         self._active_symbol_key_prefix = key_prefix

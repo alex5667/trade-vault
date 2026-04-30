@@ -136,23 +136,23 @@ def _mk_exec(redis_obj, *, inline_projection=False):
     return ex
 
 
-def _mk_worker(r, owner_id, lease_key='orders:exec:projection:leader',
+def _mk_worker(r, owner_id, lease_key='orders:exec:projection:leader'
                fencing_key='orders:exec:projection:fencing'):
     """Build a worker with leader lease already acquired."""
     lease = LeaderLease(
-        r,
-        lease_key=lease_key,
-        fence_key=fencing_key,
-        lease_ttl_ms=10000,
-        renew_interval_ms=5000,
-        worker_id=owner_id,
+        r
+        lease_key=lease_key
+        fence_key=fencing_key
+        lease_ttl_ms=10000
+        renew_interval_ms=5000
+        worker_id=owner_id
     )
     lease.acquire()
     return worker_mod.ExecutionProjectionWorker(
-        r,
-        exec_stream='orders:exec',
-        state_key_prefix='orders:state:',
-        leader_lease=lease,
+        r
+        exec_stream='orders:exec'
+        state_key_prefix='orders:state:'
+        leader_lease=lease
     )
 
 
@@ -165,26 +165,26 @@ def test_bootstrap_supervisor_ready_when_projection_and_user_stream_are_healthy(
     ex = _mk_exec(r, inline_projection=False)
     # Write one exec event so projection worker has something to consume
     ex._exec_event({
-        'sid': 'sid-bootstrap',
-        'symbol': 'BTCUSDT',
-        'action': 'open',
-        'event_type': 'state_transition',
-        'status': 'ok',
-        'fsm_state': 'PROTECTED',
-        'binance_order_id': 101,
+        'sid': 'sid-bootstrap'
+        'symbol': 'BTCUSDT'
+        'action': 'open'
+        'event_type': 'state_transition'
+        'status': 'ok'
+        'fsm_state': 'PROTECTED'
+        'binance_order_id': 101
     })
     worker = _mk_worker(r, 'leader-bootstrap')
     worker.run_once()
     # Write a fresh user-stream status document
     now_ms = get_ny_time_millis()
     r.set('orders:user_stream:status', json.dumps({
-        'connected': True,
-        'listen_key': 'lk-1',
-        'status': 'stream_live',
-        'last_keepalive_ms': now_ms,
-        'last_ingest_ms': now_ms,
-        'last_event_ms': now_ms,
-        'ws_connected_ms': now_ms,
+        'connected': True
+        'listen_key': 'lk-1'
+        'status': 'stream_live'
+        'last_keepalive_ms': now_ms
+        'last_ingest_ms': now_ms
+        'last_event_ms': now_ms
+        'ws_connected_ms': now_ms
     }))
     sup = sup_mod.ExecutionBootstrapSupervisor(r, projection_worker=worker)
     snap = sup.health_snapshot()
@@ -202,25 +202,25 @@ def test_bootstrap_supervisor_fails_when_user_stream_is_stale():
     r = FakeRedis()
     ex = _mk_exec(r, inline_projection=False)
     ex._exec_event({
-        'sid': 'sid-stale',
-        'symbol': 'ETHUSDT',
-        'action': 'open',
-        'event_type': 'state_transition',
-        'status': 'ok',
-        'fsm_state': 'ENTRY_ACKED',
+        'sid': 'sid-stale'
+        'symbol': 'ETHUSDT'
+        'action': 'open'
+        'event_type': 'state_transition'
+        'status': 'ok'
+        'fsm_state': 'ENTRY_ACKED'
     })
     worker = _mk_worker(r, 'leader-stale')
     worker.run_once()
     # Write a stale user-stream status (120 s old)
     stale_ms = get_ny_time_millis() - 120000
     r.set('orders:user_stream:status', json.dumps({
-        'connected': True,
-        'listen_key': 'lk-stale',
-        'status': 'stream_live',
-        'last_keepalive_ms': stale_ms,
-        'last_ingest_ms': stale_ms,
-        'last_event_ms': stale_ms,
-        'ws_connected_ms': stale_ms,
+        'connected': True
+        'listen_key': 'lk-stale'
+        'status': 'stream_live'
+        'last_keepalive_ms': stale_ms
+        'last_ingest_ms': stale_ms
+        'last_event_ms': stale_ms
+        'ws_connected_ms': stale_ms
     }))
     # user_stream_max_stale_ms=1000 → 120 s is way beyond the threshold
     sup = sup_mod.ExecutionBootstrapSupervisor(r, projection_worker=worker, user_stream_max_stale_ms=1000)
@@ -237,23 +237,23 @@ def test_bootstrap_health_http_endpoint_reports_combined_readiness():
     r = FakeRedis()
     ex = _mk_exec(r, inline_projection=False)
     ex._exec_event({
-        'sid': 'sid-http',
-        'symbol': 'SOLUSDT',
-        'action': 'open',
-        'event_type': 'state_transition',
-        'status': 'ok',
-        'fsm_state': 'PROTECTED',
+        'sid': 'sid-http'
+        'symbol': 'SOLUSDT'
+        'action': 'open'
+        'event_type': 'state_transition'
+        'status': 'ok'
+        'fsm_state': 'PROTECTED'
     })
     worker = _mk_worker(r, 'leader-http')
     worker.run_once()
     now_ms = get_ny_time_millis()
     r.set('orders:user_stream:status', json.dumps({
-        'connected': True,
-        'listen_key': 'lk-http',
-        'status': 'stream_live',
-        'last_keepalive_ms': now_ms,
-        'last_ingest_ms': now_ms,
-        'ws_connected_ms': now_ms,
+        'connected': True
+        'listen_key': 'lk-http'
+        'status': 'stream_live'
+        'last_keepalive_ms': now_ms
+        'last_ingest_ms': now_ms
+        'ws_connected_ms': now_ms
     }))
     sup = sup_mod.ExecutionBootstrapSupervisor(r, projection_worker=worker)
 

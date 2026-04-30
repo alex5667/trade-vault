@@ -52,11 +52,11 @@ def _get_all_alerts(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 # V10 required alert names
 EXPECTED_ALERTS = {
-    "OF_SlippageCalibratorStale_Crit",
-    "OF_SlippageCalibratorNoUpdates_Warn",
-    "OF_SlippageCoeffStaleHVLL_Warn",
-    "OF_ExecSlippageEvalRowcountProbeStale_Crit",
-    "OF_ExecSlippageEvalRowsLow_Warn",
+    "OF_SlippageCalibratorStale_Crit"
+    "OF_SlippageCalibratorNoUpdates_Warn"
+    "OF_SlippageCoeffStaleHVLL_Warn"
+    "OF_ExecSlippageEvalRowcountProbeStale_Crit"
+    "OF_ExecSlippageEvalRowsLow_Warn"
 }
 
 
@@ -107,9 +107,9 @@ class TestSlippageCalibratorHealthAlerts:
         """Warn alerts must have severity=warning."""
         alerts = {a["alert"]: a for a in self._alerts(tree)}
         for name in (
-            "OF_SlippageCalibratorNoUpdates_Warn",
-            "OF_SlippageCoeffStaleHVLL_Warn",
-            "OF_ExecSlippageEvalRowsLow_Warn",
+            "OF_SlippageCalibratorNoUpdates_Warn"
+            "OF_SlippageCoeffStaleHVLL_Warn"
+            "OF_ExecSlippageEvalRowsLow_Warn"
         ):
             assert name in alerts, f"{name} not found in {tree}"
             sev = alerts[name].get("labels", {}).get("severity", "")

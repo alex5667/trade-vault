@@ -11,15 +11,15 @@ Value: JSON object (schema_version=1)
 Example::
 
     {
-      "schema_version": 1,
-      "symbol": "BTCUSDT",
-      "ts_ms": 1760000000000,
-      "window_ms": 60000,
+      "schema_version": 1
+      "symbol": "BTCUSDT"
+      "ts_ms": 1760000000000
+      "window_ms": 60000
       "liq_buy_notional_1m":  800000.0,   -- short-side forced close (BUY order)
       "liq_sell_notional_1m": 1200000.0,  -- long-side forced close (SELL order)
       "liq_imbalance_z": 2.4,             -- MAD z-score of sell-buy imbalance
-      "liq_event_count_1m": 12,
-      "largest_liq_notional_1m": 350000.0,
+      "liq_event_count_1m": 12
+      "largest_liq_notional_1m": 350000.0
       "liq_stress_flag": 0,               -- 1 if |imbalance_z| >= LIQ_STRESS_Z_THR
       "quality_status": "OK"
     }
@@ -192,17 +192,17 @@ class _SymbolWindow:
         stress_flag = 1 if abs(imbalance_z) >= self._stress_z_thr else 0
 
         return LiqContextSnapshot(
-            schema_version=SCHEMA_VERSION,
-            symbol=symbol.upper(),
-            ts_ms=now_ms,
-            window_ms=self._window_ms,
-            liq_buy_notional_1m=round(buy_notional, 2),
-            liq_sell_notional_1m=round(sell_notional, 2),
-            liq_imbalance_z=round(imbalance_z, 4),
-            liq_event_count_1m=count,
-            largest_liq_notional_1m=round(largest, 2),
-            liq_stress_flag=stress_flag,
-            quality_status="OK",
+            schema_version=SCHEMA_VERSION
+            symbol=symbol.upper()
+            ts_ms=now_ms
+            window_ms=self._window_ms
+            liq_buy_notional_1m=round(buy_notional, 2)
+            liq_sell_notional_1m=round(sell_notional, 2)
+            liq_imbalance_z=round(imbalance_z, 4)
+            liq_event_count_1m=count
+            largest_liq_notional_1m=round(largest, 2)
+            liq_stress_flag=stress_flag
+            quality_status="OK"
         )
 
 
@@ -311,7 +311,7 @@ class LiquidationContextWorker:
     async def start(self) -> None:
         await self._ensure_group()
         self._task = asyncio.create_task(self._run(), name="liq_ctx_worker")
-        logger.info("liq_ctx: worker started (stream=%s group=%s window=%dms)",
+        logger.info("liq_ctx: worker started (stream=%s group=%s window=%dms)"
                     self._stream_key, self._group, self._window_ms)
 
     async def stop(self) -> None:
@@ -332,11 +332,11 @@ class LiquidationContextWorker:
         while not self._stop_event.is_set():
             try:
                 messages = await self._redis.xreadgroup(
-                    groupname=self._group,
-                    consumername=self._consumer,
-                    streams={self._stream_key: last_id},
-                    count=self._batch_size,
-                    block=int(self._poll_ms),
+                    groupname=self._group
+                    consumername=self._consumer
+                    streams={self._stream_key: last_id}
+                    count=self._batch_size
+                    block=int(self._poll_ms)
                 )
 
                 ids_to_ack: List[str] = []
@@ -379,9 +379,9 @@ class LiquidationContextWorker:
         sym = symbol.upper()
         if sym not in self._windows:
             self._windows[sym] = _SymbolWindow(
-                window_ms=self._window_ms,
-                history_max=self._history_max,
-                stress_z_thr=self._stress_z_thr,
+                window_ms=self._window_ms
+                history_max=self._history_max
+                stress_z_thr=self._stress_z_thr
             )
         return self._windows[sym]
 

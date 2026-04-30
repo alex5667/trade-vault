@@ -54,13 +54,13 @@ def test_vol_regime_tracker_ratio_and_z_go_up_on_shock():
     from core.vol_regime_tracker import VolRegimeTracker
 
     tr = _construct(
-        VolRegimeTracker,
+        VolRegimeTracker
         {
-            "fast_alpha": 0.40,
-            "slow_alpha": 0.05,
-            "z_window": 128,
-            "eps": 1e-12,
-        },
+            "fast_alpha": 0.40
+            "slow_alpha": 0.05
+            "z_window": 128
+            "eps": 1e-12
+        }
     )
 
     ts0 = 1_700_000_000_000
@@ -98,39 +98,39 @@ def test_book_resilience_tracker_detects_recovery_and_measures_time():
     from core.book_resilience_tracker import BookResilienceTracker
 
     tr = _construct(
-        BookResilienceTracker,
+        BookResilienceTracker
         {
-            "min_sweep_usd": 50.0,
-            "recover_ratio": 0.85,
-            "max_recovery_ms": 30_000,
-            "grace_ms": 5_000,
-        },
+            "min_sweep_usd": 50.0
+            "recover_ratio": 0.85
+            "max_recovery_ms": 30_000
+            "grace_ms": 5_000
+        }
     )
 
     ts0 = 1_700_000_000_000
 
     # Sweep happens at reference depth
     _call(
-        tr,
-        ("on_sweep", "start_sweep"),
-        preferred_kwargs={"ts_ms": ts0, "depth_ref_usd": 100.0, "side": "bid"},
-        preferred_args=(ts0, 100.0),
+        tr
+        ("on_sweep", "start_sweep")
+        preferred_kwargs={"ts_ms": ts0, "depth_ref_usd": 100.0, "side": "bid"}
+        preferred_args=(ts0, 100.0)
     )
 
     # Depth collapses
     _call(
-        tr,
-        ("on_book", "update", "observe"),
-        preferred_kwargs={"ts_ms": ts0 + 100, "depth_now_usd": 40.0, "side": "bid"},
-        preferred_args=(ts0 + 100, 40.0),
+        tr
+        ("on_book", "update", "observe")
+        preferred_kwargs={"ts_ms": ts0 + 100, "depth_now_usd": 40.0, "side": "bid"}
+        preferred_args=(ts0 + 100, 40.0)
     )
 
     # Depth recovers above threshold
     _call(
-        tr,
-        ("on_book", "update", "observe"),
-        preferred_kwargs={"ts_ms": ts0 + 1500, "depth_now_usd": 90.0, "side": "bid"},
-        preferred_args=(ts0 + 1500, 90.0),
+        tr
+        ("on_book", "update", "observe")
+        preferred_kwargs={"ts_ms": ts0 + 1500, "depth_now_usd": 90.0, "side": "bid"}
+        preferred_args=(ts0 + 1500, 90.0)
     )
 
     snap = _call(tr, ("snapshot", "to_dict"), preferred_args=())
@@ -224,14 +224,14 @@ def test_tick_processor_missing_qty_does_not_crash_and_does_not_call_l3():
 
     dummy_redis = DummyRedis()
     tp = TickProcessor(
-        redis=dummy_redis,
-        ticks=dummy_redis,
-        publisher=object(),
-        of_engine=type("E", (), {"symbol": "BTCUSDT"})(),
-        calib_svc=type("C", (), {"symbol": "BTCUSDT"})(),
-        atr_cache=None,
-        atr_sanity=None,
-        conf_scorer=None,
+        redis=dummy_redis
+        ticks=dummy_redis
+        publisher=object()
+        of_engine=type("E", (), {"symbol": "BTCUSDT"})()
+        calib_svc=type("C", (), {"symbol": "BTCUSDT"})()
+        atr_cache=None
+        atr_sanity=None
+        conf_scorer=None
     )
 
     async def _fake_apply_tick_time_guard(self, runtime, tick):

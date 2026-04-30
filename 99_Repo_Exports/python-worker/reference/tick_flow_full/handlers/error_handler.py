@@ -82,14 +82,14 @@ class ErrorHandler:
 
         # 3) строковые токены (последний рубеж)
         tokens = (
-            "timeout", "timed out",
-            "connection", "connection error", "connection refused",
-            "broken pipe", "eof",
-            "try again", "temporarily",
-            "reset by peer",
-            "busy loading", "loading the dataset",
-            "read only", "readonly",
-            "i/o error",
+            "timeout", "timed out"
+            "connection", "connection error", "connection refused"
+            "broken pipe", "eof"
+            "try again", "temporarily"
+            "reset by peer"
+            "busy loading", "loading the dataset"
+            "read only", "readonly"
+            "i/o error"
         )
         msg = (str(e) or "").lower()
         return any(t in msg for t in tokens)
@@ -128,13 +128,13 @@ class ErrorHandler:
         raise RuntimeError("DLQ writer unavailable: consumer has no add_dlq() and no client.xadd(, maxlen=200000)")
 
     def _try_add_dlq_or_backoff(
-        self,
-        consumer: object,
-        dlq_payload: Dict[str, Any],
-        *,
-        backoff: object,
-        where: str,
-        stop_event: Any = None,
+        self
+        consumer: object
+        dlq_payload: Dict[str, Any]
+        *
+        backoff: object
+        where: str
+        stop_event: Any = None
     ) -> bool:
         """
         Попытка добавить сообщение в DLQ. 
@@ -153,7 +153,7 @@ class ErrorHandler:
             if self._is_transient_error(dlq_e):
                 delay = float(getattr(backoff, "next_sleep", getattr(backoff, "get_delay", lambda: 1.0))())
                 self.logger.warning(
-                    "Transient DLQ write error in %s: %s (backoff=%.2fs)",
+                    "Transient DLQ write error in %s: %s (backoff=%.2fs)"
                     where, dlq_e, delay
                 )
                 if stop_event is not None and hasattr(stop_event, "wait"):
@@ -162,10 +162,10 @@ class ErrorHandler:
                     time.sleep(delay)
                 return False
 
-            # Перманентная проблема (нет метода/битый конфиг) -> логируем payload и разрешаем ACK,
+            # Перманентная проблема (нет метода/битый конфиг) -> логируем payload и разрешаем ACK
             # иначе воркер застрянет навсегда на этом сообщении.
             self.logger.error(
-                "Permanent DLQ write failure in %s: %s. Will ACK poison to avoid stuck. msg_id=%s",
+                "Permanent DLQ write failure in %s: %s. Will ACK poison to avoid stuck. msg_id=%s"
                 where, dlq_e, dlq_payload.get("msg_id", "unknown")
             )
             try:
@@ -176,16 +176,16 @@ class ErrorHandler:
             return True  # Считаем "обработано" -> MessageHandler сделает ACK
 
     def handle_message_error(
-        self,
-        e: Exception,
-        consumer: object,
-        backoff: object,
-        fail_counts: Dict[Tuple[str, str], int],
-        stream: str,
-        msg_id: str,
-        fields: Optional[Dict[str, Any]] = None,
-        where: str = "unknown",
-        stop_event: Any = None,
+        self
+        e: Exception
+        consumer: object
+        backoff: object
+        fail_counts: Dict[Tuple[str, str], int]
+        stream: str
+        msg_id: str
+        fields: Optional[Dict[str, Any]] = None
+        where: str = "unknown"
+        stop_event: Any = None
     ) -> bool:
         """
         Обработка ошибки при процессинге сообщения.
@@ -210,17 +210,17 @@ class ErrorHandler:
 
         # DLQ payload
         dlq_payload = {
-            "ts": get_ny_time_millis(),
-            "symbol": self.symbol,
-            "handler": "ErrorHandler",
-            "stream": stream,
-            "msg_id": msg_id,
-            "fields": {k: str(v) for k, v in (fields or {}).items()},
-            "error": str(e),
-            "error_type": type(e).__name__,
+            "ts": get_ny_time_millis()
+            "symbol": self.symbol
+            "handler": "ErrorHandler"
+            "stream": stream
+            "msg_id": msg_id
+            "fields": {k: str(v) for k, v in (fields or {}).items()}
+            "error": str(e)
+            "error_type": type(e).__name__
             "trace": traceback.format_exc()[-4000:],  # трим для redis payload
-            "fail_count": fail_counts[key],
-            "location": where,
+            "fail_count": fail_counts[key]
+            "location": where
         }
 
         success = self._try_add_dlq_or_backoff(
@@ -241,16 +241,16 @@ class ErrorHandler:
             self.logger.warning("Trimmed fail_counts dict (size limit exceeded)")
 
     def log_processing_stats(
-        self,
-        processed: int,
-        errors: int,
-        dlq_count: int,
-        duration_ms: float,
+        self
+        processed: int
+        errors: int
+        dlq_count: int
+        duration_ms: float
     ) -> None:
         """Логирование статистики обработки."""
         if processed > 0 or errors > 0:
             error_rate = (errors / max(processed + errors, 1)) * 100
             self.logger.info(
-                "Processing stats: processed=%d, errors=%d, dlq=%d, error_rate=%.1f%%, duration=%.0fms",
+                "Processing stats: processed=%d, errors=%d, dlq=%d, error_rate=%.1f%%, duration=%.0fms"
                 processed, errors, dlq_count, error_rate, duration_ms
             )

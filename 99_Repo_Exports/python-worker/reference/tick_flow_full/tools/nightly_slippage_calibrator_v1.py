@@ -14,8 +14,8 @@ except Exception:  # pragma: no cover
     aioredis = None
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("nightly_slippage_calibrator")
 
@@ -106,11 +106,11 @@ async def run() -> bool:
 
     query = f"""
     SELECT
-      sym,
-      exec_regime_bucket,
-      spread_bps,
-      impact_proxy,
-      size_usd,
+      sym
+      exec_regime_bucket
+      spread_bps
+      impact_proxy
+      size_usd
       realized_slip_worse_bps
     FROM v_exec_slippage_eval
     WHERE ts >= now() - interval '{lookback_days} days'
@@ -187,20 +187,20 @@ async def run() -> bool:
         try:
             hkey = f"state:slippage_calib:last:{sym}:{bucket}"
             await r.hset(hkey, mapping={
-                'ts_ms': str(now_ms),
-                'n': str(n),
-                'q': f"{q:.3f}",
-                'fit': f"{c_fit:.3f}",
-                'new': f"{c_new:.3f}",
-                'old': str(old or ''),
-                'lookback_days': str(lookback_days),
+                'ts_ms': str(now_ms)
+                'n': str(n)
+                'q': f"{q:.3f}"
+                'fit': f"{c_fit:.3f}"
+                'new': f"{c_new:.3f}"
+                'old': str(old or '')
+                'lookback_days': str(lookback_days)
             })
         except Exception:
             pass
 
         updated += 1
 
-        logger.info("[%s|%s] n=%d q=%.2f fit=%.2f -> new=%.2f (old=%s)",
+        logger.info("[%s|%s] n=%d q=%.2f fit=%.2f -> new=%.2f (old=%s)"
                     sym, bucket, n, q, c_fit, c_new, old)
 
     # Global state keys — read by enforce_bucket_state_exporter._export_slippage_calib_state()

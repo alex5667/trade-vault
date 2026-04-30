@@ -32,11 +32,11 @@ STATE_FIELDS = ("symbol", "status", "fsm_state", "execution_policy", "position_s
 
 # Protection algo references checked between Redis state and SQL refs table
 PROTECTION_FIELDS = (
-    "sl_algo_id",
-    "tp1_algo_id",
-    "tp2_algo_id",
-    "tp3_algo_id",
-    "trail_algo_id",
+    "sl_algo_id"
+    "tp1_algo_id"
+    "tp2_algo_id"
+    "tp3_algo_id"
+    "trail_algo_id"
 )
 
 
@@ -167,23 +167,23 @@ class SQLExecutionReader:
             cur.execute(sql)
             for sid, symbol, sl_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id in cur.fetchall():
                 out[_s(sid)] = {
-                    'sid': sid,
-                    'symbol': symbol,
-                    'sl_algo_id': sl_algo_id,
-                    'tp1_algo_id': tp1_algo_id,
-                    'tp2_algo_id': tp2_algo_id,
-                    'tp3_algo_id': tp3_algo_id,
-                    'trail_algo_id': trail_algo_id,
+                    'sid': sid
+                    'symbol': symbol
+                    'sl_algo_id': sl_algo_id
+                    'tp1_algo_id': tp1_algo_id
+                    'tp2_algo_id': tp2_algo_id
+                    'tp3_algo_id': tp3_algo_id
+                    'trail_algo_id': trail_algo_id
                 }
         return out
 
 
 def compare_execution_views(
-    redis_state: Mapping[str, Mapping[str, Any]],
-    stream_latest: Mapping[str, Mapping[str, Any]],
-    sql_orders: Mapping[str, Mapping[str, Any]],
-    sql_refs: Optional[Mapping[str, Mapping[str, Any]]] = None,
-    sid_prefix_allowlist: Optional[Tuple[str, ...]] = None,
+    redis_state: Mapping[str, Mapping[str, Any]]
+    stream_latest: Mapping[str, Mapping[str, Any]]
+    sql_orders: Mapping[str, Mapping[str, Any]]
+    sql_refs: Optional[Mapping[str, Mapping[str, Any]]] = None
+    sid_prefix_allowlist: Optional[Tuple[str, ...]] = None
 ) -> Tuple[List[ConsistencyMismatch], int, int]:
     """Compare the three execution views and return (mismatches, stream_missing_suppressed, redis_state_missing_suppressed).
 
@@ -267,7 +267,7 @@ def compare_execution_views(
                     stream_missing_suppressed += 1
                 else:
                     mismatches.append(ConsistencyMismatch(
-                        sid, 'warning', 'stream_missing',
+                        sid, 'warning', 'stream_missing'
                         'Redis orders:exec latest event not found in scan window (active sid)'
                     ))
             else:
@@ -282,10 +282,10 @@ def compare_execution_views(
             values = {source: _s(doc.get(field)) for source, doc in [('redis', r), ('stream', s), ('sql', q)] if doc}
             if len(set(v for v in values.values() if v != '')) > 1:
                 mismatches.append(ConsistencyMismatch(
-                    sid,
-                    'critical' if field in {'status', 'fsm_state'} else 'warning',
-                    f'{field}_mismatch',
-                    ', '.join(f'{k}={v}' for k, v in sorted(values.items())),
+                    sid
+                    'critical' if field in {'status', 'fsm_state'} else 'warning'
+                    f'{field}_mismatch'
+                    ', '.join(f'{k}={v}' for k, v in sorted(values.items()))
                 ))
 
         # Protection refs are allowed to be absent until protection arming begins.
@@ -301,41 +301,41 @@ def compare_execution_views(
             nz = {k: v for k, v in vals.items() if v not in {'', '0', 'None'}}
             if len(set(nz.values())) > 1:
                 mismatches.append(ConsistencyMismatch(
-                    sid,
-                    'warning',
-                    f'{field}_mismatch',
-                    ', '.join(f'{k}={v}' for k, v in sorted(nz.items())),
+                    sid
+                    'warning'
+                    f'{field}_mismatch'
+                    ', '.join(f'{k}={v}' for k, v in sorted(nz.items()))
                 ))
 
     return mismatches, stream_missing_suppressed, redis_state_missing_suppressed
 
 
 def summarise_mismatches(
-    redis_state_count: int,
-    stream_sid_count: int,
-    sql_order_count: int,
-    mismatches: Iterable[ConsistencyMismatch],
-    *,
-    stream_scan_count: int = 0,
-    stream_missing_suppressed: int = 0,
-    redis_state_missing_suppressed: int = 0,
+    redis_state_count: int
+    stream_sid_count: int
+    sql_order_count: int
+    mismatches: Iterable[ConsistencyMismatch]
+    *
+    stream_scan_count: int = 0
+    stream_missing_suppressed: int = 0
+    redis_state_missing_suppressed: int = 0
 ) -> ConsistencySummary:
     """Aggregate a list of mismatches into a ``ConsistencySummary``."""
     items = list(mismatches)
     critical = sum(1 for m in items if m.severity == 'critical')
     warning = sum(1 for m in items if m.severity != 'critical')
     return ConsistencySummary(
-        checked_at_ms=get_ny_time_millis(),
-        redis_state_count=redis_state_count,
-        stream_sid_count=stream_sid_count,
-        sql_order_count=sql_order_count,
-        stream_scan_count=stream_scan_count,
-        mismatches_total=len(items),
-        critical_mismatches=critical,
-        warning_mismatches=warning,
-        stream_missing_suppressed=stream_missing_suppressed,
-        redis_state_missing_suppressed=redis_state_missing_suppressed,
-        mismatches=[asdict(m) for m in items],
+        checked_at_ms=get_ny_time_millis()
+        redis_state_count=redis_state_count
+        stream_sid_count=stream_sid_count
+        sql_order_count=sql_order_count
+        stream_scan_count=stream_scan_count
+        mismatches_total=len(items)
+        critical_mismatches=critical
+        warning_mismatches=warning
+        stream_missing_suppressed=stream_missing_suppressed
+        redis_state_missing_suppressed=redis_state_missing_suppressed
+        mismatches=[asdict(m) for m in items]
     )
 
 
@@ -350,13 +350,13 @@ def _connect_pg(dsn: str):
 
 
 def run_check(
-    *,
-    redis_url: str,
-    journal_dsn: str,
-    state_prefix: str,
-    exec_stream: str,
-    stream_count: int = 50000,
-    sid_prefix_allowlist: Optional[Tuple[str, ...]] = None,
+    *
+    redis_url: str
+    journal_dsn: str
+    state_prefix: str
+    exec_stream: str
+    stream_count: int = 50000
+    sid_prefix_allowlist: Optional[Tuple[str, ...]] = None
 ) -> ConsistencySummary:
     """Full consistency check: connect, collect, compare, summarise.
 
@@ -377,14 +377,14 @@ def run_check(
     sql_orders = sql_reader.load_orders()
     sql_refs = sql_reader.load_protection_refs()
     mismatches, stream_missing_suppressed, redis_state_missing_suppressed = compare_execution_views(
-        redis_state, stream_latest, sql_orders, sql_refs,
-        sid_prefix_allowlist=sid_prefix_allowlist,
+        redis_state, stream_latest, sql_orders, sql_refs
+        sid_prefix_allowlist=sid_prefix_allowlist
     )
     return summarise_mismatches(
-        len(redis_state), len(stream_latest), len(sql_orders), mismatches,
-        stream_scan_count=stream_count,
-        stream_missing_suppressed=stream_missing_suppressed,
-        redis_state_missing_suppressed=redis_state_missing_suppressed,
+        len(redis_state), len(stream_latest), len(sql_orders), mismatches
+        stream_scan_count=stream_count
+        stream_missing_suppressed=stream_missing_suppressed
+        redis_state_missing_suppressed=redis_state_missing_suppressed
     )
 
 
@@ -413,15 +413,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument('--critical-threshold', type=int, default=int(os.getenv('EXEC_CONSISTENCY_CRITICAL_THRESHOLD', '1')))
     parser.add_argument('--warning-threshold', type=int, default=int(os.getenv('EXEC_CONSISTENCY_WARNING_THRESHOLD', '10')))
     parser.add_argument(
-        '--sid-prefix-allowlist',
-        default=os.getenv('EXEC_CONSISTENCY_SID_PREFIX_ALLOWLIST', ''),
+        '--sid-prefix-allowlist'
+        default=os.getenv('EXEC_CONSISTENCY_SID_PREFIX_ALLOWLIST', '')
         help=(
             'Comma-separated SID prefix allowlist.  Only SIDs that start with '
             'one of these prefixes are checked; all others are silently skipped. '
             'Use this to suppress openflow SIDs (e.g. crypto-of:) that appear '
             'in orders:exec but are never stored in orders:state:* or SQL. '
             'Example: "crypto:,ord:".  Empty = check all SIDs (default).'
-        ),
+        )
     )
     args = parser.parse_args(argv)
 
@@ -431,12 +431,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     sid_prefix_allowlist = _parse_prefix_allowlist(args.sid_prefix_allowlist)
 
     summary = run_check(
-        redis_url=args.redis_url,
-        journal_dsn=args.journal_dsn,
-        state_prefix=args.state_prefix,
-        exec_stream=args.exec_stream,
-        stream_count=args.stream_count,
-        sid_prefix_allowlist=sid_prefix_allowlist,
+        redis_url=args.redis_url
+        journal_dsn=args.journal_dsn
+        state_prefix=args.state_prefix
+        exec_stream=args.exec_stream
+        stream_count=args.stream_count
+        sid_prefix_allowlist=sid_prefix_allowlist
     )
     payload = asdict(summary)
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)

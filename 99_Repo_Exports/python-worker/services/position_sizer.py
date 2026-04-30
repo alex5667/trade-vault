@@ -45,7 +45,7 @@ class KellyPositionSizer:
         query = """
             SELECT 
                 COALESCE(AVG(CAST(is_win AS integer)), 0.5) as win_rate, 
-                COALESCE(AVG(r_multiple), 1.0) as avg_rr,
+                COALESCE(AVG(r_multiple), 1.0) as avg_rr
                 COUNT(*) as n_trades
             FROM signal_outcomes
             WHERE symbol=$1 AND regime=$2 

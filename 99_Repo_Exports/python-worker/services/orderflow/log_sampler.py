@@ -2,7 +2,7 @@
 Log Sampling Utility
 
 Provides configurable log sampling to reduce log noise by outputting only every N-th
-similar message. Useful for high-frequency logging scenarios like Grafana update checks,
+similar message. Useful for high-frequency logging scenarios like Grafana update checks
 metrics reporting, or repetitive status messages.
 
 Environment Variables:

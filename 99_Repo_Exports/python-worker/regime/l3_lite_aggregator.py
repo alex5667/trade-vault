@@ -4,11 +4,11 @@ from collections import deque
 from typing import Optional, Tuple
 
 from .l3_lite_models import (
-    L3LiteEvent,
-    BookSnapshot,
-    L3LiteFeatures,
-    CancelTradeBuffers,
-    MicropriceHistoryPoint,
+    L3LiteEvent
+    BookSnapshot
+    L3LiteFeatures
+    CancelTradeBuffers
+    MicropriceHistoryPoint
 )
 
 
@@ -87,9 +87,9 @@ class L3LiteMetricsAggregator:
         return float(sum(v for _, v in dq))
 
     def _calc_cancel_to_trade(
-        self,
-        now_ms: int,
-        window_ms: int,
+        self
+        now_ms: int
+        window_ms: int
     ) -> Tuple[float, float]:
         """Рассчитать cancel_to_trade для bid и ask."""
         # чистим старые записи
@@ -291,19 +291,19 @@ class L3LiteMetricsAggregator:
         market_depth_imbalance = self._calc_market_depth_imbalance()
 
         return L3LiteFeatures(
-            cancel_to_trade_bid_5s=c2t_bid_5,
-            cancel_to_trade_ask_5s=c2t_ask_5,
-            cancel_to_trade_bid_20s=c2t_bid_20,
-            cancel_to_trade_ask_20s=c2t_ask_20,
-            microprice=microprice,
-            microprice_shift_bps_20=mp_shift_bps_20,
-            spread_bps=spread_bps,
-            obi_5=obi_5,
-            obi_20=obi_20,
-            obi_50=obi_50,
-            obi_persistence_score=obi_persistence_score,
-            microprice_velocity_bps=microprice_velocity,
-            queue_pressure_bid=queue_pressure_bid,
-            queue_pressure_ask=queue_pressure_ask,
-            market_depth_imbalance=market_depth_imbalance,
+            cancel_to_trade_bid_5s=c2t_bid_5
+            cancel_to_trade_ask_5s=c2t_ask_5
+            cancel_to_trade_bid_20s=c2t_bid_20
+            cancel_to_trade_ask_20s=c2t_ask_20
+            microprice=microprice
+            microprice_shift_bps_20=mp_shift_bps_20
+            spread_bps=spread_bps
+            obi_5=obi_5
+            obi_20=obi_20
+            obi_50=obi_50
+            obi_persistence_score=obi_persistence_score
+            microprice_velocity_bps=microprice_velocity
+            queue_pressure_bid=queue_pressure_bid
+            queue_pressure_ask=queue_pressure_ask
+            market_depth_imbalance=market_depth_imbalance
         )

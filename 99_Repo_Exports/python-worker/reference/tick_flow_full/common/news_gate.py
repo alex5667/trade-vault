@@ -73,23 +73,23 @@ class NewsGate:
     """
 
     def __init__(
-        self,
-        *,
-        redis_client: Any,
-        asset_class: str = "crypto",
-        window_sec: int = 300,
-        grade_min: int = 4,
-        manual_key: str = "news:hi:active",
-        cal_agg_prefix: str = "calendar:agg:",
+        self
+        *
+        redis_client: Any
+        asset_class: str = "crypto"
+        window_sec: int = 300
+        grade_min: int = 4
+        manual_key: str = "news:hi:active"
+        cal_agg_prefix: str = "calendar:agg:"
         # soft gate
-        soft_enabled: bool = True,
-        soft_window_sec: Optional[int] = None,
-        soft_grade_min: int = 2,
-        soft_grade2_bps: int = 5000,
-        soft_grade3_bps: int = 3500,
-        soft_grade4_bps: int = 2500,
-        soft_news_k: float = 0.9,
-        soft_news_min_bps: int = 2500,
+        soft_enabled: bool = True
+        soft_window_sec: Optional[int] = None
+        soft_grade_min: int = 2
+        soft_grade2_bps: int = 5000
+        soft_grade3_bps: int = 3500
+        soft_grade4_bps: int = 2500
+        soft_news_k: float = 0.9
+        soft_news_min_bps: int = 2500
     ) -> None:
         self.redis = redis_client
 
@@ -147,16 +147,16 @@ class NewsGate:
             return {}
 
     def decide(
-        self,
-        *,
-        now_ts_ms: int,
-        symbols: Optional[Tuple[str, ...]] = None,
+        self
+        *
+        now_ts_ms: int
+        symbols: Optional[Tuple[str, ...]] = None
         # optional news features (pass from ctx.news to get full soft-gate)
-        news_risk: Optional[float] = None,
-        news_grade_id: Optional[int] = None,
-        confidence: Optional[float] = None,
-        horizon_sec: Optional[int] = None,
-        asof_ts_ms: Optional[int] = None,
+        news_risk: Optional[float] = None
+        news_grade_id: Optional[int] = None
+        confidence: Optional[float] = None
+        horizon_sec: Optional[int] = None
+        asof_ts_ms: Optional[int] = None
     ) -> GateDecision:
         dq: Dict[str, Any] = {}
         meta: Dict[str, Any] = {}
@@ -164,24 +164,24 @@ class NewsGate:
         if now_ts_ms <= 0:
             dq["no_ts"] = True
             return GateDecision(
-                hard_block=False,
-                hard_reason="no_ts",
-                until_ts_ms=0,
-                risk_factor_bps=10000,
-                dq_flags=dq,
-                meta=meta,
+                hard_block=False
+                hard_reason="no_ts"
+                until_ts_ms=0
+                risk_factor_bps=10000
+                dq_flags=dq
+                meta=meta
             )
 
         # 1) Manual hard block
         m = self._manual(now_ts_ms, symbols=symbols)
         if m is not None:
             return GateDecision(
-                hard_block=True,
-                hard_reason=m.reason,
-                until_ts_ms=m.until_ts_ms,
-                risk_factor_bps=0,
-                dq_flags=dq,
-                meta=m.meta,
+                hard_block=True
+                hard_reason=m.reason
+                until_ts_ms=m.until_ts_ms
+                risk_factor_bps=0
+                dq_flags=dq
+                meta=m.meta
             )
 
         # 2) Calendar hard/soft
@@ -202,13 +202,13 @@ class NewsGate:
 
         meta.update(
             {
-                "src": "calendar:agg",
-                "cal_key": self.cal_key,
-                "grade": grade,
-                "tminus_sec": float(tminus),
-                "event_ts_ms": int(event_ts_ms) if event_ts_ms > 0 else 0,
-                "title": title,
-                "event_id": ev_id,
+                "src": "calendar:agg"
+                "cal_key": self.cal_key
+                "grade": grade
+                "tminus_sec": float(tminus)
+                "event_ts_ms": int(event_ts_ms) if event_ts_ms > 0 else 0
+                "title": title
+                "event_id": ev_id
             }
         )
 
@@ -217,12 +217,12 @@ class NewsGate:
             until_ts_ms = int(event_ts_ms + self.window_sec * 1000) if event_ts_ms > 0 else int(now_ts_ms + self.window_sec * 1000)
             if now_ts_ms < until_ts_ms:
                 return GateDecision(
-                    hard_block=True,
-                    hard_reason="calendar_hi_impact",
-                    until_ts_ms=until_ts_ms,
-                    risk_factor_bps=0,
-                    dq_flags=dq,
-                    meta=meta,
+                    hard_block=True
+                    hard_reason="calendar_hi_impact"
+                    until_ts_ms=until_ts_ms
+                    risk_factor_bps=0
+                    dq_flags=dq
+                    meta=meta
                 )
 
         # Soft gate defaults
@@ -279,20 +279,20 @@ class NewsGate:
         rf_bps = _clamp_int(int(rf_bps), 0, 10000)
 
         return GateDecision(
-            hard_block=False,
-            hard_reason="ok",
-            until_ts_ms=0,
-            risk_factor_bps=rf_bps,
-            dq_flags=dq,
-            meta=meta,
+            hard_block=False
+            hard_reason="ok"
+            until_ts_ms=0
+            risk_factor_bps=rf_bps
+            dq_flags=dq
+            meta=meta
         )
 
     def check(self, *, now_ts_ms: int, symbols: Optional[Tuple[str, ...]] = None) -> NewsBlock:
         """Backward-compatible hard-block API."""
         d = self.decide(now_ts_ms=now_ts_ms, symbols=symbols)
         return NewsBlock(
-            blocked=bool(d.hard_block),
-            reason=str(d.hard_reason),
-            until_ts_ms=int(d.until_ts_ms),
-            meta=dict(d.meta),
+            blocked=bool(d.hard_block)
+            reason=str(d.hard_reason)
+            until_ts_ms=int(d.until_ts_ms)
+            meta=dict(d.meta)
         )

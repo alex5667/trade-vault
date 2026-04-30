@@ -27,11 +27,11 @@ TCollector = TypeVar("TCollector", bound="Collector")
 
 
 def _get_or_create(
-    name: str,
-    ctor: Type[TCollector],
-    documentation: str,
-    labelnames: Sequence[str] = (),
-    **kwargs,
+    name: str
+    ctor: Type[TCollector]
+    documentation: str
+    labelnames: Sequence[str] = ()
+    **kwargs
 ):
     if REGISTRY is None:  # pragma: no cover
         return None
@@ -46,45 +46,45 @@ def _get_or_create(
 
 
 stream_seq_gap_rate_ema = _get_or_create(
-    "stream_seq_gap_rate_ema",
-    Gauge,
-    "EMA gap-rate for monotone sequences (0..1)",
-    labelnames=("symbol", "stream"),
+    "stream_seq_gap_rate_ema"
+    Gauge
+    "EMA gap-rate for monotone sequences (0..1)"
+    labelnames=("symbol", "stream")
 )
 
 stream_seq_dup_rate_ema = _get_or_create(
-    "stream_seq_dup_rate_ema",
-    Gauge,
-    "EMA duplicate-rate for monotone sequences (0..1)",
-    labelnames=("symbol", "stream"),
+    "stream_seq_dup_rate_ema"
+    Gauge
+    "EMA duplicate-rate for monotone sequences (0..1)"
+    labelnames=("symbol", "stream")
 )
 
 stream_seq_max_gap_window = _get_or_create(
-    "stream_seq_max_gap_window",
-    Gauge,
-    "Max seq gap magnitude observed in the current window",
-    labelnames=("symbol", "stream"),
+    "stream_seq_max_gap_window"
+    Gauge
+    "Max seq gap magnitude observed in the current window"
+    labelnames=("symbol", "stream")
 )
 
 stream_dup_burst_z = _get_or_create(
-    "stream_dup_burst_z",
-    Gauge,
-    "Robust z-score of per-second duplicate ratio",
-    labelnames=("symbol", "stream"),
+    "stream_dup_burst_z"
+    Gauge
+    "Robust z-score of per-second duplicate ratio"
+    labelnames=("symbol", "stream")
 )
 
 stream_schema_changed_total = _get_or_create(
-    "stream_schema_changed_total",
-    Counter,
-    "Count of detected schema-hash changes (keys-set changed)",
-    labelnames=("symbol", "stream"),
+    "stream_schema_changed_total"
+    Counter
+    "Count of detected schema-hash changes (keys-set changed)"
+    labelnames=("symbol", "stream")
 )
 
 stream_schema_hash = _get_or_create(
-    "stream_schema_hash",
-    Gauge,
-    "Last seen schema hash as an integer (base16 truncated)",
-    labelnames=("symbol", "stream"),
+    "stream_schema_hash"
+    Gauge
+    "Last seen schema hash as an integer (base16 truncated)"
+    labelnames=("symbol", "stream")
 )
 
 

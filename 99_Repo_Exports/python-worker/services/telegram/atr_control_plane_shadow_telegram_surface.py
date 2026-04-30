@@ -13,11 +13,11 @@ class ControlPlaneShadowTelegramSurface:
         Formats an alert when the projection cert service detects state or projection drift.
         """
         lines = [
-            "⚠️ <b>[SHADOW GRAPH DRIFT DETECTED]</b> ⚠️",
-            f"<b>Scope:</b> <code>{scope}</code>",
-            "",
-            "The Control Plane Shadow Graph has drifted from the Legacy State.",
-            "This suggests the legacy controllers mutating state are not perfectly bound to graph events.",
+            "⚠️ <b>[SHADOW GRAPH DRIFT DETECTED]</b> ⚠️"
+            f"<b>Scope:</b> <code>{scope}</code>"
+            ""
+            "The Control Plane Shadow Graph has drifted from the Legacy State."
+            "This suggests the legacy controllers mutating state are not perfectly bound to graph events."
             ""
         ]
         
@@ -43,10 +43,10 @@ class ControlPlaneShadowTelegramSurface:
         header = "✅ <b>[CUTOVER READY]</b>" if is_ready else "❌ <b>[CUTOVER BLOCKED]</b>"
         
         lines = [
-            f"{header} - Shadow Graph Phase 8.1",
-            f"<b>Score:</b> {score}/100",
-            f"<b>Nodes Tracked:</b> {readiness.get('total_nodes_tracked')}",
-            f"<b>Active Drifts:</b> {readiness.get('total_drifts_active')}",
+            f"{header} - Shadow Graph Phase 8.1"
+            f"<b>Score:</b> {score}/100"
+            f"<b>Nodes Tracked:</b> {readiness.get('total_nodes_tracked')}"
+            f"<b>Active Drifts:</b> {readiness.get('total_drifts_active')}"
             ""
         ]
         

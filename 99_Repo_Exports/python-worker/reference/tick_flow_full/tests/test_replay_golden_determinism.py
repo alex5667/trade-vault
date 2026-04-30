@@ -7,33 +7,33 @@ import pytest
 from common.payload_fingerprint import fingerprint_tradeable_payload
 from handlers.crypto_orderflow.pipeline import candidate_emit_pipeline_v2 as mod
 from handlers.crypto_orderflow.pipeline.candidate_emit_pipeline_v2 import (
-    CandidateFrame,
-    GateRunner,
-    PayloadBuilder,
+    CandidateFrame
+    GateRunner
+    PayloadBuilder
 )
 
 
 def create_minimal_frame(symbol="BTCUSDT", price=43210.5, side=1):
     from handlers.crypto_orderflow.pipeline.candidate_emit_pipeline_v2 import CandidateFrame
     ctx = SimpleNamespace(
-        symbol=symbol,
-        entry_price=price,
-        entry_ts_ms=1700000000000,
-        ts_ms=1700000000123,
-        tp1_price=price * 1.01,
-        sl_price=price * 0.99,
+        symbol=symbol
+        entry_price=price
+        entry_ts_ms=1700000000000
+        ts_ms=1700000000123
+        tp1_price=price * 1.01
+        sl_price=price * 0.99
     )
     cand = SimpleNamespace(signal_id="")
     f = CandidateFrame(
-        handler=None,
-        ctx=ctx,
-        cand=cand,
-        kind_str="breakout",
-        kind_key="breakout",
-        side_int=side,
-        ctx_symbol=symbol,
-        ctx_ts=1700000000123,
-        ctx_price=price,
+        handler=None
+        ctx=ctx
+        cand=cand
+        kind_str="breakout"
+        kind_key="breakout"
+        side_int=side
+        ctx_symbol=symbol
+        ctx_ts=1700000000123
+        ctx_price=price
     )
     # emulate pipeline preconditions
     f.memo["levels_ensured"] = True
@@ -51,24 +51,24 @@ class DummyEdgeCostGate:
 def _mk_frame() -> CandidateFrame:
     # Minimal context shape for the pieces tested here.
     ctx = SimpleNamespace(
-        symbol="BTCUSDT",
-        entry_price=43210.5,
-        entry_ts_ms=1700000000000,
-        ts_ms=1700000000123,
+        symbol="BTCUSDT"
+        entry_price=43210.5
+        entry_ts_ms=1700000000000
+        ts_ms=1700000000123
     )
 
     cand = SimpleNamespace(signal_id="")
 
     return CandidateFrame(
-        ctx=ctx,
-        cand=cand,
-        kind_str="absorption",
-        kind_key="absorption",
+        ctx=ctx
+        cand=cand
+        kind_str="absorption"
+        kind_key="absorption"
         side_int=1,  # 1 for buy/long, -1 for sell/short
-        ctx_symbol="BTCUSDT",
-        ctx_ts=1700000000123,
-        ctx_price=43210.5,
-        handler=None,
+        ctx_symbol="BTCUSDT"
+        ctx_ts=1700000000123
+        ctx_price=43210.5
+        handler=None
     )
 
 
@@ -84,12 +84,12 @@ def test_replay_stable_signal_id_payload_builder_is_deterministic(monkeypatch: p
     f = _mk_frame()
 
     res = SimpleNamespace(
-        veto=False,
-        reason_code="OK",
-        decision_code="OK",
-        decision_u16=100,
-        gate_reasons=["levels:OK", "edge_cost:OK"],
-        reasons={"levels": "OK", "edge_cost": "OK"},
+        veto=False
+        reason_code="OK"
+        decision_code="OK"
+        decision_u16=100
+        gate_reasons=["levels:OK", "edge_cost:OK"]
+        reasons={"levels": "OK", "edge_cost": "OK"}
     )
 
     b = PayloadBuilder()
@@ -167,16 +167,16 @@ def test_replay_stable_signal_id_and_edge_cost_determinism(monkeypatch):
     # Create a new frame with the handler
     from handlers.crypto_orderflow.pipeline.candidate_emit_pipeline_v2 import CandidateFrame
     f1 = CandidateFrame(
-        handler=handler,
-        ctx=f1.ctx,
-        cand=f1.cand,
-        kind_str=f1.kind_str,
-        kind_key=f1.kind_key,
-        side_int=f1.side_int,
-        ctx_symbol=f1.ctx_symbol,
-        ctx_ts=f1.ctx_ts,
-        ctx_price=f1.ctx_price,
-        memo=f1.memo,
+        handler=handler
+        ctx=f1.ctx
+        cand=f1.cand
+        kind_str=f1.kind_str
+        kind_key=f1.kind_key
+        side_int=f1.side_int
+        ctx_symbol=f1.ctx_symbol
+        ctx_ts=f1.ctx_ts
+        ctx_price=f1.ctx_price
+        memo=f1.memo
     )
 
     runner = GateRunner()
@@ -187,16 +187,16 @@ def test_replay_stable_signal_id_and_edge_cost_determinism(monkeypatch):
     # Same input → same sid, and gate memoization means evaluate not called twice
     f2 = create_minimal_frame()
     f2 = CandidateFrame(
-        handler=handler,
-        ctx=f2.ctx,
-        cand=f2.cand,
-        kind_str=f2.kind_str,
-        kind_key=f2.kind_key,
-        side_int=f2.side_int,
-        ctx_symbol=f2.ctx_symbol,
-        ctx_ts=f2.ctx_ts,
-        ctx_price=f2.ctx_price,
-        memo=f2.memo,
+        handler=handler
+        ctx=f2.ctx
+        cand=f2.cand
+        kind_str=f2.kind_str
+        kind_key=f2.kind_key
+        side_int=f2.side_int
+        ctx_symbol=f2.ctx_symbol
+        ctx_ts=f2.ctx_ts
+        ctx_price=f2.ctx_price
+        memo=f2.memo
     )
     ok2, rc2 = runner.edge_cost_once(f2)
     sid2 = f2.cand.signal_id

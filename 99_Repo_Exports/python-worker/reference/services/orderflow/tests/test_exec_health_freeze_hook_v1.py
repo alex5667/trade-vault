@@ -4,10 +4,10 @@ import asyncio
 import json
 
 from services.orderflow.exec_health_freeze_hook import (
-    aread_exec_health_auto_freeze,
-    build_exec_health_auto_freeze_decision,
-    parse_exec_health_auto_freeze,
-    ExecHealthFreezeState,
+    aread_exec_health_auto_freeze
+    build_exec_health_auto_freeze_decision
+    parse_exec_health_auto_freeze
+    ExecHealthFreezeState
 )
 
 
@@ -29,11 +29,11 @@ class FakeRedis:
 def test_parse_exec_health_auto_freeze_active_window() -> None:
     """Freeze is active when flag=1 and freeze_until_ts_ms is in the future."""
     raw = json.dumps({
-        "freeze_active": 1,
-        "freeze_reason": "cross_scope_mode_mismatch",
-        "freeze_until_ts_ms": 20_000,
-        "ts_ms": 10_000,
-        "schema_version": 1,
+        "freeze_active": 1
+        "freeze_reason": "cross_scope_mode_mismatch"
+        "freeze_until_ts_ms": 20_000
+        "ts_ms": 10_000
+        "schema_version": 1
     })
     st = parse_exec_health_auto_freeze(raw, now_ms=15_000)
     assert st.active is True

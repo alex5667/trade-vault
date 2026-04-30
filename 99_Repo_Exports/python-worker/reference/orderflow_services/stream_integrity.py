@@ -73,11 +73,11 @@ class StreamIntegrityTracker:
     """Bounded integrity tracker for a single logical stream."""
 
     def __init__(
-        self,
-        *,
-        tau_ms: int = 10_000,
-        z_window: int = 120,
-        max_gap_window_ms: int = 60_000,
+        self
+        *
+        tau_ms: int = 10_000
+        z_window: int = 120
+        max_gap_window_ms: int = 60_000
     ) -> None:
         self.gap_ema = GapEmaTracker(tau_ms=int(max(500, tau_ms)))
         # Reuse GapEmaTracker for dup-rate EMA (same math: event {0,1}).
@@ -122,14 +122,14 @@ class StreamIntegrityTracker:
             ts_i = int(ts_ms)
         except Exception:
             return IntegritySnapshot(
-                last_seq=int(self.last_seq),
-                gap_last=int(self.gap_last),
-                gap_max_window=int(self.gap_max_window),
-                gap_rate_ema=float(_finite_f(getattr(self.gap_ema, "ema", 0.0))),
-                dup_rate_ema=float(_finite_f(getattr(self.dup_ema, "ema", 0.0))),
-                dup_burst_z=float(self.dup_burst_z),
-                schema_hash=str(self.schema_hash_last),
-                schema_changed=int(self.schema_changed_last),
+                last_seq=int(self.last_seq)
+                gap_last=int(self.gap_last)
+                gap_max_window=int(self.gap_max_window)
+                gap_rate_ema=float(_finite_f(getattr(self.gap_ema, "ema", 0.0)))
+                dup_rate_ema=float(_finite_f(getattr(self.dup_ema, "ema", 0.0)))
+                dup_burst_z=float(self.dup_burst_z)
+                schema_hash=str(self.schema_hash_last)
+                schema_changed=int(self.schema_changed_last)
             )
 
         # Enforce monotone time inside the tracker to keep EMA stable.
@@ -188,12 +188,12 @@ class StreamIntegrityTracker:
             self.last_seq = int(seq_i)
 
         return IntegritySnapshot(
-            last_seq=int(self.last_seq),
-            gap_last=int(self.gap_last),
-            gap_max_window=int(self.gap_max_window),
-            gap_rate_ema=float(gap_rate),
-            dup_rate_ema=float(dup_rate),
-            dup_burst_z=float(self.dup_burst_z),
-            schema_hash=str(self.schema_hash_last),
-            schema_changed=int(self.schema_changed_last),
+            last_seq=int(self.last_seq)
+            gap_last=int(self.gap_last)
+            gap_max_window=int(self.gap_max_window)
+            gap_rate_ema=float(gap_rate)
+            dup_rate_ema=float(dup_rate)
+            dup_burst_z=float(self.dup_burst_z)
+            schema_hash=str(self.schema_hash_last)
+            schema_changed=int(self.schema_changed_last)
         )

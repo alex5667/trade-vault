@@ -48,13 +48,13 @@ def symbol_prefix(symbol: str) -> str:
 
 
 ENV_PREFIX_OVERRIDE = {
-    "1000PEPEUSDT": "PEPE",
-    "1000SHIBUSDT": "SHIB",
-    "1000FLOKIUSDT": "FLOKI",
-    "1000BONKUSDT": "BONK",
-    "1000LUNCUSDT": "LUNC",
-    "1000XECUSDT": "XEC",
-    "1000RATSUSDT": "RATS",
+    "1000PEPEUSDT": "PEPE"
+    "1000SHIBUSDT": "SHIB"
+    "1000FLOKIUSDT": "FLOKI"
+    "1000BONKUSDT": "BONK"
+    "1000LUNCUSDT": "LUNC"
+    "1000XECUSDT": "XEC"
+    "1000RATSUSDT": "RATS"
 }
 
 # Defaults for USD-based filtering (Delta Notional)
@@ -277,130 +277,130 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
     
     # Global Defaults (from request)
     base = {
-        "cancel_spike_enable": 1,
-        "cancel_spike_mode": "veto",
-        "cancel_spike_alpha_slow": 0.02,
-        "cancel_spike_ratio_th": 3.0,
-        "cancel_spike_abs_th": 0.0,
-        "cancel_spike_min_baseline": 0.0,
-        "cancel_spike_use_robust_z": 1,
-        "cancel_spike_window": 120,
-        "cancel_spike_min_samples": 30,
-        "cancel_spike_z_th": 3.5,
+        "cancel_spike_enable": 1
+        "cancel_spike_mode": "veto"
+        "cancel_spike_alpha_slow": 0.02
+        "cancel_spike_ratio_th": 3.0
+        "cancel_spike_abs_th": 0.0
+        "cancel_spike_min_baseline": 0.0
+        "cancel_spike_use_robust_z": 1
+        "cancel_spike_window": 120
+        "cancel_spike_min_samples": 30
+        "cancel_spike_z_th": 3.5
         "cancel_spike_min_taker_rate": 0.0
     }
 
     # BTCUSDT
     if "BTC" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 0.15,
-            "cancel_spike_min_baseline": 0.05,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 0.15
+            "cancel_spike_min_baseline": 0.05
             "cancel_spike_abs_th": 0.10
         })
     # ETHUSDT
     elif "ETH" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 1.5,
-            "cancel_spike_min_baseline": 0.5,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 1.5
+            "cancel_spike_min_baseline": 0.5
             "cancel_spike_abs_th": 1.0
         })
     # SOLUSDT
     elif "SOL" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 5.0,
-            "cancel_spike_min_baseline": 2.0,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 5.0
+            "cancel_spike_min_baseline": 2.0
             "cancel_spike_abs_th": 4.0
         })
     # BNBUSDT
     elif "BNB" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 0.25,
-            "cancel_spike_min_baseline": 0.10,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 0.25
+            "cancel_spike_min_baseline": 0.10
             "cancel_spike_abs_th": 0.20
         })
     # XRPUSDT
     elif "XRP" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 150.0,
-            "cancel_spike_min_baseline": 50.0,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 150.0
+            "cancel_spike_min_baseline": 50.0
             "cancel_spike_abs_th": 100.0
         })
     # DOGEUSDT
     elif "DOGE" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 500.0,
-            "cancel_spike_min_baseline": 200.0,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 500.0
+            "cancel_spike_min_baseline": 200.0
             "cancel_spike_abs_th": 400.0
         })
     # ARBUSDT
     elif "ARB" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 80.0,
-            "cancel_spike_min_baseline": 30.0,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 80.0
+            "cancel_spike_min_baseline": 30.0
             "cancel_spike_abs_th": 60.0
         })
     # APTUSDT
     elif "APT" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 2.0,
-            "cancel_spike_min_baseline": 0.7,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 2.0
+            "cancel_spike_min_baseline": 0.7
             "cancel_spike_abs_th": 1.5
         })
     # SUIUSDT
     elif "SUI" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 120.0,
-            "cancel_spike_min_baseline": 40.0,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 120.0
+            "cancel_spike_min_baseline": 40.0
             "cancel_spike_abs_th": 80.0
         })
     # WIFUSDT
     elif "WIF" in s:
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 8.0,
-            "cancel_spike_min_baseline": 2.0,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 8.0
+            "cancel_spike_min_baseline": 2.0
             "cancel_spike_abs_th": 4.0
         })
     # PEPE / SHIB / FLOKI / BONK (Memecoins)
     elif any(x in s for x in ["PEPE", "SHIB", "FLOKI", "BONK"]):
         base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 0.0,
-            "cancel_spike_ratio_th": 4.0,
-            "cancel_spike_z_th": 4.0,
-            "cancel_spike_min_samples": 60,
-            "cancel_spike_abs_th": 0.0,
+            "cancel_spike_mode": "veto"
+            "cancel_spike_min_taker_rate": 0.0
+            "cancel_spike_ratio_th": 4.0
+            "cancel_spike_z_th": 4.0
+            "cancel_spike_min_samples": 60
+            "cancel_spike_abs_th": 0.0
             "cancel_spike_min_baseline": 0.0
         })
     # XAUUSDT (Metals perp) - start with monitor mode, bootstrap settings
     elif s.startswith("XAU"):
         base.update({
-            "cancel_spike_mode": "monitor",
-            "cancel_spike_min_taker_rate": 0.0,
-            "cancel_spike_ratio_th": 3.0,
-            "cancel_spike_z_th": 3.5,
-            "cancel_spike_min_samples": 30,
-            "cancel_spike_abs_th": 0.0,
+            "cancel_spike_mode": "monitor"
+            "cancel_spike_min_taker_rate": 0.0
+            "cancel_spike_ratio_th": 3.0
+            "cancel_spike_z_th": 3.5
+            "cancel_spike_min_samples": 30
+            "cancel_spike_abs_th": 0.0
             "cancel_spike_min_baseline": 0.0
         })
     # XAGUSDT (Silver perp) - similar to XAU
     elif s.startswith("XAG"):
         base.update({
-            "cancel_spike_mode": "monitor",
-            "cancel_spike_min_taker_rate": 0.0,
-            "cancel_spike_ratio_th": 3.0,
-            "cancel_spike_z_th": 3.5,
-            "cancel_spike_min_samples": 30,
-            "cancel_spike_abs_th": 0.0,
+            "cancel_spike_mode": "monitor"
+            "cancel_spike_min_taker_rate": 0.0
+            "cancel_spike_ratio_th": 3.0
+            "cancel_spike_z_th": 3.5
+            "cancel_spike_min_samples": 30
+            "cancel_spike_abs_th": 0.0
             "cancel_spike_min_baseline": 0.0
         })
         
@@ -460,7 +460,7 @@ class SymbolSpecs:
     """
     Спецификация торгового инструмента.
 
-    Содержит параметры, специфичные для каждого символа (размер контракта,
+    Содержит параметры, специфичные для каждого символа (размер контракта
     минимальный/максимальный лот, стоимость пипса и т.д.)
     """
     symbol: str
@@ -495,7 +495,7 @@ class OrderFlowConfig:
     """
     Конфигурация обработчика Order Flow для конкретного инструмента.
 
-    Содержит пороги и параметры для анализа ордер-флоу (Delta, Z-score,
+    Содержит пороги и параметры для анализа ордер-флоу (Delta, Z-score
     OBI, Iceberg detection и т.д.)
     """
     symbol: str = ""
@@ -843,7 +843,7 @@ class OrderFlowConfig:
         Использует префикс из символа (XAU, BTC, ETH и т.д.) для поиска env переменных.
         Например, для XAUUSD будет искать XAU_DELTA_WINDOW, XAU_DELTA_Z_THRESHOLD и т.д.
         
-        Для risk-параметров сначала ищет per-instrument переменные (BTC_STOP_MODE),
+        Для risk-параметров сначала ищет per-instrument переменные (BTC_STOP_MODE)
         затем глобальные (STOP_MODE), затем использует base.
         
         Args:
@@ -872,266 +872,266 @@ class OrderFlowConfig:
         def_agg = "weighted_mean" if is_meme else "weighted_mean"
         
         cfg = cls(
-            symbol=sym,
+            symbol=sym
             
             exec_risk_ref_bps=_env_one(f"{prefix}_EXEC_RISK_REF_BPS", float, 
-                                      _env_one("EXEC_RISK_REF_BPS", float, def_exec_ref)),
-            scenario_v4_enable=_to_bool(_env_one(f"{prefix}_SCENARIO_V4_ENABLE", str,
-                                      _env_one("SCENARIO_V4_ENABLE", str, str(def_v4_en)))),
-            strong_need_range=_env_one(f"{prefix}_STRONG_NEED_RANGE", int,
-                                      _env_one("STRONG_NEED_RANGE", int, def_need_range)),
-            strong_need_escalated=_env_one(f"{prefix}_STRONG_NEED_ESCALATED", int,
-                                      _env_one("STRONG_NEED_ESCALATED", int, def_need_escalated)),
-            of_score_min_range=_env_one(f"{prefix}_OF_SCORE_MIN_RANGE", float,
-                                      _env_one("OF_SCORE_MIN_RANGE", float, def_score_range)),
-            of_score_agg=_env_one(f"{prefix}_OF_SCORE_AGG", str,
-                                 _env_one("OF_SCORE_AGG", str, def_agg)),
+                                      _env_one("EXEC_RISK_REF_BPS", float, def_exec_ref))
+            scenario_v4_enable=_to_bool(_env_one(f"{prefix}_SCENARIO_V4_ENABLE", str
+                                      _env_one("SCENARIO_V4_ENABLE", str, str(def_v4_en))))
+            strong_need_range=_env_one(f"{prefix}_STRONG_NEED_RANGE", int
+                                      _env_one("STRONG_NEED_RANGE", int, def_need_range))
+            strong_need_escalated=_env_one(f"{prefix}_STRONG_NEED_ESCALATED", int
+                                      _env_one("STRONG_NEED_ESCALATED", int, def_need_escalated))
+            of_score_min_range=_env_one(f"{prefix}_OF_SCORE_MIN_RANGE", float
+                                      _env_one("OF_SCORE_MIN_RANGE", float, def_score_range))
+            of_score_agg=_env_one(f"{prefix}_OF_SCORE_AGG", str
+                                 _env_one("OF_SCORE_AGG", str, def_agg))
             
-            delta_window_ticks=_env_one(f"{prefix}_DELTA_WINDOW", int, base_cfg.delta_window_ticks),
-            delta_z_threshold=_env_one(f"{prefix}_DELTA_Z_THRESHOLD", float, base_cfg.delta_z_threshold),
+            delta_window_ticks=_env_one(f"{prefix}_DELTA_WINDOW", int, base_cfg.delta_window_ticks)
+            delta_z_threshold=_env_one(f"{prefix}_DELTA_Z_THRESHOLD", float, base_cfg.delta_z_threshold)
             
-            delta_abs_min=_env_one(f"{prefix}_DELTA_ABS_MIN", float, base_cfg.delta_abs_min),
-            delta_abs_min_usd=_env_one(f"{prefix}_DELTA_ABS_MIN_USD", float, base_cfg.delta_abs_min_usd if base_cfg.delta_abs_min_usd is not None else get_default_usd_threshold(sym)),
-            delta_abs_min_confirm=_env_one(f"{prefix}_DELTA_ABS_MIN_CONFIRM", float, base_cfg.delta_abs_min_confirm),
+            delta_abs_min=_env_one(f"{prefix}_DELTA_ABS_MIN", float, base_cfg.delta_abs_min)
+            delta_abs_min_usd=_env_one(f"{prefix}_DELTA_ABS_MIN_USD", float, base_cfg.delta_abs_min_usd if base_cfg.delta_abs_min_usd is not None else get_default_usd_threshold(sym))
+            delta_abs_min_confirm=_env_one(f"{prefix}_DELTA_ABS_MIN_CONFIRM", float, base_cfg.delta_abs_min_confirm)
             
-            weak_progress_atr=_env_one(f"{prefix}_WEAK_PROGRESS_ATR", float, base_cfg.weak_progress_atr),
-            weak_progress_range_atr=_env_one(f"{prefix}_WEAK_PROGRESS_RANGE_ATR", float, base_cfg.weak_progress_range_atr),
-            weak_progress_body_atr=_env_one(f"{prefix}_WEAK_PROGRESS_BODY_ATR", float, base_cfg.weak_progress_body_atr),
+            weak_progress_atr=_env_one(f"{prefix}_WEAK_PROGRESS_ATR", float, base_cfg.weak_progress_atr)
+            weak_progress_range_atr=_env_one(f"{prefix}_WEAK_PROGRESS_RANGE_ATR", float, base_cfg.weak_progress_range_atr)
+            weak_progress_body_atr=_env_one(f"{prefix}_WEAK_PROGRESS_BODY_ATR", float, base_cfg.weak_progress_body_atr)
             
-            absorption_min_volume=_env_one(f"{prefix}_ABSORPTION_MIN_VOLUME", float, base_cfg.absorption_min_volume),
-            absorption_price_tolerance=_env_one(f"{prefix}_ABSORPTION_PRICE_TOLERANCE", float, base_cfg.absorption_price_tolerance),
-            absorption_window_sec=_env_one(f"{prefix}_ABSORPTION_WINDOW_SEC", float, base_cfg.absorption_window_sec),
-            abs_lvl_enable=_env_one(f"{prefix}_ABS_LVL_ENABLE", _to_bool, base_cfg.abs_lvl_enable),
-            abs_lvl_counts_as=_env_one(f"{prefix}_ABS_LVL_COUNTS_AS", str, base_cfg.abs_lvl_counts_as),
+            absorption_min_volume=_env_one(f"{prefix}_ABSORPTION_MIN_VOLUME", float, base_cfg.absorption_min_volume)
+            absorption_price_tolerance=_env_one(f"{prefix}_ABSORPTION_PRICE_TOLERANCE", float, base_cfg.absorption_price_tolerance)
+            absorption_window_sec=_env_one(f"{prefix}_ABSORPTION_WINDOW_SEC", float, base_cfg.absorption_window_sec)
+            abs_lvl_enable=_env_one(f"{prefix}_ABS_LVL_ENABLE", _to_bool, base_cfg.abs_lvl_enable)
+            abs_lvl_counts_as=_env_one(f"{prefix}_ABS_LVL_COUNTS_AS", str, base_cfg.abs_lvl_counts_as)
             
-            obi_threshold=_env_one(f"{prefix}_OBI_THRESHOLD", float, base_cfg.obi_threshold if base_cfg.obi_threshold != 0.5 else obi_defaults["obi_threshold"]),
-            obi_min_duration=_env_one(f"{prefix}_OBI_MIN_DURATION", float, base_cfg.obi_min_duration if base_cfg.obi_min_duration != 2.0 else obi_defaults["obi_min_duration"]),
-            obi_depth=_env_one(f"{prefix}_OBI_DEPTH", int, base_cfg.obi_depth),
-            obi_hold_secs=_env_one(f"{prefix}_OBI_HOLD_SECS", float, base_cfg.obi_hold_secs),
+            obi_threshold=_env_one(f"{prefix}_OBI_THRESHOLD", float, base_cfg.obi_threshold if base_cfg.obi_threshold != 0.5 else obi_defaults["obi_threshold"])
+            obi_min_duration=_env_one(f"{prefix}_OBI_MIN_DURATION", float, base_cfg.obi_min_duration if base_cfg.obi_min_duration != 2.0 else obi_defaults["obi_min_duration"])
+            obi_depth=_env_one(f"{prefix}_OBI_DEPTH", int, base_cfg.obi_depth)
+            obi_hold_secs=_env_one(f"{prefix}_OBI_HOLD_SECS", float, base_cfg.obi_hold_secs)
             
-            iceberg_refresh_count=_env_one(f"{prefix}_ICEBERG_REFRESH", int, base_cfg.iceberg_refresh_count),
-            iceberg_min_duration=_env_one(f"{prefix}_ICEBERG_DURATION", float, base_cfg.iceberg_min_duration),
+            iceberg_refresh_count=_env_one(f"{prefix}_ICEBERG_REFRESH", int, base_cfg.iceberg_refresh_count)
+            iceberg_min_duration=_env_one(f"{prefix}_ICEBERG_DURATION", float, base_cfg.iceberg_min_duration)
             iceberg_refresh_min_abs=_env_one(
-                f"{prefix}_ICEBERG_REFRESH_MIN_ABS",
-                float,
+                f"{prefix}_ICEBERG_REFRESH_MIN_ABS"
+                float
                 base_cfg.iceberg_refresh_min_abs
-            ),
+            )
             iceberg_refresh_min_notional_usd=_env_one(
                 f"{prefix}_ICEBERG_REFRESH_MIN_NOTIONAL_USD", 
                 float, 
                 base_cfg.iceberg_refresh_min_notional_usd
-            ),
+            )
 
-            cooldown_reversal_sec=_env_one(f"{prefix}_COOLDOWN_REVERSAL_SEC", int, base_cfg.cooldown_reversal_sec),
-            cooldown_continuation_sec=_env_one(f"{prefix}_COOLDOWN_CONTINUATION_SEC", int, base_cfg.cooldown_continuation_sec),
-            cooldown_min_ms=_env_one(f"{prefix}_COOLDOWN_MIN_MS", int, base_cfg.cooldown_min_ms),
-            cooldown_max_ms=_env_one(f"{prefix}_COOLDOWN_MAX_MS", int, base_cfg.cooldown_max_ms),
-            cooldown_mul_thin=_env_one(f"{prefix}_COOLDOWN_MUL_THIN", float, base_cfg.cooldown_mul_thin),
-            cooldown_spread_hi_bp=_env_one(f"{prefix}_COOLDOWN_SPREAD_HI_BP", float, base_cfg.cooldown_spread_hi_bp),
-            cooldown_mul_wide_spread=_env_one(f"{prefix}_COOLDOWN_MUL_WIDE_SPREAD", float, base_cfg.cooldown_mul_wide_spread),
-            cooldown_mul_pressure_hi=_env_one(f"{prefix}_COOLDOWN_MUL_PRESSURE_HI", float, base_cfg.cooldown_mul_pressure_hi),
-            pressure_window_ms=_env_one(f"{prefix}_PRESSURE_WINDOW_MS", int, base_cfg.pressure_window_ms),
-            burst_window_ms=_env_one(f"{prefix}_BURST_WINDOW_MS", int, base_cfg.burst_window_ms),
-            burst_max_age_ms=_env_one(f"{prefix}_BURST_MAX_AGE_MS", int, base_cfg.burst_max_age_ms),
-            spread_stats_window=_env_one(f"{prefix}_SPREAD_STATS_WINDOW", int, base_cfg.spread_stats_window),
-            book_rate_stats_window=_env_one(f"{prefix}_BOOK_RATE_STATS_WINDOW", int, base_cfg.book_rate_stats_window),
+            cooldown_reversal_sec=_env_one(f"{prefix}_COOLDOWN_REVERSAL_SEC", int, base_cfg.cooldown_reversal_sec)
+            cooldown_continuation_sec=_env_one(f"{prefix}_COOLDOWN_CONTINUATION_SEC", int, base_cfg.cooldown_continuation_sec)
+            cooldown_min_ms=_env_one(f"{prefix}_COOLDOWN_MIN_MS", int, base_cfg.cooldown_min_ms)
+            cooldown_max_ms=_env_one(f"{prefix}_COOLDOWN_MAX_MS", int, base_cfg.cooldown_max_ms)
+            cooldown_mul_thin=_env_one(f"{prefix}_COOLDOWN_MUL_THIN", float, base_cfg.cooldown_mul_thin)
+            cooldown_spread_hi_bp=_env_one(f"{prefix}_COOLDOWN_SPREAD_HI_BP", float, base_cfg.cooldown_spread_hi_bp)
+            cooldown_mul_wide_spread=_env_one(f"{prefix}_COOLDOWN_MUL_WIDE_SPREAD", float, base_cfg.cooldown_mul_wide_spread)
+            cooldown_mul_pressure_hi=_env_one(f"{prefix}_COOLDOWN_MUL_PRESSURE_HI", float, base_cfg.cooldown_mul_pressure_hi)
+            pressure_window_ms=_env_one(f"{prefix}_PRESSURE_WINDOW_MS", int, base_cfg.pressure_window_ms)
+            burst_window_ms=_env_one(f"{prefix}_BURST_WINDOW_MS", int, base_cfg.burst_window_ms)
+            burst_max_age_ms=_env_one(f"{prefix}_BURST_MAX_AGE_MS", int, base_cfg.burst_max_age_ms)
+            spread_stats_window=_env_one(f"{prefix}_SPREAD_STATS_WINDOW", int, base_cfg.spread_stats_window)
+            book_rate_stats_window=_env_one(f"{prefix}_BOOK_RATE_STATS_WINDOW", int, base_cfg.book_rate_stats_window)
             
             book_rate_min_hz=_env_one(
                 f"{prefix}_BOOK_RATE_MIN_HZ", 
                 float, 
                 base_cfg.book_rate_min_hz if base_cfg.book_rate_min_hz != 5.0 else get_default_book_rate_settings(sym).get("book_rate_min_hz", 5.0)
-            ),
+            )
             book_rate_warn_hz=_env_one(
                 f"{prefix}_BOOK_RATE_WARN_HZ", 
                 float, 
                 base_cfg.book_rate_warn_hz if base_cfg.book_rate_warn_hz != 3.0 else get_default_book_rate_settings(sym).get("book_rate_warn_hz", 3.0)
-            ),
+            )
 
-            cvd_reset_mode=_env_one(f"{prefix}_CVD_RESET_MODE", str, base_cfg.cvd_reset_mode),
-            cvd_ema_period_delta=_env_one(f"{prefix}_CVD_EMA_PERIOD_DELTA", int, base_cfg.cvd_ema_period_delta),
-            cvd_ema_period_cvd=_env_one(f"{prefix}_CVD_EMA_PERIOD_CVD", int, base_cfg.cvd_ema_period_cvd),
-            cvd_robust_w=_env_one(f"{prefix}_CVD_ROBUST_W", int, base_cfg.cvd_robust_w),
-            microbar_mode=_env_one(f"{prefix}_MICROBAR_MODE", str, base_cfg.microbar_mode),
-            microbar_tf_ms=_env_one(f"{prefix}_MICROBAR_TF_MS", int, base_cfg.microbar_tf_ms),
-            microbar_volume_target=_env_one(f"{prefix}_MICROBAR_VOLUME_TARGET", float, base_cfg.microbar_volume_target),
+            cvd_reset_mode=_env_one(f"{prefix}_CVD_RESET_MODE", str, base_cfg.cvd_reset_mode)
+            cvd_ema_period_delta=_env_one(f"{prefix}_CVD_EMA_PERIOD_DELTA", int, base_cfg.cvd_ema_period_delta)
+            cvd_ema_period_cvd=_env_one(f"{prefix}_CVD_EMA_PERIOD_CVD", int, base_cfg.cvd_ema_period_cvd)
+            cvd_robust_w=_env_one(f"{prefix}_CVD_ROBUST_W", int, base_cfg.cvd_robust_w)
+            microbar_mode=_env_one(f"{prefix}_MICROBAR_MODE", str, base_cfg.microbar_mode)
+            microbar_tf_ms=_env_one(f"{prefix}_MICROBAR_TF_MS", int, base_cfg.microbar_tf_ms)
+            microbar_volume_target=_env_one(f"{prefix}_MICROBAR_VOLUME_TARGET", float, base_cfg.microbar_volume_target)
 
-            swing_left=_env_one(f"{prefix}_SWING_LEFT", int, base_cfg.swing_left),
-            swing_right=_env_one(f"{prefix}_SWING_RIGHT", int, base_cfg.swing_right),
-            swing_min_bp=_env_one(f"{prefix}_SWING_MIN_BP", float, base_cfg.swing_min_bp),
-            swing_min_range_bp=_env_one(f"{prefix}_SWING_MIN_RANGE_BP", float, base_cfg.swing_min_range_bp),
-            div_strength_min=_env_one(f"{prefix}_DIV_STRENGTH_MIN", float, base_cfg.div_strength_min),
-            div_min_price_bp=_env_one(f"{prefix}_DIV_MIN_PRICE_BP", float, base_cfg.div_min_price_bp),
-            div_require_bias_hidden=_env_one(f"{prefix}_DIV_REQUIRE_BIAS_HIDDEN", _to_bool, base_cfg.div_require_bias_hidden),
+            swing_left=_env_one(f"{prefix}_SWING_LEFT", int, base_cfg.swing_left)
+            swing_right=_env_one(f"{prefix}_SWING_RIGHT", int, base_cfg.swing_right)
+            swing_min_bp=_env_one(f"{prefix}_SWING_MIN_BP", float, base_cfg.swing_min_bp)
+            swing_min_range_bp=_env_one(f"{prefix}_SWING_MIN_RANGE_BP", float, base_cfg.swing_min_range_bp)
+            div_strength_min=_env_one(f"{prefix}_DIV_STRENGTH_MIN", float, base_cfg.div_strength_min)
+            div_min_price_bp=_env_one(f"{prefix}_DIV_MIN_PRICE_BP", float, base_cfg.div_min_price_bp)
+            div_require_bias_hidden=_env_one(f"{prefix}_DIV_REQUIRE_BIAS_HIDDEN", _to_bool, base_cfg.div_require_bias_hidden)
 
-            strong_z_min=_env_one(f"{prefix}_STRONG_Z_MIN", float, base_cfg.strong_z_min),
-            strong_use_iceberg=_env_one(f"{prefix}_STRONG_USE_ICEBERG", _to_bool, base_cfg.strong_use_iceberg),
-            strong_need_reversal=_env_one(f"{prefix}_STRONG_NEED_REVERSAL", int, base_cfg.strong_need_reversal),
-            strong_need_continuation=_env_one(f"{prefix}_STRONG_NEED_CONTINUATION", int, base_cfg.strong_need_continuation),
+            strong_z_min=_env_one(f"{prefix}_STRONG_Z_MIN", float, base_cfg.strong_z_min)
+            strong_use_iceberg=_env_one(f"{prefix}_STRONG_USE_ICEBERG", _to_bool, base_cfg.strong_use_iceberg)
+            strong_need_reversal=_env_one(f"{prefix}_STRONG_NEED_REVERSAL", int, base_cfg.strong_need_reversal)
+            strong_need_continuation=_env_one(f"{prefix}_STRONG_NEED_CONTINUATION", int, base_cfg.strong_need_continuation)
 
-            calib_key_prefix=_env_one(f"{prefix}_CALIB_KEY_PREFIX", str, base_cfg.calib_key_prefix),
-            calib_regimes_set_prefix=_env_one(f"{prefix}_CALIB_REGIMES_SET_PREFIX", str, base_cfg.calib_regimes_set_prefix),
-            calib_ttl_sec=_env_one(f"{prefix}_CALIB_TTL_SEC", int, base_cfg.calib_ttl_sec),
-            calib_audit_enable=_env_one(f"{prefix}_CALIB_AUDIT_ENABLE", _to_bool, base_cfg.calib_audit_enable),
-            calib_audit_stream=_env_one(f"{prefix}_CALIB_AUDIT_STREAM", str, base_cfg.calib_audit_stream),
-            calib_audit_stream_maxlen=_env_one(f"{prefix}_CALIB_AUDIT_STREAM_MAXLEN", int, base_cfg.calib_audit_stream_maxlen),
+            calib_key_prefix=_env_one(f"{prefix}_CALIB_KEY_PREFIX", str, base_cfg.calib_key_prefix)
+            calib_regimes_set_prefix=_env_one(f"{prefix}_CALIB_REGIMES_SET_PREFIX", str, base_cfg.calib_regimes_set_prefix)
+            calib_ttl_sec=_env_one(f"{prefix}_CALIB_TTL_SEC", int, base_cfg.calib_ttl_sec)
+            calib_audit_enable=_env_one(f"{prefix}_CALIB_AUDIT_ENABLE", _to_bool, base_cfg.calib_audit_enable)
+            calib_audit_stream=_env_one(f"{prefix}_CALIB_AUDIT_STREAM", str, base_cfg.calib_audit_stream)
+            calib_audit_stream_maxlen=_env_one(f"{prefix}_CALIB_AUDIT_STREAM_MAXLEN", int, base_cfg.calib_audit_stream_maxlen)
             
-            dn_tier0_usd=_env_one(f"{prefix}_DN_TIER0_USD", float, base_cfg.dn_tier0_usd if base_cfg.dn_tier0_usd != 0.0 else dn_tiers["tier0"]),
-            dn_tier1_usd=_env_one(f"{prefix}_DN_TIER1_USD", float, base_cfg.dn_tier1_usd if base_cfg.dn_tier1_usd != 0.0 else dn_tiers["tier1"]),
-            dn_tier2_usd=_env_one(f"{prefix}_DN_TIER2_USD", float, base_cfg.dn_tier2_usd if base_cfg.dn_tier2_usd != 0.0 else dn_tiers["tier2"]),
+            dn_tier0_usd=_env_one(f"{prefix}_DN_TIER0_USD", float, base_cfg.dn_tier0_usd if base_cfg.dn_tier0_usd != 0.0 else dn_tiers["tier0"])
+            dn_tier1_usd=_env_one(f"{prefix}_DN_TIER1_USD", float, base_cfg.dn_tier1_usd if base_cfg.dn_tier1_usd != 0.0 else dn_tiers["tier1"])
+            dn_tier2_usd=_env_one(f"{prefix}_DN_TIER2_USD", float, base_cfg.dn_tier2_usd if base_cfg.dn_tier2_usd != 0.0 else dn_tiers["tier2"])
             
             delta_bucket_ms=_env_one(f"{prefix}_DELTA_BUCKET_MS", int, base_cfg.delta_bucket_ms),    
             # === Параметры уровней (Pivot Points) ===
-            dist_atr_threshold=_env_one(f"{prefix}_DIST_ATR_THRESHOLD", float, base_cfg.dist_atr_threshold),
+            dist_atr_threshold=_env_one(f"{prefix}_DIST_ATR_THRESHOLD", float, base_cfg.dist_atr_threshold)
             
             # Use symbol-specific default for dist_bp if not explicitly overridden
             dist_bp_threshold=_env_one(
                 f"{prefix}_DIST_BP_THRESHOLD", 
                 float, 
                 base_cfg.dist_bp_threshold if base_cfg.dist_bp_threshold is not None else get_default_dist_bp_threshold(sym)
-            ),
+            )
             
-            dist_mode=_env_one(f"{prefix}_DIST_MODE", str, base_cfg.dist_mode),
+            dist_mode=_env_one(f"{prefix}_DIST_MODE", str, base_cfg.dist_mode)
             
-            min_signal_interval_sec=_env_one(f"{prefix}_MIN_SIGNAL_INTERVAL", int, base_cfg.min_signal_interval_sec),
-            tick_buffer=_env_one(f"{prefix}_TICK_BUFFER", int, base_cfg.tick_buffer),
-            read_count=_env_one(f"{prefix}_READ_COUNT", int, base_cfg.read_count),
-            read_block_ms=_env_one(f"{prefix}_READ_BLOCK_MS", int, base_cfg.read_block_ms),
-            fallback_atr=_env_one(f"{prefix}_FALLBACK_ATR", float, base_cfg.fallback_atr),
+            min_signal_interval_sec=_env_one(f"{prefix}_MIN_SIGNAL_INTERVAL", int, base_cfg.min_signal_interval_sec)
+            tick_buffer=_env_one(f"{prefix}_TICK_BUFFER", int, base_cfg.tick_buffer)
+            read_count=_env_one(f"{prefix}_READ_COUNT", int, base_cfg.read_count)
+            read_block_ms=_env_one(f"{prefix}_READ_BLOCK_MS", int, base_cfg.read_block_ms)
+            fallback_atr=_env_one(f"{prefix}_FALLBACK_ATR", float, base_cfg.fallback_atr)
 
-            orders_queue_enabled=_env_one(f"{prefix}_ORDERS_QUEUE_ENABLED", _to_bool, base_cfg.orders_queue_enabled),
-            orders_queue_type=_env_one(f"{prefix}_ORDERS_QUEUE_TYPE", str, base_cfg.orders_queue_type),
-            orders_queue_profile=_env_one(f"{prefix}_ORDERS_QUEUE_PROFILE", str, base_cfg.orders_queue_profile),
+            orders_queue_enabled=_env_one(f"{prefix}_ORDERS_QUEUE_ENABLED", _to_bool, base_cfg.orders_queue_enabled)
+            orders_queue_type=_env_one(f"{prefix}_ORDERS_QUEUE_TYPE", str, base_cfg.orders_queue_type)
+            orders_queue_profile=_env_one(f"{prefix}_ORDERS_QUEUE_PROFILE", str, base_cfg.orders_queue_profile)
             
-            confidence_floor=_env_one(f"{prefix}_CONFIDENCE_FLOOR", float, base_cfg.confidence_floor),
-            confidence_cap=_env_one(f"{prefix}_CONFIDENCE_CAP", float, base_cfg.confidence_cap),
-            confidence_speed_scale=_env_one(f"{prefix}_CONFIDENCE_SPEED_SCALE", float, base_cfg.confidence_speed_scale),
+            confidence_floor=_env_one(f"{prefix}_CONFIDENCE_FLOOR", float, base_cfg.confidence_floor)
+            confidence_cap=_env_one(f"{prefix}_CONFIDENCE_CAP", float, base_cfg.confidence_cap)
+            confidence_speed_scale=_env_one(f"{prefix}_CONFIDENCE_SPEED_SCALE", float, base_cfg.confidence_speed_scale)
             
-            require_strong_confirmation=_env_one(f"{prefix}_REQUIRE_STRONG_CONFIRMATION", _to_bool, base_cfg.require_strong_confirmation),
-            strong_gate_shadow=_env_one(f"{prefix}_STRONG_GATE_SHADOW", _to_bool, base_cfg.strong_gate_shadow),
+            require_strong_confirmation=_env_one(f"{prefix}_REQUIRE_STRONG_CONFIRMATION", _to_bool, base_cfg.require_strong_confirmation)
+            strong_gate_shadow=_env_one(f"{prefix}_STRONG_GATE_SHADOW", _to_bool, base_cfg.strong_gate_shadow)
 
-            atr_bps_min_static=_env_one(f"{prefix}_ATR_BPS_MIN_STATIC", float, base_cfg.atr_bps_min_static),
-            atr_gate_audit_only=_env_one(f"{prefix}_ATR_GATE_AUDIT_ONLY", _to_bool, base_cfg.atr_gate_audit_only),
+            atr_bps_min_static=_env_one(f"{prefix}_ATR_BPS_MIN_STATIC", float, base_cfg.atr_bps_min_static)
+            atr_gate_audit_only=_env_one(f"{prefix}_ATR_GATE_AUDIT_ONLY", _to_bool, base_cfg.atr_gate_audit_only)
 
-            sweep_valid_ms=_env_one(f"{prefix}_SWEEP_VALID_MS", int, base_cfg.sweep_valid_ms),
-            reclaim_signal_valid_ms=_env_one(f"{prefix}_RECLAIM_SIGNAL_VALID_MS", int, base_cfg.reclaim_signal_valid_ms),
-            reclaim_hold_bars=_env_one(f"{prefix}_RECLAIM_HOLD_BARS", int, base_cfg.reclaim_hold_bars),
-            obi_event_ttl_ms=_env_one(f"{prefix}_OBI_EVENT_TTL_MS", int, base_cfg.obi_event_ttl_ms),
-            obi_stable_min_secs=_env_one(f"{prefix}_OBI_STABLE_MIN_SECS", float, base_cfg.obi_stable_min_secs),
-            iceberg_event_ttl_ms=_env_one(f"{prefix}_ICEBERG_EVENT_TTL_MS", int, base_cfg.iceberg_event_ttl_ms),
-            iceberg_strict_refresh_min=_env_one(f"{prefix}_ICEBERG_STRICT_REFRESH_MIN", int, base_cfg.iceberg_strict_refresh_min),
-            iceberg_strict_duration_min=_env_one(f"{prefix}_ICEBERG_STRICT_DURATION_MIN", float, base_cfg.iceberg_strict_duration_min),
-            iceberg_strict_dist_bp=_env_one(f"{prefix}_ICEBERG_STRICT_DIST_BP", float, base_cfg.iceberg_strict_dist_bp),
+            sweep_valid_ms=_env_one(f"{prefix}_SWEEP_VALID_MS", int, base_cfg.sweep_valid_ms)
+            reclaim_signal_valid_ms=_env_one(f"{prefix}_RECLAIM_SIGNAL_VALID_MS", int, base_cfg.reclaim_signal_valid_ms)
+            reclaim_hold_bars=_env_one(f"{prefix}_RECLAIM_HOLD_BARS", int, base_cfg.reclaim_hold_bars)
+            obi_event_ttl_ms=_env_one(f"{prefix}_OBI_EVENT_TTL_MS", int, base_cfg.obi_event_ttl_ms)
+            obi_stable_min_secs=_env_one(f"{prefix}_OBI_STABLE_MIN_SECS", float, base_cfg.obi_stable_min_secs)
+            iceberg_event_ttl_ms=_env_one(f"{prefix}_ICEBERG_EVENT_TTL_MS", int, base_cfg.iceberg_event_ttl_ms)
+            iceberg_strict_refresh_min=_env_one(f"{prefix}_ICEBERG_STRICT_REFRESH_MIN", int, base_cfg.iceberg_strict_refresh_min)
+            iceberg_strict_duration_min=_env_one(f"{prefix}_ICEBERG_STRICT_DURATION_MIN", float, base_cfg.iceberg_strict_duration_min)
+            iceberg_strict_dist_bp=_env_one(f"{prefix}_ICEBERG_STRICT_DIST_BP", float, base_cfg.iceberg_strict_dist_bp)
 
-            score_z_ref=_env_one(f"{prefix}_SCORE_Z_REF", float, base_cfg.score_z_ref),
-            w_z=_env_one(f"{prefix}_W_Z", float, base_cfg.w_z),
-            w_wp=_env_one(f"{prefix}_W_WP", float, base_cfg.w_wp),
-            w_reclaim=_env_one(f"{prefix}_W_RECLAIM", float, base_cfg.w_reclaim),
-            w_obi=_env_one(f"{prefix}_W_OBI", float, base_cfg.w_obi),
-            w_ice=_env_one(f"{prefix}_W_ICE", float, base_cfg.w_ice),
-            w_abs=_env_one(f"{prefix}_W_ABS", float, base_cfg.w_abs),
-            of_score_min=_env_one(f"{prefix}_OF_SCORE_MIN", float, base_cfg.of_score_min),
+            score_z_ref=_env_one(f"{prefix}_SCORE_Z_REF", float, base_cfg.score_z_ref)
+            w_z=_env_one(f"{prefix}_W_Z", float, base_cfg.w_z)
+            w_wp=_env_one(f"{prefix}_W_WP", float, base_cfg.w_wp)
+            w_reclaim=_env_one(f"{prefix}_W_RECLAIM", float, base_cfg.w_reclaim)
+            w_obi=_env_one(f"{prefix}_W_OBI", float, base_cfg.w_obi)
+            w_ice=_env_one(f"{prefix}_W_ICE", float, base_cfg.w_ice)
+            w_abs=_env_one(f"{prefix}_W_ABS", float, base_cfg.w_abs)
+            of_score_min=_env_one(f"{prefix}_OF_SCORE_MIN", float, base_cfg.of_score_min)
 
-            publish_of_confirm=_env_one(f"{prefix}_PUBLISH_OF_CONFIRM", _to_bool, base_cfg.publish_of_confirm),
-            of_confirm_stream=_env_one(f"{prefix}_OF_CONFIRM_STREAM", str, base_cfg.of_confirm_stream),
+            publish_of_confirm=_env_one(f"{prefix}_PUBLISH_OF_CONFIRM", _to_bool, base_cfg.publish_of_confirm)
+            of_confirm_stream=_env_one(f"{prefix}_OF_CONFIRM_STREAM", str, base_cfg.of_confirm_stream)
             
             # Risk: сначала per-instrument, затем глобальные, затем base
-            stop_mode=_env_first([f"{prefix}_STOP_MODE", "STOP_MODE"], str, base_cfg.stop_mode),
-            stop_atr_mult=_env_first([f"{prefix}_STOP_ATR_MULT", "STOP_ATR_MULT"], float, base_cfg.stop_atr_mult),
-            stop_pct=_env_first([f"{prefix}_STOP_PCT", "STOP_PCT"], float, base_cfg.stop_pct),
-            stop_points=_env_first([f"{prefix}_STOP_POINTS", "STOP_POINTS"], float, base_cfg.stop_points),
+            stop_mode=_env_first([f"{prefix}_STOP_MODE", "STOP_MODE"], str, base_cfg.stop_mode)
+            stop_atr_mult=_env_first([f"{prefix}_STOP_ATR_MULT", "STOP_ATR_MULT"], float, base_cfg.stop_atr_mult)
+            stop_pct=_env_first([f"{prefix}_STOP_PCT", "STOP_PCT"], float, base_cfg.stop_pct)
+            stop_points=_env_first([f"{prefix}_STOP_POINTS", "STOP_POINTS"], float, base_cfg.stop_points)
             
-            tp_mode=_env_first([f"{prefix}_TP_MODE", "TP_MODE"], str, base_cfg.tp_mode),
-            tp_rr=_env_first([f"{prefix}_TP_RR", "TP_RR"], str, base_cfg.tp_rr),
-            tp_atr_mults=_env_first([f"{prefix}_TP_ATR_MULTS", "TP_ATR_MULTS"], str, base_cfg.tp_atr_mults),
+            tp_mode=_env_first([f"{prefix}_TP_MODE", "TP_MODE"], str, base_cfg.tp_mode)
+            tp_rr=_env_first([f"{prefix}_TP_RR", "TP_RR"], str, base_cfg.tp_rr)
+            tp_atr_mults=_env_first([f"{prefix}_TP_ATR_MULTS", "TP_ATR_MULTS"], str, base_cfg.tp_atr_mults)
             
 
 
             # ATR Sanity
-            atr_sanity_enable=_env_one(f"{prefix}_ATR_SANITY_ENABLE", _to_bool, base_cfg.atr_sanity_enable),
-            atr_sanity_lo_bps=_env_one(f"{prefix}_ATR_SANITY_LO_BPS", float, base_cfg.atr_sanity_lo_bps),
-            atr_sanity_hi_bps=_env_one(f"{prefix}_ATR_SANITY_HI_BPS", float, base_cfg.atr_sanity_hi_bps),
+            atr_sanity_enable=_env_one(f"{prefix}_ATR_SANITY_ENABLE", _to_bool, base_cfg.atr_sanity_enable)
+            atr_sanity_lo_bps=_env_one(f"{prefix}_ATR_SANITY_LO_BPS", float, base_cfg.atr_sanity_lo_bps)
+            atr_sanity_hi_bps=_env_one(f"{prefix}_ATR_SANITY_HI_BPS", float, base_cfg.atr_sanity_hi_bps)
             
             # === Cancellation Spike Gate ===
-            cancel_spike_enable=_env_one(f"{prefix}_CANCEL_SPIKE_ENABLE", _to_bool, get_default_cancel_spike_settings(sym)["cancel_spike_enable"]),
-            cancel_spike_mode=_env_one(f"{prefix}_CANCEL_SPIKE_MODE", str, get_default_cancel_spike_settings(sym)["cancel_spike_mode"]),
-            cancel_spike_alpha_slow=_env_one(f"{prefix}_CANCEL_SPIKE_ALPHA_SLOW", float, get_default_cancel_spike_settings(sym)["cancel_spike_alpha_slow"]),
-            cancel_spike_ratio_th=_env_one(f"{prefix}_CANCEL_SPIKE_RATIO_TH", float, get_default_cancel_spike_settings(sym)["cancel_spike_ratio_th"]),
-            cancel_spike_abs_th=_env_one(f"{prefix}_CANCEL_SPIKE_ABS_TH", float, get_default_cancel_spike_settings(sym)["cancel_spike_abs_th"]),
-            cancel_spike_min_baseline=_env_one(f"{prefix}_CANCEL_SPIKE_MIN_BASELINE", float, get_default_cancel_spike_settings(sym)["cancel_spike_min_baseline"]),
-            cancel_spike_use_robust_z=_env_one(f"{prefix}_CANCEL_SPIKE_USE_ROBUST_Z", _to_bool, get_default_cancel_spike_settings(sym)["cancel_spike_use_robust_z"]),
-            cancel_spike_window=_env_one(f"{prefix}_CANCEL_SPIKE_WINDOW", int, get_default_cancel_spike_settings(sym)["cancel_spike_window"]),
-            cancel_spike_min_samples=_env_one(f"{prefix}_CANCEL_SPIKE_MIN_SAMPLES", int, get_default_cancel_spike_settings(sym)["cancel_spike_min_samples"]),
-            cancel_spike_z_th=_env_one(f"{prefix}_CANCEL_SPIKE_Z_TH", float, get_default_cancel_spike_settings(sym)["cancel_spike_z_th"]),
-            cancel_spike_min_taker_rate=_env_one(f"{prefix}_CANCEL_SPIKE_MIN_TAKER_RATE", float, get_default_cancel_spike_settings(sym)["cancel_spike_min_taker_rate"]),
-            atr_sanity_min_samples=_env_one(f"{prefix}_ATR_SANITY_MIN_SAMPLES", int, base_cfg.atr_sanity_min_samples),
-            atr_sanity_max_age_ms=_env_one(f"{prefix}_ATR_SANITY_MAX_AGE_MS", int, base_cfg.atr_sanity_max_age_ms),
-            atr_sanity_persist_min_bars=_env_one(f"{prefix}_ATR_SANITY_PERSIST_MIN_BARS", int, base_cfg.atr_sanity_persist_min_bars),
-            atr_sanity_persist_min_interval_ms=_env_one(f"{prefix}_ATR_SANITY_PERSIST_MIN_INTERVAL_MS", int, base_cfg.atr_sanity_persist_min_interval_ms),
-            atr_sanity_max_bps_abs=_env_one(f"{prefix}_ATR_SANITY_MAX_BPS_ABS", float, base_cfg.atr_sanity_max_bps_abs),
-            atr_sanity_fallback_pct=_env_one(f"{prefix}_ATR_SANITY_FALLBACK_PCT", float, base_cfg.atr_sanity_fallback_pct),
+            cancel_spike_enable=_env_one(f"{prefix}_CANCEL_SPIKE_ENABLE", _to_bool, get_default_cancel_spike_settings(sym)["cancel_spike_enable"])
+            cancel_spike_mode=_env_one(f"{prefix}_CANCEL_SPIKE_MODE", str, get_default_cancel_spike_settings(sym)["cancel_spike_mode"])
+            cancel_spike_alpha_slow=_env_one(f"{prefix}_CANCEL_SPIKE_ALPHA_SLOW", float, get_default_cancel_spike_settings(sym)["cancel_spike_alpha_slow"])
+            cancel_spike_ratio_th=_env_one(f"{prefix}_CANCEL_SPIKE_RATIO_TH", float, get_default_cancel_spike_settings(sym)["cancel_spike_ratio_th"])
+            cancel_spike_abs_th=_env_one(f"{prefix}_CANCEL_SPIKE_ABS_TH", float, get_default_cancel_spike_settings(sym)["cancel_spike_abs_th"])
+            cancel_spike_min_baseline=_env_one(f"{prefix}_CANCEL_SPIKE_MIN_BASELINE", float, get_default_cancel_spike_settings(sym)["cancel_spike_min_baseline"])
+            cancel_spike_use_robust_z=_env_one(f"{prefix}_CANCEL_SPIKE_USE_ROBUST_Z", _to_bool, get_default_cancel_spike_settings(sym)["cancel_spike_use_robust_z"])
+            cancel_spike_window=_env_one(f"{prefix}_CANCEL_SPIKE_WINDOW", int, get_default_cancel_spike_settings(sym)["cancel_spike_window"])
+            cancel_spike_min_samples=_env_one(f"{prefix}_CANCEL_SPIKE_MIN_SAMPLES", int, get_default_cancel_spike_settings(sym)["cancel_spike_min_samples"])
+            cancel_spike_z_th=_env_one(f"{prefix}_CANCEL_SPIKE_Z_TH", float, get_default_cancel_spike_settings(sym)["cancel_spike_z_th"])
+            cancel_spike_min_taker_rate=_env_one(f"{prefix}_CANCEL_SPIKE_MIN_TAKER_RATE", float, get_default_cancel_spike_settings(sym)["cancel_spike_min_taker_rate"])
+            atr_sanity_min_samples=_env_one(f"{prefix}_ATR_SANITY_MIN_SAMPLES", int, base_cfg.atr_sanity_min_samples)
+            atr_sanity_max_age_ms=_env_one(f"{prefix}_ATR_SANITY_MAX_AGE_MS", int, base_cfg.atr_sanity_max_age_ms)
+            atr_sanity_persist_min_bars=_env_one(f"{prefix}_ATR_SANITY_PERSIST_MIN_BARS", int, base_cfg.atr_sanity_persist_min_bars)
+            atr_sanity_persist_min_interval_ms=_env_one(f"{prefix}_ATR_SANITY_PERSIST_MIN_INTERVAL_MS", int, base_cfg.atr_sanity_persist_min_interval_ms)
+            atr_sanity_max_bps_abs=_env_one(f"{prefix}_ATR_SANITY_MAX_BPS_ABS", float, base_cfg.atr_sanity_max_bps_abs)
+            atr_sanity_fallback_pct=_env_one(f"{prefix}_ATR_SANITY_FALLBACK_PCT", float, base_cfg.atr_sanity_fallback_pct)
 
             # Calibration Persistence
-            calib_persist_enable=_env_one(f"{prefix}_CALIB_PERSIST_ENABLE", _to_bool, base_cfg.calib_persist_enable),
-            calib_persist_min_bars=_env_one(f"{prefix}_CALIB_PERSIST_MIN_BARS", int, base_cfg.calib_persist_min_bars),
-            calib_persist_min_interval_ms=_env_one(f"{prefix}_CALIB_PERSIST_MIN_INTERVAL_MS", int, base_cfg.calib_persist_min_interval_ms),
+            calib_persist_enable=_env_one(f"{prefix}_CALIB_PERSIST_ENABLE", _to_bool, base_cfg.calib_persist_enable)
+            calib_persist_min_bars=_env_one(f"{prefix}_CALIB_PERSIST_MIN_BARS", int, base_cfg.calib_persist_min_bars)
+            calib_persist_min_interval_ms=_env_one(f"{prefix}_CALIB_PERSIST_MIN_INTERVAL_MS", int, base_cfg.calib_persist_min_interval_ms)
 
             # Strong Dynamic Need
-            strong_dynamic_need_enable=_env_one(f"{prefix}_STRONG_DYNAMIC_NEED_ENABLE", _to_bool, base_cfg.strong_dynamic_need_enable),
+            strong_dynamic_need_enable=_env_one(f"{prefix}_STRONG_DYNAMIC_NEED_ENABLE", _to_bool, base_cfg.strong_dynamic_need_enable)
 
             # ATR Floor Tiers
-            atr_floor_t0_bps=_env_one(f"{prefix}_ATR_FLOOR_T0_BPS", float, base_cfg.atr_floor_t0_bps),
-            atr_floor_t1_bps=_env_one(f"{prefix}_ATR_FLOOR_T1_BPS", float, base_cfg.atr_floor_t1_bps),
-            atr_floor_t2_bps=_env_one(f"{prefix}_ATR_FLOOR_T2_BPS", float, base_cfg.atr_floor_t2_bps),
+            atr_floor_t0_bps=_env_one(f"{prefix}_ATR_FLOOR_T0_BPS", float, base_cfg.atr_floor_t0_bps)
+            atr_floor_t1_bps=_env_one(f"{prefix}_ATR_FLOOR_T1_BPS", float, base_cfg.atr_floor_t1_bps)
+            atr_floor_t2_bps=_env_one(f"{prefix}_ATR_FLOOR_T2_BPS", float, base_cfg.atr_floor_t2_bps)
             
-            atr_floor_tier_default=_env_one(f"{prefix}_ATR_FLOOR_TIER_DEFAULT", int, base_cfg.atr_floor_tier_default),
-            atr_floor_tier_trend=_env_one(f"{prefix}_ATR_FLOOR_TIER_TREND", int, base_cfg.atr_floor_tier_trend),
-            atr_floor_tier_thin=_env_one(f"{prefix}_ATR_FLOOR_TIER_THIN", int, base_cfg.atr_floor_tier_thin),
-            atr_floor_tier_range=_env_one(f"{prefix}_ATR_FLOOR_TIER_RANGE", int, base_cfg.atr_floor_tier_range),
+            atr_floor_tier_default=_env_one(f"{prefix}_ATR_FLOOR_TIER_DEFAULT", int, base_cfg.atr_floor_tier_default)
+            atr_floor_tier_trend=_env_one(f"{prefix}_ATR_FLOOR_TIER_TREND", int, base_cfg.atr_floor_tier_trend)
+            atr_floor_tier_thin=_env_one(f"{prefix}_ATR_FLOOR_TIER_THIN", int, base_cfg.atr_floor_tier_thin)
+            atr_floor_tier_range=_env_one(f"{prefix}_ATR_FLOOR_TIER_RANGE", int, base_cfg.atr_floor_tier_range)
 
             # Delta Notional Tiers
-            dn_tier_default=_env_one(f"{prefix}_DN_TIER_DEFAULT", int, base_cfg.dn_tier_default),
-            dn_tier_trend=_env_one(f"{prefix}_DN_TIER_TREND", int, base_cfg.dn_tier_trend),
-            dn_tier_range=_env_one(f"{prefix}_DN_TIER_RANGE", int, base_cfg.dn_tier_range),
-            dn_tier_thin=_env_one(f"{prefix}_DN_TIER_THIN", int, base_cfg.dn_tier_thin),
-            dn_persist_min_interval_ms=_env_one(f"{prefix}_DN_PERSIST_MIN_INTERVAL_MS", int, base_cfg.dn_persist_min_interval_ms),
+            dn_tier_default=_env_one(f"{prefix}_DN_TIER_DEFAULT", int, base_cfg.dn_tier_default)
+            dn_tier_trend=_env_one(f"{prefix}_DN_TIER_TREND", int, base_cfg.dn_tier_trend)
+            dn_tier_range=_env_one(f"{prefix}_DN_TIER_RANGE", int, base_cfg.dn_tier_range)
+            dn_tier_thin=_env_one(f"{prefix}_DN_TIER_THIN", int, base_cfg.dn_tier_thin)
+            dn_persist_min_interval_ms=_env_one(f"{prefix}_DN_PERSIST_MIN_INTERVAL_MS", int, base_cfg.dn_persist_min_interval_ms)
             
             # Abs Level Tiers
-            abs_lvl_tier_default=_env_one(f"{prefix}_ABS_LVL_TIER_DEFAULT", int, base_cfg.abs_lvl_tier_default),
-            abs_lvl_tier_range=_env_one(f"{prefix}_ABS_LVL_TIER_RANGE", int, base_cfg.abs_lvl_tier_range),
-            abs_lvl_tier_trend=_env_one(f"{prefix}_ABS_LVL_TIER_TREND", int, base_cfg.abs_lvl_tier_trend),
-            abs_lvl_tier_thin=_env_one(f"{prefix}_ABS_LVL_TIER_THIN", int, base_cfg.abs_lvl_tier_thin),
+            abs_lvl_tier_default=_env_one(f"{prefix}_ABS_LVL_TIER_DEFAULT", int, base_cfg.abs_lvl_tier_default)
+            abs_lvl_tier_range=_env_one(f"{prefix}_ABS_LVL_TIER_RANGE", int, base_cfg.abs_lvl_tier_range)
+            abs_lvl_tier_trend=_env_one(f"{prefix}_ABS_LVL_TIER_TREND", int, base_cfg.abs_lvl_tier_trend)
+            abs_lvl_tier_thin=_env_one(f"{prefix}_ABS_LVL_TIER_THIN", int, base_cfg.abs_lvl_tier_thin)
             
-            abs_lvl_eff_quote_th=_env_one(f"{prefix}_ABS_LVL_EFF_QUOTE_TH", float, base_cfg.abs_lvl_eff_quote_th),
-            abs_lvl_min_quote_delta=_env_one(f"{prefix}_ABS_LVL_MIN_QUOTE_DELTA", float, base_cfg.abs_lvl_min_quote_delta),
-            abs_lvl_th_drift_max=_env_one(f"{prefix}_ABS_LVL_TH_DRIFT_MAX", float, base_cfg.abs_lvl_th_drift_max),
-            abs_lvl_th_range_max=_env_one(f"{prefix}_ABS_LVL_TH_RANGE_MAX", float, base_cfg.abs_lvl_th_range_max),
-            abs_lvl_calib_min_samples=_env_one(f"{prefix}_ABS_LVL_CALIB_MIN_SAMPLES", int, base_cfg.abs_lvl_calib_min_samples),
-            abs_lvl_th_unstable=_env_one(f"{prefix}_ABS_LVL_TH_UNSTABLE", int, base_cfg.abs_lvl_th_unstable),
+            abs_lvl_eff_quote_th=_env_one(f"{prefix}_ABS_LVL_EFF_QUOTE_TH", float, base_cfg.abs_lvl_eff_quote_th)
+            abs_lvl_min_quote_delta=_env_one(f"{prefix}_ABS_LVL_MIN_QUOTE_DELTA", float, base_cfg.abs_lvl_min_quote_delta)
+            abs_lvl_th_drift_max=_env_one(f"{prefix}_ABS_LVL_TH_DRIFT_MAX", float, base_cfg.abs_lvl_th_drift_max)
+            abs_lvl_th_range_max=_env_one(f"{prefix}_ABS_LVL_TH_RANGE_MAX", float, base_cfg.abs_lvl_th_range_max)
+            abs_lvl_calib_min_samples=_env_one(f"{prefix}_ABS_LVL_CALIB_MIN_SAMPLES", int, base_cfg.abs_lvl_calib_min_samples)
+            abs_lvl_th_unstable=_env_one(f"{prefix}_ABS_LVL_TH_UNSTABLE", int, base_cfg.abs_lvl_th_unstable)
 
             # SMT / Correlation
-            smt_snapshot_every_ms=_env_one(f"{prefix}_SMT_SNAPSHOT_EVERY_MS", int, base_cfg.smt_snapshot_every_ms),
-            smt_of_strong_valid_ms=_env_one(f"{prefix}_SMT_OF_STRONG_VALID_MS", int, base_cfg.smt_of_strong_valid_ms),
-            smt_reclaim_valid_ms=_env_one(f"{prefix}_SMT_RECLAIM_VALID_MS", int, base_cfg.smt_reclaim_valid_ms),
-            smt_sweep_valid_ms=_env_one(f"{prefix}_SMT_SWEEP_VALID_MS", int, base_cfg.smt_sweep_valid_ms),
-            smt_retrace_atr=_env_one(f"{prefix}_SMT_RETRACE_ATR", float, base_cfg.smt_retrace_atr),
-            smt_near_zone_bp=_env_one(f"{prefix}_SMT_NEAR_ZONE_BP", float, base_cfg.smt_near_zone_bp),
-            smt_zone_max_bp=_env_one(f"{prefix}_SMT_ZONE_MAX_BP", float, base_cfg.smt_zone_max_bp),
-            smt_snapshot_ttl_sec=_env_one(f"{prefix}_SMT_SNAPSHOT_TTL_SEC", int, base_cfg.smt_snapshot_ttl_sec),
+            smt_snapshot_every_ms=_env_one(f"{prefix}_SMT_SNAPSHOT_EVERY_MS", int, base_cfg.smt_snapshot_every_ms)
+            smt_of_strong_valid_ms=_env_one(f"{prefix}_SMT_OF_STRONG_VALID_MS", int, base_cfg.smt_of_strong_valid_ms)
+            smt_reclaim_valid_ms=_env_one(f"{prefix}_SMT_RECLAIM_VALID_MS", int, base_cfg.smt_reclaim_valid_ms)
+            smt_sweep_valid_ms=_env_one(f"{prefix}_SMT_SWEEP_VALID_MS", int, base_cfg.smt_sweep_valid_ms)
+            smt_retrace_atr=_env_one(f"{prefix}_SMT_RETRACE_ATR", float, base_cfg.smt_retrace_atr)
+            smt_near_zone_bp=_env_one(f"{prefix}_SMT_NEAR_ZONE_BP", float, base_cfg.smt_near_zone_bp)
+            smt_zone_max_bp=_env_one(f"{prefix}_SMT_ZONE_MAX_BP", float, base_cfg.smt_zone_max_bp)
+            smt_snapshot_ttl_sec=_env_one(f"{prefix}_SMT_SNAPSHOT_TTL_SEC", int, base_cfg.smt_snapshot_ttl_sec)
 
             # ATR TF Calibration
-            atr_tf_calib_refresh_ms=_env_one(f"{prefix}_ATR_TF_CALIB_REFRESH_MS", int, base_cfg.atr_tf_calib_refresh_ms),
-            atr_tf_calib_persist_gap_ms=_env_one(f"{prefix}_ATR_TF_CALIB_PERSIST_GAP_MS", int, base_cfg.atr_tf_calib_persist_gap_ms),
-            eq_atr_refresh_ms=_env_one(f"{prefix}_EQ_ATR_REFRESH_MS", int, base_cfg.eq_atr_refresh_ms),
+            atr_tf_calib_refresh_ms=_env_one(f"{prefix}_ATR_TF_CALIB_REFRESH_MS", int, base_cfg.atr_tf_calib_refresh_ms)
+            atr_tf_calib_persist_gap_ms=_env_one(f"{prefix}_ATR_TF_CALIB_PERSIST_GAP_MS", int, base_cfg.atr_tf_calib_persist_gap_ms)
+            eq_atr_refresh_ms=_env_one(f"{prefix}_EQ_ATR_REFRESH_MS", int, base_cfg.eq_atr_refresh_ms)
 
             # Microbars
-            micro_tf=_env_one(f"{prefix}_MICRO_TF", str, base_cfg.micro_tf),
+            micro_tf=_env_one(f"{prefix}_MICRO_TF", str, base_cfg.micro_tf)
             
             # Book Rate
-            book_rate_crit_hz=_env_one(f"{prefix}_BOOK_RATE_CRIT_HZ", float, base_cfg.book_rate_crit_hz),
+            book_rate_crit_hz=_env_one(f"{prefix}_BOOK_RATE_CRIT_HZ", float, base_cfg.book_rate_crit_hz)
 
-            gpu_offload_enabled=_to_bool(_env_first([f"{prefix}_GPU_OFFLOAD_ENABLED", "GPU_OFFLOAD_ENABLED", "GPU_ENABLED"], str, base_cfg.gpu_offload_enabled)),
+            gpu_offload_enabled=_to_bool(_env_first([f"{prefix}_GPU_OFFLOAD_ENABLED", "GPU_OFFLOAD_ENABLED", "GPU_ENABLED"], str, base_cfg.gpu_offload_enabled))
 
-            metadata=dict(base_cfg.metadata or {}),
+            metadata=dict(base_cfg.metadata or {})
         )
         
         return cfg
@@ -1143,34 +1143,34 @@ class OrderFlowConfig:
 
 # Forex: Gold (XAUUSD)
 XAUUSD_CONFIG = OrderFlowConfig(
-    symbol="XAUUSD",
-    delta_window_ticks=120,
-    delta_z_threshold=3.0,
-    weak_progress_atr=0.10,
-    obi_threshold=0.5,
-    obi_min_duration=2.0,
-    iceberg_refresh_count=2,
-    iceberg_min_duration=1.5,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.5,
+    symbol="XAUUSD"
+    delta_window_ticks=120
+    delta_z_threshold=3.0
+    weak_progress_atr=0.10
+    obi_threshold=0.5
+    obi_min_duration=2.0
+    iceberg_refresh_count=2
+    iceberg_min_duration=1.5
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.5
     min_signal_interval_sec=60,  # 1 минута между сигналами
     metadata={
-        "asset_class": "forex",
-        "base_currency": "XAU",
-        "quote_currency": "USD",
+        "asset_class": "forex"
+        "base_currency": "XAU"
+        "quote_currency": "USD"
     }
 )
 
 XAUUSD_SPECS = SymbolSpecs(
-    symbol="XAUUSD",
-    contract_size=100.0,
-    pip_value=0.01,
-    lot_step=0.01,
-    min_lot=0.01,
-    max_lot=100.0,
-    tick_value=0.01,
-    point_value=0.01,
-    price_decimals=2,
+    symbol="XAUUSD"
+    contract_size=100.0
+    pip_value=0.01
+    lot_step=0.01
+    min_lot=0.01
+    max_lot=100.0
+    tick_value=0.01
+    point_value=0.01
+    price_decimals=2
     volume_decimals=2
 )
 
@@ -1178,303 +1178,303 @@ XAUUSD_SPECS = SymbolSpecs(
 # TradingView: XAUUSDT.P is the perpetual symbol.
 # Binance Futures page exists for XAUUSDT perpetual.
 XAUUSDT_CONFIG = OrderFlowConfig(
-    symbol="XAUUSDT",
-    delta_window_ticks=120,
-    delta_z_threshold=3.0,
+    symbol="XAUUSDT"
+    delta_window_ticks=120
+    delta_z_threshold=3.0
     # Prefer USD-normalized gate (see from_env): bootstrap to avoid noise
-    delta_abs_min_usd=5_000.0,
-    weak_progress_atr=0.10,
-    weak_progress_range_atr=0.35,
-    weak_progress_body_atr=0.25,
+    delta_abs_min_usd=5_000.0
+    weak_progress_atr=0.10
+    weak_progress_range_atr=0.35
+    weak_progress_body_atr=0.25
     # Use "major-like" OBI defaults rather than conservative 0.5/2.0
-    obi_threshold=0.30,
-    obi_min_duration=1.8,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=0.5,
-    dist_atr_threshold=0.45,
-    dist_bp_threshold=12.0,
-    min_signal_interval_sec=30,
-    stop_mode="ATR",
-    stop_atr_mult=0.70,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
+    obi_threshold=0.30
+    obi_min_duration=1.8
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=0.5
+    dist_atr_threshold=0.45
+    dist_bp_threshold=12.0
+    min_signal_interval_sec=30
+    stop_mode="ATR"
+    stop_atr_mult=0.70
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
     # Start with non-veto to avoid overblocking until L3-lite is validated
-    cancel_spike_enable=True,
-    cancel_spike_mode="monitor",
+    cancel_spike_enable=True
+    cancel_spike_mode="monitor"
     metadata={
-        "asset_class": "tradfi_perp",
-        "base_currency": "XAU",
-        "quote_currency": "USDT",
-        "underlying_unit": "troy_ounce",
-        "venue_hint": "binance_usds_m",
+        "asset_class": "tradfi_perp"
+        "base_currency": "XAU"
+        "quote_currency": "USDT"
+        "underlying_unit": "troy_ounce"
+        "venue_hint": "binance_usds_m"
     }
 )
 
 XAUUSDT_SPECS = SymbolSpecs(
-    symbol="XAUUSDT",
+    symbol="XAUUSDT"
     # On Binance metals perps the contract is typically quoted per 1 troy ounce (bootstrap assumption).
     # Use exchangeInfo in prod to confirm exact filters.
-    contract_size=1.0,
-    pip_value=0.01,
-    lot_step=0.001,
-    min_lot=0.001,
-    max_lot=1_000_000.0,
-    tick_value=0.01,
-    point_value=0.01,
-    price_decimals=2,
-    volume_decimals=3,
-    delta_z=3.0,
+    contract_size=1.0
+    pip_value=0.01
+    lot_step=0.001
+    min_lot=0.001
+    max_lot=1_000_000.0
+    tick_value=0.01
+    point_value=0.01
+    price_decimals=2
+    volume_decimals=3
+    delta_z=3.0
 )
 
 # Crypto: Bitcoin (BTCUSD / BTCUSDT)
 BTCUSD_CONFIG = OrderFlowConfig(
-    symbol="BTCUSD",
-    delta_window_ticks=120,
+    symbol="BTCUSD"
+    delta_window_ticks=120
     delta_z_threshold=2.7,          # BTC_DELTA_Z_THRESHOLD=2.7
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.15,
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.15
     obi_threshold=0.35,             # BTC_OBI_THRESHOLD=0.35
-    obi_min_duration=1.5,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.4,
+    obi_min_duration=1.5
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.4
     min_signal_interval_sec=20,     # BTC_MIN_SIGNAL_INTERVAL=20
     stop_mode="ATR",                # BTC_STOP_MODE=ATR
     stop_atr_mult=0.8,              # BTC_STOP_ATR_MULT=0.8
-    tp_mode="RR",
+    tp_mode="RR"
     tp_rr="1,1.5,2.5",              # BTC_TP_RR=1,1.5,2.5
-    tp_atr_mults="0.6,1.0,1.5",
+    tp_atr_mults="0.6,1.0,1.5"
     metadata={
-        "asset_class": "crypto",
-        "base_currency": "BTC",
-        "quote_currency": "USD",
+        "asset_class": "crypto"
+        "base_currency": "BTC"
+        "quote_currency": "USD"
     }
 )
 
 BTCUSD_SPECS = SymbolSpecs(
-    symbol="BTCUSD",
+    symbol="BTCUSD"
     contract_size=1.0,              # Для крипты обычно 1:1
-    pip_value=0.01,
+    pip_value=0.01
     lot_step=0.001,                 # Меньший шаг лота
-    min_lot=0.001,
-    max_lot=1000.0,
-    tick_value=0.01,
-    point_value=0.01,
+    min_lot=0.001
+    max_lot=1000.0
+    tick_value=0.01
+    point_value=0.01
     price_decimals=2,               # BTC обычно 2 знака ($50000.00)
     volume_decimals=3               # Объем до 3 знаков (0.001 BTC)
 )
 
 # BTCUSDT - отдельный config/specs (алиас с обновленным metadata)
 BTCUSDT_CONFIG = replace(
-    BTCUSD_CONFIG,
-    symbol="BTCUSDT",
+    BTCUSD_CONFIG
+    symbol="BTCUSDT"
     metadata={**BTCUSD_CONFIG.metadata, "quote_currency": "USDT"}
 )
 BTCUSDT_SPECS = replace(BTCUSD_SPECS, symbol="BTCUSDT")
 
 # Crypto: Ethereum (ETHUSD / ETHUSDT)
 ETHUSD_CONFIG = OrderFlowConfig(
-    symbol="ETHUSD",
-    delta_window_ticks=120,
-    delta_z_threshold=2.5,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.15,
-    obi_threshold=0.4,
-    obi_min_duration=1.5,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.4,
-    min_signal_interval_sec=30,
+    symbol="ETHUSD"
+    delta_window_ticks=120
+    delta_z_threshold=2.5
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.15
+    obi_threshold=0.4
+    obi_min_duration=1.5
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.4
+    min_signal_interval_sec=30
     metadata={
-        "asset_class": "crypto",
-        "base_currency": "ETH",
-        "quote_currency": "USD",
+        "asset_class": "crypto"
+        "base_currency": "ETH"
+        "quote_currency": "USD"
     }
 )
 
 ETHUSD_SPECS = SymbolSpecs(
-    symbol="ETHUSD",
-    contract_size=1.0,
-    pip_value=0.01,
-    lot_step=0.01,
-    min_lot=0.01,
-    max_lot=1000.0,
-    tick_value=0.01,
-    point_value=0.01,
+    symbol="ETHUSD"
+    contract_size=1.0
+    pip_value=0.01
+    lot_step=0.01
+    min_lot=0.01
+    max_lot=1000.0
+    tick_value=0.01
+    point_value=0.01
     price_decimals=2,               # ETH обычно 2 знака ($3000.00)
     volume_decimals=2
 )
 
 # ETHUSDT - отдельный config/specs (алиас с обновленным metadata)
 ETHUSDT_CONFIG = replace(
-    ETHUSD_CONFIG,
-    symbol="ETHUSDT",
+    ETHUSD_CONFIG
+    symbol="ETHUSDT"
     metadata={**ETHUSD_CONFIG.metadata, "quote_currency": "USDT"}
 )
 ETHUSDT_SPECS = replace(ETHUSD_SPECS, symbol="ETHUSDT")
 
 # Crypto: Binance Coin (BNBUSD / BNBUSDT)
 BNBUSD_CONFIG = OrderFlowConfig(
-    symbol="BNBUSD",
-    delta_window_ticks=120,
-    delta_z_threshold=2.9,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.34,
-    obi_min_duration=1.3,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.5,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=18,
-    stop_mode="ATR",
-    stop_atr_mult=0.9,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.65,1.05,1.6",
-    metadata={"asset_class": "crypto", "base_currency": "BNB", "quote_currency": "USD"},
+    symbol="BNBUSD"
+    delta_window_ticks=120
+    delta_z_threshold=2.9
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.34
+    obi_min_duration=1.3
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.5
+    dist_atr_threshold=0.42
+    min_signal_interval_sec=18
+    stop_mode="ATR"
+    stop_atr_mult=0.9
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.65,1.05,1.6"
+    metadata={"asset_class": "crypto", "base_currency": "BNB", "quote_currency": "USD"}
 )
 
 BNBUSD_SPECS = SymbolSpecs(
-    symbol="BNBUSD",
-    contract_size=1.0,
-    pip_value=0.01,
-    lot_step=0.01,
-    min_lot=0.01,
-    max_lot=1_000_000.0,
-    tick_value=0.01,
-    point_value=0.01,
-    price_decimals=2,
-    volume_decimals=2,
+    symbol="BNBUSD"
+    contract_size=1.0
+    pip_value=0.01
+    lot_step=0.01
+    min_lot=0.01
+    max_lot=1_000_000.0
+    tick_value=0.01
+    point_value=0.01
+    price_decimals=2
+    volume_decimals=2
 )
 
 # BNBUSDT - отдельный config/specs (алиас с обновленным metadata)
 BNBUSDT_CONFIG = replace(
-    BNBUSD_CONFIG,
-    symbol="BNBUSDT",
+    BNBUSD_CONFIG
+    symbol="BNBUSDT"
     metadata={**BNBUSD_CONFIG.metadata, "quote_currency": "USDT"}
 )
 BNBUSDT_SPECS = replace(BNBUSD_SPECS, symbol="BNBUSDT")
 
 # Crypto: Solana (SOLUSD / SOLUSDT)
 SOLUSD_CONFIG = OrderFlowConfig(
-    symbol="SOLUSD",
-    delta_window_ticks=110,
+    symbol="SOLUSD"
+    delta_window_ticks=110
     delta_z_threshold=3.0,          # чуть выше BTC: SOL шумнее
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.18,
-    obi_threshold=0.33,
-    obi_min_duration=1.2,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=0.9,
-    iceberg_refresh_min_abs=2.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=15,
-    stop_mode="ATR",
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.18
+    obi_threshold=0.33
+    obi_min_duration=1.2
+    iceberg_refresh_count=3
+    iceberg_min_duration=0.9
+    iceberg_refresh_min_abs=2.0
+    dist_atr_threshold=0.45
+    min_signal_interval_sec=15
+    stop_mode="ATR"
     stop_atr_mult=1.0,              # SOL волатильнее -> стоп чуть шире
-    tp_mode="RR",
-    tp_rr="1,1.6,2.6",
-    tp_atr_mults="0.7,1.1,1.7",
-    metadata={"asset_class": "crypto", "base_currency": "SOL", "quote_currency": "USD"},
+    tp_mode="RR"
+    tp_rr="1,1.6,2.6"
+    tp_atr_mults="0.7,1.1,1.7"
+    metadata={"asset_class": "crypto", "base_currency": "SOL", "quote_currency": "USD"}
 )
 
 SOLUSD_SPECS = SymbolSpecs(
-    symbol="SOLUSD",
-    contract_size=1.0,
-    pip_value=0.01,
-    lot_step=0.01,
-    min_lot=0.01,
-    max_lot=1_000_000.0,
-    tick_value=0.01,
-    point_value=0.01,
-    price_decimals=2,
-    volume_decimals=2,
+    symbol="SOLUSD"
+    contract_size=1.0
+    pip_value=0.01
+    lot_step=0.01
+    min_lot=0.01
+    max_lot=1_000_000.0
+    tick_value=0.01
+    point_value=0.01
+    price_decimals=2
+    volume_decimals=2
 )
 
 # SOLUSDT - отдельный config/specs (алиас с обновленным metadata)
 SOLUSDT_CONFIG = replace(
-    SOLUSD_CONFIG,
-    symbol="SOLUSDT",
-    metadata={**SOLUSD_CONFIG.metadata, "quote_currency": "USDT"},
+    SOLUSD_CONFIG
+    symbol="SOLUSDT"
+    metadata={**SOLUSD_CONFIG.metadata, "quote_currency": "USDT"}
 )
 SOLUSDT_SPECS = replace(SOLUSD_SPECS, symbol="SOLUSDT")
 
 # Crypto: Ripple (XRPUSD / XRPUSDT)
 XRPUSD_CONFIG = OrderFlowConfig(
-    symbol="XRPUSD",
+    symbol="XRPUSD"
     delta_window_ticks=150,         # больше окно: много мелких тиков
     delta_z_threshold=3.2,          # XRP часто "пилит" -> выше порог
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.20,
-    obi_threshold=0.30,
-    obi_min_duration=1.2,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.0,
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.20
+    obi_threshold=0.30
+    obi_min_duration=1.2
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.0
     iceberg_refresh_min_abs=20.0,   # XRP дешёвый, объёмы в штуках больше
-    dist_atr_threshold=0.50,
-    min_signal_interval_sec=12,
-    stop_mode="ATR",
-    stop_atr_mult=1.1,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.3",
-    tp_atr_mults="0.8,1.2,1.8",
-    metadata={"asset_class": "crypto", "base_currency": "XRP", "quote_currency": "USD"},
+    dist_atr_threshold=0.50
+    min_signal_interval_sec=12
+    stop_mode="ATR"
+    stop_atr_mult=1.1
+    tp_mode="RR"
+    tp_rr="1,1.5,2.3"
+    tp_atr_mults="0.8,1.2,1.8"
+    metadata={"asset_class": "crypto", "base_currency": "XRP", "quote_currency": "USD"}
 )
 
 XRPUSD_SPECS = SymbolSpecs(
-    symbol="XRPUSD",
-    contract_size=1.0,
-    pip_value=0.0001,
-    lot_step=1.0,
-    min_lot=1.0,
-    max_lot=1_000_000_000.0,
-    tick_value=0.0001,
-    point_value=0.0001,
-    price_decimals=4,
+    symbol="XRPUSD"
+    contract_size=1.0
+    pip_value=0.0001
+    lot_step=1.0
+    min_lot=1.0
+    max_lot=1_000_000_000.0
+    tick_value=0.0001
+    point_value=0.0001
+    price_decimals=4
     volume_decimals=0,  # "штуки"
 )
 
 # XRPUSDT - отдельный config/specs (алиас с обновленным metadata)
 XRPUSDT_CONFIG = replace(
-    XRPUSD_CONFIG,
-    symbol="XRPUSDT",
-    metadata={**XRPUSD_CONFIG.metadata, "quote_currency": "USDT"},
+    XRPUSD_CONFIG
+    symbol="XRPUSDT"
+    metadata={**XRPUSD_CONFIG.metadata, "quote_currency": "USDT"}
 )
 XRPUSDT_SPECS = replace(XRPUSD_SPECS, symbol="XRPUSDT")
 
 # New crypto symbols configurations
 PEPEUSDT_CONFIG = OrderFlowConfig(
-    symbol="1000PEPEUSDT",
-    delta_window_ticks=240,
-    delta_z_threshold=3.1,
-    weak_progress_atr=0.22,
-    obi_threshold=0.42,
-    obi_min_duration=2.0,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.2,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.55,
-    min_signal_interval_sec=45,
-    read_count=150,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.10,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "PEPE", "quote_currency": "USDT"},
+    symbol="1000PEPEUSDT"
+    delta_window_ticks=240
+    delta_z_threshold=3.1
+    weak_progress_atr=0.22
+    obi_threshold=0.42
+    obi_min_duration=2.0
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.2
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.55
+    min_signal_interval_sec=45
+    read_count=150
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.10
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "PEPE", "quote_currency": "USDT"}
 )
 
 PEPEUSDT_SPECS = SymbolSpecs(
-    symbol="1000PEPEUSDT",
+    symbol="1000PEPEUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=8,               # TODO: exchangeInfo (PEPE has many decimals)
@@ -1482,31 +1482,31 @@ PEPEUSDT_SPECS = SymbolSpecs(
 )
 
 DOGEUSDT_CONFIG = OrderFlowConfig(
-    symbol="DOGEUSDT",
-    delta_window_ticks=150,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "DOGE", "quote_currency": "USDT"},
+    symbol="DOGEUSDT"
+    delta_window_ticks=150
+    delta_z_threshold=2.8
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.42
+    min_signal_interval_sec=20
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "DOGE", "quote_currency": "USDT"}
 )
 
 DOGEUSDT_SPECS = SymbolSpecs(
-    symbol="DOGEUSDT",
+    symbol="DOGEUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=5,               # TODO: exchangeInfo
@@ -1514,29 +1514,29 @@ DOGEUSDT_SPECS = SymbolSpecs(
 )
 
 SHIBUSDT_CONFIG = OrderFlowConfig(
-    symbol="1000SHIBUSDT",
-    delta_window_ticks=240,
-    delta_z_threshold=3.1,
-    weak_progress_atr=0.22,
-    obi_threshold=0.42,
-    obi_min_duration=2.0,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.2,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.55,
-    min_signal_interval_sec=45,
-    read_count=150,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.10,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "SHIB", "quote_currency": "USDT"},
+    symbol="1000SHIBUSDT"
+    delta_window_ticks=240
+    delta_z_threshold=3.1
+    weak_progress_atr=0.22
+    obi_threshold=0.42
+    obi_min_duration=2.0
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.2
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.55
+    min_signal_interval_sec=45
+    read_count=150
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.10
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "SHIB", "quote_currency": "USDT"}
 )
 
 SHIBUSDT_SPECS = SymbolSpecs(
-    symbol="1000SHIBUSDT",
+    symbol="1000SHIBUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=8,               # TODO: exchangeInfo
@@ -1544,31 +1544,31 @@ SHIBUSDT_SPECS = SymbolSpecs(
 )
 
 FLOKIUSDT_CONFIG = OrderFlowConfig(
-    symbol="1000FLOKIUSDT",
-    delta_window_ticks=240,
-    delta_z_threshold=3.1,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.24,
-    obi_threshold=0.43,
-    obi_min_duration=2.1,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.2,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.58,
-    min_signal_interval_sec=50,
-    read_count=150,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.15,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "FLOKI", "quote_currency": "USDT"},
+    symbol="1000FLOKIUSDT"
+    delta_window_ticks=240
+    delta_z_threshold=3.1
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.24
+    obi_threshold=0.43
+    obi_min_duration=2.1
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.2
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.58
+    min_signal_interval_sec=50
+    read_count=150
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.15
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "FLOKI", "quote_currency": "USDT"}
 )
 
 FLOKIUSDT_SPECS = SymbolSpecs(
-    symbol="1000FLOKIUSDT",
+    symbol="1000FLOKIUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=6,               # TODO: exchangeInfo
@@ -1576,31 +1576,31 @@ FLOKIUSDT_SPECS = SymbolSpecs(
 )
 
 BONKUSDT_CONFIG = OrderFlowConfig(
-    symbol="1000BONKUSDT",
-    delta_window_ticks=240,
-    delta_z_threshold=3.2,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.25,
-    obi_threshold=0.44,
-    obi_min_duration=2.1,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.2,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.60,
-    min_signal_interval_sec=55,
-    read_count=150,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.20,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "BONK", "quote_currency": "USDT"},
+    symbol="1000BONKUSDT"
+    delta_window_ticks=240
+    delta_z_threshold=3.2
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.25
+    obi_threshold=0.44
+    obi_min_duration=2.1
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.2
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.60
+    min_signal_interval_sec=55
+    read_count=150
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.20
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "BONK", "quote_currency": "USDT"}
 )
 
 BONKUSDT_SPECS = SymbolSpecs(
-    symbol="1000BONKUSDT",
+    symbol="1000BONKUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=8,               # TODO: exchangeInfo
@@ -1608,31 +1608,31 @@ BONKUSDT_SPECS = SymbolSpecs(
 )
 
 WIFUSDT_CONFIG = OrderFlowConfig(
-    symbol="WIFUSDT",
-    delta_window_ticks=220,
-    delta_z_threshold=3.0,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.21,
-    obi_threshold=0.40,
-    obi_min_duration=1.9,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.1,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.55,
-    min_signal_interval_sec=40,
-    read_count=140,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.05,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "WIF", "quote_currency": "USDT"},
+    symbol="WIFUSDT"
+    delta_window_ticks=220
+    delta_z_threshold=3.0
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.21
+    obi_threshold=0.40
+    obi_min_duration=1.9
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.1
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.55
+    min_signal_interval_sec=40
+    read_count=140
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.05
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "WIF", "quote_currency": "USDT"}
 )
 
 WIFUSDT_SPECS = SymbolSpecs(
-    symbol="WIFUSDT",
+    symbol="WIFUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=6,               # TODO: exchangeInfo
@@ -1640,31 +1640,31 @@ WIFUSDT_SPECS = SymbolSpecs(
 )
 
 SUIUSDT_CONFIG = OrderFlowConfig(
-    symbol="SUIUSDT",
-    delta_window_ticks=140,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "SUI", "quote_currency": "USDT"},
+    symbol="SUIUSDT"
+    delta_window_ticks=140
+    delta_z_threshold=2.8
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.42
+    min_signal_interval_sec=20
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "SUI", "quote_currency": "USDT"}
 )
 
 SUIUSDT_SPECS = SymbolSpecs(
-    symbol="SUIUSDT",
+    symbol="SUIUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
@@ -1672,31 +1672,31 @@ SUIUSDT_SPECS = SymbolSpecs(
 )
 
 APTUSDT_CONFIG = OrderFlowConfig(
-    symbol="APTUSDT",
-    delta_window_ticks=140,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "APT", "quote_currency": "USDT"},
+    symbol="APTUSDT"
+    delta_window_ticks=140
+    delta_z_threshold=2.8
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.42
+    min_signal_interval_sec=20
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "APT", "quote_currency": "USDT"}
 )
 
 APTUSDT_SPECS = SymbolSpecs(
-    symbol="APTUSDT",
+    symbol="APTUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
@@ -1704,31 +1704,31 @@ APTUSDT_SPECS = SymbolSpecs(
 )
 
 ARBUSDT_CONFIG = OrderFlowConfig(
-    symbol="ARBUSDT",
-    delta_window_ticks=140,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "ARB", "quote_currency": "USDT"},
+    symbol="ARBUSDT"
+    delta_window_ticks=140
+    delta_z_threshold=2.8
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.42
+    min_signal_interval_sec=20
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "ARB", "quote_currency": "USDT"}
 )
 
 ARBUSDT_SPECS = SymbolSpecs(
-    symbol="ARBUSDT",
+    symbol="ARBUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=5,               # TODO: exchangeInfo
@@ -1737,33 +1737,33 @@ ARBUSDT_SPECS = SymbolSpecs(
 
 # Forex: Silver (XAGUSD)
 XAGUSD_CONFIG = OrderFlowConfig(
-    symbol="XAGUSD",
-    delta_window_ticks=120,
-    delta_z_threshold=3.0,
-    weak_progress_atr=0.10,
-    obi_threshold=0.5,
-    obi_min_duration=2.0,
-    iceberg_refresh_count=2,
-    iceberg_min_duration=1.5,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.5,
-    min_signal_interval_sec=60,
+    symbol="XAGUSD"
+    delta_window_ticks=120
+    delta_z_threshold=3.0
+    weak_progress_atr=0.10
+    obi_threshold=0.5
+    obi_min_duration=2.0
+    iceberg_refresh_count=2
+    iceberg_min_duration=1.5
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.5
+    min_signal_interval_sec=60
     metadata={
-        "asset_class": "forex",
-        "base_currency": "XAG",
-        "quote_currency": "USD",
+        "asset_class": "forex"
+        "base_currency": "XAG"
+        "quote_currency": "USD"
     }
 )
 
 XAGUSD_SPECS = SymbolSpecs(
-    symbol="XAGUSD",
+    symbol="XAGUSD"
     contract_size=5000.0,           # 5000 унций серебра
     pip_value=0.001,                # Меньший pip для серебра
-    lot_step=0.01,
-    min_lot=0.01,
-    max_lot=100.0,
-    tick_value=0.001,
-    point_value=0.001,
+    lot_step=0.01
+    min_lot=0.01
+    max_lot=100.0
+    tick_value=0.001
+    point_value=0.001
     price_decimals=3,               # Серебро: $25.123
     volume_decimals=2
 )
@@ -1773,34 +1773,30 @@ XAGUSD_SPECS = SymbolSpecs(
 # REGISTRY - Централизованный реестр конфигураций
 # ═════════════════════════════════════════════════════════════════════
 
-TONUSDT_CONFIG = OrderFlowConfig(
-    symbol="TONUSDT",
-    delta_window_ticks=135,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.33,
-    obi_min_duration=1.5,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "TON", "quote_currency": "USDT"},
+    symbol=    delta_window_ticks=135
+    delta_z_threshold=2.8
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.33
+    obi_min_duration=1.5
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.42
+    min_signal_interval_sec=20
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "quote_currency": "USDT"}
 )
 
 
-TONUSDT_SPECS = SymbolSpecs(
-    symbol="TONUSDT",
-    contract_size=1.0,              # TODO: exchangeInfo
+    symbol=    contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=3,               # TODO: exchangeInfo
     volume_decimals=0,              # TODO: exchangeInfo
@@ -1808,32 +1804,32 @@ TONUSDT_SPECS = SymbolSpecs(
 
 
 ONDOUSDT_CONFIG = OrderFlowConfig(
-    symbol="ONDOUSDT",
-    delta_window_ticks=150,
-    delta_z_threshold=2.95,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=24,
-    read_count=125,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "ONDO", "quote_currency": "USDT"},
+    symbol="ONDOUSDT"
+    delta_window_ticks=150
+    delta_z_threshold=2.95
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.35
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.45
+    min_signal_interval_sec=24
+    read_count=125
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.95
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "ONDO", "quote_currency": "USDT"}
 )
 
 
 ONDOUSDT_SPECS = SymbolSpecs(
-    symbol="ONDOUSDT",
+    symbol="ONDOUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
@@ -1842,32 +1838,32 @@ ONDOUSDT_SPECS = SymbolSpecs(
 
 
 OPUSDT_CONFIG = OrderFlowConfig(
-    symbol="OPUSDT",
-    delta_window_ticks=145,
-    delta_z_threshold=2.9,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.44,
-    min_signal_interval_sec=22,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "OP", "quote_currency": "USDT"},
+    symbol="OPUSDT"
+    delta_window_ticks=145
+    delta_z_threshold=2.9
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.44
+    min_signal_interval_sec=22
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.95
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "OP", "quote_currency": "USDT"}
 )
 
 
 OPUSDT_SPECS = SymbolSpecs(
-    symbol="OPUSDT",
+    symbol="OPUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
@@ -1876,32 +1872,32 @@ OPUSDT_SPECS = SymbolSpecs(
 
 
 HBARUSDT_CONFIG = OrderFlowConfig(
-    symbol="HBARUSDT",
-    delta_window_ticks=140,
-    delta_z_threshold=2.85,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.43,
-    min_signal_interval_sec=24,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "HBAR", "quote_currency": "USDT"},
+    symbol="HBARUSDT"
+    delta_window_ticks=140
+    delta_z_threshold=2.85
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.43
+    min_signal_interval_sec=24
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "HBAR", "quote_currency": "USDT"}
 )
 
 
 HBARUSDT_SPECS = SymbolSpecs(
-    symbol="HBARUSDT",
+    symbol="HBARUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=5,               # TODO: exchangeInfo
@@ -1910,32 +1906,32 @@ HBARUSDT_SPECS = SymbolSpecs(
 
 
 SEIUSDT_CONFIG = OrderFlowConfig(
-    symbol="SEIUSDT",
-    delta_window_ticks=160,
-    delta_z_threshold=3.0,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.18,
-    obi_threshold=0.36,
-    obi_min_duration=1.7,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.48,
-    min_signal_interval_sec=26,
-    read_count=130,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "SEI", "quote_currency": "USDT"},
+    symbol="SEIUSDT"
+    delta_window_ticks=160
+    delta_z_threshold=3.0
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.18
+    obi_threshold=0.36
+    obi_min_duration=1.7
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.48
+    min_signal_interval_sec=26
+    read_count=130
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.00
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "SEI", "quote_currency": "USDT"}
 )
 
 
 SEIUSDT_SPECS = SymbolSpecs(
-    symbol="SEIUSDT",
+    symbol="SEIUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=5,               # TODO: exchangeInfo
@@ -1944,32 +1940,32 @@ SEIUSDT_SPECS = SymbolSpecs(
 
 
 RENDERUSDT_CONFIG = OrderFlowConfig(
-    symbol="RENDERUSDT",
-    delta_window_ticks=160,
-    delta_z_threshold=3.0,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.18,
-    obi_threshold=0.36,
-    obi_min_duration=1.7,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.48,
-    min_signal_interval_sec=26,
-    read_count=130,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "RENDER", "quote_currency": "USDT"},
+    symbol="RENDERUSDT"
+    delta_window_ticks=160
+    delta_z_threshold=3.0
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.18
+    obi_threshold=0.36
+    obi_min_duration=1.7
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.48
+    min_signal_interval_sec=26
+    read_count=130
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.00
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "RENDER", "quote_currency": "USDT"}
 )
 
 
 RENDERUSDT_SPECS = SymbolSpecs(
-    symbol="RENDERUSDT",
+    symbol="RENDERUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=3,               # TODO: exchangeInfo
@@ -1978,32 +1974,32 @@ RENDERUSDT_SPECS = SymbolSpecs(
 
 
 AAVEUSDT_CONFIG = OrderFlowConfig(
-    symbol="AAVEUSDT",
-    delta_window_ticks=150,
-    delta_z_threshold=2.95,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.46,
-    min_signal_interval_sec=24,
-    read_count=125,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.6",
-    tp_atr_mults="0.6,1.0,1.6",
-    metadata={"asset_class": "crypto", "base_currency": "AAVE", "quote_currency": "USDT"},
+    symbol="AAVEUSDT"
+    delta_window_ticks=150
+    delta_z_threshold=2.95
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.35
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.46
+    min_signal_interval_sec=24
+    read_count=125
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.00
+    tp_mode="RR"
+    tp_rr="1,1.5,2.6"
+    tp_atr_mults="0.6,1.0,1.6"
+    metadata={"asset_class": "crypto", "base_currency": "AAVE", "quote_currency": "USDT"}
 )
 
 
 AAVEUSDT_SPECS = SymbolSpecs(
-    symbol="AAVEUSDT",
+    symbol="AAVEUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=2,               # TODO: exchangeInfo
@@ -2012,32 +2008,32 @@ AAVEUSDT_SPECS = SymbolSpecs(
 
 
 TRBUSDT_CONFIG = OrderFlowConfig(
-    symbol="TRBUSDT",
-    delta_window_ticks=190,
-    delta_z_threshold=3.15,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.21,
-    obi_threshold=0.39,
-    obi_min_duration=1.9,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.1,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.56,
-    min_signal_interval_sec=35,
-    read_count=140,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.15,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.7",
-    tp_atr_mults="0.7,1.1,1.8",
-    metadata={"asset_class": "crypto", "base_currency": "TRB", "quote_currency": "USDT"},
+    symbol="TRBUSDT"
+    delta_window_ticks=190
+    delta_z_threshold=3.15
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.21
+    obi_threshold=0.39
+    obi_min_duration=1.9
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.1
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.56
+    min_signal_interval_sec=35
+    read_count=140
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.15
+    tp_mode="RR"
+    tp_rr="1,1.5,2.7"
+    tp_atr_mults="0.7,1.1,1.8"
+    metadata={"asset_class": "crypto", "base_currency": "TRB", "quote_currency": "USDT"}
 )
 
 
 TRBUSDT_SPECS = SymbolSpecs(
-    symbol="TRBUSDT",
+    symbol="TRBUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=2,               # TODO: exchangeInfo
@@ -2046,32 +2042,32 @@ TRBUSDT_SPECS = SymbolSpecs(
 
 
 NEARUSDT_CONFIG = OrderFlowConfig(
-    symbol="NEARUSDT",
-    delta_window_ticks=140,
-    delta_z_threshold=2.9,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.44,
-    min_signal_interval_sec=22,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "NEAR", "quote_currency": "USDT"},
+    symbol="NEARUSDT"
+    delta_window_ticks=140
+    delta_z_threshold=2.9
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.44
+    min_signal_interval_sec=22
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.95
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "NEAR", "quote_currency": "USDT"}
 )
 
 
 NEARUSDT_SPECS = SymbolSpecs(
-    symbol="NEARUSDT",
+    symbol="NEARUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
@@ -2079,34 +2075,30 @@ NEARUSDT_SPECS = SymbolSpecs(
 )
 
 
-FETUSDT_CONFIG = OrderFlowConfig(
-    symbol="FETUSDT",
-    delta_window_ticks=145,
-    delta_z_threshold=2.95,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=22,
-    read_count=125,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "FET", "quote_currency": "USDT"},
+    symbol=    delta_window_ticks=145
+    delta_z_threshold=2.95
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.35
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.45
+    min_signal_interval_sec=22
+    read_count=125
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.95
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "quote_currency": "USDT"}
 )
 
 
-FETUSDT_SPECS = SymbolSpecs(
-    symbol="FETUSDT",
-    contract_size=1.0,              # TODO: exchangeInfo
+    symbol=    contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
     volume_decimals=0,              # TODO: exchangeInfo
@@ -2114,55 +2106,55 @@ FETUSDT_SPECS = SymbolSpecs(
 
 
 INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
-    "XAUUSD": XAUUSD_CONFIG,
-    "XAUUSDT": XAUUSDT_CONFIG,
-    "XAGUSD": XAGUSD_CONFIG,
-    "BTCUSD": BTCUSD_CONFIG,
+    "XAUUSD": XAUUSD_CONFIG
+    "XAUUSDT": XAUUSDT_CONFIG
+    "XAGUSD": XAGUSD_CONFIG
+    "BTCUSD": BTCUSD_CONFIG
     "BTCUSDT": BTCUSDT_CONFIG,  # Отдельный config для USDT
-    "ETHUSD": ETHUSD_CONFIG,
+    "ETHUSD": ETHUSD_CONFIG
     "ETHUSDT": ETHUSDT_CONFIG,  # Отдельный config для USDT
-    "BNBUSD": BNBUSD_CONFIG,
+    "BNBUSD": BNBUSD_CONFIG
     "BNBUSDT": BNBUSDT_CONFIG,  # Отдельный config для USDT
-    "SOLUSD": SOLUSD_CONFIG,
+    "SOLUSD": SOLUSD_CONFIG
     "SOLUSDT": SOLUSDT_CONFIG,  # Отдельный config для USDT
-    "XRPUSD": XRPUSD_CONFIG,
+    "XRPUSD": XRPUSD_CONFIG
     "XRPUSDT": XRPUSDT_CONFIG,  # Отдельный config для USDT
     # New crypto symbols
-    "1000PEPEUSDT": PEPEUSDT_CONFIG,
-    "DOGEUSDT": DOGEUSDT_CONFIG,
-    "1000SHIBUSDT": SHIBUSDT_CONFIG,
-    "1000FLOKIUSDT": FLOKIUSDT_CONFIG,
-    "1000BONKUSDT": BONKUSDT_CONFIG,
-    "WIFUSDT": WIFUSDT_CONFIG,
-    "SUIUSDT": SUIUSDT_CONFIG,
-    "APTUSDT": APTUSDT_CONFIG,
-    "ARBUSDT": ARBUSDT_CONFIG,
+    "1000PEPEUSDT": PEPEUSDT_CONFIG
+    "DOGEUSDT": DOGEUSDT_CONFIG
+    "1000SHIBUSDT": SHIBUSDT_CONFIG
+    "1000FLOKIUSDT": FLOKIUSDT_CONFIG
+    "1000BONKUSDT": BONKUSDT_CONFIG
+    "WIFUSDT": WIFUSDT_CONFIG
+    "SUIUSDT": SUIUSDT_CONFIG
+    "APTUSDT": APTUSDT_CONFIG
+    "ARBUSDT": ARBUSDT_CONFIG
 }
 
 INSTRUMENT_SPECS: Dict[str, SymbolSpecs] = {
-    "XAUUSD": XAUUSD_SPECS,
-    "XAUUSDT": XAUUSDT_SPECS,
-    "XAGUSD": XAGUSD_SPECS,
-    "BTCUSD": BTCUSD_SPECS,
+    "XAUUSD": XAUUSD_SPECS
+    "XAUUSDT": XAUUSDT_SPECS
+    "XAGUSD": XAGUSD_SPECS
+    "BTCUSD": BTCUSD_SPECS
     "BTCUSDT": BTCUSDT_SPECS,  # Отдельный specs для USDT
-    "ETHUSD": ETHUSD_SPECS,
+    "ETHUSD": ETHUSD_SPECS
     "ETHUSDT": ETHUSDT_SPECS,  # Отдельный specs для USDT
-    "BNBUSD": BNBUSD_SPECS,
+    "BNBUSD": BNBUSD_SPECS
     "BNBUSDT": BNBUSDT_SPECS,  # Отдельный specs для USDT
-    "SOLUSD": SOLUSD_SPECS,
+    "SOLUSD": SOLUSD_SPECS
     "SOLUSDT": SOLUSDT_SPECS,  # Отдельный specs для USDT
-    "XRPUSD": XRPUSD_SPECS,
+    "XRPUSD": XRPUSD_SPECS
     "XRPUSDT": XRPUSDT_SPECS,  # Отдельный specs для USDT
     # New crypto symbols
-    "1000PEPEUSDT": PEPEUSDT_SPECS,
-    "DOGEUSDT": DOGEUSDT_SPECS,
-    "1000SHIBUSDT": SHIBUSDT_SPECS,
-    "1000FLOKIUSDT": FLOKIUSDT_SPECS,
-    "1000BONKUSDT": BONKUSDT_SPECS,
-    "WIFUSDT": WIFUSDT_SPECS,
-    "SUIUSDT": SUIUSDT_SPECS,
-    "APTUSDT": APTUSDT_SPECS,
-    "ARBUSDT": ARBUSDT_SPECS,
+    "1000PEPEUSDT": PEPEUSDT_SPECS
+    "DOGEUSDT": DOGEUSDT_SPECS
+    "1000SHIBUSDT": SHIBUSDT_SPECS
+    "1000FLOKIUSDT": FLOKIUSDT_SPECS
+    "1000BONKUSDT": BONKUSDT_SPECS
+    "WIFUSDT": WIFUSDT_SPECS
+    "SUIUSDT": SUIUSDT_SPECS
+    "APTUSDT": APTUSDT_SPECS
+    "ARBUSDT": ARBUSDT_SPECS
 }
 
 
@@ -2184,33 +2176,30 @@ def get_config(symbol: str, use_env: bool = True) -> OrderFlowConfig:
     sym = normalize_symbol(symbol)
 
     if sym in TONUSDT_CONFIG = OrderFlowConfig(
-    symbol="TONUSDT",
-    delta_window_ticks=135,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.33,
-    obi_min_duration=1.5,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "TON", "quote_currency": "USDT"},
+    symbol=    delta_window_ticks=135
+    delta_z_threshold=2.8
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.33
+    obi_min_duration=1.5
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.42
+    min_signal_interval_sec=20
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "quote_currency": "USDT"}
 )
 
 
-TONUSDT_SPECS = SymbolSpecs(
-    symbol="TONUSDT",
-    contract_size=1.0,              # TODO: exchangeInfo
+    symbol=    contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=3,               # TODO: exchangeInfo
     volume_decimals=0,              # TODO: exchangeInfo
@@ -2218,32 +2207,32 @@ TONUSDT_SPECS = SymbolSpecs(
 
 
 ONDOUSDT_CONFIG = OrderFlowConfig(
-    symbol="ONDOUSDT",
-    delta_window_ticks=150,
-    delta_z_threshold=2.95,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=24,
-    read_count=125,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "ONDO", "quote_currency": "USDT"},
+    symbol="ONDOUSDT"
+    delta_window_ticks=150
+    delta_z_threshold=2.95
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.35
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.45
+    min_signal_interval_sec=24
+    read_count=125
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.95
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "ONDO", "quote_currency": "USDT"}
 )
 
 
 ONDOUSDT_SPECS = SymbolSpecs(
-    symbol="ONDOUSDT",
+    symbol="ONDOUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
@@ -2252,32 +2241,32 @@ ONDOUSDT_SPECS = SymbolSpecs(
 
 
 OPUSDT_CONFIG = OrderFlowConfig(
-    symbol="OPUSDT",
-    delta_window_ticks=145,
-    delta_z_threshold=2.9,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.44,
-    min_signal_interval_sec=22,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "OP", "quote_currency": "USDT"},
+    symbol="OPUSDT"
+    delta_window_ticks=145
+    delta_z_threshold=2.9
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.44
+    min_signal_interval_sec=22
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.95
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "OP", "quote_currency": "USDT"}
 )
 
 
 OPUSDT_SPECS = SymbolSpecs(
-    symbol="OPUSDT",
+    symbol="OPUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=4,               # TODO: exchangeInfo
@@ -2286,32 +2275,32 @@ OPUSDT_SPECS = SymbolSpecs(
 
 
 HBARUSDT_CONFIG = OrderFlowConfig(
-    symbol="HBARUSDT",
-    delta_window_ticks=140,
-    delta_z_threshold=2.85,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.43,
-    min_signal_interval_sec=24,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "HBAR", "quote_currency": "USDT"},
+    symbol="HBARUSDT"
+    delta_window_ticks=140
+    delta_z_threshold=2.85
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.16
+    obi_threshold=0.34
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.43
+    min_signal_interval_sec=24
+    read_count=120
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=0.90
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "HBAR", "quote_currency": "USDT"}
 )
 
 
 HBARUSDT_SPECS = SymbolSpecs(
-    symbol="HBARUSDT",
+    symbol="HBARUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=5,               # TODO: exchangeInfo
@@ -2320,32 +2309,32 @@ HBARUSDT_SPECS = SymbolSpecs(
 
 
 SEIUSDT_CONFIG = OrderFlowConfig(
-    symbol="SEIUSDT",
-    delta_window_ticks=160,
-    delta_z_threshold=3.0,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.18,
-    obi_threshold=0.36,
-    obi_min_duration=1.7,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.48,
-    min_signal_interval_sec=26,
-    read_count=130,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "SEI", "quote_currency": "USDT"},
+    symbol="SEIUSDT"
+    delta_window_ticks=160
+    delta_z_threshold=3.0
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.18
+    obi_threshold=0.36
+    obi_min_duration=1.7
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.48
+    min_signal_interval_sec=26
+    read_count=130
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.00
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "SEI", "quote_currency": "USDT"}
 )
 
 
 SEIUSDT_SPECS = SymbolSpecs(
-    symbol="SEIUSDT",
+    symbol="SEIUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=5,               # TODO: exchangeInfo
@@ -2354,32 +2343,32 @@ SEIUSDT_SPECS = SymbolSpecs(
 
 
 RENDERUSDT_CONFIG = OrderFlowConfig(
-    symbol="RENDERUSDT",
-    delta_window_ticks=160,
-    delta_z_threshold=3.0,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.18,
-    obi_threshold=0.36,
-    obi_min_duration=1.7,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.48,
-    min_signal_interval_sec=26,
-    read_count=130,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.5",
-    tp_atr_mults="0.6,1.0,1.5",
-    metadata={"asset_class": "crypto", "base_currency": "RENDER", "quote_currency": "USDT"},
+    symbol="RENDERUSDT"
+    delta_window_ticks=160
+    delta_z_threshold=3.0
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.18
+    obi_threshold=0.36
+    obi_min_duration=1.7
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.48
+    min_signal_interval_sec=26
+    read_count=130
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.00
+    tp_mode="RR"
+    tp_rr="1,1.5,2.5"
+    tp_atr_mults="0.6,1.0,1.5"
+    metadata={"asset_class": "crypto", "base_currency": "RENDER", "quote_currency": "USDT"}
 )
 
 
 RENDERUSDT_SPECS = SymbolSpecs(
-    symbol="RENDERUSDT",
+    symbol="RENDERUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=3,               # TODO: exchangeInfo
@@ -2388,32 +2377,32 @@ RENDERUSDT_SPECS = SymbolSpecs(
 
 
 AAVEUSDT_CONFIG = OrderFlowConfig(
-    symbol="AAVEUSDT",
-    delta_window_ticks=150,
-    delta_z_threshold=2.95,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.46,
-    min_signal_interval_sec=24,
-    read_count=125,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.6",
-    tp_atr_mults="0.6,1.0,1.6",
-    metadata={"asset_class": "crypto", "base_currency": "AAVE", "quote_currency": "USDT"},
+    symbol="AAVEUSDT"
+    delta_window_ticks=150
+    delta_z_threshold=2.95
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.17
+    obi_threshold=0.35
+    obi_min_duration=1.6
+    iceberg_refresh_count=3
+    iceberg_min_duration=1.0
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.46
+    min_signal_interval_sec=24
+    read_count=125
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.00
+    tp_mode="RR"
+    tp_rr="1,1.5,2.6"
+    tp_atr_mults="0.6,1.0,1.6"
+    metadata={"asset_class": "crypto", "base_currency": "AAVE", "quote_currency": "USDT"}
 )
 
 
 AAVEUSDT_SPECS = SymbolSpecs(
-    symbol="AAVEUSDT",
+    symbol="AAVEUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=2,               # TODO: exchangeInfo
@@ -2422,32 +2411,32 @@ AAVEUSDT_SPECS = SymbolSpecs(
 
 
 TRBUSDT_CONFIG = OrderFlowConfig(
-    symbol="TRBUSDT",
-    delta_window_ticks=190,
-    delta_z_threshold=3.15,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.21,
-    obi_threshold=0.39,
-    obi_min_duration=1.9,
-    iceberg_refresh_count=4,
-    iceberg_min_duration=1.1,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.56,
-    min_signal_interval_sec=35,
-    read_count=140,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.15,
-    tp_mode="RR",
-    tp_rr="1,1.5,2.7",
-    tp_atr_mults="0.7,1.1,1.8",
-    metadata={"asset_class": "crypto", "base_currency": "TRB", "quote_currency": "USDT"},
+    symbol="TRBUSDT"
+    delta_window_ticks=190
+    delta_z_threshold=3.15
+    delta_abs_min=0.5
+    delta_abs_min_confirm=0.5
+    weak_progress_atr=0.21
+    obi_threshold=0.39
+    obi_min_duration=1.9
+    iceberg_refresh_count=4
+    iceberg_min_duration=1.1
+    iceberg_refresh_min_abs=1.0
+    dist_atr_threshold=0.56
+    min_signal_interval_sec=35
+    read_count=140
+    read_block_ms=1000
+    stop_mode="ATR"
+    stop_atr_mult=1.15
+    tp_mode="RR"
+    tp_rr="1,1.5,2.7"
+    tp_atr_mults="0.7,1.1,1.8"
+    metadata={"asset_class": "crypto", "base_currency": "TRB", "quote_currency": "USDT"}
 )
 
 
 TRBUSDT_SPECS = SymbolSpecs(
-    symbol="TRBUSDT",
+    symbol="TRBUSDT"
     contract_size=1.0,              # TODO: exchangeInfo
     min_lot=1.0,                    # TODO: exchangeInfo
     price_decimals=2,               # TODO: exchangeInfo

@@ -65,9 +65,9 @@ def _bootstrap_paths() -> None:  # pragma: no cover
     import sys
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.abspath(os.path.join(here, '..')),
-        os.path.abspath(os.path.join(here, '..', '..')),
-        os.path.abspath(os.path.join(here, '..', '..', '..')),
+        os.path.abspath(os.path.join(here, '..'))
+        os.path.abspath(os.path.join(here, '..', '..'))
+        os.path.abspath(os.path.join(here, '..', '..', '..'))
     ]
     for root in candidates:
         if os.path.isfile(os.path.join(root, 'services', '__init__.py')) and os.path.isdir(os.path.join(root, 'tick_flow_full', 'core')):
@@ -87,12 +87,12 @@ except Exception:  # pragma: no cover
 
 from services.redis_stream_runner_base import RedisStreamRunner, StreamMsg
 from services.liquidation_map_core import (
-    Bucketizer,
-    LiqMapWindowAgg,
-    normalize_liq_event,
-    _safe_decimal_str,
-    format_decimal,
-    format_price,
+    Bucketizer
+    LiqMapWindowAgg
+    normalize_liq_event
+    _safe_decimal_str
+    format_decimal
+    format_price
 )
 
 
@@ -110,15 +110,15 @@ liqmap_snapshot_bytes = Gauge("liqmap_snapshot_bytes", "Snapshot JSON bytes", ["
 liqmap_snapshot_total = Counter("liqmap_snapshot_total", "Snapshots published", ["symbol", "window"])
 
 liqmap_evt_lag_ms = Histogram(
-    "liqmap_evt_lag_ms",
-    "Event lag: now_ms - ts_event_ms (accepted events)",
-    buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000),
+    "liqmap_evt_lag_ms"
+    "Event lag: now_ms - ts_event_ms (accepted events)"
+    buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000)
 )
 
 liqmap_loop_sleep_ms = Histogram(
-    "liqmap_loop_sleep_ms",
-    "Main loop sleep (idle/backoff)",
-    buckets=(0.0, 1, 5, 10, 50, 100, 250, 500, 1000),
+    "liqmap_loop_sleep_ms"
+    "Main loop sleep (idle/backoff)"
+    buckets=(0.0, 1, 5, 10, 50, 100, 250, 500, 1000)
 )
 
 liqmap_last_publish_ts_ms = Gauge("liqmap_last_publish_ts_ms", "Last publish wallclock ts (ms)")
@@ -130,8 +130,8 @@ liqmap_last_event_ts_ms = Gauge("liqmap_last_event_ts_ms", "Last accepted event 
 # ─────────────────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
-    level=os.getenv("LIQMAP_LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=os.getenv("LIQMAP_LOG_LEVEL", "INFO")
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("liquidation_map_service")
 
@@ -208,14 +208,14 @@ class LiquidationMapService:
         # Runner
         self.r = get_redis()
         self.runner = RedisStreamRunner(
-            r=self.r,
-            group=self.group,
-            consumer=self.consumer,
-            block_ms=int(os.getenv("LIQMAP_BLOCK_MS", "2000")),
-            read_count=int(os.getenv("LIQMAP_READ_COUNT", "200")),
-            autoclaim_min_idle_ms=int(os.getenv("LIQMAP_AUTOCLAIM_MIN_IDLE_MS", "45000")),
-            autoclaim_count=int(os.getenv("LIQMAP_AUTOCLAIM_COUNT", "200")),
-            dlq_prefix=os.getenv("LIQMAP_DLQ_PREFIX", "dlq"),
+            r=self.r
+            group=self.group
+            consumer=self.consumer
+            block_ms=int(os.getenv("LIQMAP_BLOCK_MS", "2000"))
+            read_count=int(os.getenv("LIQMAP_READ_COUNT", "200"))
+            autoclaim_min_idle_ms=int(os.getenv("LIQMAP_AUTOCLAIM_MIN_IDLE_MS", "45000"))
+            autoclaim_count=int(os.getenv("LIQMAP_AUTOCLAIM_COUNT", "200"))
+            dlq_prefix=os.getenv("LIQMAP_DLQ_PREFIX", "dlq")
         )
 
         # Per-symbol per-window aggregators
@@ -323,24 +323,24 @@ class LiquidationMapService:
             levels = agg.levels(max_levels=self.max_levels, range_pct=self.range_pct)
 
             payload = {
-                "ts_ms": now_ms,
-                "symbol": symbol,
-                "window": wname,
-                "bucket_mode": self.bucketizer.mode,
-                "bucket_bps": self.bucketizer.bps,
-                "bucket_pct": self.bucketizer.pct,
-                "bucket_abs": str(self.bucketizer.abs_step) if self.bucketizer.abs_step is not None else None,
-                "range_pct": self.range_pct,
+                "ts_ms": now_ms
+                "symbol": symbol
+                "window": wname
+                "bucket_mode": self.bucketizer.mode
+                "bucket_bps": self.bucketizer.bps
+                "bucket_pct": self.bucketizer.pct
+                "bucket_abs": str(self.bucketizer.abs_step) if self.bucketizer.abs_step is not None else None
+                "range_pct": self.range_pct
                 "levels": [
                     {
-                        "price": format_price(p),
-                        "bucket": bk,
-                        "long_usd": format_decimal(l),
-                        "short_usd": format_decimal(s),
-                        "total_usd": format_decimal(l + s),
+                        "price": format_price(p)
+                        "bucket": bk
+                        "long_usd": format_decimal(l)
+                        "short_usd": format_decimal(s)
+                        "total_usd": format_decimal(l + s)
                     }
                     for (p, bk, l, s) in levels
-                ],
+                ]
             }
 
             j = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
@@ -369,12 +369,12 @@ class LiquidationMapService:
 
     def run_forever(self) -> None:
         logger.info(
-            "Starting LiquidationMapService stream=%s group=%s consumer=%s windows=%s bucket_mode=%s",
-            self.stream_in,
-            self.group,
-            self.consumer,
-            ",".join(w for w, _ in self.windows),
-            self.bucketizer.mode,
+            "Starting LiquidationMapService stream=%s group=%s consumer=%s windows=%s bucket_mode=%s"
+            self.stream_in
+            self.group
+            self.consumer
+            ",".join(w for w, _ in self.windows)
+            self.bucketizer.mode
         )
 
         # Ensure consumer group exists

@@ -23,13 +23,13 @@ class EffectiveStateResolver:
         parts = scope_value.split("|")
         if len(parts) >= 8:
             return {
-                "source": parts[0],
-                "venue": parts[1],
-                "symbol": parts[2],
-                "scenario": parts[3],
-                "regime": parts[4],
-                "risk_horizon_bucket": parts[5],
-                "layer": parts[6],
+                "source": parts[0]
+                "venue": parts[1]
+                "symbol": parts[2]
+                "scenario": parts[3]
+                "regime": parts[4]
+                "risk_horizon_bucket": parts[5]
+                "layer": parts[6]
                 "policy_ver": parts[7]
             }
         return {"raw": scope_value}
@@ -175,8 +175,8 @@ class EffectiveStateResolver:
             effective_level = "normal"
 
         return EffectiveStateResolver._build_output(
-            scope_value, rollout_stage, effective_level,
-            "blocked" if release_blocked else "allowed",
+            scope_value, rollout_stage, effective_level
+            "blocked" if release_blocked else "allowed"
             freeze_state, override_state
         )
 
@@ -191,25 +191,25 @@ class EffectiveStateResolver:
         release_allowed = (release != "blocked")
         
         return {
-            "scope": EffectiveStateResolver._parse_scope(scope_val),
+            "scope": EffectiveStateResolver._parse_scope(scope_val)
             "states": {
-                "rollout_stage": rollout,
-                "effective_runtime_state": eff_state,
-                "release_state": release,
-                "freeze_state": freeze,
-                "override_state": override,
-                "allocator_state": "fresh",
-                "budget_state": "healthy",
+                "rollout_stage": rollout
+                "effective_runtime_state": eff_state
+                "release_state": release
+                "freeze_state": freeze
+                "override_state": override
+                "allocator_state": "fresh"
+                "budget_state": "healthy"
                 "portfolio_state": "within_cap"
-            },
+            }
             "constraints": {
-                "risk_mult_cap": 0.25 if eff_state == "clip" else 1.0,
-                "new_entries_allowed": new_entries_allowed,
+                "risk_mult_cap": 0.25 if eff_state == "clip" else 1.0
+                "new_entries_allowed": new_entries_allowed
                 "protective_exits_allowed": True, # Always true under F4 requirements
-                "promotion_allowed": release_allowed,
+                "promotion_allowed": release_allowed
                 "release_allowed": release_allowed
-            },
-            "projection_ver": int(datetime.utcnow().timestamp()),
+            }
+            "projection_ver": int(datetime.utcnow().timestamp())
             "updated_at_ms": int(time.time() * 1000)
         }
 

@@ -61,17 +61,17 @@ def _winner_to_override(
     apply-kind=overrides_v1 -> EntryPolicyApplyRunner writes overrides key.
     """
     return EntryPolicyOverridesV1(
-        updated_ts_ms=int(updated_ts_ms),
-        enabled=1,
-        symbol=str(symbol).upper(),
-        regime=str(regime).lower(),
-        scenario=str(scenario).lower(),
-        group=_regime_group(regime),
-        force_active_arm=str(winner).upper(),
-        freeze_active=0,
-        ab_split_b=int(os.getenv("AUTOPILOT_AB_SPLIT_B", "10")),
-        ab_split_c=int(os.getenv("AUTOPILOT_AB_SPLIT_C", "10")),
-        ab_salt=str(os.getenv("AUTOPILOT_AB_SALT", "v1")),
+        updated_ts_ms=int(updated_ts_ms)
+        enabled=1
+        symbol=str(symbol).upper()
+        regime=str(regime).lower()
+        scenario=str(scenario).lower()
+        group=_regime_group(regime)
+        force_active_arm=str(winner).upper()
+        freeze_active=0
+        ab_split_b=int(os.getenv("AUTOPILOT_AB_SPLIT_B", "10"))
+        ab_split_c=int(os.getenv("AUTOPILOT_AB_SPLIT_C", "10"))
+        ab_salt=str(os.getenv("AUTOPILOT_AB_SALT", "v1"))
     )
 
 async def run_once() -> None:
@@ -140,11 +140,11 @@ async def run_once() -> None:
         if win != "A" and win_lcb < (A[2] + min_edge):
             win = "A"
         recs.append({
-            "symbol": sym, "regime": rg, "scenario": scn,
-            "winner_arm": win,
-            "A": {"n": A[0], "mean": A[1], "lcb": A[2]},
-            "B": {"n": B[0], "mean": B[1], "lcb": B[2]},
-            "C": {"n": C[0], "mean": C[1], "lcb": C[2]},
+            "symbol": sym, "regime": rg, "scenario": scn
+            "winner_arm": win
+            "A": {"n": A[0], "mean": A[1], "lcb": A[2]}
+            "B": {"n": B[0], "mean": B[1], "lcb": B[2]}
+            "C": {"n": C[0], "mean": C[1], "lcb": C[2]}
         })
 
     # 3) Telegram report (summary)
@@ -162,7 +162,7 @@ async def run_once() -> None:
     if int(os.getenv("AUTOPILOT_PROPOSE_OVERRIDES", "1")) == 1:
         for x in recs:
             ovr = _winner_to_override(
-                symbol=x["symbol"], regime=x["regime"], scenario=x["scenario"],
+                symbol=x["symbol"], regime=x["regime"], scenario=x["scenario"]
                 winner=x["winner_arm"], updated_ts_ms=now
             )
             ok, _ = ovr.validate()
@@ -170,16 +170,16 @@ async def run_once() -> None:
                 continue
             sid = _sha1(json.dumps({"k": "overrides_v1", "sym": ovr.symbol, "rg": ovr.regime, "scn": ovr.scenario, "grp": ovr.group, "ts": now}, separators=(",", ":")))
             meta = {
-                "kind": "overrides_v1",
-                "apply_kind": "overrides_v1",
-                "sid": sid,
-                "symbol": ovr.symbol,
-                "regime": ovr.regime,
-                "scenario": ovr.scenario,
-                "group": ovr.group,
-                "overrides": json.loads(ovr.to_json()),
-                "stats": x,
-                "updated_ts_ms": now,
+                "kind": "overrides_v1"
+                "apply_kind": "overrides_v1"
+                "sid": sid
+                "symbol": ovr.symbol
+                "regime": ovr.regime
+                "scenario": ovr.scenario
+                "group": ovr.group
+                "overrides": json.loads(ovr.to_json())
+                "stats": x
+                "updated_ts_ms": now
             }
             meta_key = f"{SUG_META_PREFIX}:{sid}"
             latest_key = f"{SUG_LATEST_PREFIX}:{ovr.symbol}:{ovr.regime}:{ovr.group}:{ovr.scenario}"

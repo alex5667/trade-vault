@@ -156,12 +156,12 @@ def _drift_state_from_indicators(indicators: Dict[str, Any]) -> str:
 
 
 def build_decision_record_v1(
-    *,
-    runtime: Any,
-    signal: Dict[str, Any],
-    stage: str,
-    final_actual: str,
-    veto_reason: str = "",
+    *
+    runtime: Any
+    signal: Dict[str, Any]
+    stage: str
+    final_actual: str
+    veto_reason: str = ""
 ) -> Dict[str, Any]:
     """Build a decision record from the enriched signal dict."""
 
@@ -191,144 +191,144 @@ def build_decision_record_v1(
     drift_state = _drift_state_from_indicators(indicators)
 
     rec = bind_rule_ml_v1(
-        rule_ok=rule_ok,
-        rule_ok_soft=rule_ok_soft,
-        ml_state=ml_state,
-        dq_state=dq_state,
-        drift_state=drift_state,
+        rule_ok=rule_ok
+        rule_ok_soft=rule_ok_soft
+        ml_state=ml_state
+        dq_state=dq_state
+        drift_state=drift_state
     )
 
     # Keep record compact: store essentials + a pointer to heavy snapshots
     out: Dict[str, Any] = {
-        "version": 1,
-        "ts_ms": int(ts_ms),
-        "sid": sid,
-        "symbol": symbol,
-        "direction": str(signal.get("direction") or signal.get("side") or "").upper(),
-        "stage": str(stage),
-        "final_actual": str(final_actual),
-        "final_veto_reason": str(veto_reason or ""),
-        "final_recommended": rec.get("action"),
-        "final_recommended_soft": int(rec.get("soft", 0) or 0),
-        "final_recommended_source": rec.get("source"),
-        "final_recommended_reason_code": rec.get("reason_code"),
-        "dq_state": dq_state,
-        "drift_state": drift_state,
-        "drift_psi_max_24h": float(drift.get("psi_max_24h", 0.0) or 0.0),
-        "drift_z_max_24h": float(drift.get("feature_drift_max_z_24h", 0.0) or 0.0),
-        "drift_top_feature_psi": str(drift.get("drift_top_feature_psi", "") or ""),
-        "drift_top_feature_z": str(drift.get("drift_top_feature_z", "") or ""),
-        "drift_last_ts_ms": int(float(drift.get("drift_last_ts_ms", 0) or 0)),
-        "binding_recommended_action": rec.get("action"),
-        "binding_recommended_reason_code": rec.get("reason_code"),
+        "version": 1
+        "ts_ms": int(ts_ms)
+        "sid": sid
+        "symbol": symbol
+        "direction": str(signal.get("direction") or signal.get("side") or "").upper()
+        "stage": str(stage)
+        "final_actual": str(final_actual)
+        "final_veto_reason": str(veto_reason or "")
+        "final_recommended": rec.get("action")
+        "final_recommended_soft": int(rec.get("soft", 0) or 0)
+        "final_recommended_source": rec.get("source")
+        "final_recommended_reason_code": rec.get("reason_code")
+        "dq_state": dq_state
+        "drift_state": drift_state
+        "drift_psi_max_24h": float(drift.get("psi_max_24h", 0.0) or 0.0)
+        "drift_z_max_24h": float(drift.get("feature_drift_max_z_24h", 0.0) or 0.0)
+        "drift_top_feature_psi": str(drift.get("drift_top_feature_psi", "") or "")
+        "drift_top_feature_z": str(drift.get("drift_top_feature_z", "") or "")
+        "drift_last_ts_ms": int(float(drift.get("drift_last_ts_ms", 0) or 0))
+        "binding_recommended_action": rec.get("action")
+        "binding_recommended_reason_code": rec.get("reason_code")
         "rule": {
-            "ok": rule_ok,
-            "ok_soft": rule_ok_soft,
-            "score": float(rule_score),
-            "scenario": scenario,
-            "scenario_v4": scenario_v4,
-            "reason": rule_reason[:160],
-            "have": int(ofc.get("have", indicators.get("strong_gate_have", 0)) or 0),
-            "need": int(ofc.get("need", indicators.get("strong_gate_need", 0)) or 0),
-            "missing_legs": ev.get("missing_legs") if isinstance(ev.get("missing_legs"), list) else [],
-            "gate_bits": int(ofc.get("gate_bits", 0) or 0),
-        },
+            "ok": rule_ok
+            "ok_soft": rule_ok_soft
+            "score": float(rule_score)
+            "scenario": scenario
+            "scenario_v4": scenario_v4
+            "reason": rule_reason[:160]
+            "have": int(ofc.get("have", indicators.get("strong_gate_have", 0)) or 0)
+            "need": int(ofc.get("need", indicators.get("strong_gate_need", 0)) or 0)
+            "missing_legs": ev.get("missing_legs") if isinstance(ev.get("missing_legs"), list) else []
+            "gate_bits": int(ofc.get("gate_bits", 0) or 0)
+        }
         "ml": {
-            "state": ml_state,
-            "mode": str(ml.get("mode", "") or ""),
-            "kind": str(ml.get("kind", "") or ""),
-            "allow": int(bool(ml.get("allow", True))),
-            "bucket": str(ml.get("bucket", "") or ""),
-            "p_edge": float(ml.get("p_edge", 0.0) or 0.0),
-            "p_min": float(ml.get("p_min", 0.0) or 0.0),
-            "score": float(ml.get("score", 0.0) or 0.0),
-            "floor": float(ml.get("floor", 0.0) or 0.0),
-            "latency_us": int(float(ml.get("latency_us", 0) or 0) or 0),
-            "model_ver": str(ml.get("model_ver", ml.get("ver", "")) or ""),
-        },
+            "state": ml_state
+            "mode": str(ml.get("mode", "") or "")
+            "kind": str(ml.get("kind", "") or "")
+            "allow": int(bool(ml.get("allow", True)))
+            "bucket": str(ml.get("bucket", "") or "")
+            "p_edge": float(ml.get("p_edge", 0.0) or 0.0)
+            "p_min": float(ml.get("p_min", 0.0) or 0.0)
+            "score": float(ml.get("score", 0.0) or 0.0)
+            "floor": float(ml.get("floor", 0.0) or 0.0)
+            "latency_us": int(float(ml.get("latency_us", 0) or 0) or 0)
+            "model_ver": str(ml.get("model_ver", ml.get("ver", "")) or "")
+        }
         "inputs": {
-            "tick_ts_ms": int(indicators.get("tick_ts", ts_ms) or ts_ms),
-            "price": float(indicators.get("price", signal.get("entry", 0.0)) or 0.0),
-            "spread_bps": float(indicators.get("spread_bps", 0.0) or 0.0),
-            "atr_bps": float(indicators.get("atr_bps", 0.0) or 0.0),
-            "exec_risk_bps": float(_safe_get(ofc, ("evidence", "exec_risk_bps"), 0.0) or 0.0),
-            "expected_slippage_bps": float(indicators.get("expected_slippage_bps", 0.0) or 0.0),
-            "liq_score": float(indicators.get("liq_score", 0.0) or 0.0),
-        },
+            "tick_ts_ms": int(indicators.get("tick_ts", ts_ms) or ts_ms)
+            "price": float(indicators.get("price", signal.get("entry", 0.0)) or 0.0)
+            "spread_bps": float(indicators.get("spread_bps", 0.0) or 0.0)
+            "atr_bps": float(indicators.get("atr_bps", 0.0) or 0.0)
+            "exec_risk_bps": float(_safe_get(ofc, ("evidence", "exec_risk_bps"), 0.0) or 0.0)
+            "expected_slippage_bps": float(indicators.get("expected_slippage_bps", 0.0) or 0.0)
+            "liq_score": float(indicators.get("liq_score", 0.0) or 0.0)
+        }
         "conf_cal": {
-            "ab_mode": str(indicators.get("confidence_cal_ab_mode", "") or ""),
-            "p_challenger": float(indicators.get("confidence_cal_p_challenger", 0.0) or 0.0),
-            "arm_assigned": str(indicators.get("confidence_cal_arm_assigned", "") or ""),
-            "arm_taken": str(indicators.get("confidence_cal_arm_taken", "") or ""),
-            "bucket": int(indicators.get("confidence_cal_bucket", -1) or -1),
-            "sticky_key": str(indicators.get("confidence_cal_sticky_key", "") or "")[:120],
-            "q_champion": float(indicators.get("confidence_cal_champion", indicators.get("confidence_v1", 0.0)) or 0.0),
-            "q_challenger": float(indicators.get("confidence_cal_challenger", 0.0) or 0.0),
-            "q_final": float(indicators.get("confidence_cal", 0.0) or 0.0),
-            "method": str(indicators.get("confidence_cal_method", "") or ""),
-            "bucket_by": str(indicators.get("confidence_cal_bucket_by", "") or ""),
-            "bucket_level": str(indicators.get("confidence_cal_bucket_level", "") or ""),
-            "schema_version": int(indicators.get("confidence_cal_schema_version", 0) or 0),
-            "fallback_to_champion": int(indicators.get("confidence_cal_fallback_to_champion", 0) or 0),
-            "shadow_delta": float(indicators.get("confidence_cal_shadow_delta", 0.0) or 0.0),
-            "shadow_delta_abs": float(indicators.get("confidence_cal_shadow_delta_abs", 0.0) or 0.0),
-            "low_conf_would_veto": int(indicators.get("low_conf_would_veto", 0) or 0),
-            "low_conf_virtual_pass": int(indicators.get("low_conf_virtual_pass", 0) or 0),
-            "is_virtual": int(signal.get("is_virtual", indicators.get("is_virtual", 0)) or 0),
-            "virtual_reason": str(indicators.get("virtual_reason", "") or signal.get("virtual_reason", "") or "")[:48],
-        },
+            "ab_mode": str(indicators.get("confidence_cal_ab_mode", "") or "")
+            "p_challenger": float(indicators.get("confidence_cal_p_challenger", 0.0) or 0.0)
+            "arm_assigned": str(indicators.get("confidence_cal_arm_assigned", "") or "")
+            "arm_taken": str(indicators.get("confidence_cal_arm_taken", "") or "")
+            "bucket": int(indicators.get("confidence_cal_bucket", -1) or -1)
+            "sticky_key": str(indicators.get("confidence_cal_sticky_key", "") or "")[:120]
+            "q_champion": float(indicators.get("confidence_cal_champion", indicators.get("confidence_v1", 0.0)) or 0.0)
+            "q_challenger": float(indicators.get("confidence_cal_challenger", 0.0) or 0.0)
+            "q_final": float(indicators.get("confidence_cal", 0.0) or 0.0)
+            "method": str(indicators.get("confidence_cal_method", "") or "")
+            "bucket_by": str(indicators.get("confidence_cal_bucket_by", "") or "")
+            "bucket_level": str(indicators.get("confidence_cal_bucket_level", "") or "")
+            "schema_version": int(indicators.get("confidence_cal_schema_version", 0) or 0)
+            "fallback_to_champion": int(indicators.get("confidence_cal_fallback_to_champion", 0) or 0)
+            "shadow_delta": float(indicators.get("confidence_cal_shadow_delta", 0.0) or 0.0)
+            "shadow_delta_abs": float(indicators.get("confidence_cal_shadow_delta_abs", 0.0) or 0.0)
+            "low_conf_would_veto": int(indicators.get("low_conf_would_veto", 0) or 0)
+            "low_conf_virtual_pass": int(indicators.get("low_conf_virtual_pass", 0) or 0)
+            "is_virtual": int(signal.get("is_virtual", indicators.get("is_virtual", 0)) or 0)
+            "virtual_reason": str(indicators.get("virtual_reason", "") or signal.get("virtual_reason", "") or "")[:48]
+        }
         "liqmap": {
             "gate": {
-                "mode": str(indicators.get("liqmap_gate_mode", "") or ""),
-                "window": str(indicators.get("liqmap_gate_window", "") or ""),
-                "veto": int(indicators.get("liqmap_gate_veto", 0) or 0),
-                "shadow_veto": int(indicators.get("liqmap_gate_shadow_veto", 0) or 0),
-                "reason": str(indicators.get("liqmap_gate_veto_reason", "") or ""),
-                "rr": float(indicators.get("liqmap_gate_rr", 0.0) or 0.0),
-                "risk_bps": float(indicators.get("liqmap_gate_risk_bps", 0.0) or 0.0),
-                "reward_bps": float(indicators.get("liqmap_gate_reward_bps", 0.0) or 0.0),
-            },
+                "mode": str(indicators.get("liqmap_gate_mode", "") or "")
+                "window": str(indicators.get("liqmap_gate_window", "") or "")
+                "veto": int(indicators.get("liqmap_gate_veto", 0) or 0)
+                "shadow_veto": int(indicators.get("liqmap_gate_shadow_veto", 0) or 0)
+                "reason": str(indicators.get("liqmap_gate_veto_reason", "") or "")
+                "rr": float(indicators.get("liqmap_gate_rr", 0.0) or 0.0)
+                "risk_bps": float(indicators.get("liqmap_gate_risk_bps", 0.0) or 0.0)
+                "reward_bps": float(indicators.get("liqmap_gate_reward_bps", 0.0) or 0.0)
+            }
             "w5m": {
-                "age_ms": float(indicators.get("liqmap_5m_age_ms", 0.0) or 0.0),
-                "near_total_usd": float(indicators.get("liqmap_5m_near_total_usd", 0.0) or 0.0),
-                "near_imb": float(indicators.get("liqmap_5m_near_imb", 0.0) or 0.0),
-                "dist_up_bps": float(indicators.get("liqmap_5m_dist_up_bps", 0.0) or 0.0),
-                "dist_dn_bps": float(indicators.get("liqmap_5m_dist_dn_bps", 0.0) or 0.0),
-                "peak_up1_usd": float(indicators.get("liqmap_5m_peak_up1_usd", 0.0) or 0.0),
-                "peak_dn1_usd": float(indicators.get("liqmap_5m_peak_dn1_usd", 0.0) or 0.0),
-            },
+                "age_ms": float(indicators.get("liqmap_5m_age_ms", 0.0) or 0.0)
+                "near_total_usd": float(indicators.get("liqmap_5m_near_total_usd", 0.0) or 0.0)
+                "near_imb": float(indicators.get("liqmap_5m_near_imb", 0.0) or 0.0)
+                "dist_up_bps": float(indicators.get("liqmap_5m_dist_up_bps", 0.0) or 0.0)
+                "dist_dn_bps": float(indicators.get("liqmap_5m_dist_dn_bps", 0.0) or 0.0)
+                "peak_up1_usd": float(indicators.get("liqmap_5m_peak_up1_usd", 0.0) or 0.0)
+                "peak_dn1_usd": float(indicators.get("liqmap_5m_peak_dn1_usd", 0.0) or 0.0)
+            }
             "w1h": {
-                "age_ms": float(indicators.get("liqmap_1h_age_ms", 0.0) or 0.0),
-                "near_total_usd": float(indicators.get("liqmap_1h_near_total_usd", 0.0) or 0.0),
-                "near_imb": float(indicators.get("liqmap_1h_near_imb", 0.0) or 0.0),
-                "dist_up_bps": float(indicators.get("liqmap_1h_dist_up_bps", 0.0) or 0.0),
-                "dist_dn_bps": float(indicators.get("liqmap_1h_dist_dn_bps", 0.0) or 0.0),
-                "peak_up1_usd": float(indicators.get("liqmap_1h_peak_up1_usd", 0.0) or 0.0),
-                "peak_dn1_usd": float(indicators.get("liqmap_1h_peak_dn1_usd", 0.0) or 0.0),
-            },
-        },
+                "age_ms": float(indicators.get("liqmap_1h_age_ms", 0.0) or 0.0)
+                "near_total_usd": float(indicators.get("liqmap_1h_near_total_usd", 0.0) or 0.0)
+                "near_imb": float(indicators.get("liqmap_1h_near_imb", 0.0) or 0.0)
+                "dist_up_bps": float(indicators.get("liqmap_1h_dist_up_bps", 0.0) or 0.0)
+                "dist_dn_bps": float(indicators.get("liqmap_1h_dist_dn_bps", 0.0) or 0.0)
+                "peak_up1_usd": float(indicators.get("liqmap_1h_peak_up1_usd", 0.0) or 0.0)
+                "peak_dn1_usd": float(indicators.get("liqmap_1h_peak_dn1_usd", 0.0) or 0.0)
+            }
+        }
         "meta": {
-            "meta_enforce_applied": int(ev.get("meta_enforce_applied", 0) or 0),
-            "meta_enforce_share": float(ev.get("meta_enforce_share", 1.0) or 1.0),
-            "meta_enforce_bucket": str(ev.get("meta_enforce_bucket", "") or ""),
-            "meta_p": float(ev.get("meta_p", -1.0) or -1.0),
-            "meta_veto": int(ev.get("meta_veto", 0) or 0),
-        },
+            "meta_enforce_applied": int(ev.get("meta_enforce_applied", 0) or 0)
+            "meta_enforce_share": float(ev.get("meta_enforce_share", 1.0) or 1.0)
+            "meta_enforce_bucket": str(ev.get("meta_enforce_bucket", "") or "")
+            "meta_p": float(ev.get("meta_p", -1.0) or -1.0)
+            "meta_veto": int(ev.get("meta_veto", 0) or 0)
+        }
         # P68: policy fields (fail-open)
         "policy": {
-            "ver": str(indicators.get("policy_ver", "") or ""),
-            "regime": str(indicators.get("policy_regime", "") or ""),
-            "reason": str(indicators.get("policy_reason", "") or ""),
-            "force_rule_strong_only": bool(int(indicators.get("policy_force_rule_strong_only", 0) or 0)),
-            "disable_ml_enforce": bool(int(indicators.get("policy_disable_ml_enforce", 0) or 0)),
-            "policy_dq_state": str(indicators.get("policy_dq_state", indicators.get("dq_state", ""))),
-            "policy_drift_state": str(indicators.get("policy_drift_state", indicators.get("drift_state", ""))),
+            "ver": str(indicators.get("policy_ver", "") or "")
+            "regime": str(indicators.get("policy_regime", "") or "")
+            "reason": str(indicators.get("policy_reason", "") or "")
+            "force_rule_strong_only": bool(int(indicators.get("policy_force_rule_strong_only", 0) or 0))
+            "disable_ml_enforce": bool(int(indicators.get("policy_disable_ml_enforce", 0) or 0))
+            "policy_dq_state": str(indicators.get("policy_dq_state", indicators.get("dq_state", "")))
+            "policy_drift_state": str(indicators.get("policy_drift_state", indicators.get("drift_state", "")))
             # P69
-            "policy_raw_mode": str(indicators.get("policy_raw_mode", "")),
-            "policy_effective_mode": str(indicators.get("policy_effective_mode", "")),
-            "policy_hysteresis_debug": str(indicators.get("policy_hysteresis_debug", "")),
-            "policy_changed": bool(int(indicators.get("policy_changed", 0) or 0)),
-        },
+            "policy_raw_mode": str(indicators.get("policy_raw_mode", ""))
+            "policy_effective_mode": str(indicators.get("policy_effective_mode", ""))
+            "policy_hysteresis_debug": str(indicators.get("policy_hysteresis_debug", ""))
+            "policy_changed": bool(int(indicators.get("policy_changed", 0) or 0))
+        }
     }
 
     # Optional: attach pointers to heavy snapshots if present
@@ -344,12 +344,12 @@ def build_decision_record_v1(
 
 
 async def maybe_write_decision_record_v1(
-    *,
-    runtime: Any,
-    signal: Dict[str, Any],
-    stage: str,
-    final_actual: str,
-    veto_reason: str = "",
+    *
+    runtime: Any
+    signal: Dict[str, Any]
+    stage: str
+    final_actual: str
+    veto_reason: str = ""
 ) -> None:
     """Best-effort write decision record to Redis."""
 
@@ -382,11 +382,11 @@ async def maybe_write_decision_record_v1(
     stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
 
     record = build_decision_record_v1(
-        runtime=runtime,
-        signal=signal,
-        stage=stage,
-        final_actual=final_actual,
-        veto_reason=veto_reason,
+        runtime=runtime
+        signal=signal
+        stage=stage
+        final_actual=final_actual
+        veto_reason=veto_reason
     )
 
     key = f"decision:{record['sid']}"
@@ -397,17 +397,17 @@ async def maybe_write_decision_record_v1(
         pipe = r.pipeline()
         pipe.set(key, payload, ex=ttl)
         pipe.xadd(
-            stream,
+            stream
             fields={
-                "sid": str(record["sid"]),
-                "symbol": str(record["symbol"]),
-                "ts_ms": str(record["ts_ms"]),
-                "stage": str(record["stage"]),
-                "reason_code": str(record.get("final_recommended_reason_code") or ""),
-                "payload": payload,
-            },
-            maxlen=maxlen,
-            approximate=True,
+                "sid": str(record["sid"])
+                "symbol": str(record["symbol"])
+                "ts_ms": str(record["ts_ms"])
+                "stage": str(record["stage"])
+                "reason_code": str(record.get("final_recommended_reason_code") or "")
+                "payload": payload
+            }
+            maxlen=maxlen
+            approximate=True
         )
         await pipe.execute()
     except Exception:
@@ -422,17 +422,17 @@ async def maybe_write_decision_record_v1(
                 pass
         try:
             await r.xadd(
-                stream,
+                stream
                 fields={
-                    "sid": str(record["sid"]),
-                    "symbol": str(record["symbol"]),
-                    "ts_ms": str(record["ts_ms"]),
-                    "stage": str(record["stage"]),
-                    "reason_code": str(record.get("final_recommended_reason_code") or ""),
-                    "payload": payload,
-                },
-                maxlen=maxlen,
-                approximate=True,
+                    "sid": str(record["sid"])
+                    "symbol": str(record["symbol"])
+                    "ts_ms": str(record["ts_ms"])
+                    "stage": str(record["stage"])
+                    "reason_code": str(record.get("final_recommended_reason_code") or "")
+                    "payload": payload
+                }
+                maxlen=maxlen
+                approximate=True
             )
         except Exception:
             try:
@@ -444,9 +444,9 @@ async def maybe_write_decision_record_v1(
     try:
         from services.orderflow.metrics import decision_record_written_total
         decision_record_written_total.labels(
-            symbol=str(record["symbol"]),
-            stage=str(stage),
-            result=str(final_actual),
+            symbol=str(record["symbol"])
+            stage=str(stage)
+            result=str(final_actual)
         ).inc()
     except Exception:
         pass
@@ -552,52 +552,52 @@ def extract_fields_best_effort(stub: Dict[str, Any]) -> Dict[str, Any]:
     meta_applied = bool(int(_g("meta_enforce_applied", 0) or 0))
 
     return {
-        "rule_score": rule_score,
-        "rule_ok": rule_ok,
-        "rule_soft": rule_soft,
-        "rule_reason_code_top1": str(_g("rule_reason_code_top1", "NA")),
-        "ml_enabled": bool(ml),
-        "ml_state": ml_state,
+        "rule_score": rule_score
+        "rule_ok": rule_ok
+        "rule_soft": rule_soft
+        "rule_reason_code_top1": str(_g("rule_reason_code_top1", "NA"))
+        "ml_enabled": bool(ml)
+        "ml_state": ml_state
         "ml_p_cal": None, # complex to extract without full signal
-        "ml_model_ver": str(ml.get("ver", "")),
-        "ml_latency_ms": None,
-        "ml_error": "",
-        "dq_state": dq_state,
-        "dq_flags": [],
-        "drift_state": drift_state,
-        "drift_flags": [],
-        "meta_enforce_cov_bucket": meta_bucket,
-        "meta_enforce_applied": meta_applied,
+        "ml_model_ver": str(ml.get("ver", ""))
+        "ml_latency_ms": None
+        "ml_error": ""
+        "dq_state": dq_state
+        "dq_flags": []
+        "drift_state": drift_state
+        "drift_flags": []
+        "meta_enforce_cov_bucket": meta_bucket
+        "meta_enforce_applied": meta_applied
         # P68: policy fields (fail-open)
-        "policy_ver": str(_g("policy_ver", "")),
-        "policy_regime": str(_g("policy_regime", "")),
-        "policy_reason": str(_g("policy_reason", "")),
-        "policy_force_rule_strong_only": bool(int(_g("policy_force_rule_strong_only", 0) or 0)),
-        "policy_disable_ml_enforce": bool(int(_g("policy_disable_ml_enforce", 0) or 0)),
-        "policy_dq_state": str(_g("policy_dq_state", _g("dq_state", ""))),
-        "policy_drift_state": str(_g("policy_drift_state", _g("drift_state", ""))),
+        "policy_ver": str(_g("policy_ver", ""))
+        "policy_regime": str(_g("policy_regime", ""))
+        "policy_reason": str(_g("policy_reason", ""))
+        "policy_force_rule_strong_only": bool(int(_g("policy_force_rule_strong_only", 0) or 0))
+        "policy_disable_ml_enforce": bool(int(_g("policy_disable_ml_enforce", 0) or 0))
+        "policy_dq_state": str(_g("policy_dq_state", _g("dq_state", "")))
+        "policy_drift_state": str(_g("policy_drift_state", _g("drift_state", "")))
         # P69
-        "policy_raw_mode": str(_g("policy_raw_mode", "")),
-        "policy_effective_mode": str(_g("policy_effective_mode", "")),
-        "policy_hysteresis_debug": str(_g("policy_hysteresis_debug", "")),
-        "policy_changed": bool(int(_g("policy_changed", 0) or 0)),
-        "ctx_enabled": bool(int(ev.get("ctx_enable", 0) or 0)),
-        "ctx_mode": str(ev.get("ctx_mode", "off") or "off"),
-        "ctx_key": str(ev.get("ctx_key", "") or ""),
-        "ctx_bundle_ver": str(ev.get("ctx_bundle_ver", "") or ""),
-        "ctx_exec_model_ver": str(ev.get("ctx_exec_model_ver", "") or ""),
-        "ctx_rule_model_ver": str(ev.get("ctx_rule_model_ver", "") or ""),
-        "ctx_p_rule_raw": float(ev.get("ctx_p_rule_raw", -1.0) or -1.0) if "ctx_p_rule_raw" in ev else None,
-        "ctx_p_rule_cal": float(ev.get("ctx_p_rule_cal", -1.0) or -1.0) if "ctx_p_rule_cal" in ev else None,
-        "ctx_cost_p50_bps": float(ev.get("ctx_cost_p50_bps", -1.0) or -1.0) if "ctx_cost_p50_bps" in ev else None,
-        "ctx_cost_p90_bps": float(ev.get("ctx_cost_p90_bps", -1.0) or -1.0) if "ctx_cost_p90_bps" in ev else None,
-        "ctx_exec_risk_ref_bps": float(ev.get("ctx_exec_risk_ref_bps", -1.0) or -1.0) if "ctx_exec_risk_ref_bps" in ev else None,
-        "ctx_edge_net_p50_bps": float(ev.get("ctx_edge_net_p50_bps", -999.0) or -999.0) if "ctx_edge_net_p50_bps" in ev else None,
-        "ctx_edge_net_p90_bps": float(ev.get("ctx_edge_net_p90_bps", -999.0) or -999.0) if "ctx_edge_net_p90_bps" in ev else None,
-        "ctx_reason": str(ev.get("ctx_reason", "") or ""),
-        "ctx_fallback_level": str(ev.get("ctx_fallback_level", "") or ""),
-        "ctx_shadow_disagree": bool(int(ev.get("ctx_shadow_disagree", 0) or 0)),
-        "ctx_infer_latency_us": int(ev.get("ctx_infer_latency_us", 0) or 0) if "ctx_infer_latency_us" in ev else None,
+        "policy_raw_mode": str(_g("policy_raw_mode", ""))
+        "policy_effective_mode": str(_g("policy_effective_mode", ""))
+        "policy_hysteresis_debug": str(_g("policy_hysteresis_debug", ""))
+        "policy_changed": bool(int(_g("policy_changed", 0) or 0))
+        "ctx_enabled": bool(int(ev.get("ctx_enable", 0) or 0))
+        "ctx_mode": str(ev.get("ctx_mode", "off") or "off")
+        "ctx_key": str(ev.get("ctx_key", "") or "")
+        "ctx_bundle_ver": str(ev.get("ctx_bundle_ver", "") or "")
+        "ctx_exec_model_ver": str(ev.get("ctx_exec_model_ver", "") or "")
+        "ctx_rule_model_ver": str(ev.get("ctx_rule_model_ver", "") or "")
+        "ctx_p_rule_raw": float(ev.get("ctx_p_rule_raw", -1.0) or -1.0) if "ctx_p_rule_raw" in ev else None
+        "ctx_p_rule_cal": float(ev.get("ctx_p_rule_cal", -1.0) or -1.0) if "ctx_p_rule_cal" in ev else None
+        "ctx_cost_p50_bps": float(ev.get("ctx_cost_p50_bps", -1.0) or -1.0) if "ctx_cost_p50_bps" in ev else None
+        "ctx_cost_p90_bps": float(ev.get("ctx_cost_p90_bps", -1.0) or -1.0) if "ctx_cost_p90_bps" in ev else None
+        "ctx_exec_risk_ref_bps": float(ev.get("ctx_exec_risk_ref_bps", -1.0) or -1.0) if "ctx_exec_risk_ref_bps" in ev else None
+        "ctx_edge_net_p50_bps": float(ev.get("ctx_edge_net_p50_bps", -999.0) or -999.0) if "ctx_edge_net_p50_bps" in ev else None
+        "ctx_edge_net_p90_bps": float(ev.get("ctx_edge_net_p90_bps", -999.0) or -999.0) if "ctx_edge_net_p90_bps" in ev else None
+        "ctx_reason": str(ev.get("ctx_reason", "") or "")
+        "ctx_fallback_level": str(ev.get("ctx_fallback_level", "") or "")
+        "ctx_shadow_disagree": bool(int(ev.get("ctx_shadow_disagree", 0) or 0))
+        "ctx_infer_latency_us": int(ev.get("ctx_infer_latency_us", 0) or 0) if "ctx_infer_latency_us" in ev else None
     }
 
 async def write_decision_record(redis_client: Any, record: DecisionRecordV1) -> None:
@@ -617,11 +617,11 @@ async def write_decision_record(redis_client: Any, record: DecisionRecordV1) -> 
         
         # We use a reduced field set for the stream to save bandwidth/storage
         stream_fields = {
-            "sid": str(sid),
-            "symbol": str(record.get("symbol", "")),
-            "ts_ms": str(record.get("decision_ts_ms", 0)),
+            "sid": str(sid)
+            "symbol": str(record.get("symbol", ""))
+            "ts_ms": str(record.get("decision_ts_ms", 0))
             "stage": "early_veto", # or extract from record if present
-            "reason_code": str(record.get("actual_reason_code", "")),
+            "reason_code": str(record.get("actual_reason_code", ""))
             "payload": payload
         }
 

@@ -30,16 +30,16 @@ def _metric(factory, name: str, *args, **kwargs):
 
 
 EXECUTION_QUARANTINE_EVENTS_TOTAL = _metric(
-    Counter,
-    'execution_quarantine_events_total',
-    'Number of quarantine/repair ledger events mirrored to SQL.',
-    ['action'],
+    Counter
+    'execution_quarantine_events_total'
+    'Number of quarantine/repair ledger events mirrored to SQL.'
+    ['action']
 )
 TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL = _metric(
-    Counter,
-    'trade_quarantine_ledger_write_fail_total',
-    'Number of quarantine ledger write failures.',
-    ['kind'],
+    Counter
+    'trade_quarantine_ledger_write_fail_total'
+    'Number of quarantine ledger write failures.'
+    ['kind']
 )
 
 try:  # pragma: no cover
@@ -86,17 +86,17 @@ class QuarantineLedgerSink:
             with conn:
                 with conn.cursor() as cur:
                     cur.execute(sql, (
-                        str(doc.get('sid') or ''),
-                        str(doc.get('symbol') or ''),
-                        str(doc.get('action') or 'QUARANTINED'),
-                        str(doc.get('severity') or ''),
-                        str(doc.get('reason') or ''),
-                        str(doc.get('source') or ''),
-                        str(doc.get('quarantine_key') or ''),
-                        bool(doc.get('applied', True)),
-                        json.dumps(doc.get('state') or doc, ensure_ascii=False, default=str),
-                        now_ms,
-                        int(doc.get('created_at_ms') or now_ms),
+                        str(doc.get('sid') or '')
+                        str(doc.get('symbol') or '')
+                        str(doc.get('action') or 'QUARANTINED')
+                        str(doc.get('severity') or '')
+                        str(doc.get('reason') or '')
+                        str(doc.get('source') or '')
+                        str(doc.get('quarantine_key') or '')
+                        bool(doc.get('applied', True))
+                        json.dumps(doc.get('state') or doc, ensure_ascii=False, default=str)
+                        now_ms
+                        int(doc.get('created_at_ms') or now_ms)
                     ))
             if EXECUTION_QUARANTINE_EVENTS_TOTAL:
                 EXECUTION_QUARANTINE_EVENTS_TOTAL.labels(action=str(doc.get('action') or 'QUARANTINED')).inc()
@@ -122,12 +122,12 @@ class QuarantineLedgerSink:
             with conn:
                 with conn.cursor() as cur:
                     cur.execute(sql, (
-                        str(doc.get('run_kind') or 'automated_repair'),
-                        str(doc.get('source') or ''),
-                        str(doc.get('status') or ''),
-                        json.dumps(doc.get('summary') or doc, ensure_ascii=False, default=str),
-                        started_at_ms,
-                        finished_at_ms,
+                        str(doc.get('run_kind') or 'automated_repair')
+                        str(doc.get('source') or '')
+                        str(doc.get('status') or '')
+                        json.dumps(doc.get('summary') or doc, ensure_ascii=False, default=str)
+                        started_at_ms
+                        finished_at_ms
                     ))
             if EXECUTION_QUARANTINE_EVENTS_TOTAL:
                 EXECUTION_QUARANTINE_EVENTS_TOTAL.labels(action='REPAIR_RUN').inc()

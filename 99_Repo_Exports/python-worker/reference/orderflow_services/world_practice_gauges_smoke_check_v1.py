@@ -146,36 +146,36 @@ def main() -> int:
 
     # What we expect to be present when pipeline is wired end-to-end
     key_fields = [
-        "exec_regime_bucket",
-        "vol_regime_label",
-        "liq_regime_label",
-        "vol_fast_bps",
-        "vol_slow_bps",
-        "vol_ratio",
-        "vol_ratio_z",
-        "res_recovered",
-        "res_recovery_ms",
+        "exec_regime_bucket"
+        "vol_regime_label"
+        "liq_regime_label"
+        "vol_fast_bps"
+        "vol_slow_bps"
+        "vol_ratio"
+        "vol_ratio_z"
+        "res_recovered"
+        "res_recovery_ms"
 
         # Execution-risk / slippage trackers (v16)
-        "spread_bps_submit",
-        "impact_proxy",
-        "liq_score",
-        "expected_slippage_bps",
-        "expected_slippage_decomp_bps",
-        "exec_risk_norm",
-        "exec_pen",
+        "spread_bps_submit"
+        "impact_proxy"
+        "liq_score"
+        "expected_slippage_bps"
+        "expected_slippage_decomp_bps"
+        "exec_risk_norm"
+        "exec_pen"
 
-        "fill_prob_proxy",
-        "eta_fill_sec",
-        "exec_fill_pen",
+        "fill_prob_proxy"
+        "eta_fill_sec"
+        "exec_fill_pen"
 
         # v23: adverse selection (realized drift)
-        "adverse_rd_mean_bps",
-        "adverse_rd_sigma_bps",
-        "adverse_rd_z",
-        "adverse_rd_bad_share",
-        "adverse_rd_n",
-        "adverse_rd_veto",
+        "adverse_rd_mean_bps"
+        "adverse_rd_sigma_bps"
+        "adverse_rd_z"
+        "adverse_rd_bad_share"
+        "adverse_rd_n"
+        "adverse_rd_veto"
     ]
 
     for f in recent:
@@ -298,34 +298,34 @@ def main() -> int:
             alert = 1
 
     out = {
-        "ts_ms": str(now_ms),
-        "stream": str(args.stream),
-        "limit": str(int(args.limit)),
-        "n_total": str(int(n_total)),
-        "n_recent": str(int(n_recent)),
-        "max_ts_ms": str(int(max_ts)),
-        "age_ms": str(int(now_ms - max_ts)) if max_ts > 0 else "-1",
-        "no_data": str(int(no_data)),
-        "alert": str(int(alert)),
-        "issues": ",".join(issues)[:400],
-        "bucket_invalid_share": f"{bucket_invalid_share:.6f}",
-        "vol_label_na_share": f"{vol_label_na_share:.6f}",
-        "missing_share_json": json.dumps({k: float(f"{v:.6f}") for k, v in missing_share.items()}, ensure_ascii=False),
-        "bucket_dist_json": json.dumps(_top(bucket_dist, 8), ensure_ascii=False),
-        "vol_dist_json": json.dumps(_top(vol_dist, 8), ensure_ascii=False),
-        "liq_dist_json": json.dumps(_top(liq_dist, 8), ensure_ascii=False),
-        "stuck_vol": str(int(stuck_vol)),
-        "stuck_fill": str(int(stuck_fill)),
-        "stuck_exec": str(int(stuck_exec)),
-        "max_abs_vol_ratio_z": f"{max_abs_vol_ratio_z:.4f}",
-        "max_vol_fast_bps": f"{max_vol_fast:.4f}",
-        "max_vol_slow_bps": f"{max_vol_slow:.4f}",
-        "max_eta_fill_sec": f"{max_eta_fill:.4f}",
-        "max_fill_prob": f"{max_fill_prob:.4f}",
-        "max_exec_risk_norm": f"{max_exec_risk_norm:.4f}",
-        "max_exec_pen": f"{max_exec_pen:.4f}",
-        "max_spread_bps": f"{max_spread_bps:.4f}",
-        "max_expected_slip_eff_bps": f"{max_expected_slip_eff:.4f}",
+        "ts_ms": str(now_ms)
+        "stream": str(args.stream)
+        "limit": str(int(args.limit))
+        "n_total": str(int(n_total))
+        "n_recent": str(int(n_recent))
+        "max_ts_ms": str(int(max_ts))
+        "age_ms": str(int(now_ms - max_ts)) if max_ts > 0 else "-1"
+        "no_data": str(int(no_data))
+        "alert": str(int(alert))
+        "issues": ",".join(issues)[:400]
+        "bucket_invalid_share": f"{bucket_invalid_share:.6f}"
+        "vol_label_na_share": f"{vol_label_na_share:.6f}"
+        "missing_share_json": json.dumps({k: float(f"{v:.6f}") for k, v in missing_share.items()}, ensure_ascii=False)
+        "bucket_dist_json": json.dumps(_top(bucket_dist, 8), ensure_ascii=False)
+        "vol_dist_json": json.dumps(_top(vol_dist, 8), ensure_ascii=False)
+        "liq_dist_json": json.dumps(_top(liq_dist, 8), ensure_ascii=False)
+        "stuck_vol": str(int(stuck_vol))
+        "stuck_fill": str(int(stuck_fill))
+        "stuck_exec": str(int(stuck_exec))
+        "max_abs_vol_ratio_z": f"{max_abs_vol_ratio_z:.4f}"
+        "max_vol_fast_bps": f"{max_vol_fast:.4f}"
+        "max_vol_slow_bps": f"{max_vol_slow:.4f}"
+        "max_eta_fill_sec": f"{max_eta_fill:.4f}"
+        "max_fill_prob": f"{max_fill_prob:.4f}"
+        "max_exec_risk_norm": f"{max_exec_risk_norm:.4f}"
+        "max_exec_pen": f"{max_exec_pen:.4f}"
+        "max_spread_bps": f"{max_spread_bps:.4f}"
+        "max_expected_slip_eff_bps": f"{max_expected_slip_eff:.4f}"
     }
 
     # write to out stream (best-effort)

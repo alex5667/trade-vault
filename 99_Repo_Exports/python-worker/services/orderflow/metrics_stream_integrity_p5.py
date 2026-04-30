@@ -27,11 +27,11 @@ TCollector = TypeVar("TCollector", bound="Collector")
 
 
 def _get_or_create(
-    name: str,
-    ctor: Type[TCollector],
-    documentation: str,
-    labelnames: Sequence[str] = (),
-    **kwargs,
+    name: str
+    ctor: Type[TCollector]
+    documentation: str
+    labelnames: Sequence[str] = ()
+    **kwargs
 ):
     if REGISTRY is None:  # pragma: no cover
         return None
@@ -46,90 +46,90 @@ def _get_or_create(
 
 
 stream_seq_gap_rate_ema = _get_or_create(
-    "stream_seq_gap_rate_ema",
-    Gauge,
-    "EMA gap-rate for monotone sequences (0..1)",
-    labelnames=("symbol", "stream"),
+    "stream_seq_gap_rate_ema"
+    Gauge
+    "EMA gap-rate for monotone sequences (0..1)"
+    labelnames=("symbol", "stream")
 )
 
 stream_seq_dup_rate_ema = _get_or_create(
-    "stream_seq_dup_rate_ema",
-    Gauge,
-    "EMA duplicate-rate for monotone sequences (0..1)",
-    labelnames=("symbol", "stream"),
+    "stream_seq_dup_rate_ema"
+    Gauge
+    "EMA duplicate-rate for monotone sequences (0..1)"
+    labelnames=("symbol", "stream")
 )
 
 stream_seq_max_gap_window = _get_or_create(
-    "stream_seq_max_gap_window",
-    Gauge,
-    "Max seq gap magnitude observed in the current window",
-    labelnames=("symbol", "stream"),
+    "stream_seq_max_gap_window"
+    Gauge
+    "Max seq gap magnitude observed in the current window"
+    labelnames=("symbol", "stream")
 )
 
 stream_dup_burst_z = _get_or_create(
-    "stream_dup_burst_z",
-    Gauge,
-    "Robust z-score of per-second duplicate ratio",
-    labelnames=("symbol", "stream"),
+    "stream_dup_burst_z"
+    Gauge
+    "Robust z-score of per-second duplicate ratio"
+    labelnames=("symbol", "stream")
 )
 
 stream_schema_changed_total = _get_or_create(
-    "stream_schema_changed_total",
-    Counter,
-    "Count of detected schema-hash changes (keys-set changed)",
-    labelnames=("symbol", "stream"),
+    "stream_schema_changed_total"
+    Counter
+    "Count of detected schema-hash changes (keys-set changed)"
+    labelnames=("symbol", "stream")
 )
 
 stream_schema_hash = _get_or_create(
-    "stream_schema_hash",
-    Gauge,
-    "Last seen schema hash as an integer (base16 truncated)",
-    labelnames=("symbol", "stream"),
+    "stream_schema_hash"
+    Gauge
+    "Last seen schema hash as an integer (base16 truncated)"
+    labelnames=("symbol", "stream")
 )
 
 
 stream_event_lag_ms = _get_or_create(
-    "stream_event_lag_ms",
-    Histogram,
-    "Observed event-time lag in milliseconds (processing_time - ts_event_ms)",
-    labelnames=("symbol", "stream"),
-    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000),
+    "stream_event_lag_ms"
+    Histogram
+    "Observed event-time lag in milliseconds (processing_time - ts_event_ms)"
+    labelnames=("symbol", "stream")
+    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000)
 )
 
 stream_late_events_total = _get_or_create(
-    "stream_late_events_total",
-    Counter,
-    "Count of events that exceeded configured event-lag budget",
-    labelnames=("symbol", "stream"),
+    "stream_late_events_total"
+    Counter
+    "Count of events that exceeded configured event-lag budget"
+    labelnames=("symbol", "stream")
 )
 
 stream_future_ts_total = _get_or_create(
-    "stream_future_ts_total",
-    Counter,
-    "Count of events that arrived with future timestamps beyond skew tolerance",
-    labelnames=("symbol", "stream"),
+    "stream_future_ts_total"
+    Counter
+    "Count of events that arrived with future timestamps beyond skew tolerance"
+    labelnames=("symbol", "stream")
 )
 
 stream_out_of_order_total = _get_or_create(
-    "stream_out_of_order_total",
-    Counter,
-    "Count of out-of-order events beyond configured tolerance",
-    labelnames=("symbol", "stream"),
+    "stream_out_of_order_total"
+    Counter
+    "Count of out-of-order events beyond configured tolerance"
+    labelnames=("symbol", "stream")
 )
 
 stream_book_staleness_ms = _get_or_create(
-    "stream_book_staleness_ms",
-    Gauge,
-    "Best-book staleness observed on the tick path (ms)",
-    labelnames=("symbol",),
+    "stream_book_staleness_ms"
+    Gauge
+    "Best-book staleness observed on the tick path (ms)"
+    labelnames=("symbol",)
 )
 
 stream_book_staleness_hist_ms = _get_or_create(
-    "stream_book_staleness_hist_ms",
-    Histogram,
-    "Distribution of best-book staleness observed on the tick path (ms)",
-    labelnames=("symbol",),
-    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000),
+    "stream_book_staleness_hist_ms"
+    Histogram
+    "Distribution of best-book staleness observed on the tick path (ms)"
+    labelnames=("symbol",)
+    buckets=(1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000)
 )
 
 
@@ -202,44 +202,44 @@ def emit_book_staleness_metrics(*, symbol: str, staleness_ms: float) -> None:
 # =============================================================================
 
 stream_trade_to_book_stale_total = _get_or_create(
-    "stream_trade_to_book_stale_total",
-    Counter,
-    "Count of events where book was stale relative to event timestamp",
-    labelnames=("symbol", "stream"),
+    "stream_trade_to_book_stale_total"
+    Counter
+    "Count of events where book was stale relative to event timestamp"
+    labelnames=("symbol", "stream")
 )
 
 stream_trade_to_book_adverse_cross_total = _get_or_create(
-    "stream_trade_to_book_adverse_cross_total",
-    Counter,
-    "Count of trade events where trade_px crossed outside current BBO beyond tolerance",
-    labelnames=("symbol", "stream"),
+    "stream_trade_to_book_adverse_cross_total"
+    Counter
+    "Count of trade events where trade_px crossed outside current BBO beyond tolerance"
+    labelnames=("symbol", "stream")
 )
 
 stream_trade_to_book_adverse_cross_dist_bps = _get_or_create(
-    "stream_trade_to_book_adverse_cross_dist_bps",
-    Histogram,
-    "Distribution of adverse-cross distance in bps when trade_px is outside BBO",
-    labelnames=("symbol", "stream"),
-    buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0),
+    "stream_trade_to_book_adverse_cross_dist_bps"
+    Histogram
+    "Distribution of adverse-cross distance in bps when trade_px is outside BBO"
+    labelnames=("symbol", "stream")
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0)
 )
 
 stream_trade_to_book_veto_total = _get_or_create(
-    "stream_trade_to_book_veto_total",
-    Counter,
-    "Count of hard-veto decisions from BookTradeConsistencyGate by reason code",
-    labelnames=("symbol", "stream", "reason"),
+    "stream_trade_to_book_veto_total"
+    Counter
+    "Count of hard-veto decisions from BookTradeConsistencyGate by reason code"
+    labelnames=("symbol", "stream", "reason")
 )
 
 
 def emit_trade_to_book_metrics(
-    *,
-    symbol: str,
-    stream: str,
-    book_staleness_ms: float,
-    adverse_cross_bps: float,
-    stale_book: bool,
-    adverse_cross: bool,
-    veto_reason: str,
+    *
+    symbol: str
+    stream: str
+    book_staleness_ms: float
+    adverse_cross_bps: float
+    stale_book: bool
+    adverse_cross: bool
+    veto_reason: str
 ) -> None:
     """Emit BookTradeConsistencyGate trade-to-book metrics. Best-effort, never raises.
 

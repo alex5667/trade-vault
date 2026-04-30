@@ -41,13 +41,13 @@ def parse_relcal_key(key: str) -> Optional[Dict[str, str]]:
 
     _, outcome, kind, symbol, venue, session, tf, regime = parts
     return {
-        "outcome": outcome,
-        "kind": kind,
-        "symbol": symbol,
-        "venue": venue,
-        "session": session,
-        "tf": tf,
-        "regime": regime,
+        "outcome": outcome
+        "kind": kind
+        "symbol": symbol
+        "venue": venue
+        "session": session
+        "tf": tf
+        "regime": regime
         "key": key
     }
 
@@ -142,9 +142,9 @@ def find_best_performing_configs(data_by_key: Dict[str, Dict], min_samples: int 
         if samples >= min_samples and hits > 0:
             hit_rate = hits / samples
             configs.append({
-                "config": key_info,
-                "samples": samples,
-                "hit_rate": hit_rate,
+                "config": key_info
+                "samples": samples
+                "hit_rate": hit_rate
                 "score": hit_rate * math.log(samples)  # Reward both high hit_rate and sample count
             })
 

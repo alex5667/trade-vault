@@ -46,11 +46,11 @@ class Cfg:
 
 def load_cfg() -> Cfg:
     return Cfg(
-        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
+        redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
         # State key must match DECISION_COVERAGE_STATE_KEY used by the worker
-        state_key=_env("DECISION_COVERAGE_STATE_KEY", "metrics:decision_coverage:state"),
-        port=_i(_env("DECISION_COVERAGE_EXPORTER_PORT", "9816"), 9816),
-        interval_s=float(_env("DECISION_COVERAGE_EXPORTER_INTERVAL_S", "5") or 5),
+        state_key=_env("DECISION_COVERAGE_STATE_KEY", "metrics:decision_coverage:state")
+        port=_i(_env("DECISION_COVERAGE_EXPORTER_PORT", "9816"), 9816)
+        interval_s=float(_env("DECISION_COVERAGE_EXPORTER_INTERVAL_S", "5") or 5)
     )
 
 

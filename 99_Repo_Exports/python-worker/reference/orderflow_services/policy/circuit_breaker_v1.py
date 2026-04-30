@@ -103,10 +103,10 @@ class CircuitBreakerDecision:
 
 
 def decide_circuit_breaker(
-    *,
-    cfg: Dict[str, Any],
-    dq_state: Any,
-    drift_state: Any,
+    *
+    cfg: Dict[str, Any]
+    dq_state: Any
+    drift_state: Any
 ) -> CircuitBreakerDecision:
     """
     Decide effective regime and overrides.
@@ -117,16 +117,16 @@ def decide_circuit_breaker(
     # Feature flag
     if not _b(cfg, "cb_enable", True):
         return CircuitBreakerDecision(
-            ver="v1",
-            regime="ok",
-            reason="disabled",
-            force_rule_strong_only=False,
-            disable_ml_enforce=False,
-            dq_state=_norm_state(dq_state),
-            drift_state=_norm_state(drift_state),
-            ece_24h=_f(cfg, "signal_quality_ece_24h", 0.0),
-            expectancy_r_24h=_f(cfg, "signal_quality_expectancy_r_24h", 0.0),
-            precision_top5p_24h=_f(cfg, "signal_quality_precision_top5p_24h", 0.0),
+            ver="v1"
+            regime="ok"
+            reason="disabled"
+            force_rule_strong_only=False
+            disable_ml_enforce=False
+            dq_state=_norm_state(dq_state)
+            drift_state=_norm_state(drift_state)
+            ece_24h=_f(cfg, "signal_quality_ece_24h", 0.0)
+            expectancy_r_24h=_f(cfg, "signal_quality_expectancy_r_24h", 0.0)
+            precision_top5p_24h=_f(cfg, "signal_quality_precision_top5p_24h", 0.0)
         )
 
     dq = _norm_state(dq_state)
@@ -182,23 +182,23 @@ def decide_circuit_breaker(
         disable_ml = _b(cfg, "cb_warn_disable_ml_enforce", False)
 
     return CircuitBreakerDecision(
-        ver="v1",
-        regime=regime,
-        reason="|".join(reason_parts),
-        force_rule_strong_only=force_strong,
-        disable_ml_enforce=disable_ml,
-        dq_state=dq,
-        drift_state=dr,
-        ece_24h=ece,
-        expectancy_r_24h=exp_r,
-        precision_top5p_24h=prec,
+        ver="v1"
+        regime=regime
+        reason="|".join(reason_parts)
+        force_rule_strong_only=force_strong
+        disable_ml_enforce=disable_ml
+        dq_state=dq
+        drift_state=dr
+        ece_24h=ece
+        expectancy_r_24h=exp_r
+        precision_top5p_24h=prec
     )
 
 
 def apply_circuit_breaker_overrides(
-    *,
-    cfg: Dict[str, Any],
-    decision: CircuitBreakerDecision,
+    *
+    cfg: Dict[str, Any]
+    decision: CircuitBreakerDecision
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Return (cfg_overrides, policy_fields_for_indicators).
@@ -223,16 +223,16 @@ def apply_circuit_breaker_overrides(
 
     # Policy fields go to indicators and then DecisionRecord (P45/P62)
     policy_fields = {
-        "policy_ver": decision.ver,
-        "policy_regime": decision.regime,
-        "policy_reason": decision.reason,
-        "policy_force_rule_strong_only": int(decision.force_rule_strong_only),
-        "policy_disable_ml_enforce": int(decision.disable_ml_enforce),
-        "policy_dq_state": decision.dq_state,
-        "policy_drift_state": decision.drift_state,
-        "policy_ece_24h": decision.ece_24h,
-        "policy_expectancy_r_24h": decision.expectancy_r_24h,
-        "policy_precision_top5p_24h": decision.precision_top5p_24h,
+        "policy_ver": decision.ver
+        "policy_regime": decision.regime
+        "policy_reason": decision.reason
+        "policy_force_rule_strong_only": int(decision.force_rule_strong_only)
+        "policy_disable_ml_enforce": int(decision.disable_ml_enforce)
+        "policy_dq_state": decision.dq_state
+        "policy_drift_state": decision.drift_state
+        "policy_ece_24h": decision.ece_24h
+        "policy_expectancy_r_24h": decision.expectancy_r_24h
+        "policy_precision_top5p_24h": decision.precision_top5p_24h
     }
 
     return overrides, policy_fields
@@ -260,14 +260,14 @@ def enforce_circuit_breaker_regime(
         disable_ml = _b(cfg, "cb_warn_disable_ml_enforce", False)
         
     return CircuitBreakerDecision(
-        ver=decision.ver,
-        regime=effective_regime,
-        reason=decision.reason + f"|hysteresis:{effective_regime}",
-        force_rule_strong_only=force_strong,
-        disable_ml_enforce=disable_ml,
-        dq_state=decision.dq_state,
-        drift_state=decision.drift_state,
-        ece_24h=decision.ece_24h,
-        expectancy_r_24h=decision.expectancy_r_24h,
-        precision_top5p_24h=decision.precision_top5p_24h,
+        ver=decision.ver
+        regime=effective_regime
+        reason=decision.reason + f"|hysteresis:{effective_regime}"
+        force_rule_strong_only=force_strong
+        disable_ml_enforce=disable_ml
+        dq_state=decision.dq_state
+        drift_state=decision.drift_state
+        ece_24h=decision.ece_24h
+        expectancy_r_24h=decision.expectancy_r_24h
+        precision_top5p_24h=decision.precision_top5p_24h
     )

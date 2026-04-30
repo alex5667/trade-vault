@@ -3,11 +3,11 @@ from core.fill_prob_proxy import compute_fill_prob_proxy
 
 def test_compute_fill_prob_proxy():
     res = compute_fill_prob_proxy(
-        direction="LONG",
-        cancel_to_trade_bid=0.2,
-        cancel_to_trade_ask=0.5,
-        eta_fill_bid_sec=0.5,
-        eta_fill_ask_sec=1.2,
+        direction="LONG"
+        cancel_to_trade_bid=0.2
+        cancel_to_trade_ask=0.5
+        eta_fill_bid_sec=0.5
+        eta_fill_ask_sec=1.2
         max_wait_s=2.0
     )
 
@@ -25,11 +25,11 @@ def test_compute_fill_prob_proxy():
 
 def test_compute_fill_prob_proxy_short():
     res = compute_fill_prob_proxy(
-        direction="SHORT",
-        cancel_to_trade_bid=0.8,
-        cancel_to_trade_ask=0.1,
-        eta_fill_bid_sec=3.0,
-        eta_fill_ask_sec=0.1,
+        direction="SHORT"
+        cancel_to_trade_bid=0.8
+        cancel_to_trade_ask=0.1
+        eta_fill_bid_sec=3.0
+        eta_fill_ask_sec=0.1
         max_wait_s=2.0
     )
 

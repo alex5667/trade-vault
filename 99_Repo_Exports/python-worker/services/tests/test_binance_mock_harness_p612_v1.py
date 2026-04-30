@@ -25,38 +25,38 @@ from services.testing.binance_mock_harness import InMemoryRedis, running_binance
 def _configure_env(monkeypatch, *, base_url: str, maker: bool = False, fill_timeout_s: str = "0.25") -> None:
     """Set all env vars required by BinanceExecutor to point at the mock server."""
     values = {
-        "BINANCE_CLIENT_MODE": "real",
-        "BINANCE_FUTURES_BASE_URL": base_url,
-        "BINANCE_POSITION_MODE": "oneway",
-        "BINANCE_SYMBOL_ALLOWLIST": "BTCUSDT",
-        "BINANCE_INIT_SYMBOL_SETTINGS": "0",
-        "BINANCE_FILL_TIMEOUT_S": fill_timeout_s,
-        "BINANCE_FILL_POLL_S": "0.05",
-        "BINANCE_RECV_WINDOW_MS": "3000",
-        "PROTECTION_ARM_TIMEOUT_MS": "2500",
-        "TP_LIMIT_WATCHDOG_ENABLE": "1",
-        "TP_LIMIT_WATCHDOG_TIMEOUT_MS": "120",
-        "TP_TRIGGER_MONITOR_TIMEOUT_S": "1.0",
-        "BINANCE_TRAIL_ARM_POLL_S": "0.05",
-        "BINANCE_TRAIL_NOTIFY": "0",
-        "EXEC_RECONCILE_ENABLE": "1",
-        "EXEC_RECONCILE_ON_503_UNKNOWN": "1",
-        "EXEC_RECONCILE_PREFER_USER_STREAM": "1",
-        "EXEC_REHYDRATE_ON_STATE_MISS": "1",
-        "EXEC_JOURNAL_SQL_ENABLE": "0",
-        "EXECUTION_JOURNAL_DSN": "",
-        "EXECUTION_QUARANTINE_LEDGER_DSN": "",
-        "REDIS_URL": "redis://mock/0",
-        "EXEC_STREAM": "orders:exec",
-        "ORDERS_QUEUE_BINANCE": "orders:queue:binance",
-        "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing",
-        "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq",
-        "USER_STREAM_STREAM": "orders:user_stream",
-        "USER_STREAM_CACHE_PREFIX": "orders:user_stream:",
+        "BINANCE_CLIENT_MODE": "real"
+        "BINANCE_FUTURES_BASE_URL": base_url
+        "BINANCE_POSITION_MODE": "oneway"
+        "BINANCE_SYMBOL_ALLOWLIST": "BTCUSDT"
+        "BINANCE_INIT_SYMBOL_SETTINGS": "0"
+        "BINANCE_FILL_TIMEOUT_S": fill_timeout_s
+        "BINANCE_FILL_POLL_S": "0.05"
+        "BINANCE_RECV_WINDOW_MS": "3000"
+        "PROTECTION_ARM_TIMEOUT_MS": "2500"
+        "TP_LIMIT_WATCHDOG_ENABLE": "1"
+        "TP_LIMIT_WATCHDOG_TIMEOUT_MS": "120"
+        "TP_TRIGGER_MONITOR_TIMEOUT_S": "1.0"
+        "BINANCE_TRAIL_ARM_POLL_S": "0.05"
+        "BINANCE_TRAIL_NOTIFY": "0"
+        "EXEC_RECONCILE_ENABLE": "1"
+        "EXEC_RECONCILE_ON_503_UNKNOWN": "1"
+        "EXEC_RECONCILE_PREFER_USER_STREAM": "1"
+        "EXEC_REHYDRATE_ON_STATE_MISS": "1"
+        "EXEC_JOURNAL_SQL_ENABLE": "0"
+        "EXECUTION_JOURNAL_DSN": ""
+        "EXECUTION_QUARANTINE_LEDGER_DSN": ""
+        "REDIS_URL": "redis://mock/0"
+        "EXEC_STREAM": "orders:exec"
+        "ORDERS_QUEUE_BINANCE": "orders:queue:binance"
+        "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing"
+        "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq"
+        "USER_STREAM_STREAM": "orders:user_stream"
+        "USER_STREAM_CACHE_PREFIX": "orders:user_stream:"
         # Maker TP policy activated only when maker=True
-        "EXEC_POLICY_DEFAULT": "MAKER_FIRST" if maker else "SAFETY_FIRST",
-        "EXEC_POLICY_MAKER_ALLOWED_SYMBOLS": "BTCUSDT" if maker else "DO_NOT_USE",
-        "EXEC_FORCE_SAFETY_FIRST": "0" if maker else "1",
+        "EXEC_POLICY_DEFAULT": "MAKER_FIRST" if maker else "SAFETY_FIRST"
+        "EXEC_POLICY_MAKER_ALLOWED_SYMBOLS": "BTCUSDT" if maker else "DO_NOT_USE"
+        "EXEC_FORCE_SAFETY_FIRST": "0" if maker else "1"
     }
     for k, v in values.items():
         monkeypatch.setenv(k, v)
@@ -99,14 +99,14 @@ def test_queue_executor_to_mock_places_entry_and_protection(monkeypatch):
         executor = _new_executor(redis_client, mock.base_url)
         sid = "sid-open-1"
         _queue_open(redis_client, {
-            "action": "open",
-            "sid": sid,
-            "symbol": "BTCUSDT",
-            "side": "BUY",
-            "qty": 1,
-            "type": "MARKET",
-            "sl": 95,
-            "tp_levels": [110],
+            "action": "open"
+            "sid": sid
+            "symbol": "BTCUSDT"
+            "side": "BUY"
+            "qty": 1
+            "type": "MARKET"
+            "sl": 95
+            "tp_levels": [110]
         })
 
         assert executor.run_once(timeout=0) is True
@@ -140,23 +140,23 @@ def test_503_unknown_reconciles_via_query_without_duplicate_submit(monkeypatch):
 
         # Script the entry clientOrderId to return 503 on POST but be queryable via GET
         mock.state.set_plain_order_script(
-            cid,
-            query_sequence=[{"status": "FILLED", "executedQty": "1", "avgPrice": "100.0"}],
+            cid
+            query_sequence=[{"status": "FILLED", "executedQty": "1", "avgPrice": "100.0"}]
             post_error={
-                "status": 503,
-                "payload": {"code": 0, "msg": "Unknown error, please check your request or try again later."},
-            },
+                "status": 503
+                "payload": {"code": 0, "msg": "Unknown error, please check your request or try again later."}
+            }
             create_on_post_error=True,  # order IS created server-side despite HTTP 503
         )
         _queue_open(redis_client, {
-            "action": "open",
-            "sid": sid,
-            "symbol": "BTCUSDT",
-            "side": "BUY",
-            "qty": 1,
-            "type": "MARKET",
-            "sl": 95,
-            "tp_levels": [110],
+            "action": "open"
+            "sid": sid
+            "symbol": "BTCUSDT"
+            "side": "BUY"
+            "qty": 1
+            "type": "MARKET"
+            "sl": 95
+            "tp_levels": [110]
         })
 
         executor.run_once(timeout=0)
@@ -188,14 +188,14 @@ def test_user_stream_worker_ingests_order_and_algo_updates_from_mock(monkeypatch
         sid = "sid-stream-1"
 
         _queue_open(redis_client, {
-            "action": "open",
-            "sid": sid,
-            "symbol": "BTCUSDT",
-            "side": "BUY",
-            "qty": 1,
-            "type": "MARKET",
-            "sl": 95,
-            "tp_levels": [110],
+            "action": "open"
+            "sid": sid
+            "symbol": "BTCUSDT"
+            "side": "BUY"
+            "qty": 1
+            "type": "MARKET"
+            "sl": 95
+            "tp_levels": [110]
         })
         executor.run_once(timeout=0)
 
@@ -225,21 +225,21 @@ def test_restart_after_partial_fill_duplicate_delivery_is_idempotent(monkeypatch
 
         # Script two PARTIALLY_FILLED query responses — executor will timeout waiting
         mock.state.set_plain_order_script(
-            cid,
+            cid
             query_sequence=[
-                {"status": "PARTIALLY_FILLED", "executedQty": "0.5", "avgPrice": "100.0"},
-                {"status": "PARTIALLY_FILLED", "executedQty": "0.5", "avgPrice": "100.0"},
-            ],
+                {"status": "PARTIALLY_FILLED", "executedQty": "0.5", "avgPrice": "100.0"}
+                {"status": "PARTIALLY_FILLED", "executedQty": "0.5", "avgPrice": "100.0"}
+            ]
         )
         payload = {
-            "action": "open",
-            "sid": sid,
-            "symbol": "BTCUSDT",
-            "side": "BUY",
-            "qty": 1,
-            "type": "MARKET",
-            "sl": 95,
-            "tp_levels": [110],
+            "action": "open"
+            "sid": sid
+            "symbol": "BTCUSDT"
+            "side": "BUY"
+            "qty": 1
+            "type": "MARKET"
+            "sl": 95
+            "tp_levels": [110]
         }
         _queue_open(redis_client, payload)
 
@@ -279,14 +279,14 @@ def test_maker_tp_watchdog_falls_back_to_market_close(monkeypatch):
         sid = "sid-maker-watchdog-1"
 
         _queue_open(redis_client, {
-            "action": "open",
-            "sid": sid,
-            "symbol": "BTCUSDT",
-            "side": "BUY",
-            "qty": 1,
-            "type": "MARKET",
-            "sl": 95,
-            "tp_levels": [101],
+            "action": "open"
+            "sid": sid
+            "symbol": "BTCUSDT"
+            "side": "BUY"
+            "qty": 1
+            "type": "MARKET"
+            "sl": 95
+            "tp_levels": [101]
         })
         executor.run_once(timeout=0)
 
@@ -319,14 +319,14 @@ def test_burst_open_signals_smoke(monkeypatch):
 
         for i in range(8):
             _queue_open(redis_client, {
-                "action": "open",
-                "sid": f"sid-burst-{i}",
-                "symbol": "BTCUSDT",
-                "side": "BUY",
-                "qty": 1,
-                "type": "MARKET",
-                "sl": 95,
-                "tp_levels": [110],
+                "action": "open"
+                "sid": f"sid-burst-{i}"
+                "symbol": "BTCUSDT"
+                "side": "BUY"
+                "qty": 1
+                "type": "MARKET"
+                "sl": 95
+                "tp_levels": [110]
             })
 
         processed = 0

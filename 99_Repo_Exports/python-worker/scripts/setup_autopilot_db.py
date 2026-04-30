@@ -8,15 +8,15 @@ TRADES_DB_DSN = os.getenv("TRADES_DB_DSN", DEFAULT_DSN)
 
 SQL = """
 CREATE TABLE IF NOT EXISTS autopilot_proposals (
-    sid TEXT PRIMARY KEY,
-    ts TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    group_name TEXT,
-    symbol TEXT,
-    regime TEXT,
-    scenario TEXT,
-    winner_arm TEXT,
-    edge_lcb_r FLOAT,
-    proposal_json JSONB,
+    sid TEXT PRIMARY KEY
+    ts TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    group_name TEXT
+    symbol TEXT
+    regime TEXT
+    scenario TEXT
+    winner_arm TEXT
+    edge_lcb_r FLOAT
+    proposal_json JSONB
     status TEXT DEFAULT 'proposed'
 );
 

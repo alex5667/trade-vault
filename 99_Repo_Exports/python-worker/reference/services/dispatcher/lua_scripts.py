@@ -462,22 +462,22 @@ return 1
         self.logger = logger or logging.getLogger(__name__)
         self._sha_cache: Dict[str, str] = {}
         self._scripts: Dict[str, str] = {
-            "xadd_or_setex_then_mark": self.XADD_OR_SETEX_THEN_MARK,
-            "notify_gate_xadd_then_mark": self.NOTIFY_GATE_XADD_THEN_MARK,
-            "marker_after_delivery": self.MARKER_AFTER_DELIVERY,
-            "release_lease": self.RELEASE_LEASE,
-            "extend_lease": self.EXTEND_LEASE,
-            "reenqueue_and_ack": self.REENQUEUE_AND_ACK,
-            "dlq_and_ack": self.DLQ_AND_ACK,
-            "xadd_and_mark": self.XADD_AND_MARK,
-            "setex_and_mark": self.SETEX_AND_MARK,
-            "xadd_fields_then_mark": self.XADD_FIELDS_THEN_MARK,
-            "setex_then_mark": self.SETEX_THEN_MARK,
-            "notify_gate": self.NOTIFY_GATE,
-            "mark_and_xadd": self.MARK_AND_XADD,
-            "mark_and_setex": self.MARK_AND_SETEX,
-            "mark_and_notify": self.MARK_AND_NOTIFY,
-            "zpop_due": self.ZPOP_DUE,
+            "xadd_or_setex_then_mark": self.XADD_OR_SETEX_THEN_MARK
+            "notify_gate_xadd_then_mark": self.NOTIFY_GATE_XADD_THEN_MARK
+            "marker_after_delivery": self.MARKER_AFTER_DELIVERY
+            "release_lease": self.RELEASE_LEASE
+            "extend_lease": self.EXTEND_LEASE
+            "reenqueue_and_ack": self.REENQUEUE_AND_ACK
+            "dlq_and_ack": self.DLQ_AND_ACK
+            "xadd_and_mark": self.XADD_AND_MARK
+            "setex_and_mark": self.SETEX_AND_MARK
+            "xadd_fields_then_mark": self.XADD_FIELDS_THEN_MARK
+            "setex_then_mark": self.SETEX_THEN_MARK
+            "notify_gate": self.NOTIFY_GATE
+            "mark_and_xadd": self.MARK_AND_XADD
+            "mark_and_setex": self.MARK_AND_SETEX
+            "mark_and_notify": self.MARK_AND_NOTIFY
+            "zpop_due": self.ZPOP_DUE
         }
     
     def get_sha(self, script_name: str) -> str:
@@ -505,10 +505,10 @@ return 1
         return self._sha_cache[script_name]
     
     def execute(
-        self,
-        script_name: str,
-        keys: List[str],
-        args: List[Any],
+        self
+        script_name: str
+        keys: List[str]
+        args: List[Any]
         client: Optional[Any] = None
     ) -> Any:
         """

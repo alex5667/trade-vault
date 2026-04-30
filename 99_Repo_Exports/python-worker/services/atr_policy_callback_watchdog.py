@@ -40,17 +40,17 @@ KEY_LAST_CALLBACK = "atr_policy:telegram:last_callback_ts_ms"
 # ── Prometheus ────────────────────────────────────────────────────────────────
 
 c_watchdog_total = Counter(
-    "atr_policy_callback_watchdog_total",
-    "ATR policy callback watchdog checks",
-    ["severity"],
+    "atr_policy_callback_watchdog_total"
+    "ATR policy callback watchdog checks"
+    ["severity"]
 )
 g_callback_silence_sec = Gauge(
-    "atr_policy_callback_silence_sec",
-    "Seconds since last valid Telegram callback while proposals pending",
+    "atr_policy_callback_silence_sec"
+    "Seconds since last valid Telegram callback while proposals pending"
 )
 g_notify_silence_sec = Gauge(
-    "atr_policy_notify_silence_sec",
-    "Seconds since last Telegram notify",
+    "atr_policy_notify_silence_sec"
+    "Seconds since last Telegram notify"
 )
 
 
@@ -58,8 +58,8 @@ g_notify_silence_sec = Gauge(
 
 def _rconn() -> redis.Redis:
     return redis.Redis.from_url(
-        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        decode_responses=True,
+        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        decode_responses=True
     )
 
 
@@ -162,29 +162,29 @@ def check_once(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
     c_watchdog_total.labels(severity=severity).inc()
 
     result: Dict[str, Any] = {
-        "severity": severity,
-        "reason": reason,
-        "pending_submitted": pending_submitted,
-        "callback_age_sec": callback_age_sec,
-        "notify_age_sec": notify_age_sec,
-        "ts_ms": now_ms,
-        "warn_threshold_sec": _warn_sec(),
-        "critical_threshold_sec": _critical_sec(),
+        "severity": severity
+        "reason": reason
+        "pending_submitted": pending_submitted
+        "callback_age_sec": callback_age_sec
+        "notify_age_sec": notify_age_sec
+        "ts_ms": now_ms
+        "warn_threshold_sec": _warn_sec()
+        "critical_threshold_sec": _critical_sec()
     }
 
     if severity in ("WARN", "CRITICAL"):
         _publish(r, {
-            "event": f"TELEGRAM_CALLBACK_{severity}",
-            **result,
+            "event": f"TELEGRAM_CALLBACK_{severity}"
+            **result
         })
         logger.warning(
-            "callback_watchdog: %s — pending=%d callback_age=%ds",
-            severity, pending_submitted, callback_age_sec,
+            "callback_watchdog: %s — pending=%d callback_age=%ds"
+            severity, pending_submitted, callback_age_sec
         )
     else:
         logger.debug(
-            "callback_watchdog: OK — pending=%d callback_age=%ds",
-            pending_submitted, callback_age_sec,
+            "callback_watchdog: OK — pending=%d callback_age=%ds"
+            pending_submitted, callback_age_sec
         )
 
     return result
@@ -212,9 +212,9 @@ def run_forever() -> None:
             result = check_once(r)
             if result.get("severity") == "CRITICAL":
                 logger.error(
-                    "callback_watchdog: CRITICAL — pending=%s callback_age=%ss",
-                    result.get("pending_submitted"),
-                    result.get("callback_age_sec"),
+                    "callback_watchdog: CRITICAL — pending=%s callback_age=%ss"
+                    result.get("pending_submitted")
+                    result.get("callback_age_sec")
                 )
         except Exception as exc:
             logger.exception("callback_watchdog: check failed: %s", exc)
@@ -223,7 +223,7 @@ def run_forever() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level=logging.INFO
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     run_forever()

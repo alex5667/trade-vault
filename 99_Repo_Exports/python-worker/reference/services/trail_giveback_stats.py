@@ -42,10 +42,10 @@ class TrailStatsConfig:
     @classmethod
     def from_env(cls) -> "TrailStatsConfig":
         return cls(
-            enabled=_env_bool("TRAIL_STATS_ENABLED", True),
-            alpha=float(os.getenv("TRAIL_STATS_EMA_ALPHA", "0.08") or 0.08),
-            use_regime_dim=_env_bool("TRAIL_STATS_USE_REGIME_DIM", True),
-            ttl_sec=int(os.getenv("TRAIL_STATS_TTL_SEC", str(60 * 60 * 24 * 60)) or (60 * 60 * 24 * 60)),
+            enabled=_env_bool("TRAIL_STATS_ENABLED", True)
+            alpha=float(os.getenv("TRAIL_STATS_EMA_ALPHA", "0.08") or 0.08)
+            use_regime_dim=_env_bool("TRAIL_STATS_USE_REGIME_DIM", True)
+            ttl_sec=int(os.getenv("TRAIL_STATS_TTL_SEC", str(60 * 60 * 24 * 60)) or (60 * 60 * 24 * 60))
         )
 
 
@@ -57,16 +57,16 @@ def _key(kind: str, symbol: str, tf: str, regime: str, *, use_regime_dim: bool) 
 
 
 def update_trail_giveback_ema(
-    redis_client: Any,
-    *,
-    cfg: TrailStatsConfig,
-    kind: str,
-    symbol: str,
-    tf: str,
-    regime: str,
-    giveback_r: float,
-    trailing_stop: int,
-    now_ms: int,
+    redis_client: Any
+    *
+    cfg: TrailStatsConfig
+    kind: str
+    symbol: str
+    tf: str
+    regime: str
+    giveback_r: float
+    trailing_stop: int
+    now_ms: int
 ) -> None:
     """
     Writes EMA giveback-risk stats used by TrailConditionalEvaluator.
@@ -106,9 +106,9 @@ def update_trail_giveback_ema(
         pipe = redis_client.pipeline(transaction=False)
         pipe.hincrby(k, "total_trades", 1)
         pipe.hset(k, mapping={
-            "ema_giveback_r": str(float(new_gb)),
-            "ema_trailing_stop": str(float(new_ts)),
-            "last_ts_ms": str(int(now_ms)),
+            "ema_giveback_r": str(float(new_gb))
+            "ema_trailing_stop": str(float(new_ts))
+            "last_ts_ms": str(int(now_ms))
         })
         if cfg.ttl_sec and cfg.ttl_sec > 0:
             pipe.expire(k, int(cfg.ttl_sec))

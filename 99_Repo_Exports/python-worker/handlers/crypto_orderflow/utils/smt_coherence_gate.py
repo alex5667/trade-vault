@@ -164,15 +164,15 @@ class SmtLeaderCoherenceGate:
     """
 
     def __init__(
-        self,
-        *,
-        redis_client: Any,
-        bundle_id: str,
-        mode: str,
-        coh_hi_thr: float,
-        veto_kinds: Optional[set],
-        diag_stream: str,
-        diag_sample: int,
+        self
+        *
+        redis_client: Any
+        bundle_id: str
+        mode: str
+        coh_hi_thr: float
+        veto_kinds: Optional[set]
+        diag_stream: str
+        diag_sample: int
     ) -> None:
         self.redis = redis_client
         self.bundle_id = (bundle_id or "").strip()
@@ -193,13 +193,13 @@ class SmtLeaderCoherenceGate:
         diag_stream = _env_str("SMT_LEADER_DIAG_STREAM", "")  # optional diagnostics stream
         diag_sample = int(_env_float("SMT_LEADER_DIAG_SAMPLE", 1))
         return SmtLeaderCoherenceGate(
-            redis_client=redis_client,
-            bundle_id=bundle_id,
-            mode=mode,
-            coh_hi_thr=coh_hi_thr,
-            veto_kinds=veto_kinds,
-            diag_stream=diag_stream,
-            diag_sample=diag_sample,
+            redis_client=redis_client
+            bundle_id=bundle_id
+            mode=mode
+            coh_hi_thr=coh_hi_thr
+            veto_kinds=veto_kinds
+            diag_stream=diag_stream
+            diag_sample=diag_sample
         )
 
     def _maybe_diag(self, payload: Dict[str, Any]) -> None:
@@ -248,12 +248,12 @@ class SmtLeaderCoherenceGate:
                 _ts_ms = _ts_ms * 1000
             if self.redis is not None and _price > 0.0 and _ts_ms > 0:
                 _sync_get(self.redis.hset(
-                    f"price:latest:{str(symbol).strip().upper()}",
+                    f"price:latest:{str(symbol).strip().upper()}"
                     mapping={
-                        "mid": f"{_price:.10f}",
-                        "ts_ms": str(_ts_ms),
-                        "venue": "crypto",
-                    },
+                        "mid": f"{_price:.10f}"
+                        "ts_ms": str(_ts_ms)
+                        "venue": "crypto"
+                    }
                 ))
         except Exception:
             pass
@@ -356,23 +356,23 @@ class SmtLeaderCoherenceGate:
 
         # Diagnostics (optional).
         self._maybe_diag({
-            "event": "SMT_GATE",
-            "bundle": self.bundle_id,
-            "symbol": str(symbol or ""),
-            "kind": str(kind or ""),
-            "direction": str(direction or ""),
-            "leader": leader,
-            "leader_dir": leader_dir,
-            "leader_confirm": leader_confirm,
-            "coh": float(coh) if math.isfinite(coh) else None,
-            "coh_thr": float(self.coh_hi_thr),
-            "coh_hi": coh_hi,
-            "decision": decision,
-            "pick": pick,
-            "align": align,
-            "blocked": blocked,
-            "mode": self.mode,
-            "ts_ms": int(getattr(ctx, "ts_ms", 0) or getattr(ctx, "ts", 0) or 0),
+            "event": "SMT_GATE"
+            "bundle": self.bundle_id
+            "symbol": str(symbol or "")
+            "kind": str(kind or "")
+            "direction": str(direction or "")
+            "leader": leader
+            "leader_dir": leader_dir
+            "leader_confirm": leader_confirm
+            "coh": float(coh) if math.isfinite(coh) else None
+            "coh_thr": float(self.coh_hi_thr)
+            "coh_hi": coh_hi
+            "decision": decision
+            "pick": pick
+            "align": align
+            "blocked": blocked
+            "mode": self.mode
+            "ts_ms": int(getattr(ctx, "ts_ms", 0) or getattr(ctx, "ts", 0) or 0)
         })
 
         if self.mode != "veto":

@@ -12,7 +12,7 @@ def get_epoch_ms() -> int:
 def get_ny_time_millis() -> int:
     """Deprecated alias for get_epoch_ms().
 
-    Historically used pytz/America/New_York, but .timestamp() is always UTC-based,
+    Historically used pytz/America/New_York, but .timestamp() is always UTC-based
     so the timezone had no numeric effect on the returned epoch_ms value.
     Kept for backward compatibility; prefer get_epoch_ms() for new code.
     """

@@ -7,7 +7,7 @@ from utils.time_utils import get_ny_time_millis
 P3.3-ops-complete additions:
 - Writes a rebuild report to RUNBOOK_REPORT_DIR/latest_rebuild_state.json (for
   the runbook server /api/rebuild/latest endpoint)
-- Report includes: source_counts, truncated_count, retention_guard_count,
+- Report includes: source_counts, truncated_count, retention_guard_count
   replay_latency_p95_ms, retention_guard_triggered and latency_ms per item
 
 Usage
@@ -61,13 +61,13 @@ def render_prometheus_textfile(report: Dict[str, Any]) -> str:
     """
     status_code = 0 if int(report.get('rebuilt_count') or 0) == int(report.get('items_total') or 0) else 1
     pairs = {
-        'trade_execution_rebuild_last_status_code': status_code,
-        'trade_execution_rebuild_last_items_total': int(report.get('items_total') or 0),
-        'trade_execution_rebuild_last_rebuilt_count': int(report.get('rebuilt_count') or 0),
-        'trade_execution_rebuild_last_truncated_count': int(report.get('truncated_count') or 0),
-        'trade_execution_rebuild_last_retention_guard_count': int(report.get('retention_guard_count') or 0),
-        'trade_execution_rebuild_last_replay_latency_p95_ms': int(report.get('replay_latency_p95_ms') or 0),
-        'trade_execution_rebuild_last_checked_at_ms': int(report.get('checked_at_ms') or 0),
+        'trade_execution_rebuild_last_status_code': status_code
+        'trade_execution_rebuild_last_items_total': int(report.get('items_total') or 0)
+        'trade_execution_rebuild_last_rebuilt_count': int(report.get('rebuilt_count') or 0)
+        'trade_execution_rebuild_last_truncated_count': int(report.get('truncated_count') or 0)
+        'trade_execution_rebuild_last_retention_guard_count': int(report.get('retention_guard_count') or 0)
+        'trade_execution_rebuild_last_replay_latency_p95_ms': int(report.get('replay_latency_p95_ms') or 0)
+        'trade_execution_rebuild_last_checked_at_ms': int(report.get('checked_at_ms') or 0)
     }
     lines = []
     for name, value in pairs.items():
@@ -169,17 +169,17 @@ def main() -> int:
                 result = DummyResult({}, "none", checkpoint_id, retention_guard, latency_ms, False)
         else:
             result = rebuild_state_with_fallback(
-                r,
-                exec_stream=args.exec_stream,
-                sid=sid,
-                scan_count=args.scan_count,
-                checkpoint_id=checkpoint_id,
+                r
+                exec_stream=args.exec_stream
+                sid=sid
+                scan_count=args.scan_count
+                checkpoint_id=checkpoint_id
             )
             
         if not result.state_doc:
-            rebuilt.append({'sid': sid, 'rebuilt': False, 'reason': 'stream_events_not_found',
-                            'source': result.source, 'checkpoint_id': result.checkpoint_id,
-                            'retention_guard_triggered': bool(result.retention_guard_triggered),
+            rebuilt.append({'sid': sid, 'rebuilt': False, 'reason': 'stream_events_not_found'
+                            'source': result.source, 'checkpoint_id': result.checkpoint_id
+                            'retention_guard_triggered': bool(result.retention_guard_triggered)
                             'latency_ms': int(result.latency_ms)})
             latencies.append(int(result.latency_ms))
             sources[result.source] = sources.get(result.source, 0) + 1
@@ -188,11 +188,11 @@ def main() -> int:
             continue
         if not args.dry_run:
             persist_state_snapshot(
-                r,
-                state_key=f'{state_prefix}{sid}',
-                state_doc=result.state_doc,
-                ttl_sec=args.ttl_sec,
-                checkpoint_key=f'{checkpoint_prefix}{sid}',
+                r
+                state_key=f'{state_prefix}{sid}'
+                state_doc=result.state_doc
+                ttl_sec=args.ttl_sec
+                checkpoint_key=f'{checkpoint_prefix}{sid}'
             )
         # P3.3-ops-complete: per-item stats
         latencies.append(int(result.latency_ms))
@@ -200,17 +200,17 @@ def main() -> int:
         truncated_count += int(bool(result.truncated))
         retention_guard_count += int(bool(result.retention_guard_triggered))
         rebuilt.append({
-            'sid': sid,
-            'rebuilt': True,
-            'fsm_state': result.state_doc.get('fsm_state'),
-            'stream_last_id': result.state_doc.get('stream_last_id'),
-            'events': result.state_doc.get('stream_replayed_events', 0),
-            'source': result.source,
-            'checkpoint_id': result.checkpoint_id,
-            'truncated': result.truncated,
+            'sid': sid
+            'rebuilt': True
+            'fsm_state': result.state_doc.get('fsm_state')
+            'stream_last_id': result.state_doc.get('stream_last_id')
+            'events': result.state_doc.get('stream_replayed_events', 0)
+            'source': result.source
+            'checkpoint_id': result.checkpoint_id
+            'truncated': result.truncated
             # P3.3-ops-complete additions
-            'retention_guard_triggered': bool(result.retention_guard_triggered),
-            'latency_ms': int(result.latency_ms),
+            'retention_guard_triggered': bool(result.retention_guard_triggered)
+            'latency_ms': int(result.latency_ms)
         })
 
     # P3.3-ops-complete: compute p95 latency and write report
@@ -221,14 +221,14 @@ def main() -> int:
         p95 = int(latencies_sorted[idx])
 
     report = {
-        'rebuilt_count': len([x for x in rebuilt if x.get('rebuilt')]),
-        'items_total': len(rebuilt),
-        'truncated_count': truncated_count,
-        'retention_guard_count': retention_guard_count,
-        'source_counts': sources,
-        'replay_latency_p95_ms': p95,
-        'checked_at_ms': get_ny_time_millis(),
-        'items': rebuilt,
+        'rebuilt_count': len([x for x in rebuilt if x.get('rebuilt')])
+        'items_total': len(rebuilt)
+        'truncated_count': truncated_count
+        'retention_guard_count': retention_guard_count
+        'source_counts': sources
+        'replay_latency_p95_ms': p95
+        'checked_at_ms': get_ny_time_millis()
+        'items': rebuilt
     }
 
     # Write report for runbook server /api/rebuild/latest endpoint

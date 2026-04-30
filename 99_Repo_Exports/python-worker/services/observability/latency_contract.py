@@ -17,23 +17,23 @@ import time
 from prometheus_client import Counter, Gauge, Histogram, REGISTRY
 
 from services.observability.latency_semconv import (
-    STAGE_END_TO_END_EVENT,
-    STAGE_FEATURE_TO_EMIT,
-    STAGE_REDIS_TO_FEATURE,
-    FIELD_TS_EMIT_MS,
-    FIELD_TS_EVENT_MS,
-    FIELD_TS_FEATURE_MS,
-    FIELD_TS_REDIS_READ_MS,
-    FIELD_TS_WS_EMIT_MS,
-    FIELD_TS_INGEST_SOURCE_MS,
-    FIELD_TS_REDIS_XADD_MS,
-    SERVICE_PYTHON_WORKER,
-    compute_contract_deltas,
-    default_symbol_allowlist,
-    ensure_epoch_ms_fields,
-    label_symbol,
-    now_wall_ms,
-    build_external_state_mapping,
+    STAGE_END_TO_END_EVENT
+    STAGE_FEATURE_TO_EMIT
+    STAGE_REDIS_TO_FEATURE
+    FIELD_TS_EMIT_MS
+    FIELD_TS_EVENT_MS
+    FIELD_TS_FEATURE_MS
+    FIELD_TS_REDIS_READ_MS
+    FIELD_TS_WS_EMIT_MS
+    FIELD_TS_INGEST_SOURCE_MS
+    FIELD_TS_REDIS_XADD_MS
+    SERVICE_PYTHON_WORKER
+    compute_contract_deltas
+    default_symbol_allowlist
+    ensure_epoch_ms_fields
+    label_symbol
+    now_wall_ms
+    build_external_state_mapping
 )
 
 
@@ -70,30 +70,30 @@ def _get_or_create_gauge(name: str, documentation: str, labelnames: list[str]) -
 LATENCY_BUCKETS = [0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0]
 
 latency_contract_stage_ms = _get_or_create_histogram(
-    'latency_contract_stage_ms',
-    'Unified stage latency histogram (ms) for cross-service latency contract',
-    ['service', 'stage', 'symbol'],
-    LATENCY_BUCKETS,
+    'latency_contract_stage_ms'
+    'Unified stage latency histogram (ms) for cross-service latency contract'
+    ['service', 'stage', 'symbol']
+    LATENCY_BUCKETS
 )
 latency_contract_obs_total = _get_or_create_counter(
-    'latency_contract_obs_total',
-    'Unified latency contract observations total',
-    ['service', 'stage', 'symbol'],
+    'latency_contract_obs_total'
+    'Unified latency contract observations total'
+    ['service', 'stage', 'symbol']
 )
 latency_contract_invalid_total = _get_or_create_counter(
-    'latency_contract_invalid_total',
-    'Unified latency contract invalid/missing timestamp paths',
-    ['service', 'stage', 'reason'],
+    'latency_contract_invalid_total'
+    'Unified latency contract invalid/missing timestamp paths'
+    ['service', 'stage', 'reason']
 )
 latency_contract_latest_ms = _get_or_create_gauge(
-    'latency_contract_latest_ms',
-    'Latest observed stage latency in current process (ms)',
-    ['service', 'stage', 'symbol'],
+    'latency_contract_latest_ms'
+    'Latest observed stage latency in current process (ms)'
+    ['service', 'stage', 'symbol']
 )
 latency_contract_state_writes_total = _get_or_create_counter(
-    'latency_contract_state_writes_total',
-    'Redis state hash writes for unified latency contract',
-    ['service', 'stage', 'result'],
+    'latency_contract_state_writes_total'
+    'Redis state hash writes for unified latency contract'
+    ['service', 'stage', 'result']
 )
 
 
@@ -110,15 +110,15 @@ def _safe_int(x: Any, default: int = 0) -> int:
 
 
 def build_state_mapping(
-    *,
-    service: str,
-    stage: str,
-    symbol: Any,
-    duration_ms: int,
-    payload: Dict[str, Any],
-    now_ms: Optional[int] = None,
-    instance_id: str = '',
-    source: str = '',
+    *
+    service: str
+    stage: str
+    symbol: Any
+    duration_ms: int
+    payload: Dict[str, Any]
+    now_ms: Optional[int] = None
+    instance_id: str = ''
+    source: str = ''
 ) -> Dict[str, str]:
     """Convenience wrapper around build_external_state_mapping for Python writers.
 
@@ -127,14 +127,14 @@ def build_state_mapping(
     """
     sym = str(symbol or '').upper()
     return build_external_state_mapping(
-        service=service,
-        stage=stage,
-        symbol=sym,
-        duration_ms=int(max(0, duration_ms)),
-        payload=payload,
-        instance_id=instance_id,
-        source=source,
-        now_ms=now_ms,
+        service=service
+        stage=stage
+        symbol=sym
+        duration_ms=int(max(0, duration_ms))
+        payload=payload
+        instance_id=instance_id
+        source=source
+        now_ms=now_ms
     )
 
 
@@ -169,13 +169,13 @@ class LatencyStateWriter:
             return
         self._last_write_ms[key] = int(now_ms)
         mapping = build_state_mapping(
-            service=self.service,
-            stage=stage,
-            symbol=key.rsplit(':', 1)[-1],
-            duration_ms=duration_ms,
-            payload=payload,
-            now_ms=now_ms,
-            source='python_runtime',
+            service=self.service
+            stage=stage
+            symbol=key.rsplit(':', 1)[-1]
+            duration_ms=duration_ms
+            payload=payload
+            now_ms=now_ms
+            source='python_runtime'
         )
         try:
             await redis_client.hset(key, mapping=mapping)

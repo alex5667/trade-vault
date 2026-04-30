@@ -66,10 +66,10 @@ class SmokeGate:
 
 
 def read_monitoring_smoke_gate(
-    redis_url: str,
-    key: str = "metrics:monitoring_smoke:last",
-    max_age_s: int = 21600,
-    fail_mode: str = "fail_closed",
+    redis_url: str
+    key: str = "metrics:monitoring_smoke:last"
+    max_age_s: int = 21600
+    fail_mode: str = "fail_closed"
 ) -> SmokeGate:
     """Read monitoring smoke status from Redis and return a gate decision.
 
@@ -96,10 +96,10 @@ def read_monitoring_smoke_gate(
 
 
 def validate_dataset_report(
-    report: Dict[str, Any],
-    min_joined: int = 200,
-    pos_rate_min: float = 0.05,
-    pos_rate_max: float = 0.60,
+    report: Dict[str, Any]
+    min_joined: int = 200
+    pos_rate_min: float = 0.05
+    pos_rate_max: float = 0.60
 ) -> DatasetValidation:
     joined = int(report.get("joined", 0) or 0)
     pos_rate = float(report.get("pos_rate", 0.0) or 0.0)
@@ -124,10 +124,10 @@ class TrainValidation:
 
 
 def validate_train_report(
-    report: Dict[str, Any],
-    *,
-    brier_max: float = 0.30,
-    ece_max: float = 0.08,
+    report: Dict[str, Any]
+    *
+    brier_max: float = 0.30
+    ece_max: float = 0.08
 ) -> TrainValidation:
     """Validate OOF train report for edge_stack_v1.
 
@@ -163,9 +163,9 @@ def redis_client(redis_url: str):
 
 
 def write_train_metrics(
-    redis_url: str,
-    key: str,
-    mapping: Dict[str, Any],
+    redis_url: str
+    key: str
+    mapping: Dict[str, Any]
 ) -> None:
     try:
         r = redis_client(redis_url)

@@ -276,11 +276,11 @@ class PostSlAnalyzer:
     def _safe_finish_meta_json(self, finish_meta: Dict[str, Any]) -> Tuple[Optional[str], int, int]:
         try:
             sanitized = self._json_sanitize(
-                finish_meta,
-                depth=0,
-                max_depth=self._finish_meta_max_depth,
-                max_items=self._finish_meta_max_items,
-                max_str=self._finish_meta_max_str,
+                finish_meta
+                depth=0
+                max_depth=self._finish_meta_max_depth
+                max_items=self._finish_meta_max_items
+                max_str=self._finish_meta_max_str
             )
             s = json.dumps(sanitized, ensure_ascii=False, separators=(",", ":"))
         except Exception:
@@ -350,13 +350,13 @@ class PostSlAnalyzer:
         thr_px = (tp1_price - eps_val) if direction == "LONG" else (tp1_price + eps_val)
 
         return {
-            "tp1_price": float(tp1_price),
-            "tp1_eps_bps": float(eps_bps),
-            "tp1_eps_val": float(eps_val),
-            "tp1_trigger_px": float(trigger_px),
-            "tp1_threshold_px": float(thr_px),
-            "tp1_dist_bps_signed": float(dist_bps_signed) if dist_bps_signed is not None else None,
-            "direction": str(direction),
+            "tp1_price": float(tp1_price)
+            "tp1_eps_bps": float(eps_bps)
+            "tp1_eps_val": float(eps_val)
+            "tp1_trigger_px": float(trigger_px)
+            "tp1_threshold_px": float(thr_px)
+            "tp1_dist_bps_signed": float(dist_bps_signed) if dist_bps_signed is not None else None
+            "direction": str(direction)
         }
 
     @staticmethod
@@ -377,14 +377,14 @@ class PostSlAnalyzer:
             breach = extreme - cap_level  # >=0 means breached above cap_level
 
         return {
-            "sl_price": float(sl_price),
-            "atr_entry": float(atr_entry),
-            "atr_cap_mult": float(atr_cap_mult),
-            "atr_cap_dist": float(dist),
-            "atr_cap_level_px": float(cap_level),
-            "bar_extreme_px": float(extreme),
-            "atr_cap_breach_px": float(breach),
-            "direction": str(direction),
+            "sl_price": float(sl_price)
+            "atr_entry": float(atr_entry)
+            "atr_cap_mult": float(atr_cap_mult)
+            "atr_cap_dist": float(dist)
+            "atr_cap_level_px": float(cap_level)
+            "bar_extreme_px": float(extreme)
+            "atr_cap_breach_px": float(breach)
+            "direction": str(direction)
         }
 
     @staticmethod
@@ -488,14 +488,14 @@ class PostSlAnalyzer:
         regime = str(t.get("regime", "na"))
 
         track = TrackState(
-            trade_id=str(t.get("trade_id") or msg_id),
-            symbol=symbol,
-            direction=direction,
-            entry_price=entry,
-            sl_price=sl,
-            tp1_price=tp1,
-            start_ts_ms=exit_ts,
-            atr_entry=atr,
+            trade_id=str(t.get("trade_id") or msg_id)
+            symbol=symbol
+            direction=direction
+            entry_price=entry
+            sl_price=sl
+            tp1_price=tp1
+            start_ts_ms=exit_ts
+            atr_entry=atr
             regime=regime
         )
         
@@ -595,10 +595,10 @@ class PostSlAnalyzer:
             # 2. Time Cap?
             if track.bars_seen >= MAX_BARS:
                 self._finish_track(
-                    track,
-                    "time_cap",
-                    bar_ts_ms,
-                    finish_meta=lambda: self._time_cap_details(track.bars_seen, MAX_BARS),
+                    track
+                    "time_cap"
+                    bar_ts_ms
+                    finish_meta=lambda: self._time_cap_details(track.bars_seen, MAX_BARS)
                 )
                 finished_indices.append(i)
                 continue
@@ -619,10 +619,10 @@ class PostSlAnalyzer:
                 
                 if is_atr_cap:
                     self._finish_track(
-                        track,
-                        "atr_cap",
-                        bar_ts_ms,
-                        finish_meta=lambda: self._atr_cap_details(track.direction, track.sl_price, track.atr_entry, ATR_CAP, bar_h, bar_l),
+                        track
+                        "atr_cap"
+                        bar_ts_ms
+                        finish_meta=lambda: self._atr_cap_details(track.direction, track.sl_price, track.atr_entry, ATR_CAP, bar_h, bar_l)
                     )
                     finished_indices.append(i)
                     continue
@@ -674,20 +674,20 @@ class PostSlAnalyzer:
 
         now_ms = get_ny_time_millis()
         result = {
-            "trade_id": str(track.trade_id),
-            "symbol": str(track.symbol).upper(),
-            "side": _norm_side(track.direction),
-            "regime": _norm_regime(track.regime),
-            "post_sl_tp1_hit": int(tp1_hit),
-            "post_sl_tp1_time_ms": int(time_to_tp1) if time_to_tp1 is not None else -1,
-            "post_sl_end_reason": str(reason or ""),
-            "post_sl_bars_observed": int(track.bars_seen),
-            "post_sl_mfe_r": float(mfe_r),
-            "post_sl_mfe_atr": float(mfe_atr),
-            "post_sl_req_buffer_atr": float(req_buffer_atr),
-            "event_ts_ms": int(track.start_ts_ms or 0),
-            "end_ts_ms": int(end_ts_ms or 0),
-            "ingest_ts_ms": now_ms,
+            "trade_id": str(track.trade_id)
+            "symbol": str(track.symbol).upper()
+            "side": _norm_side(track.direction)
+            "regime": _norm_regime(track.regime)
+            "post_sl_tp1_hit": int(tp1_hit)
+            "post_sl_tp1_time_ms": int(time_to_tp1) if time_to_tp1 is not None else -1
+            "post_sl_end_reason": str(reason or "")
+            "post_sl_bars_observed": int(track.bars_seen)
+            "post_sl_mfe_r": float(mfe_r)
+            "post_sl_mfe_atr": float(mfe_atr)
+            "post_sl_req_buffer_atr": float(req_buffer_atr)
+            "event_ts_ms": int(track.start_ts_ms or 0)
+            "end_ts_ms": int(end_ts_ms or 0)
+            "ingest_ts_ms": now_ms
             "ts": now_ms  # Legacy validation
         }
         

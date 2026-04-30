@@ -141,76 +141,76 @@ G_POLL_TS_MS = Gauge("of_inputs_v3_circuit_state_exporter_poll_ts_ms", "Last pol
 G_ERRORS_TOTAL = Gauge("of_inputs_v3_circuit_state_exporter_errors_total", "Cumulative exporter loop errors")
 
 G_DISABLED = Gauge(
-    "of_inputs_v3_circuit_cfg_disabled",
-    "1 if cfg disables V3 inputs for symbol",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_cfg_disabled"
+    "1 if cfg disables V3 inputs for symbol"
+    ["symbol", "reason"]
 )
 G_DISABLED_UNTIL_MS = Gauge(
-    "of_inputs_v3_circuit_cfg_disabled_until_ms",
-    "Disable until timestamp (ms) derived from cfg disable key",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_cfg_disabled_until_ms"
+    "Disable until timestamp (ms) derived from cfg disable key"
+    ["symbol", "reason"]
 )
 
 G_DISABLED_HARD = Gauge(
-    "of_inputs_v3_circuit_cfg_disabled_hard",
-    "1 if cfg disables V3 inputs for symbol (hard-disable phase)",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_cfg_disabled_hard"
+    "1 if cfg disables V3 inputs for symbol (hard-disable phase)"
+    ["symbol", "reason"]
 )
 G_DISABLED_COOLDOWN = Gauge(
-    "of_inputs_v3_circuit_cfg_disabled_cooldown",
-    "1 if cfg disables V3 inputs for symbol (cooldown/anti-flap phase)",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_cfg_disabled_cooldown"
+    "1 if cfg disables V3 inputs for symbol (cooldown/anti-flap phase)"
+    ["symbol", "reason"]
 )
 G_DISABLED_HARD_UNTIL_MS = Gauge(
-    "of_inputs_v3_circuit_cfg_disabled_hard_until_ms",
-    "Hard-disable until timestamp (ms) derived from cfg disable key",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_cfg_disabled_hard_until_ms"
+    "Hard-disable until timestamp (ms) derived from cfg disable key"
+    ["symbol", "reason"]
 )
 G_DISABLED_TTL_MS = Gauge(
-    "of_inputs_v3_circuit_cfg_disabled_ttl_ms",
-    "Redis PTTL for cfg disable key (ms)",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_cfg_disabled_ttl_ms"
+    "Redis PTTL for cfg disable key (ms)"
+    ["symbol", "reason"]
 )
 G_DISABLED_SYMBOLS = Gauge(
-    "of_inputs_v3_circuit_disabled_symbols",
-    "Count of currently disabled symbols",
+    "of_inputs_v3_circuit_disabled_symbols"
+    "Count of currently disabled symbols"
 )
 G_DISABLED_BY_REASON = Gauge(
-    "of_inputs_v3_circuit_disabled_symbols_by_reason",
-    "Count of currently disabled symbols by reason",
-    ["reason"],
+    "of_inputs_v3_circuit_disabled_symbols_by_reason"
+    "Count of currently disabled symbols by reason"
+    ["reason"]
 )
 
 G_DG = Gauge(
-    "of_inputs_v3_circuit_downgrades_window",
-    "Downgrades in sliding window (ZSET cardinality)",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_downgrades_window"
+    "Downgrades in sliding window (ZSET cardinality)"
+    ["symbol", "reason"]
 )
 G_DG_SUM = Gauge(
-    "of_inputs_v3_circuit_downgrades_window_sum",
-    "Sum of downgrades across symbols in current window",
-    ["reason"],
+    "of_inputs_v3_circuit_downgrades_window_sum"
+    "Sum of downgrades across symbols in current window"
+    ["reason"]
 )
 
 G_AP_GLOB = Gauge(
-    "of_inputs_v3_circuit_auto_apply_block_global_active",
-    "1 if global auto-apply block key is present",
-    ["reason"],
+    "of_inputs_v3_circuit_auto_apply_block_global_active"
+    "1 if global auto-apply block key is present"
+    ["reason"]
 )
 G_AP_GLOB_TTL_MS = Gauge(
-    "of_inputs_v3_circuit_auto_apply_block_global_ttl_ms",
-    "TTL ms for global auto-apply block",
-    ["reason"],
+    "of_inputs_v3_circuit_auto_apply_block_global_ttl_ms"
+    "TTL ms for global auto-apply block"
+    ["reason"]
 )
 G_AP_SYM = Gauge(
-    "of_inputs_v3_circuit_auto_apply_block_symbol_active",
-    "1 if per-symbol auto-apply block key is present",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_auto_apply_block_symbol_active"
+    "1 if per-symbol auto-apply block key is present"
+    ["symbol", "reason"]
 )
 G_AP_SYM_TTL_MS = Gauge(
-    "of_inputs_v3_circuit_auto_apply_block_symbol_ttl_ms",
-    "TTL ms for per-symbol auto-apply block",
-    ["symbol", "reason"],
+    "of_inputs_v3_circuit_auto_apply_block_symbol_ttl_ms"
+    "TTL ms for per-symbol auto-apply block"
+    ["symbol", "reason"]
 )
 
 

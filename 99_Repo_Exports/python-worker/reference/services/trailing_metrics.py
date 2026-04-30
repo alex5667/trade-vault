@@ -14,64 +14,64 @@ from prometheus_client import Counter, Histogram, Gauge, Info
 
 # Counters
 tp_events_total = Counter(
-    'tp_events_total',
-    'Total number of TP/SL events processed',
+    'tp_events_total'
+    'Total number of TP/SL events processed'
     ['event_type', 'symbol']
 )
 
 trailing_started_total = Counter(
-    'trailing_started_total',
-    'Total number of trailing stops started',
+    'trailing_started_total'
+    'Total number of trailing stops started'
     ['symbol', 'profile']
 )
 
 trailing_failed_total = Counter(
-    'trailing_failed_total',
-    'Total number of failed trailing start attempts',
+    'trailing_failed_total'
+    'Total number of failed trailing start attempts'
     ['symbol', 'reason']
 )
 
 signals_without_trail_flag = Counter(
-    'signals_without_trail_flag',
-    'Signals that reached TP1 but had no trail_after_tp1 flag',
+    'signals_without_trail_flag'
+    'Signals that reached TP1 but had no trail_after_tp1 flag'
     ['symbol']
 )
 
 signals_not_found = Counter(
-    'signals_not_found',
-    'TP1 events for signals not found in Redis',
+    'signals_not_found'
+    'TP1 events for signals not found in Redis'
     ['symbol']
 )
 
 # Histograms
 event_processing_duration = Histogram(
-    'event_processing_duration_seconds',
-    'Time spent processing TP/SL events',
+    'event_processing_duration_seconds'
+    'Time spent processing TP/SL events'
     ['event_type']
 )
 
 trailing_command_latency = Histogram(
-    'trailing_command_latency_seconds',
-    'Latency of sending trailing command to gateway',
+    'trailing_command_latency_seconds'
+    'Latency of sending trailing command to gateway'
     buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
 )
 
 # Gauges
 active_trailing_positions = Gauge(
-    'active_trailing_positions',
-    'Number of positions currently in trailing mode',
+    'active_trailing_positions'
+    'Number of positions currently in trailing mode'
     ['symbol']
 )
 
 pending_events = Gauge(
-    'pending_events',
-    'Number of pending events in consumer group',
+    'pending_events'
+    'Number of pending events in consumer group'
     ['stream', 'group']
 )
 
 # Info
 trailing_system_info = Info(
-    'trailing_system',
+    'trailing_system'
     'Information about TP1 Trailing System'
 )
 
@@ -131,7 +131,7 @@ class TrailingMetrics:
     def set_system_info(version: str, default_profile: str):
         """Установить информацию о системе."""
         trailing_system_info.info({
-            'version': version,
+            'version': version
             'default_profile': default_profile
         })
 

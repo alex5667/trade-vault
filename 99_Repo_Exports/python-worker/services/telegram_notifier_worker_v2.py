@@ -14,8 +14,8 @@ from prometheus_client import start_http_server, Counter, Histogram, Gauge
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("TelegramNotifierWorkerV2")
@@ -58,7 +58,7 @@ NOTIFY_LAST_ERR_TS = Gauge("notify_last_err_ts_seconds", "Timestamp of last fail
 # Constants
 STREAM_KEYS = {
     RS.NOTIFY_TELEGRAM: "notify-group",      # Main info stream 
-    RS.NOTIFY_TELEGRAM_CRIT: "notify-crit-group",
+    RS.NOTIFY_TELEGRAM_CRIT: "notify-crit-group"
     RS.NOTIFY_TELEGRAM_PAGE: "notify-page-group"
 }
 
@@ -101,9 +101,9 @@ def send_telegram_message(latched_chat_id, text):
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": latched_chat_id,
-        "text": text,
-        "parse_mode": TELEGRAM_PARSE_MODE,
+        "chat_id": latched_chat_id
+        "text": text
+        "parse_mode": TELEGRAM_PARSE_MODE
     }
     
     data = json.dumps(payload).encode("utf-8")
@@ -224,7 +224,7 @@ def process_message(r, stream_key, message_id, message_data):
     Process a single message from Redis Stream.
     Returns True if processed (or skipped), False if retry needed.
     
-    For streams in COUNTER_ONLY_STREAMS (e.g. notify:telegram handled by legacy worker),
+    For streams in COUNTER_ONLY_STREAMS (e.g. notify:telegram handled by legacy worker)
     only SLO counters are written — no Telegram send is performed.
     """
     try:
@@ -291,7 +291,7 @@ def process_message(r, stream_key, message_id, message_data):
             chat_id = payload["chat_id"]
 
         executor.submit(
-            background_process_send_task,
+            background_process_send_task
             r, stream_key, message_id, chat_id, text, payload, severity, time.time(), message_data
         )
         return True
@@ -321,10 +321,10 @@ def main():
             for stream, group in STREAM_KEYS.items():
                 try:
                     items = r.xreadgroup(
-                        group,
-                        CONSUMER_NAME,
-                        {stream: ">"},
-                        count=5,
+                        group
+                        CONSUMER_NAME
+                        {stream: ">"}
+                        count=5
                         block=100
                     )
                 except redis.exceptions.ResponseError as e:

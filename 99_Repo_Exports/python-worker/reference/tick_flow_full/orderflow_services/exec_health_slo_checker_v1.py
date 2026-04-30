@@ -30,9 +30,9 @@ logger = logging.getLogger("exec_health_slo_checker_v1")
 
 SCOPES: Sequence[str] = ("edge", "pipeline", "entry_policy")
 THR_METRICS: Sequence[str] = (
-    "threshold_is_p95_bps",
-    "threshold_perm_impact_p95_bps",
-    "threshold_realized_spread_p50_bps",
+    "threshold_is_p95_bps"
+    "threshold_perm_impact_p95_bps"
+    "threshold_realized_spread_p50_bps"
 )
 
 
@@ -102,18 +102,18 @@ def summarize_scope_rows(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stal
     stale = len(rows) - len(active)
 
     out: Dict[str, Any] = {
-        "active_instances": int(len(active)),
-        "stale_instances": int(max(0, stale)),
-        "total_n": 0,
-        "apply_n": 0,
-        "veto_n": 0,
-        "pass_n": 0,
-        "reader_error_n": 0,
-        "mode_distinct": 0,
-        "deploy_distinct": 0,
-        "rollout_drift_instances": 0,
-        "top_modes_json": "[]",
-        "top_deploys_json": "[]",
+        "active_instances": int(len(active))
+        "stale_instances": int(max(0, stale))
+        "total_n": 0
+        "apply_n": 0
+        "veto_n": 0
+        "pass_n": 0
+        "reader_error_n": 0
+        "mode_distinct": 0
+        "deploy_distinct": 0
+        "rollout_drift_instances": 0
+        "top_modes_json": "[]"
+        "top_deploys_json": "[]"
     }
     for metric in THR_METRICS:
         out[f"distinct_{metric}"] = 0
@@ -160,14 +160,14 @@ def build_summary(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: i
         by_scope[_s(row.get("scope"), "unknown")].append(row)
 
     out: Dict[str, str] = {
-        "schema_name": "exec_health_slo_summary",
-        "schema_version": "1",
-        "updated_ts_ms": str(int(now_ms)),
-        "stale_ms": str(int(stale_ms)),
-        "active_instances_total": "0",
-        "stale_instances_total": "0",
-        "rollout_drift_instances_total": "0",
-        "cross_scope_mode_distinct": "0",
+        "schema_name": "exec_health_slo_summary"
+        "schema_version": "1"
+        "updated_ts_ms": str(int(now_ms))
+        "stale_ms": str(int(stale_ms))
+        "active_instances_total": "0"
+        "stale_instances_total": "0"
+        "rollout_drift_instances_total": "0"
+        "cross_scope_mode_distinct": "0"
     }
     for metric in THR_METRICS:
         out[f"cross_scope_distinct_{metric}"] = "0"

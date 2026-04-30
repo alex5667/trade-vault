@@ -59,11 +59,11 @@ class ExecutionPlanner:
 
         # 2) Entry zone in R
         entry_low, entry_high = self._compute_entry_zone(
-            side=side,
-            stop_price=stop_price,
-            price_at_signal=ctx.price_at_signal,
-            atr=atr,
-            cfg=cfg,
+            side=side
+            stop_price=stop_price
+            price_at_signal=ctx.price_at_signal
+            atr=atr
+            cfg=cfg
         )
 
         # 3) Dynamic risk based on FinalScore
@@ -74,22 +74,22 @@ class ExecutionPlanner:
 
         # 4) Portfolio risk check
         risk_usd, position_size = self._compute_position_size(
-            ctx=ctx,
-            stop_price=stop_price,
-            entry_price=(entry_low + entry_high) / 2.0,
-            desired_risk_R=risk_R,
-            cfg=cfg,
+            ctx=ctx
+            stop_price=stop_price
+            entry_price=(entry_low + entry_high) / 2.0
+            desired_risk_R=risk_R
+            cfg=cfg
         )
         if risk_usd <= 0 or position_size <= 0:
             return None
 
         # 5) TP levels (in R from stop)
         tp_levels = self._compute_tp_levels(
-            side=side,
-            stop_price=stop_price,
-            entry_price=(entry_low + entry_high) / 2.0,
-            tp_Rs=cfg.default_tp_R,
-            atr=atr,
+            side=side
+            stop_price=stop_price
+            entry_price=(entry_low + entry_high) / 2.0
+            tp_Rs=cfg.default_tp_R
+            atr=atr
         )
         partials = [0.33, 0.33, 0.34]  # example: 3 exits ~1/3 each
 
@@ -97,23 +97,23 @@ class ExecutionPlanner:
         expiry_bars = self._resolve_expiry_bars(ctx, cfg)
 
         plan = ExecutionPlan(
-            signal_id=ctx.signal_id,
-            symbol=ctx.symbol,
-            side=side,
-            setup_type=ctx.setup_type,
-            ts_signal=ctx.ts_signal,
-            price_at_signal=ctx.price_at_signal,
-            entry_zone_low=entry_low,
-            entry_zone_high=entry_high,
-            stop_price=stop_price,
-            tp_levels=tp_levels,
-            partials=partials,
-            pos_risk_R=risk_R,
-            risk_usd=risk_usd,
-            position_size=position_size,
-            expiry_bars=expiry_bars,
-            created_at=datetime.now(timezone.utc),
-            meta={},
+            signal_id=ctx.signal_id
+            symbol=ctx.symbol
+            side=side
+            setup_type=ctx.setup_type
+            ts_signal=ctx.ts_signal
+            price_at_signal=ctx.price_at_signal
+            entry_zone_low=entry_low
+            entry_zone_high=entry_high
+            stop_price=stop_price
+            tp_levels=tp_levels
+            partials=partials
+            pos_risk_R=risk_R
+            risk_usd=risk_usd
+            position_size=position_size
+            expiry_bars=expiry_bars
+            created_at=datetime.now(timezone.utc)
+            meta={}
         )
         return plan
 
@@ -125,11 +125,11 @@ class ExecutionPlanner:
 
 
     def _compute_stop(
-        self,
-        ctx: SignalContext,
-        side: Side,
-        atr: float,
-        cfg: SymbolSetupConfig,
+        self
+        ctx: SignalContext
+        side: Side
+        atr: float
+        cfg: SymbolSetupConfig
     ) -> tuple[float | None, float]:
         """
         Stop behind microstructural level:
@@ -170,12 +170,12 @@ class ExecutionPlanner:
         return stop_price, stop_R
 
     def _compute_entry_zone(
-        self,
-        side: Side,
-        stop_price: float,
-        price_at_signal: float,
-        atr: float,
-        cfg: SymbolSetupConfig,
+        self
+        side: Side
+        stop_price: float
+        price_at_signal: float
+        atr: float
+        cfg: SymbolSetupConfig
     ) -> tuple[float, float]:
         """
         Entry zone in R relative to stop.
@@ -217,12 +217,12 @@ class ExecutionPlanner:
         return max(risk_R, 0.0)
 
     def _compute_position_size(
-        self,
-        ctx: SignalContext,
-        stop_price: float,
-        entry_price: float,
-        desired_risk_R: float,
-        cfg: SymbolSetupConfig,
+        self
+        ctx: SignalContext
+        stop_price: float
+        entry_price: float
+        desired_risk_R: float
+        cfg: SymbolSetupConfig
     ) -> tuple[float, float]:
         """
         Convert desired_risk_R → USD → lots.
@@ -255,11 +255,11 @@ class ExecutionPlanner:
 
     @staticmethod
     def _compute_tp_levels(
-        side: Side,
-        stop_price: float,
-        entry_price: float,
-        tp_Rs: Tuple[float, float, float],
-        atr: float,
+        side: Side
+        stop_price: float
+        entry_price: float
+        tp_Rs: Tuple[float, float, float]
+        atr: float
     ) -> list[float]:
         """
         Convert TP in R → real prices.

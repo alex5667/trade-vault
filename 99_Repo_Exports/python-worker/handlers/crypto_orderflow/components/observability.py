@@ -91,16 +91,16 @@ class CryptoObservability:
                 return
 
             obj = {
-                "type": "candidate_sample",
-                "ts": int(getattr(ctx, "ts", 0) or 0),
-                "symbol": getattr(ctx, "symbol", None),
-                "kind": self.safe_str(getattr(cand, "kind", "") or ""),
-                "side": self.safe_str(getattr(cand, "side", "") or ""),
-                "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0),
-                "regime": reg,
-                "spread_bps": finite_or(getattr(ctx, "spread_bps", None), -1.0),
-                "taker_rate": finite_or(getattr(ctx, "taker_rate_ema", None), -1.0),
-                "geometry_score": finite_or(getattr(ctx, "geometry_score", None), -1.0),
+                "type": "candidate_sample"
+                "ts": int(getattr(ctx, "ts", 0) or 0)
+                "symbol": getattr(ctx, "symbol", None)
+                "kind": self.safe_str(getattr(cand, "kind", "") or "")
+                "side": self.safe_str(getattr(cand, "side", "") or "")
+                "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0)
+                "regime": reg
+                "spread_bps": finite_or(getattr(ctx, "spread_bps", None), -1.0)
+                "taker_rate": finite_or(getattr(ctx, "taker_rate_ema", None), -1.0)
+                "geometry_score": finite_or(getattr(ctx, "geometry_score", None), -1.0)
             }
             self.logger.info(dumps1(obj))
         except Exception:
@@ -125,15 +125,15 @@ class CryptoObservability:
                 return
                 
             payload = {
-                "type": "diagnostic",
-                "tradeable": False,
-                "reason": str(reason or ""),
-                "trace_id": str(getattr(ctx, "trace_id", "") or tr.get("trace_id") or ""),
-                "sid": str(tr.get("sid") or getattr(ctx, "sid", "") or ""),
-                "symbol": str(tr.get("symbol") or getattr(ctx, "symbol", "") or ""),
-                "kind": str(tr.get("kind") or ""),
-                "trace": tr,
-                "ts_ms": get_epoch_ms(),
+                "type": "diagnostic"
+                "tradeable": False
+                "reason": str(reason or "")
+                "trace_id": str(getattr(ctx, "trace_id", "") or tr.get("trace_id") or "")
+                "sid": str(tr.get("sid") or getattr(ctx, "sid", "") or "")
+                "symbol": str(tr.get("symbol") or getattr(ctx, "symbol", "") or "")
+                "kind": str(tr.get("kind") or "")
+                "trace": tr
+                "ts_ms": get_epoch_ms()
             }
             stream = str(os.getenv("DECISION_TRACE_DIAG_STREAM") or "stream:signals:diagnostics")
             redis_client.xadd(stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=50000, approximate=True)

@@ -68,10 +68,10 @@ def create_mt5_config() -> Mt5Config:
         raise ValueError(f"Missing required environment variables: {missing}")
 
     return Mt5Config(
-        login=int(os.environ["MT5_LOGIN"]),
-        password=os.environ["MT5_PASSWORD"],
-        server=os.environ["MT5_SERVER"],
-        symbol_map=load_symbol_map(),
+        login=int(os.environ["MT5_LOGIN"])
+        password=os.environ["MT5_PASSWORD"]
+        server=os.environ["MT5_SERVER"]
+        symbol_map=load_symbol_map()
     )
 
 
@@ -103,8 +103,8 @@ def main():
         print(f"[mt5_bridge] ✅ Plans consumer initialized (stream: {plans_consumer.stream_key})")
 
         exec_publisher = ExecEventsPublisher(
-            redis_dsn,
-            stream_key="stream:signals:exec_events",
+            redis_dsn
+            stream_key="stream:signals:exec_events"
         )
         print("[mt5_bridge] ✅ Exec events publisher initialized")
 
@@ -114,8 +114,8 @@ def main():
 
         # --- watcher фактических сделок ---
         deals_watcher = Mt5DealsWatcher(
-            mt5_client=mt5_client,
-            publisher=exec_publisher,
+            mt5_client=mt5_client
+            publisher=exec_publisher
             history_window_minutes=60 * 24,  # при старте смотрим сутки назад
         )
         print("[mt5_bridge] ✅ Deals watcher initialized")

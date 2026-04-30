@@ -23,7 +23,7 @@ class SignalGenerator:
     Сервис для генерации и публикации сигналов.
     """
 
-    def __init__(self, symbol: str, config: Any, outbox: Any, cooldown: Any = None,
+    def __init__(self, symbol: str, config: Any, outbox: Any, cooldown: Any = None
                  dedup_bucket_ms: int = 60000, config_manager: Any = None, health_metrics: Any = None):
         self.symbol = symbol
         self.config = config
@@ -48,21 +48,21 @@ class SignalGenerator:
         # Если уже есть отдельный сервис, полагаемся только на его Redis клиент:
         #   cooldown.redis  OR  cooldown.client  OR  cooldown itself being a Redis client.
         self._cooldown_default_ms = {
-            "breakout": 30_000,
-            "extreme": 30_000,
-            "obi_spike": 15_000,
-            "absorption": 60_000,
-            "sweep": 15_000,
-            "default": 10_000,
+            "breakout": 30_000
+            "extreme": 30_000
+            "obi_spike": 15_000
+            "absorption": 60_000
+            "sweep": 15_000
+            "default": 10_000
         }
 
         # Конфигурация гейта по режиму рынка
         self.regime_gate = RegimeGateCfg(
-            breakout_min_score=float(getattr(config, "regime_breakout_min_score", 0.0)),
-            extreme_min_score=float(getattr(config, "regime_extreme_min_score", 0.0)),
-            obi_spike_min_score=float(getattr(config, "regime_obi_spike_min_score", 0.0)),
-            absorption_max_score=float(getattr(config, "regime_absorption_max_score", 0.0)),
-            allow_sweep_any=bool(getattr(config, "regime_allow_sweep_any", True)),
+            breakout_min_score=float(getattr(config, "regime_breakout_min_score", 0.0))
+            extreme_min_score=float(getattr(config, "regime_extreme_min_score", 0.0))
+            obi_spike_min_score=float(getattr(config, "regime_obi_spike_min_score", 0.0))
+            absorption_max_score=float(getattr(config, "regime_absorption_max_score", 0.0))
+            allow_sweep_any=bool(getattr(config, "regime_allow_sweep_any", True))
         )
 
         # если True и ctx.regime_score отсутствует -> сигнал не генерируем
@@ -283,9 +283,9 @@ class SignalGenerator:
         elif signal_kind == "EXTREME":
             # EXTREME: nearest pivot + price bin для лучшего дедупа
             level_key = build_level_key_extreme(
-                price=price,
-                pivots=pivots,
-                z=z0,
+                price=price
+                pivots=pivots
+                z=z0
                 price_step=0.5,  # можно параметризовать
                 include_z_bin=False  # можно включить через env
             )
@@ -315,10 +315,10 @@ class SignalGenerator:
             # Предпочтительно: reserve() -> (ok, redis_key, token), чтобы безопасно освободить при сбое.
             if hasattr(self.cooldown, "reserve") and hasattr(self.cooldown, "release"):
                 ok, cooldown_key, cooldown_token = self.cooldown.reserve(
-                    family=str(family),
-                    timeframe_s=int(tf),
-                    kind_lc=str(kind_lc),
-                    level_key=str(level_key),
+                    family=str(family)
+                    timeframe_s=int(tf)
+                    kind_lc=str(kind_lc)
+                    level_key=str(level_key)
                     ts_ms=int(ts_ms),  # real ts (not normalized)
                 )
                 if not ok:
@@ -338,11 +338,11 @@ class SignalGenerator:
             else:
                 # Фоллбек обратной совместимости (без семантики освобождения)
                 if not self.cooldown.acquire(
-                    kind=str(kind_lc),
-                    level_key=str(level_key),
-                    ts_ms=int(ts_ms),
-                    family=str(family),
-                    timeframe_s=int(tf),
+                    kind=str(kind_lc)
+                    level_key=str(level_key)
+                    ts_ms=int(ts_ms)
+                    family=str(family)
+                    timeframe_s=int(tf)
                 ):
                     if self.health_metrics:
                         try:
@@ -380,33 +380,33 @@ class SignalGenerator:
             return PublishResult(sent=False, dedup=False, msg_id=None)
 
         envelope = {
-            "symbol": getattr(ctx, "symbol", self.symbol),
+            "symbol": getattr(ctx, "symbol", self.symbol)
             "ts_ms": ts_ms_normalized,  # нормализованный для дедупа
             "bucket_ts_ms": ts_ms_normalized,  # стабильный бакетный timestamp для dedup (приоритет в _choose_dedup_ts_ms)
-            "direction": direction,
+            "direction": direction
             "kind": signal_kind,  # паттерно-специфичный для дедупа
             "signal_type": signal_kind.lower(),  # оригинальный тип для логики
             "level_key": level_key,  # никогда не пустой
-            "price": float(getattr(ctx, "price", 0.0) or 0.0),
-            "confidence": conf,
-            "breakdown": breakdown,
+            "price": float(getattr(ctx, "price", 0.0) or 0.0)
+            "confidence": conf
+            "breakdown": breakdown
             # regime в верхнем уровне (удобно downstream'ам)
-            "regime_label": rlabel,
-            "regime_score": float(rscore),
-            "cvd_5m": float(getattr(ctx, "cvd_5m", 0.0)),
-            "cvd_divergence": float(getattr(ctx, "cvd_divergence", 0.0)),
+            "regime_label": rlabel
+            "regime_score": float(rscore)
+            "cvd_5m": float(getattr(ctx, "cvd_5m", 0.0))
+            "cvd_divergence": float(getattr(ctx, "cvd_divergence", 0.0))
             "context": {
-                "price": float(getattr(ctx, "price", 0.0) or 0.0),
-                "z_delta": z0,
-                "obi": float(getattr(ctx, "obi", 0.0) or 0.0),
-                "level_key": level_key,
-                "nearest_pivot": nearest_pivot,
+                "price": float(getattr(ctx, "price", 0.0) or 0.0)
+                "z_delta": z0
+                "obi": float(getattr(ctx, "obi", 0.0) or 0.0)
+                "level_key": level_key
+                "nearest_pivot": nearest_pivot
                 # regime и в context тоже (для обратной совместимости, если кто-то читает только context)
-                "regime_label": rlabel,
-                "regime_score": float(rscore),
-                "cvd_5m": float(getattr(ctx, "cvd_5m", 0.0)),
-                "cvd_divergence": float(getattr(ctx, "cvd_divergence", 0.0)),
-            },
+                "regime_label": rlabel
+                "regime_score": float(rscore)
+                "cvd_5m": float(getattr(ctx, "cvd_5m", 0.0))
+                "cvd_divergence": float(getattr(ctx, "cvd_divergence", 0.0))
+            }
         }
 
         # (опционально) если хотите видеть причины reject в логах/метриках:
@@ -415,7 +415,7 @@ class SignalGenerator:
 
         try:
             result = self.outbox.publish(envelope)
-            # Если мы зарезервировали слот кулдауна, но публикация НЕ прошла,
+            # Если мы зарезервировали слот кулдауна, но публикация НЕ прошла
             # освобождаем его, чтобы не блокировать будущие сигналы между процессами.
             if reserved and (not bool(getattr(result, "sent", False))):
                 try:

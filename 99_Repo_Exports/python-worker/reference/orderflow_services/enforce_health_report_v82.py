@@ -98,17 +98,17 @@ def build_report() -> Dict[str, Any]:
 
     status_files = {
         "promoter": _env_str(
-            "PROMOTE_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/promoter/enforce_bucket_promoter_status.json",
-        ),
+            "PROMOTE_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/promoter/enforce_bucket_promoter_status.json"
+        )
         "refresher": _env_str(
-            "EXEC_SLIP_STATS_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json",
-        ),
+            "EXEC_SLIP_STATS_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json"
+        )
         "freezer": _env_str(
-            "ENFORCE_FREEZER_STATUS_PATH",
-            "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json",
-        ),
+            "ENFORCE_FREEZER_STATUS_PATH"
+            "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json"
+        )
     }
 
     r = _redis_from_env()
@@ -118,10 +118,10 @@ def build_report() -> Dict[str, Any]:
 
     cfg: Dict[str, Any] = {
         "global": {
-            "slippage_decomp_enforce_buckets": None,
-            "taker_flow_gate_enforce_buckets": None,
-        },
-        "per_symbol": {},
+            "slippage_decomp_enforce_buckets": None
+            "taker_flow_gate_enforce_buckets": None
+        }
+        "per_symbol": {}
     }
 
     syms = _env_list("ENFORCE_HEALTH_SYMBOLS", "")
@@ -132,19 +132,19 @@ def build_report() -> Dict[str, Any]:
             cfg["per_symbol"][s] = {
                 "slippage_decomp_enforce_buckets": _get_cfg_buckets(
                     r, f"cfg:slippage_decomp_enforce_buckets:{s}"
-                ),
+                )
                 "taker_flow_gate_enforce_buckets": _get_cfg_buckets(
                     r, f"cfg:taker_flow_gate_enforce_buckets:{s}"
-                ),
+                )
             }
 
     out: Dict[str, Any] = {
-        "ts_s": _now_s(),
-        "apply_blocked": bool(gates.get("blocked")),
-        "severity": str(gates.get("severity")),
-        "reasons": list(gates.get("reasons") or []),
-        "checks": gates.get("checks") or {},
-        "cfg": cfg,
+        "ts_s": _now_s()
+        "apply_blocked": bool(gates.get("blocked"))
+        "severity": str(gates.get("severity"))
+        "reasons": list(gates.get("reasons") or [])
+        "checks": gates.get("checks") or {}
+        "cfg": cfg
     }
 
     try:
@@ -158,8 +158,8 @@ def build_report() -> Dict[str, Any]:
 
 def main() -> int:
     path = _env_str(
-        "ENFORCE_HEALTH_REPORT_PATH",
-        "/var/lib/trade/of_reports/out/enforce/health/enforce_health_report_v82.json",
+        "ENFORCE_HEALTH_REPORT_PATH"
+        "/var/lib/trade/of_reports/out/enforce/health/enforce_health_report_v82.json"
     )
     rep = build_report()
     _write_json(path, rep)

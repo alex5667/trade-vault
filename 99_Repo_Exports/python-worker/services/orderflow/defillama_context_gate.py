@@ -39,17 +39,17 @@ def _map_profile(profile: str) -> str:
 
 
 def evaluate_defillama_context(
-    *,
-    profile: str,
-    side: str,
-    stablecoin_mcap_delta_1d: float,
-    stablecoin_mcap_delta_7d: float,
-    btc_dominance_momentum: float,
-    chain_tvl_delta_1d_pct: float,
-    dex_volume_spike_z: float,
-    fees_revenue_momentum: float,
-    tighten_mult: float,
-    tighten_cap_bps: float,
+    *
+    profile: str
+    side: str
+    stablecoin_mcap_delta_1d: float
+    stablecoin_mcap_delta_7d: float
+    btc_dominance_momentum: float
+    chain_tvl_delta_1d_pct: float
+    dex_volume_spike_z: float
+    fees_revenue_momentum: float
+    tighten_mult: float
+    tighten_cap_bps: float
 ) -> DefiLlamaContextDecision:
     mode = _map_profile(profile)
     side_up = str(side or "").strip().upper()
@@ -92,11 +92,11 @@ def evaluate_defillama_context(
         reason = "defillama_ctx:" + ",".join(flags)
 
     return DefiLlamaContextDecision(
-        hit=bool(flags),
-        mode=mode,
-        flags=flags,
-        risk_score=float(len(flags)),
-        tighten_add_bps=float(tighten),
-        veto=bool(veto),
-        veto_reason=reason,
+        hit=bool(flags)
+        mode=mode
+        flags=flags
+        risk_score=float(len(flags))
+        tighten_add_bps=float(tighten)
+        veto=bool(veto)
+        veto_reason=reason
     )

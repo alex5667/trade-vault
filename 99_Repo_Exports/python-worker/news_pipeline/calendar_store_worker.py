@@ -89,14 +89,14 @@ class CalendarStoreWorker(StreamWorker):
 
     def __init__(self, *, redis: redis.Redis, pg: Optional[NewsPostgresWriter] = None):
         super().__init__(
-            redis=redis,
-            stream=CAL_STREAM,
-            group=GROUP,
-            consumer=CONSUMER,
-            dlq_stream=DLQ,
-            block_ms=2000,
-            count=200,
-            claim_idle_ms=60_000,
+            redis=redis
+            stream=CAL_STREAM
+            group=GROUP
+            consumer=CONSUMER
+            dlq_stream=DLQ
+            block_ms=2000
+            count=200
+            claim_idle_ms=60_000
         )
         self.pg = pg
         self._last_hb = 0.0
@@ -110,12 +110,12 @@ class CalendarStoreWorker(StreamWorker):
         try:
             import json as _json
             obj = {
-                "ts_ms": int(now * 1000),
-                "kind": "calendar",
-                "ok": True,
-                "err": "",
-                "added": 0,
-                "instance": INSTANCE_ID,
+                "ts_ms": int(now * 1000)
+                "kind": "calendar"
+                "ok": True
+                "err": ""
+                "added": 0
+                "instance": INSTANCE_ID
             }
             self.r.set("hb:calendar", _json.dumps(obj, separators=(",", ":")), ex=HEARTBEAT_TTL_SEC)
         except Exception:
@@ -149,19 +149,19 @@ class CalendarStoreWorker(StreamWorker):
         if self.pg is not None:
             try:
                 self.pg.insert_calendar_event(
-                    uid=uid,
-                    event_ts_ms=event_ts_ms,
-                    ingested_ts_ms=ing_ts_ms,
-                    country=country,
-                    currency=currency,
-                    title=title,
-                    importance=int(importance),
-                    grade_id=int(event_grade_id),
-                    forecast=forecast,
-                    previous=previous,
-                    unit=unit,
-                    source=source,
-                    payload_json=payload,
+                    uid=uid
+                    event_ts_ms=event_ts_ms
+                    ingested_ts_ms=ing_ts_ms
+                    country=country
+                    currency=currency
+                    title=title
+                    importance=int(importance)
+                    grade_id=int(event_grade_id)
+                    forecast=forecast
+                    previous=previous
+                    unit=unit
+                    source=source
+                    payload_json=payload
                 )
             except Exception:
                 pass
@@ -190,16 +190,16 @@ class CalendarStoreWorker(StreamWorker):
             if should_write:
                 pipe = self.r.pipeline(transaction=False)
                 pipe.hset(key, mapping={
-                "event_ts_ms": int(event_ts_ms),
-                    "next_ts_ms": int(event_ts_ms),
-                    "event_tminus_sec": int(tminus),
-                    "event_grade_id": int(event_grade_id),
-                    "event_ref": uid,
-                    "updated_ts_ms": int(now_ms),
-                    "currency": currency,
-                    "country": country,
-                    "title": title[:256],
-                    "source": source,
+                "event_ts_ms": int(event_ts_ms)
+                    "next_ts_ms": int(event_ts_ms)
+                    "event_tminus_sec": int(tminus)
+                    "event_grade_id": int(event_grade_id)
+                    "event_ref": uid
+                    "updated_ts_ms": int(now_ms)
+                    "currency": currency
+                    "country": country
+                    "title": title[:256]
+                    "source": source
                 })
                 pipe.expire(key, AGG_TTL_SEC)
                 pipe.execute()
@@ -208,11 +208,11 @@ class CalendarStoreWorker(StreamWorker):
                 if self.pg is not None:
                     try:
                         self.pg.insert_calendar_feature_scope(
-                            scope=scope_norm,
-                            ts_ms=now_ms,
-                            next_event_ts_ms=event_ts_ms,
-                            event_grade_id=event_grade_id,
-                            event_ref=uid,
+                            scope=scope_norm
+                            ts_ms=now_ms
+                            next_event_ts_ms=event_ts_ms
+                            event_grade_id=event_grade_id
+                            event_ref=uid
                             event_tminus_sec=tminus
                         )
                     except Exception:

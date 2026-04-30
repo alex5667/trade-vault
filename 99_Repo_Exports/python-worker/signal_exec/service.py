@@ -30,11 +30,11 @@ class SignalService:
     """
 
     def __init__(
-        self,
-        repo: SignalRepository,
-        planner: ExecutionPlanner,
-        tracker: SignalPerformanceTracker,
-        bus: SignalBus,
+        self
+        repo: SignalRepository
+        planner: ExecutionPlanner
+        tracker: SignalPerformanceTracker
+        bus: SignalBus
     ):
         self.repo = repo
         self.planner = planner
@@ -69,9 +69,9 @@ class SignalService:
 
         # Also publish to Redis so other services can react
         await self.bus.publish_exec_event(
-            signal_id=signal_id,
-            symbol=symbol,
-            event_type=event_type,
-            ts_iso=ts.isoformat(),
-            price=price,
+            signal_id=signal_id
+            symbol=symbol
+            event_type=event_type
+            ts_iso=ts.isoformat()
+            price=price
         )

@@ -14,10 +14,10 @@ The trade-side cache consumer is expected to write a single Redis key:
 with JSON:
 
     {
-      "schema_ver": "v1",
-      "ts_ms": 1710000000000,
+      "schema_ver": "v1"
+      "ts_ms": 1710000000000
       "reco": {
-        "BTCUSDT": {"expires_ms": 1710000005000, ...},
+        "BTCUSDT": {"expires_ms": 1710000005000, ...}
         "ETHUSDT": {"expires_ms": 1710000006000, ...}
       }
     }
@@ -142,10 +142,10 @@ class NewsRecoCache:
                 payload.setdefault("map_ts_ms", ts_ms)
 
             self._by_symbol[sym] = NewsRecoSnapshot(
-                symbol=sym,
-                expires_ms=exp_ms,
-                received_ts_ms=nowv,
-                payload=payload,
+                symbol=sym
+                expires_ms=exp_ms
+                received_ts_ms=nowv
+                payload=payload
             )
             updated += 1
 

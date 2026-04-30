@@ -32,40 +32,40 @@ from prometheus_client import Gauge, start_http_server  # type: ignore
 
 
 GAUGE_EVENTS = Gauge(
-    "of_inputs_dlq_db_events_lookback_total",
-    "Count of of_inputs_dlq_events in lookback window (gauge)",
-    ["kind", "reason"],
+    "of_inputs_dlq_db_events_lookback_total"
+    "Count of of_inputs_dlq_events in lookback window (gauge)"
+    ["kind", "reason"]
 )
 GAUGE_LAST_TS_MS = Gauge(
-    "of_inputs_dlq_db_last_event_ts_ms",
-    "Last event timestamp (ms since epoch) observed in of_inputs_dlq_events",
-    ["kind"],
+    "of_inputs_dlq_db_last_event_ts_ms"
+    "Last event timestamp (ms since epoch) observed in of_inputs_dlq_events"
+    ["kind"]
 )
 GAUGE_LAST_AGE_S = Gauge(
-    "of_inputs_dlq_db_last_event_age_sec",
-    "Age (seconds) since last event observed in of_inputs_dlq_events",
-    ["kind"],
+    "of_inputs_dlq_db_last_event_age_sec"
+    "Age (seconds) since last event observed in of_inputs_dlq_events"
+    ["kind"]
 )
 
 
 DEFAULT_ALLOWLIST = [
     # data-quality / contour codes (keep stable)
-    "missing_lob_fields",
-    "book_state_degraded",
-    "book_state_bad",
-    "v3_to_v2_downgrade",
-    "bad_ts_ms",
-    "bad_time",
-    "bad_schema_version",
-    "missing_legs",
-    "missing_fields",
+    "missing_lob_fields"
+    "book_state_degraded"
+    "book_state_bad"
+    "v3_to_v2_downgrade"
+    "bad_ts_ms"
+    "bad_time"
+    "bad_schema_version"
+    "missing_legs"
+    "missing_fields"
     # common error prefixes
-    "ValueError",
-    "KeyError",
-    "TypeError",
-    "redis",
-    "publish",
-    "unknown",
+    "ValueError"
+    "KeyError"
+    "TypeError"
+    "redis"
+    "publish"
+    "unknown"
 ]
 
 
@@ -124,8 +124,8 @@ class Exporter:
                     sql = """
                     WITH base AS (
                       SELECT
-                        kind,
-                        CASE WHEN reason = ANY(%s::text[]) THEN reason ELSE 'other' END AS reason2,
+                        kind
+                        CASE WHEN reason = ANY(%s::text[]) THEN reason ELSE 'other' END AS reason2
                         ts
                       FROM v_of_inputs_dlq_events_parsed
                       WHERE ts >= now() - (%s || ' hours')::interval
@@ -139,23 +139,23 @@ class Exporter:
                     sql = """
                     WITH parsed AS (
                       SELECT
-                        ts,
+                        ts
                         CASE
                           WHEN stream LIKE 'stream:dlq:%' THEN 'dlq'
                           WHEN stream LIKE 'quarantine:%' THEN 'quarantine'
                           ELSE 'other'
-                        END AS kind,
+                        END AS kind
                         COALESCE(
-                          NULLIF(dq_code,''),
-                          NULLIF(substring(COALESCE(err,'') from '^([^\\s:]+)'),'') ,
+                          NULLIF(dq_code,'')
+                          NULLIF(substring(COALESCE(err,'') from '^([^\\s:]+)'),'') 
                           'unknown'
                         ) AS reason
                       FROM of_inputs_dlq_events
                       WHERE ts >= now() - (%s || ' hours')::interval
                     ), bucketed AS (
                       SELECT
-                        kind,
-                        CASE WHEN reason = ANY(%s::text[]) THEN reason ELSE 'other' END AS reason2,
+                        kind
+                        CASE WHEN reason = ANY(%s::text[]) THEN reason ELSE 'other' END AS reason2
                         ts
                       FROM parsed
                     )

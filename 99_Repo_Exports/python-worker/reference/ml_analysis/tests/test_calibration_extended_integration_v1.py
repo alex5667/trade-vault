@@ -18,8 +18,8 @@ def _load_module(rel_path: str, name: str):
 def test_calibration_report_writes_extended_metrics(tmp_path: Path):
     mod = _load_module('calibration_report.py', 'calibration_report')
     rows = [
-        {"y": 1, "r_mult": 1.2, "indicators": {"confidence_v1": 0.8, "confidence_cal_v1": 0.75}},
-        {"y": 0, "r_mult": -0.8, "indicators": {"confidence_v1": 0.2, "confidence_cal_v1": 0.25}},
+        {"y": 1, "r_mult": 1.2, "indicators": {"confidence_v1": 0.8, "confidence_cal_v1": 0.75}}
+        {"y": 0, "r_mult": -0.8, "indicators": {"confidence_v1": 0.2, "confidence_cal_v1": 0.25}}
     ] * 300
     in_jsonl = tmp_path / 'joined.jsonl'
     with open(in_jsonl, 'w', encoding='utf-8') as f:

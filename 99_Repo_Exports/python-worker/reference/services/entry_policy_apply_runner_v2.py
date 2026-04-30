@@ -73,8 +73,8 @@ class EntryPolicyApplyRunnerV2:
 
         # Safe lock (avoid two apply runners in parallel)
         self.lock = RedisLock(
-            key=os.getenv("ENTRY_POLICY_APPLY_LOCK_KEY", "lock:entry_policy_apply_runner_v2"),
-            ttl_sec=55,
+            key=os.getenv("ENTRY_POLICY_APPLY_LOCK_KEY", "lock:entry_policy_apply_runner_v2")
+            ttl_sec=55
         )
 
         # Hold-down: do not flip active arm too frequently

@@ -73,7 +73,7 @@ class FakeFilters:
 class FakeClient:
     """Mock BinanceFuturesClient with configurable mark price and algo order results."""
 
-    def __init__(self, *, mark_price: float = 2000.0, algo_result: dict = None,
+    def __init__(self, *, mark_price: float = 2000.0, algo_result: dict = None
                  algo_raise: Exception = None):
         self._mark_price = mark_price
         self._algo_result = algo_result or {"algoId": 123}
@@ -157,7 +157,7 @@ def _mk_executor(**overrides) -> "mod.BinanceExecutor":
 # ============================================================
 
 def test_sl_fallback_applied_when_signal_sl_crossed():
-    """When signal SL is wildly crossed (dropped by validator),
+    """When signal SL is wildly crossed (dropped by validator)
     _place_protective should compute fallback SL from mark ± 1% and place it."""
     mark = 2000.0
     client = FakeClient(mark_price=mark)
@@ -174,10 +174,10 @@ def test_sl_fallback_applied_when_signal_sl_crossed():
     # Signal SL for SHORT that is wildly below mark (wrong side)
     # For SHORT, SL must be > mark. SL=1900 is far below mark=2000 → dropped
     result = ex._place_protective(
-        sid="test-sid-1", symbol="ETHUSDT", logical_side="SHORT",
-        qty=0.5, sl=1900.0, tps=[],
-        policy=policy, client=client, filters=filters,
-        ref_price=2000.0,
+        sid="test-sid-1", symbol="ETHUSDT", logical_side="SHORT"
+        qty=0.5, sl=1900.0, tps=[]
+        policy=policy, client=client, filters=filters
+        ref_price=2000.0
     )
 
     # Fallback SL should be mark * 1.01 = 2020.0
@@ -208,10 +208,10 @@ def test_no_fallback_when_sl_is_valid():
 
     # For SHORT, SL must be > mark. SL=2100 is valid.
     result = ex._place_protective(
-        sid="test-sid-2", symbol="ETHUSDT", logical_side="SHORT",
-        qty=0.5, sl=2100.0, tps=[],
-        policy=policy, client=client, filters=filters,
-        ref_price=2000.0,
+        sid="test-sid-2", symbol="ETHUSDT", logical_side="SHORT"
+        qty=0.5, sl=2100.0, tps=[]
+        policy=policy, client=client, filters=filters
+        ref_price=2000.0
     )
 
     assert result.get("sl_algo_id") == 123
@@ -238,10 +238,10 @@ def test_no_fallback_when_disabled():
 
     # SL=1900 for SHORT is invalid → dropped, but fallback is disabled
     result = ex._place_protective(
-        sid="test-sid-3", symbol="ETHUSDT", logical_side="SHORT",
-        qty=0.5, sl=1900.0, tps=[],
-        policy=policy, client=client, filters=filters,
-        ref_price=2000.0,
+        sid="test-sid-3", symbol="ETHUSDT", logical_side="SHORT"
+        qty=0.5, sl=1900.0, tps=[]
+        policy=policy, client=client, filters=filters
+        ref_price=2000.0
     )
 
     # sl_algo_id should NOT be set (no SL placed, no fallback)
@@ -269,10 +269,10 @@ def test_sl_placement_failure_sends_telegram():
     policy.tp_working_type = "MARK_PRICE"
 
     result = ex._place_protective(
-        sid="test-sid-4", symbol="ETHUSDT", logical_side="SHORT",
-        qty=0.5, sl=2100.0, tps=[],
-        policy=policy, client=client, filters=filters,
-        ref_price=2000.0,
+        sid="test-sid-4", symbol="ETHUSDT", logical_side="SHORT"
+        qty=0.5, sl=2100.0, tps=[]
+        policy=policy, client=client, filters=filters
+        ref_price=2000.0
     )
 
     # SL placement failed → sl_algo_id missing
@@ -320,10 +320,10 @@ def test_tp_placement_failure_sends_telegram():
     policy.tp_working_type = "MARK_PRICE"
 
     result = ex._place_protective(
-        sid="test-sid-5", symbol="ETHUSDT", logical_side="LONG",
-        qty=0.5, sl=1900.0, tps=[2100.0],
-        policy=policy, client=client, filters=filters,
-        ref_price=2000.0,
+        sid="test-sid-5", symbol="ETHUSDT", logical_side="LONG"
+        qty=0.5, sl=1900.0, tps=[2100.0]
+        policy=policy, client=client, filters=filters
+        ref_price=2000.0
     )
 
     # SL should succeed
