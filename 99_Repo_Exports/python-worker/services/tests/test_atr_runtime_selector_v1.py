@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Phase 2 unit tests: services/atr_runtime_selector.py
 
@@ -5,16 +6,15 @@ Run:
   cd python-worker
   PYTHONPATH=. pytest -q services/tests/test_atr_runtime_selector_v1.py
 """
-from __future__ import annotations
 
 import pytest
 from services.atr_runtime_selector import (
-    select_runtime_atr_profile
-    _compute_target_tf_ms
-    _nearest_allowed_tf
-    _build_candidates
-    _compute_vol_ratio
-    _parse_allowed_tfs
+    select_runtime_atr_profile,
+    _compute_target_tf_ms,
+    _nearest_allowed_tf,
+    _build_candidates,
+    _compute_vol_ratio,
+    _parse_allowed_tfs,
 )
 
 _ALLOWED = [15000, 30000, 60000, 180000, 300000, 900000]
@@ -74,8 +74,8 @@ class TestBuildCandidates:
     def test_reads_alias_keys_from_indicators(self):
         sig = {
             "indicators": {
-                "atr_1m": 200.0
-                "atr_ts_ms_1m": _NOW_MS - 5000
+                "atr_1m": 200.0,
+                "atr_ts_ms_1m": _NOW_MS - 5000,
             }
         }
         cands = _build_candidates(sig, sig["indicators"], {}, _NOW_MS)
@@ -86,8 +86,8 @@ class TestBuildCandidates:
     def test_reads_numeric_tf_keys(self):
         sig = {
             "indicators": {
-                "atr_15000": 80.0
-                "atr_ts_ms_15000": _NOW_MS - 1000
+                "atr_15000": 80.0,
+                "atr_ts_ms_15000": _NOW_MS - 1000,
             }
         }
         cands = _build_candidates(sig, sig["indicators"], {}, _NOW_MS)
@@ -100,10 +100,10 @@ class TestBuildCandidates:
     def test_multiple_tfs(self):
         # indicators must be inside signal["indicators"] for the provider to pick them up
         ind = {
-            "atr_15s": 80.0
-            "atr_ts_ms_15s": _NOW_MS
-            "atr_15m": 400.0
-            "atr_ts_ms_15m": _NOW_MS
+            "atr_15s": 80.0,
+            "atr_ts_ms_15s": _NOW_MS,
+            "atr_15m": 400.0,
+            "atr_ts_ms_15m": _NOW_MS,
         }
         sig = {"indicators": ind}
         cands = _build_candidates(sig, ind, {}, _NOW_MS)
@@ -114,11 +114,11 @@ class TestBuildCandidates:
         # Provider reads signal["indicators"] FIRST (source=indicators wins).
         # signal-level atr_1m counts only as payload fallback.
         sig = {
-            "atr_1m": 999.0
-            "atr_ts_ms_1m": _NOW_MS
+            "atr_1m": 999.0,
+            "atr_ts_ms_1m": _NOW_MS,
             "indicators": {
-                "atr_1m": 100.0
-                "atr_ts_ms_1m": _NOW_MS
+                "atr_1m": 100.0,
+                "atr_ts_ms_1m": _NOW_MS,
             }
         }
         cands = _build_candidates(sig, sig["indicators"], {}, _NOW_MS)
@@ -156,21 +156,21 @@ class TestSelectorHappyPaths:
     def test_exact_tf_match(self):
         """When the ideal TF candidate exists, reason=ATR_SEL_EXACT."""
         sig = {
-            "price": 65000.0
+            "price": 65000.0,
             "indicators": {
                 # 5m hold, 2m alpha → target_window=max(120000,450000)=450000 / 14 ≈ 32142 → 30000
-                "atr_30s": 120.0
-                "atr_ts_ms_30s": _NOW_MS - 1000
-                "atr_1m": 200.0
-                "atr_ts_ms_1m": _NOW_MS - 1000
+                "atr_30s": 120.0,
+                "atr_ts_ms_30s": _NOW_MS - 1000,
+                "atr_1m": 200.0,
+                "atr_ts_ms_1m": _NOW_MS - 1000,
             }
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=65000.0
-            hold_target_ms=300000
-            alpha_half_life_ms=120000
-            now_ms=_NOW_MS
+            signal=sig,
+            price=65000.0,
+            hold_target_ms=300000,
+            alpha_half_life_ms=120000,
+            now_ms=_NOW_MS,
         )
         assert out["atr_value"] > 0.0
         assert out["atr_tf_ms"] in _ALLOWED
@@ -182,16 +182,16 @@ class TestSelectorHappyPaths:
         sig = {
             "indicators": {
                 # only 15m present; any hold/alpha horizon selection should pick it
-                "atr_15m": 350.0
-                "atr_ts_ms_15m": _NOW_MS
+                "atr_15m": 350.0,
+                "atr_ts_ms_15m": _NOW_MS,
             }
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=50000.0
+            signal=sig,
+            price=50000.0,
             hold_target_ms=60000,  # 1m hold → short target
-            alpha_half_life_ms=30000
-            now_ms=_NOW_MS
+            alpha_half_life_ms=30000,
+            now_ms=_NOW_MS,
         )
         assert out["mode"] == "horizon"
         assert out["atr_tf_ms"] == 900000
@@ -201,50 +201,50 @@ class TestSelectorHappyPaths:
         """vol_ratio_fast_slow = fast/slow = 1.0/4.0 = 0.25."""
         sig = {
             "indicators": {
-                "atr_15s": 1.0
-                "atr_ts_ms_15s": _NOW_MS
-                "atr_15m": 4.0
-                "atr_ts_ms_15m": _NOW_MS
+                "atr_15s": 1.0,
+                "atr_ts_ms_15s": _NOW_MS,
+                "atr_15m": 4.0,
+                "atr_ts_ms_15m": _NOW_MS,
             }
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=100.0
-            hold_target_ms=120000
-            alpha_half_life_ms=60000
-            now_ms=_NOW_MS
+            signal=sig,
+            price=100.0,
+            hold_target_ms=120000,
+            alpha_half_life_ms=60000,
+            now_ms=_NOW_MS,
         )
         assert abs(out["vol_ratio_fast_slow"] - 0.25) < 1e-9
 
     def test_atr_pct_computed(self):
         sig = {
             "indicators": {
-                "atr_1m": 650.0
-                "atr_ts_ms_1m": _NOW_MS
+                "atr_1m": 650.0,
+                "atr_ts_ms_1m": _NOW_MS,
             }
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=65000.0
-            hold_target_ms=0
-            alpha_half_life_ms=0
-            now_ms=_NOW_MS
+            signal=sig,
+            price=65000.0,
+            hold_target_ms=0,
+            alpha_half_life_ms=0,
+            now_ms=_NOW_MS,
         )
         assert abs(out["atr_pct"] - 0.01) < 1e-6
 
     def test_reason_details_contains_expected_keys(self):
         sig = {
             "indicators": {
-                "atr_1m": 100.0
-                "atr_ts_ms_1m": _NOW_MS
+                "atr_1m": 100.0,
+                "atr_ts_ms_1m": _NOW_MS,
             }
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=1000.0
-            hold_target_ms=100000
-            alpha_half_life_ms=50000
-            now_ms=_NOW_MS
+            signal=sig,
+            price=1000.0,
+            hold_target_ms=100000,
+            alpha_half_life_ms=50000,
+            now_ms=_NOW_MS,
         )
         rd = out["selector_reason_details"]
         assert "target_tf_ms" in rd
@@ -260,17 +260,17 @@ class TestSelectorHappyPaths:
 class TestSelectorFallbacks:
     def test_no_candidates_uses_legacy_atr(self):
         sig = {
-            "atr": 250.0
-            "atr_ts_ms": _NOW_MS - 3000
-            "price": 65000.0
-            "indicators": {}
+            "atr": 250.0,
+            "atr_ts_ms": _NOW_MS - 3000,
+            "price": 65000.0,
+            "indicators": {},
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=65000.0
-            hold_target_ms=600000
-            alpha_half_life_ms=300000
-            now_ms=_NOW_MS
+            signal=sig,
+            price=65000.0,
+            hold_target_ms=600000,
+            alpha_half_life_ms=300000,
+            now_ms=_NOW_MS,
         )
         assert out["mode"] == "legacy"
         assert abs(out["atr_value"] - 250.0) < 1e-6
@@ -281,18 +281,18 @@ class TestSelectorFallbacks:
         """If sole candidate exceeds ATR_HORIZON_CANDIDATE_MAX_AGE_MS, fallback fires."""
         monkeypatch.setenv("ATR_HORIZON_CANDIDATE_MAX_AGE_MS", "1000")
         sig = {
-            "atr": 100.0
+            "atr": 100.0,
             "indicators": {
-                "atr_1m": 200.0
+                "atr_1m": 200.0,
                 "atr_ts_ms_1m": _NOW_MS - 5000,  # 5s old > 1s limit
             }
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=10000.0
-            hold_target_ms=60000
-            alpha_half_life_ms=30000
-            now_ms=_NOW_MS
+            signal=sig,
+            price=10000.0,
+            hold_target_ms=60000,
+            alpha_half_life_ms=30000,
+            now_ms=_NOW_MS,
         )
         # stale candidate rejected; legacy atr=100.0 used
         assert out["mode"] == "legacy"
@@ -300,25 +300,25 @@ class TestSelectorFallbacks:
 
     def test_zero_price_atr_pct_is_zero(self):
         sig = {
-            "atr": 200.0
-            "indicators": {}
+            "atr": 200.0,
+            "indicators": {},
         }
         out = select_runtime_atr_profile(
-            signal=sig
-            price=0.0
-            hold_target_ms=0
-            alpha_half_life_ms=0
-            now_ms=_NOW_MS
+            signal=sig,
+            price=0.0,
+            hold_target_ms=0,
+            alpha_half_life_ms=0,
+            now_ms=_NOW_MS,
         )
         assert out["atr_pct"] == 0.0
 
     def test_empty_signal_does_not_raise(self):
         out = select_runtime_atr_profile(
-            signal={}
-            price=1000.0
-            hold_target_ms=0
-            alpha_half_life_ms=0
-            now_ms=_NOW_MS
+            signal={},
+            price=1000.0,
+            hold_target_ms=0,
+            alpha_half_life_ms=0,
+            now_ms=_NOW_MS,
         )
         assert out["selector_reason_code"] == "ATR_SEL_LEGACY_FALLBACK"
         assert out["atr_value"] == 0.0
@@ -326,10 +326,10 @@ class TestSelectorFallbacks:
     def test_non_dict_signal_does_not_raise(self):
         out = select_runtime_atr_profile(
             signal=None,  # type: ignore[arg-type]
-            price=1000.0
-            hold_target_ms=0
-            alpha_half_life_ms=0
-            now_ms=_NOW_MS
+            price=1000.0,
+            hold_target_ms=0,
+            alpha_half_life_ms=0,
+            now_ms=_NOW_MS,
         )
         assert out["mode"] == "legacy"
 

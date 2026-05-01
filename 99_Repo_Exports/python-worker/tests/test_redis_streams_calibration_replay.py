@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for Redis Stream integration in calibration and replay tools.
 
@@ -7,7 +8,6 @@ Tests:
 - calibrate_local_thresholds.py: load_signals_from_redis
 """
 
-from __future__ import annotations
 
 import json
 import pytest

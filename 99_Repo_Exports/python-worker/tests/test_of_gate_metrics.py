@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for OF Gate metrics emission and fail-open logic.
 
@@ -7,7 +8,6 @@ Tests:
 3. Fail-open logic ensures spread_bps and expected_slippage_bps never become 0 silently
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

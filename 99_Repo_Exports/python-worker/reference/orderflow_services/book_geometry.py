@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Book geometry features (Phase C / P2).
 
 Adds bounded microstructure liquidity geometry on top of spread/depth:
@@ -11,7 +12,6 @@ Hot-path constraints:
 - fail-open: returns 0.0 on bad inputs
 """
 
-from __future__ import annotations
 
 import math
 from typing import Any, Iterable, List, Optional, Sequence, Tuple

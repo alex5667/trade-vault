@@ -16,11 +16,11 @@ class Backoff:
     """
 
     def __init__(
-        self
-        base_delay: float = 1.0
-        max_delay: float = 60.0
-        multiplier: float = 2.0
-        jitter: bool = True
+        self,
+        base_delay: float = 1.0,
+        max_delay: float = 60.0,
+        multiplier: float = 2.0,
+        jitter: bool = True,
         max_attempts: Optional[int] = None
     ):
         """
@@ -78,11 +78,11 @@ class Backoff:
 
 
 def retry_with_backoff(
-    base_delay: float = 1.0
-    max_delay: float = 60.0
-    multiplier: float = 2.0
-    jitter: bool = True
-    max_attempts: int = 5
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+    multiplier: float = 2.0,
+    jitter: bool = True,
+    max_attempts: int = 5,
     exceptions: tuple = (Exception,)
 ):
     """

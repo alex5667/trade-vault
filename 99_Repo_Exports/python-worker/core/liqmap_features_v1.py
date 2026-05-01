@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Liquidation Map (liqmap) -> compact feature layer.
 
 This module converts a liqmap snapshot (stored in Redis under keys:
@@ -27,7 +28,6 @@ Snapshot schema (produced by services/liquidation_map_service.py):
   }
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -164,7 +164,7 @@ def parse_liqmap_snapshot(raw_json: str) -> LiqMapSnapshot:
 def parse_liqmap_snapshot_v1(
     raw_json: str,
     *,
-    expected_symbol: str = "",
+    expected_symbol="",
     expected_window: str = "",
 ) -> LiqMapSnapshot:
     """Runtime-friendly parser.

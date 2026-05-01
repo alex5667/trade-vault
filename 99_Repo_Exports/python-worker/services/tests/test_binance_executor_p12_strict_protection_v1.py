@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P12 — Strict protection verification & repair tests.
 
 Tests:
@@ -5,7 +6,6 @@ Tests:
 2. _attempt_reconcile_after_exception — partial protection → empty dict (blocked)
 3. _attempt_reconcile_after_exception — protection complete → resolved dict
 """
-from __future__ import annotations
 
 import importlib.util
 import json
@@ -62,9 +62,9 @@ class FakeClient:
 
     def __init__(self, *, inspect_result: dict = None, post_result: dict = None):
         self._inspect_result = inspect_result or {
-            "is_complete": True, "missing": []
-            "sl": {"algoId": 1}, "tp_by_index": {1: {"algoId": 2}}
-            "trail": None, "by_client_algo_id": {}
+            "is_complete": True, "missing": [],
+            "sl": {"algoId": 1}, "tp_by_index": {1: {"algoId": 2}},
+            "trail": None, "by_client_algo_id": {},
         }
         self._post_result = post_result or {}
         self.calls: List[tuple] = []
@@ -144,7 +144,7 @@ def _mk_executor(**env_overrides) -> "mod.BinanceExecutor":
 # ============================================================
 
 def test_resume_open_repairs_missing_tp_and_transitions_protected():
-    """When resuming from ENTRY_FILLED with exec_resume_open_repair=1
+    """When resuming from ENTRY_FILLED with exec_resume_open_repair=1,
     verify protection on exchange; if incomplete, repair; then transition
     to FSM_PROTECTED + FSM_TP_POLICY_ARMED.
     """
@@ -152,14 +152,14 @@ def test_resume_open_repairs_missing_tp_and_transitions_protected():
 
     # Pre-seed state: entry filled but not protected
     ex._state_cache["sid-repair-1"] = {
-        "symbol": "BTCUSDT"
-        "fsm_state": mod.FSM_ENTRY_FILLED
-        "side": "LONG"
-        "qty": 0.001
-        "exec_price": 100000.0
-        "sl_requested": 99000.0
-        "tp_levels_requested": [102000.0]
-        "trail_after_tp1_requested": False
+        "symbol": "BTCUSDT",
+        "fsm_state": mod.FSM_ENTRY_FILLED,
+        "side": "LONG",
+        "qty": 0.001,
+        "exec_price": 100000.0,
+        "sl_requested": 99000.0,
+        "tp_levels_requested": [102000.0],
+        "trail_after_tp1_requested": False,
     }
 
     # inspect_protection_set: first call returns incomplete, second (after repair) returns complete
@@ -187,7 +187,7 @@ def test_resume_open_repairs_missing_tp_and_transitions_protected():
 # ============================================================
 
 def test_reconcile_requires_complete_protection_for_open():
-    """When exec_reconcile_require_protection_complete=1 and action='open'
+    """When exec_reconcile_require_protection_complete=1 and action='open',
     partial protection (is_complete=False) should return empty dict.
     """
     ex = _mk_executor()
@@ -197,18 +197,18 @@ def test_reconcile_requires_complete_protection_for_open():
 
     # Mock _reconcile_protection_by_sid to return incomplete protection
     ex._reconcile_protection_by_sid = lambda **kw: {
-        "is_complete": False, "missing": ["sl"]
-        "sl": None, "tp_by_index": {1: {"algoId": 2}}
+        "is_complete": False, "missing": ["sl"],
+        "sl": None, "tp_by_index": {1: {"algoId": 2}},
     }
 
     # Mock repair to also fail
     ex._repair_open_protection = lambda **kw: ("repair_incomplete", False)
 
     result = ex._attempt_reconcile_after_exception(
-        payload={"sid": "sid-recon-1", "symbol": "BTCUSDT"}
-        action="open"
-        symbol="BTCUSDT"
-        client=FakeClient()
+        payload={"sid": "sid-recon-1", "symbol": "BTCUSDT"},
+        action="open",
+        symbol="BTCUSDT",
+        client=FakeClient(),
     )
 
     assert result == {}
@@ -224,15 +224,15 @@ def test_reconcile_returns_resolved_when_protection_complete():
 
     ex._reconcile_entry_by_client_id = lambda **kw: {"orderId": 222, "status": "FILLED"}
     ex._reconcile_protection_by_sid = lambda **kw: {
-        "is_complete": True, "missing": []
-        "sl": {"algoId": 10}, "tp_by_index": {1: {"algoId": 20}}
+        "is_complete": True, "missing": [],
+        "sl": {"algoId": 10}, "tp_by_index": {1: {"algoId": 20}},
     }
 
     result = ex._attempt_reconcile_after_exception(
-        payload={"sid": "sid-recon-2", "symbol": "ETHUSDT"}
-        action="open"
-        symbol="ETHUSDT"
-        client=FakeClient()
+        payload={"sid": "sid-recon-2", "symbol": "ETHUSDT"},
+        action="open",
+        symbol="ETHUSDT",
+        client=FakeClient(),
     )
 
     assert result.get("event_type") == "reconcile_resolved"
@@ -249,13 +249,13 @@ def test_resume_open_emergency_flatten_when_repair_fails():
     ex = _mk_executor()
 
     ex._state_cache["sid-fail-1"] = {
-        "symbol": "BTCUSDT"
-        "fsm_state": mod.FSM_ENTRY_FILLED
-        "side": "LONG"
-        "qty": 0.001
-        "exec_price": 100000.0
-        "sl_requested": 99000.0
-        "tp_levels_requested": [102000.0]
+        "symbol": "BTCUSDT",
+        "fsm_state": mod.FSM_ENTRY_FILLED,
+        "side": "LONG",
+        "qty": 0.001,
+        "exec_price": 100000.0,
+        "sl_requested": 99000.0,
+        "tp_levels_requested": [102000.0],
     }
 
     # Verify returns incomplete, repair also fails
@@ -278,15 +278,15 @@ def test_verify_protection_complete():
     ex = _mk_executor()
 
     client = FakeClient(inspect_result={
-        "is_complete": True, "missing": []
-        "sl": {"algoId": 1}, "tp_by_index": {1: {"algoId": 2}}
-        "trail": None, "by_client_algo_id": {}
+        "is_complete": True, "missing": [],
+        "sl": {"algoId": 1}, "tp_by_index": {1: {"algoId": 2}},
+        "trail": None, "by_client_algo_id": {},
     })
 
     result = ex._verify_protection_on_exchange(
-        sid="sid-v-1", symbol="BTCUSDT"
-        payload={"sl": 99000.0, "tp_levels": [102000.0]}
-        state={}, client=client
+        sid="sid-v-1", symbol="BTCUSDT",
+        payload={"sl": 99000.0, "tp_levels": [102000.0]},
+        state={}, client=client,
     )
 
     assert result["is_complete"] is True

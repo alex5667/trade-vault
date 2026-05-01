@@ -3,7 +3,7 @@ Symbol Configuration Manager - Управление конфигурацией �
 
 Поддерживает:
 - Динамическую конфигурацию через Redis
-- Разные настройки для XAUUSD, BTCUSD, ETHUSD, etc.
+- Разные настройки для  BTCUSD, ETHUSD, etc.
 - Валидацию параметров
 - Defaults для разных типов инструментов
 """
@@ -17,7 +17,7 @@ from core.redis_keys import RedisStreams as RS
 
 class SymbolType(Enum):
     """Тип торгового инструмента"""
-    FOREX_METAL = "forex_metal"  # XAUUSD, XAGUSD
+    FOREX_METAL = "forex_metal"  #  XAGUSD
     CRYPTO_USD = "crypto_usd"     # BTCUSD, ETHUSD
     CRYPTO_USDT = "crypto_usdt"   # BTCUSDT, ETHUSDT
     FOREX_PAIR = "forex_pair"     # EURUSD, GBPUSD
@@ -66,7 +66,7 @@ class AccountConfig:
     risk_percent: float = 5.0  # % of account per trade
     
     # Symbol-specific
-    contract_size: float = 100.0  # 100 for XAUUSD, 1 for crypto
+    contract_size: float = 100.0  # 100 for  1 for crypto
     lot_step: float = 0.01
     min_lot: float = 0.01
     max_lot: float = 10.0
@@ -217,17 +217,17 @@ class SymbolConfigFactory:
     
     @staticmethod
     def create_xauusd_config() -> SymbolConfig:
-        """Конфигурация для XAUUSD (Gold)"""
+        """Конфигурация для  (Gold)"""
         return SymbolConfig(
-            symbol="XAUUSD",
+            symbol="",
             symbol_type=SymbolType.FOREX_METAL,
             dom=DOMConfig(
                 vendor="BINANCE",
                 depth=15,
                 mock_mid_price=3955.0,
                 mock_tick_size=0.1,
-                book_stream="stream:book_XAUUSD",
-                book_last_key="book:levels:XAUUSD"
+                book_stream="stream:book_",
+                book_last_key="book:levels:"
             ),
             atr=ATRConfig(
                 source="ticks",
@@ -449,7 +449,7 @@ class SymbolConfigFactory:
             SymbolConfig with defaults + custom params
         """
         # Определяем тип символа и создаем базовую конфигурацию
-        if symbol == "XAUUSD":
+        if symbol == REMOVE_ME:
             config = SymbolConfigFactory.create_xauusd_config()
         elif symbol == "BTCUSD":
             config = SymbolConfigFactory.create_btcusd_config()
@@ -483,9 +483,9 @@ class SymbolConfigFactory:
 if __name__ == "__main__":
     """Примеры создания конфигураций"""
     
-    # Пример 1: XAUUSD с defaults
+    # Пример 1:  с defaults
     xau_config = SymbolConfigFactory.create_xauusd_config()
-    print("=== XAUUSD Config ===")
+    print("===  Config ===")
     print(xau_config.to_json())
     print()
     

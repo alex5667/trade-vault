@@ -74,10 +74,10 @@ class BinanceDataHandler:
         try:
             # Создаем кастомный потребителя стримов
             self.consumer = BinanceStreamConsumer(
-                ticker_handler=self.ticker_handler
-                funding_handler=self.funding_handler
-                pairs_handler=self.pairs_handler
-                redis_client=self.redis_client
+                ticker_handler=self.ticker_handler,
+                funding_handler=self.funding_handler,
+                pairs_handler=self.pairs_handler,
+                redis_client=self.redis_client,
                 streams=self.streams
             )
             
@@ -121,9 +121,9 @@ class BinanceStreamConsumer(StreamConsumer):
             
         # Создаем consumer groups для всех стримов
         self.utils.create_consumer_groups(
-            self.redis_client
-            self.streams_to_consume
-            self.consumer_group
+            self.redis_client,
+            self.streams_to_consume,
+            self.consumer_group,
         )
         
         self.running = True
@@ -144,9 +144,9 @@ class BinanceStreamConsumer(StreamConsumer):
             try:
                 # Читаем сообщения из всех стримов
                 messages = self.redis_client.xreadgroup(
-                    groupname=self.consumer_group
-                    consumername=self.consumer_name
-                    streams={stream: '>' for stream in self.streams_to_consume}
+                    groupname=self.consumer_group,
+                    consumername=self.consumer_name,
+                    streams={stream: '>' for stream in self.streams_to_consume},
                     count=10,  # Читаем по 10 сообщений за раз
                     block=1000  # Блокируемся на 1 секунду
                 )
@@ -189,9 +189,9 @@ class BinanceStreamConsumer(StreamConsumer):
                     print("⚠️ BinanceStreamConsumer: обнаружен NOGROUP, пересоздаём consumer groups...")
                     sys.stdout.flush()
                     self.utils.create_consumer_groups(
-                        self.redis_client
-                        self.streams_to_consume
-                        self.consumer_group
+                        self.redis_client,
+                        self.streams_to_consume,
+                        self.consumer_group,
                     )
                 time.sleep(1)  # Пауза перед повторной попыткой
                 

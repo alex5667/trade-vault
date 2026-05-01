@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P6 tests for BinanceFuturesClient routing and replace_algo_order.
 
 Verifies:
@@ -5,7 +6,6 @@ Verifies:
   - MARKET → post_plain_order (plain endpoint)
   - replace_algo_order cancel+replace semantics
 """
-from __future__ import annotations
 
 import pytest
 import sys
@@ -60,9 +60,9 @@ class TestReplaceAlgoOrder:
         with patch.object(c, "cancel_algo_order", return_value=cancel_resp) as m_cancel, \
              patch.object(c, "post_algo_order", return_value=create_resp) as m_create:
             result = c.replace_algo_order(
-                "BTCUSDT"
-                cancel_algo_id=10
-                new_params={"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET"}
+                "BTCUSDT",
+                cancel_algo_id=10,
+                new_params={"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET"},
             )
             m_cancel.assert_called_once_with("BTCUSDT", algo_id=10, client_algo_id=None)
             m_create.assert_called_once()

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ATR TF Sanity Calibrator
 =======================
@@ -14,7 +15,6 @@ ATR TF Sanity Calibrator
   - Persist/Load: состояние квантилий P² (P2Quantile.to_state / from_state).
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

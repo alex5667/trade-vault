@@ -1,3 +1,4 @@
+from __future__ import annotations
 """atr_horizon_live_surface_canary.py — Phase 2.4A: canary router for live stop/entry TTL surface.
 
 Separate from the gate canary (atr_horizon_canary.py / ATR_HORIZON_GATE_MODE).
@@ -17,7 +18,6 @@ ENV:
 Rollback: ATR_HORIZON_LIVE_SURFACE_MODE=shadow  →  instant, no code deploy.
 trailing is NOT controlled by this router — trailing stays on get_atr(pos.symbol) path.
 """
-from __future__ import annotations
 
 import hashlib
 import os
@@ -55,11 +55,11 @@ class LiveSurfaceCanaryDecision:
 
 
 def should_apply_live_surface(
-    *
-    symbol: str
-    sid: str
-    regime: str = ""
-    scenario: str = ""
+    *,
+    symbol: str,
+    sid: str,
+    regime: str = "",
+    scenario: str = "",
 ) -> Dict[str, Any]:
     """Return application decision for live stop/entry surface.
 
@@ -80,64 +80,64 @@ def should_apply_live_surface(
 
         if mode == "off":
             return asdict(LiveSurfaceCanaryDecision(
-                mode=mode
-                should_apply=False
-                share_used=0.0
-                sticky_key=sticky_key
-                reason_code="LIVE_SURFACE_OFF"
+                mode=mode,
+                should_apply=False,
+                share_used=0.0,
+                sticky_key=sticky_key,
+                reason_code="LIVE_SURFACE_OFF",
             ))
 
         if mode == "enforce":
             if allow_symbols and symbol_u not in allow_symbols:
                 return asdict(LiveSurfaceCanaryDecision(
-                    mode=mode
-                    should_apply=False
-                    share_used=1.0
-                    sticky_key=sticky_key
-                    reason_code="LIVE_SURFACE_SYMBOL_FILTERED"
+                    mode=mode,
+                    should_apply=False,
+                    share_used=1.0,
+                    sticky_key=sticky_key,
+                    reason_code="LIVE_SURFACE_SYMBOL_FILTERED",
                 ))
             return asdict(LiveSurfaceCanaryDecision(
-                mode=mode
-                should_apply=True
-                share_used=1.0
-                sticky_key=sticky_key
-                reason_code="LIVE_SURFACE_ENFORCE_ALL"
+                mode=mode,
+                should_apply=True,
+                share_used=1.0,
+                sticky_key=sticky_key,
+                reason_code="LIVE_SURFACE_ENFORCE_ALL",
             ))
 
         if mode == "canary":
             if allow_symbols and symbol_u not in allow_symbols:
                 return asdict(LiveSurfaceCanaryDecision(
-                    mode=mode
-                    should_apply=False
-                    share_used=share
-                    sticky_key=sticky_key
-                    reason_code="LIVE_SURFACE_SYMBOL_FILTERED"
+                    mode=mode,
+                    should_apply=False,
+                    share_used=share,
+                    sticky_key=sticky_key,
+                    reason_code="LIVE_SURFACE_SYMBOL_FILTERED",
                 ))
             u = _u01(sticky_key)
             selected = bool(u < share)
             return asdict(LiveSurfaceCanaryDecision(
-                mode=mode
-                should_apply=selected
-                share_used=share
-                sticky_key=sticky_key
-                reason_code="LIVE_SURFACE_CANARY_APPLY" if selected else "LIVE_SURFACE_CANARY_SHADOW"
+                mode=mode,
+                should_apply=selected,
+                share_used=share,
+                sticky_key=sticky_key,
+                reason_code="LIVE_SURFACE_CANARY_APPLY" if selected else "LIVE_SURFACE_CANARY_SHADOW",
             ))
 
         # default = shadow (any unrecognised value)
         return asdict(LiveSurfaceCanaryDecision(
-            mode="shadow"
-            should_apply=False
-            share_used=share
-            sticky_key=sticky_key
-            reason_code="LIVE_SURFACE_SHADOW_ONLY"
+            mode="shadow",
+            should_apply=False,
+            share_used=share,
+            sticky_key=sticky_key,
+            reason_code="LIVE_SURFACE_SHADOW_ONLY",
         ))
 
     except Exception:
         # absolute fail-open: never block trading on a routing bug
         return {
-            "mode": "shadow"
-            "should_apply": False
-            "share_used": 0.0
-            "sticky_key": ""
-            "reason_code": "LIVE_SURFACE_ERROR_FALLBACK"
+            "mode": "shadow",
+            "should_apply": False,
+            "share_used": 0.0,
+            "sticky_key": "",
+            "reason_code": "LIVE_SURFACE_ERROR_FALLBACK",
         }

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/test_position_fsm.py — P1-9: Unit tests for explicit PositionFSM.
 
@@ -10,7 +11,6 @@ Coverage:
   - is_terminal() correctness
   - to_redis_payload() shape
 """
-from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field

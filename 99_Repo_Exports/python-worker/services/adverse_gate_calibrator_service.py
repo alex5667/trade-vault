@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Adverse Gate Calibrator Service — IO layer (PG + Redis + Telegram).
 
@@ -27,7 +28,6 @@ Usage:
   - python -m services.adverse_gate_calibrator_service
   - Called from of_timers_worker.py as an hourly timer task
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hashlib
@@ -83,7 +83,7 @@ NOTIFY_STREAM = RS.NOTIFY_TELEGRAM
 # Default major pairs to start with
 DEFAULT_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", 
+    "DOGEUSDT", "ADAUSDT", "DOTUSDT", 
 ]
 
 

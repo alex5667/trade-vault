@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Calibration report for raw vs calibrated confidences.
 
 Computes:
@@ -9,7 +10,6 @@ Computes:
   - Sharpness mean / entropy
   - Probability mass near 0.5
 """
-from __future__ import annotations
 
 import argparse
 import json

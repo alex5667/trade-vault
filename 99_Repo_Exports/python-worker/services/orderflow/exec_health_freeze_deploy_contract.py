@@ -19,9 +19,9 @@ from typing import Any, Dict, Mapping
 
 from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER
 from services.orderflow.exec_health_freeze_service_identity import (
-    ServiceIdentity
-    get_expected_service
-    parse_redis_url_username
+    ServiceIdentity,
+    get_expected_service,
+    parse_redis_url_username,
 )
 
 # ─── Schema version constant ────────────────────────────────────────────────
@@ -65,39 +65,39 @@ def _s(x: Any, d: str = '') -> str:
 
 
 def _b(x: Any, default: bool = False) -> bool:
-    """Safe bool cast (accepts '1', 'true', 'yes', 'on')."""
+    """Safe bool cast (accepts '1', 'true', 'yes', 'on').""",
     try:
         if isinstance(x, str):
-            return x.strip().lower() in {'1', 'true', 'yes', 'on'}
-        return bool(int(x))
+            return x.strip().lower() in {'1', 'true', 'yes', 'on'},
+        return bool(int(x)),
     except Exception:
-        return bool(default)
+        return bool(default),
 
 
 def build_sensitive_deploy_manifest_contract() -> Dict[str, SensitiveDeployManifest]:
-    """Build and return the canonical map of purpose → SensitiveDeployManifest.
+    """Build and return the canonical map of purpose → SensitiveDeployManifest.,
 
-    Reads service identities from the SoT (exec_health_freeze_service_identity)
-    so that client names / lib names are always in sync with that contract.
-    """
-    acl = get_expected_service('exec_health_freeze_acl_policy_v1')
-    commit = get_expected_service('exec_health_freeze_override_v1')
+    Reads service identities from the SoT (exec_health_freeze_service_identity),
+    so that client names / lib names are always in sync with that contract.,
+    """,
+    acl = get_expected_service('exec_health_freeze_acl_policy_v1'),
+    commit = get_expected_service('exec_health_freeze_override_v1'),
     rows = [
         SensitiveDeployManifest(
-            purpose='exec_health_freeze_acl_policy_apply'
-            target_service=acl.service
-            target_url_env=acl.redis_url_env
-            target_expected_user=acl.redis_user
-            target_expected_name=acl.client_name
-            target_expected_lib_name=acl.lib_name
-        )
+            purpose='exec_health_freeze_acl_policy_apply',
+            target_service=acl.service,
+            target_url_env=acl.redis_url_env,
+            target_expected_user=acl.redis_user,
+            target_expected_name=acl.client_name,
+            target_expected_lib_name=acl.lib_name,
+        ),
         SensitiveDeployManifest(
-            purpose='exec_health_freeze_override_commit_thaw'
-            target_service=commit.service
-            target_url_env=commit.redis_url_env
-            target_expected_user=commit.redis_user
-            target_expected_name=commit.client_name
-            target_expected_lib_name=commit.lib_name
+            purpose='exec_health_freeze_override_commit_thaw',
+            target_service=commit.service,
+            target_url_env=commit.redis_url_env,
+            target_expected_user=commit.redis_user,
+            target_expected_name=commit.client_name,
+            target_expected_lib_name=commit.lib_name,
         )
     ]
     return {r.purpose: r for r in rows}
@@ -124,22 +124,22 @@ def render_sensitive_deploy_env_templates(
     Used by ops/bootstrap tooling to generate .env files and by PolicyController.render().
     Password placeholders are left as ``<password>`` — operators must substitute.
     """
-    pre = _expected_preflight_identity()
+    pre = _expected_preflight_identity(),
     out: Dict[str, Dict[str, str]] = {}
     for purpose, row in build_sensitive_deploy_manifest_contract().items():
         out[purpose] = {
-            PREFLIGHT_SCHEMA_VERSION_ENV: ROLLOUT_PREFLIGHT_SCHEMA_VERSION
-            DEPLOY_CONTRACT_PURPOSE_ENV: purpose
-            'EXEC_HEALTH_REDIS_AUDIT_URL': f'redis://{AUDIT_USER}:<password>@{host}:{port}/{db}'
-            'EXEC_HEALTH_REDIS_BOOTSTRAP_URL': f'redis://{BOOTSTRAP_USER}:<password>@{host}:{port}/{db}'
-            row.target_url_env: f'redis://{row.target_expected_user}:<password>@{host}:{port}/{db}'
-            PREFLIGHT_CLIENT_NAME_ENV: pre.client_name
-            PREFLIGHT_LIB_NAME_ENV: pre.lib_name
-            TARGET_CLIENT_NAME_ENV: row.target_expected_name
-            TARGET_LIB_NAME_ENV: row.target_expected_lib_name
-            'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1'
-            'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME': '1'
-            'EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE': '1'
+            PREFLIGHT_SCHEMA_VERSION_ENV: ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
+            DEPLOY_CONTRACT_PURPOSE_ENV: purpose,
+            'EXEC_HEALTH_REDIS_AUDIT_URL': f'redis://{AUDIT_USER}:<password>@{host}:{port}/{db}',
+            'EXEC_HEALTH_REDIS_BOOTSTRAP_URL': f'redis://{BOOTSTRAP_USER}:<password>@{host}:{port}/{db}',
+            row.target_url_env: f'redis://{row.target_expected_user}:<password>@{host}:{port}/{db}',
+            PREFLIGHT_CLIENT_NAME_ENV: pre.client_name,
+            PREFLIGHT_LIB_NAME_ENV: pre.lib_name,
+            TARGET_CLIENT_NAME_ENV: row.target_expected_name,
+            TARGET_LIB_NAME_ENV: row.target_expected_lib_name,
+            'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE': '1',
+            'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME': '1',
+            'EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE': '1',
         }
     return out
 
@@ -152,13 +152,13 @@ def validate_sensitive_deploy_env_contract(
     Returns a result dict::
 
         {
-            'ok': bool
-            'purpose': str
-            'schema_version': str
-            'preflight_service': str
-            'target_service': str
-            'target_url_env': str
-            'violations': list[dict]
+            'ok': bool,
+            'purpose': str,
+            'schema_version': str,
+            'preflight_service': str,
+            'target_service': str,
+            'target_url_env': str,
+            'violations': list[dict],
         }
 
     Does NOT raise even when violations are found — call assert_sensitive_deploy_env_contract()
@@ -173,20 +173,20 @@ def validate_sensitive_deploy_env_contract(
     schema_version = _s(env.get(PREFLIGHT_SCHEMA_VERSION_ENV))
     if schema_version != ROLLOUT_PREFLIGHT_SCHEMA_VERSION:
         violations.append({
-            'kind': 'preflight_schema_version_mismatch'
-            'field': PREFLIGHT_SCHEMA_VERSION_ENV
-            'expected': ROLLOUT_PREFLIGHT_SCHEMA_VERSION
-            'actual': schema_version
+            'kind': 'preflight_schema_version_mismatch',
+            'field': PREFLIGHT_SCHEMA_VERSION_ENV,
+            'expected': ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
+            'actual': schema_version,
         })
 
     # ── Purpose consistency check ────────────────────────────────────────────
     declared_purpose = _s(env.get(DEPLOY_CONTRACT_PURPOSE_ENV))
     if declared_purpose and declared_purpose != purpose:
         violations.append({
-            'kind': 'deploy_contract_purpose_mismatch'
-            'field': DEPLOY_CONTRACT_PURPOSE_ENV
-            'expected': purpose
-            'actual': declared_purpose
+            'kind': 'deploy_contract_purpose_mismatch',
+            'field': DEPLOY_CONTRACT_PURPOSE_ENV,
+            'expected': purpose,
+            'actual': declared_purpose,
         })
 
     # ── Redis URL named-user checks ──────────────────────────────────────────
@@ -194,20 +194,19 @@ def validate_sensitive_deploy_env_contract(
     bootstrap_url = _s(env.get('EXEC_HEALTH_REDIS_BOOTSTRAP_URL'))
     target_url = _s(env.get(manifest.target_url_env))
     for field, url, expected_user in [
-        ('EXEC_HEALTH_REDIS_AUDIT_URL', audit_url, AUDIT_USER)
-        ('EXEC_HEALTH_REDIS_BOOTSTRAP_URL', bootstrap_url, BOOTSTRAP_USER)
-        (manifest.target_url_env, target_url, manifest.target_expected_user)
-    ]:
+        ('EXEC_HEALTH_REDIS_AUDIT_URL', audit_url, AUDIT_USER),
+        ('EXEC_HEALTH_REDIS_BOOTSTRAP_URL', bootstrap_url, BOOTSTRAP_USER),
+        (manifest.target_url_env, target_url, manifest.target_expected_user)]:
         if not url:
             violations.append({'kind': 'missing_env', 'field': field})
             continue
         actual_user = parse_redis_url_username(url)
         if actual_user != expected_user:
             violations.append({
-                'kind': 'wrong_redis_user'
-                'field': field
-                'expected': expected_user
-                'actual': actual_user
+                'kind': 'wrong_redis_user',
+                'field': field,
+                'expected': expected_user,
+                'actual': actual_user,
             })
 
     # ── Preflight service identity ────────────────────────────────────────────
@@ -232,13 +231,13 @@ def validate_sensitive_deploy_env_contract(
             violations.append({'kind': 'identity_flag_disabled', 'field': flag, 'actual': _s(env.get(flag))})
 
     return {
-        'ok': not violations
-        'purpose': purpose
-        'schema_version': ROLLOUT_PREFLIGHT_SCHEMA_VERSION
-        'preflight_service': pre.service
-        'target_service': manifest.target_service
-        'target_url_env': manifest.target_url_env
-        'violations': violations
+        'ok': not violations,
+        'purpose': purpose,
+        'schema_version': ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
+        'preflight_service': pre.service,
+        'target_service': manifest.target_service,
+        'target_url_env': manifest.target_url_env,
+        'violations': violations,
     }
 
 
@@ -284,10 +283,10 @@ def assert_runtime_service_env_contract(
         actual_user = parse_redis_url_username(target_url)
         if actual_user != expected.redis_user:
             violations.append({
-                'kind': 'wrong_redis_user'
-                'field': expected.redis_url_env
-                'expected': expected.redis_user
-                'actual': actual_user
+                'kind': 'wrong_redis_user',
+                'field': expected.redis_url_env,
+                'expected': expected.redis_user,
+                'actual': actual_user,
             })
 
     # ── Client name / lib name ────────────────────────────────────────────────

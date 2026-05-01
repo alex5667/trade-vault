@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Predict p_edge on signals:of:inputs NDJSON.
 
 Used for Golden Replay (Step 7): baseline vs new model distributions.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

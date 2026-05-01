@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for P91 LOB pressure smoke-check orchestration in of_timers_worker.
 
 Covers:
@@ -11,7 +12,6 @@ Runs for both worker modules:
   - tick_flow_full.services.of_timers_worker
 """
 
-from __future__ import annotations
 
 import importlib
 import json
@@ -28,8 +28,8 @@ def _reload(module_path: str):
 
 
 WORKERS = [
-    "services.of_timers_worker"
-    "tick_flow_full.services.of_timers_worker"
+    "services.of_timers_worker",
+    "tick_flow_full.services.of_timers_worker",
 ]
 
 
@@ -56,11 +56,11 @@ def test_rc0_ok(worker_mod):
 def test_rc2_alert_notifies(worker_mod):
     w = _reload(worker_mod)
     payload = {
-        "no_data": 0
-        "n_recent": 250
-        "missing_max_share": 1.0
-        "stuck_lob": 1
-        "issues": ["missing_max_share>0.250", "stuck_lob"]
+        "no_data": 0,
+        "n_recent": 250,
+        "missing_max_share": 1.0,
+        "stuck_lob": 1,
+        "issues": ["missing_max_share>0.250", "stuck_lob"],
     }
     stdout = json.dumps(payload)
 

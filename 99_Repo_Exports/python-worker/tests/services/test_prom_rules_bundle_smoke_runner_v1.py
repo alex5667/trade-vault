@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for prom_rules_bundle_smoke_runner_v1 (P104).
 
 Covers:
@@ -9,7 +10,6 @@ Covers:
 - ENV overrides: PROM_RULES_BUNDLE_SMOKE_BLOCK_REASON, PROM_RULES_REPO_ROOT, AUTO_APPLY_BLOCK_HOLD_S
 - Redis unavailable (redis=None): still returns correct rc without crashing
 """
-from __future__ import annotations
 
 import json
 import os

@@ -350,8 +350,8 @@ class PeriodicReporter:
             for s in DEFAULT_SYMBOLS:
                 all_syms.add(canon_symbol(s))
             
-            # Explicitly include XAG and XAU if needed
-            all_syms.add("XAGUSDT")
+            # Explicitly include  and XAU if needed
+            
             all_syms.add("XAUUSDT")
 
             # 2. Collect trades from ALL symbols
@@ -3002,7 +3002,7 @@ class PeriodicReporter:
         # Special handling for Gold/Forex generic orderflow
         if s == "orderflow" and symbol:
             sym_upper = symbol.upper()
-            if "XAU" in sym_upper or "XAG" in sym_upper:
+            if "XAU" in sym_upper:
                 return "OrderFlow"
 
         mapping = {
@@ -3441,7 +3441,7 @@ class PeriodicReporter:
                     for key in signal_keys[:1000]:  # Increased limit
                         try:
                             key_str = str(key) if isinstance(key, bytes) else key
-                            # Извлекаем symbol из ключа: signals:orderflow:XAUUSD
+                            # Извлекаем symbol из ключа: signals:orderflow:
                             parts = key_str.split(":")
                             if len(parts) >= 3:
                                 strategy_part = parts[1].lower()

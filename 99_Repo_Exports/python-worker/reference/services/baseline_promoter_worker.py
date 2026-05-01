@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Baseline promoter worker: handles baseline:* callbacks from Telegram.
 
 Listens to bot:callbacks stream for baseline:preview/confirm/rollback/reject/cancel actions.
@@ -14,7 +15,6 @@ Usage:
   (reads ENV vars for Redis, auth, baseline paths)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hmac
@@ -165,8 +165,8 @@ def _preview(r: redis.Redis, bid: str, who: dict) -> None:
 
     sig = _sign(bid)
     buttons = [[
-        {"text": "✅✅ Confirm promote", "callback": f"baseline:confirm:{bid}:{sig}"}
-        {"text": "❌ Cancel", "callback": f"baseline:cancel:{bid}:{sig}"}
+        {"text": "✅✅ Confirm promote", "callback": f"baseline:confirm:{bid}:{sig}"},
+        {"text": "❌ Cancel", "callback": f"baseline:cancel:{bid}:{sig}"},
     ]]
     _set_status(r, bid, "PREVIEWED")
     _notify(r, msg, buttons=buttons)
@@ -206,8 +206,8 @@ def _confirm(r: redis.Redis, bid: str, who: dict) -> None:
 
     # store backup paths for rollback
     r.set(
-        f"baseline:backup:{bid}"
-        json.dumps({"backup_inputs": backup_in, "backup_output": backup_out}, ensure_ascii=False)
+        f"baseline:backup:{bid}",
+        json.dumps({"backup_inputs": backup_in, "backup_output": backup_out}, ensure_ascii=False),
         ex=TTL
     )
     _set_status(r, bid, "PROMOTED")
@@ -216,12 +216,12 @@ def _confirm(r: redis.Redis, bid: str, who: dict) -> None:
     buttons = [[{"text": "↩ Rollback", "callback": f"baseline:rollback:{bid}:{sig}"}]]
 
     _notify(
-        r
+        r,
         "<b>Baseline promoted</b>\n"
         f"id=<code>{bid}</code>\n"
         f"base_inputs=<code>{base_in}</code>\n"
-        f"base_output=<code>{base_out}</code>"
-        buttons=buttons
+        f"base_output=<code>{base_out}</code>",
+        buttons=buttons,
     )
 
     logger.info("Baseline promoted: bundle_id=%s", bid)
@@ -331,10 +331,10 @@ def main() -> None:
                     try:
                         cb = str(fields.get("callback", "") or "")
                         who = {
-                            "timestamp": str(fields.get("timestamp", "") or "")
-                            "chat_id": str(fields.get("chat_id", "") or "")
-                            "user_id": str(fields.get("user_id", "") or "")
-                            "username": str(fields.get("username", "") or "")
+                            "timestamp": str(fields.get("timestamp", "") or ""),
+                            "chat_id": str(fields.get("chat_id", "") or ""),
+                            "user_id": str(fields.get("user_id", "") or ""),
+                            "username": str(fields.get("username", "") or ""),
                         }
                         if not _allowed(who):
                             _notify(r, "baseline: <b>denied</b> (not allowed)")

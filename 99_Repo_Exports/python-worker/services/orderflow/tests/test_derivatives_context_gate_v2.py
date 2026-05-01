@@ -3,46 +3,46 @@
 import pytest
 
 from services.orderflow.derivatives_context_gate import (
-    DerivativesContextDecision
-    evaluate_derivatives_context_v2
+    DerivativesContextDecision,
+    evaluate_derivatives_context_v2,
 )
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _v2(
-    profile="monitor"
-    side="BUY"
-    funding_rate_z=0.0
-    basis_bps=0.0
-    oi_accel=0
-    long_short_ratio_z=0.0
-    taker_buy_sell_imbalance=0.0
-    liq_imbalance_z=0.0
-    market_breadth_ret_24h=0.0
-    leader_btc_eth_confirm=0.0
-    thr_funding_z=3.0
-    thr_basis_bps=10.0
-    require_oi_for_veto=False
-    tighten_mult=1.0
-    tighten_cap_bps=8.0
+    profile="monitor",
+    side="BUY",
+    funding_rate_z=0.0,
+    basis_bps=0.0,
+    oi_accel=0,
+    long_short_ratio_z=0.0,
+    taker_buy_sell_imbalance=0.0,
+    liq_imbalance_z=0.0,
+    market_breadth_ret_24h=0.0,
+    leader_btc_eth_confirm=0.0,
+    thr_funding_z=3.0,
+    thr_basis_bps=10.0,
+    require_oi_for_veto=False,
+    tighten_mult=1.0,
+    tighten_cap_bps=8.0,
 ) -> DerivativesContextDecision:
     return evaluate_derivatives_context_v2(
-        profile=profile
-        side=side
-        funding_rate_z=funding_rate_z
-        basis_bps=basis_bps
-        oi_accel=oi_accel
-        long_short_ratio_z=long_short_ratio_z
-        taker_buy_sell_imbalance=taker_buy_sell_imbalance
-        liq_imbalance_z=liq_imbalance_z
-        market_breadth_ret_24h=market_breadth_ret_24h
-        leader_btc_eth_confirm=leader_btc_eth_confirm
-        thr_funding_z=thr_funding_z
-        thr_basis_bps=thr_basis_bps
-        require_oi_for_veto=require_oi_for_veto
-        tighten_mult=tighten_mult
-        tighten_cap_bps=tighten_cap_bps
+        profile=profile,
+        side=side,
+        funding_rate_z=funding_rate_z,
+        basis_bps=basis_bps,
+        oi_accel=oi_accel,
+        long_short_ratio_z=long_short_ratio_z,
+        taker_buy_sell_imbalance=taker_buy_sell_imbalance,
+        liq_imbalance_z=liq_imbalance_z,
+        market_breadth_ret_24h=market_breadth_ret_24h,
+        leader_btc_eth_confirm=leader_btc_eth_confirm,
+        thr_funding_z=thr_funding_z,
+        thr_basis_bps=thr_basis_bps,
+        require_oi_for_veto=require_oi_for_veto,
+        tighten_mult=tighten_mult,
+        tighten_cap_bps=tighten_cap_bps,
     )
 
 
@@ -163,7 +163,7 @@ def test_monitor_profile_no_tighten():
 # ─── Profile: tighten adds bps ────────────────────────────────────────────────
 
 def test_tighten_profile_adds_bps():
-    dec = _v2(profile="strict", funding_rate_z=4.0, thr_funding_z=3.0
+    dec = _v2(profile="strict", funding_rate_z=4.0, thr_funding_z=3.0,
                tighten_mult=1.0, tighten_cap_bps=8.0)
     assert dec.mode == "tighten"
     assert dec.tighten_add_bps > 0.0
@@ -171,8 +171,8 @@ def test_tighten_profile_adds_bps():
 
 
 def test_tighten_respects_cap():
-    dec = _v2(profile="strict", funding_rate_z=20.0, basis_bps=50.0
-               thr_funding_z=3.0, thr_basis_bps=10.0
+    dec = _v2(profile="strict", funding_rate_z=20.0, basis_bps=50.0,
+               thr_funding_z=3.0, thr_basis_bps=10.0,
                tighten_mult=100.0, tighten_cap_bps=5.0)
     assert dec.tighten_add_bps <= 5.0
 
@@ -181,32 +181,32 @@ def test_tighten_respects_cap():
 
 def test_veto_requires_multi_core_flags():
     """Single breadth flag must NOT trigger veto."""
-    dec = _v2(profile="hard", side="BUY"
-               market_breadth_ret_24h=-0.05
+    dec = _v2(profile="hard", side="BUY",
+               market_breadth_ret_24h=-0.05,
                require_oi_for_veto=False)
     assert "breadth_against_long" in dec.flags
     assert not dec.veto, "Single breadth flag must not veto"
 
 
 def test_veto_triggers_on_two_core_flags():
-    dec = _v2(profile="hard"
-               funding_rate_z=4.0, basis_bps=15.0
+    dec = _v2(profile="hard",
+               funding_rate_z=4.0, basis_bps=15.0,
                require_oi_for_veto=False)
     assert dec.veto
     assert dec.veto_reason.startswith("deriv_ctx:")
 
 
 def test_veto_triggers_on_crowding_plus_funding():
-    dec = _v2(profile="hard", side="BUY"
-               funding_rate_z=4.0
-               long_short_ratio_z=3.5
+    dec = _v2(profile="hard", side="BUY",
+               funding_rate_z=4.0,
+               long_short_ratio_z=3.5,
                require_oi_for_veto=False)
     assert dec.veto
 
 
 def test_veto_with_require_oi_three_flags():
-    dec = _v2(profile="hard"
-               funding_rate_z=4.0, basis_bps=15.0, oi_accel=1
+    dec = _v2(profile="hard",
+               funding_rate_z=4.0, basis_bps=15.0, oi_accel=1,
                require_oi_for_veto=True)
     assert dec.veto
     assert "funding_extreme" in dec.flags
@@ -215,9 +215,9 @@ def test_veto_with_require_oi_three_flags():
 
 
 def test_veto_with_require_oi_missing_oi_accel():
-    dec = _v2(profile="hard"
-               funding_rate_z=4.0, basis_bps=15.0
-               oi_accel=0
+    dec = _v2(profile="hard",
+               funding_rate_z=4.0, basis_bps=15.0,
+               oi_accel=0,
                require_oi_for_veto=True)
     assert not dec.veto
 
@@ -238,14 +238,14 @@ def test_caution_not_set_on_clean():
 
 def test_crowding_score_counts_all_flags():
     dec = _v2(
-        profile="monitor"
-        side="BUY"
-        funding_rate_z=4.0
-        basis_bps=15.0
-        oi_accel=1
-        long_short_ratio_z=3.0
-        market_breadth_ret_24h=-0.03
-        liq_imbalance_z=3.5
+        profile="monitor",
+        side="BUY",
+        funding_rate_z=4.0,
+        basis_bps=15.0,
+        oi_accel=1,
+        long_short_ratio_z=3.0,
+        market_breadth_ret_24h=-0.03,
+        liq_imbalance_z=3.5,
     )
     assert dec.crowding_score == pytest.approx(float(len(dec.flags)))
 
@@ -254,11 +254,11 @@ def test_crowding_score_counts_all_flags():
 
 def test_zero_inputs_clean():
     dec = _v2(
-        profile="hard"
-        side="BUY"
-        funding_rate_z=0.0
-        basis_bps=0.0
-        oi_accel=0
+        profile="hard",
+        side="BUY",
+        funding_rate_z=0.0,
+        basis_bps=0.0,
+        oi_accel=0,
     )
     assert not dec.hit
     assert not dec.veto

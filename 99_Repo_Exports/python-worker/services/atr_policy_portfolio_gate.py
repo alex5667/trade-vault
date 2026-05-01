@@ -45,10 +45,10 @@ class PolicyPortfolioGate:
         cluster_cap = float(self.r.get(f"cfg:atr_portfolio:max_factor_cluster_risk_pct:factor:{cluster}") or 0.0)
         if cluster_cap > 0.0 and (cluster_open + effective_risk_pct) > cluster_cap:
             return False, "ATR_PORTFOLIO_FACTOR_CLUSTER_EXCEEDED", {
-                "factor_cluster": cluster
-                "cluster_open_risk_pct": cluster_open
-                "incoming_risk_pct": effective_risk_pct
-                "cluster_cap": cluster_cap
+                "factor_cluster": cluster,
+                "cluster_open_risk_pct": cluster_open,
+                "incoming_risk_pct": effective_risk_pct,
+                "cluster_cap": cluster_cap,
             }
 
         # 2) same-side crowding
@@ -56,11 +56,11 @@ class PolicyPortfolioGate:
         same_side_cap = float(self.r.get(f"cfg:atr_portfolio:max_same_side_risk_pct:factor:{cluster}:{side}") or 0.0)
         if same_side_cap > 0.0 and (same_side + effective_risk_pct) > same_side_cap:
             return False, "ATR_PORTFOLIO_SAME_SIDE_CLUSTER_EXCEEDED", {
-                "factor_cluster": cluster
-                "side": side
-                "same_side_risk_pct": same_side
-                "incoming_risk_pct": effective_risk_pct
-                "same_side_cap": same_side_cap
+                "factor_cluster": cluster,
+                "side": side,
+                "same_side_risk_pct": same_side,
+                "incoming_risk_pct": effective_risk_pct,
+                "same_side_cap": same_side_cap,
             }
 
         # 3) venue concentration
@@ -68,10 +68,10 @@ class PolicyPortfolioGate:
         venue_cap = float(self.r.get(f"cfg:atr_portfolio:max_venue_risk_pct:venue:{venue}") or 0.0)
         if venue_cap > 0.0 and (venue_open + effective_risk_pct) > venue_cap:
             return False, "ATR_PORTFOLIO_VENUE_EXCEEDED", {
-                "venue": venue
-                "venue_open_risk_pct": venue_open
-                "incoming_risk_pct": effective_risk_pct
-                "venue_cap": venue_cap
+                "venue": venue,
+                "venue_open_risk_pct": venue_open,
+                "incoming_risk_pct": effective_risk_pct,
+                "venue_cap": venue_cap,
             }
 
         # 4) policy concentration
@@ -80,10 +80,10 @@ class PolicyPortfolioGate:
         policy_cap = float(self.r.get(f"cfg:atr_portfolio:max_policy_risk_pct:{pscope}") or 0.0)
         if policy_cap > 0.0 and (policy_open + effective_risk_pct) > policy_cap:
             return False, "ATR_PORTFOLIO_POLICY_EXCEEDED", {
-                "policy_scope": pscope
-                "policy_open_risk_pct": policy_open
-                "incoming_risk_pct": effective_risk_pct
-                "policy_cap": policy_cap
+                "policy_scope": pscope,
+                "policy_open_risk_pct": policy_open,
+                "incoming_risk_pct": effective_risk_pct,
+                "policy_cap": policy_cap,
             }
 
         return True, "ATR_PORTFOLIO_ALLOW", {"factor_cluster": cluster}

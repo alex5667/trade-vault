@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Unit tests for Phase D (P3) flow toxicity helpers."""
 
-from __future__ import annotations
 
 import sys
 from pathlib import Path

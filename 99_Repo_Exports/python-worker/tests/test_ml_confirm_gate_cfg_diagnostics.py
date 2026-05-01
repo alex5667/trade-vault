@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 Тесты для диагностики конфига в MLConfirmGate (cfg_key_used, cfg_raw_len, cfg_parse_err).
 
 Проверяет различение ERR_NO_CFG vs ERR_BAD_CFG и диагностические поля в решениях.
 """
 
-from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock

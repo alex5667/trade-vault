@@ -2,10 +2,10 @@
 import pytest
 import numpy as np
 from ml_analysis.tools.edge_stack_shadow_metrics_p60 import (
-    calculate_brier_score
-    calculate_ece
-    calculate_precision_top_k_pct
-    calculate_expectancy_top_k_pct
+    calculate_brier_score,
+    calculate_ece,
+    calculate_precision_top_k_pct,
+    calculate_expectancy_top_k_pct,
     check_promotion_guard
 )
 

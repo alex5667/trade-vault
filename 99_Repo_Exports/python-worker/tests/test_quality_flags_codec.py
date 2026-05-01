@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Contract tests for common.quality_flags_codec.
 
 Covers the two legacy wire formats (Go comma-separated + Python JSON list)
 plus defensive edge cases.
 """
 
-from __future__ import annotations
 
 import json
 

@@ -15,10 +15,10 @@ import pytest
 
 from services.signal_preprocess import preprocess_signal_for_publish
 from services.horizon_contract import (
-    attach_phase0_contract
-    extract_horizon_contract_from_payload
-    extract_horizon_bucket
-    extract_atr_tf_ms
+    attach_phase0_contract,
+    extract_horizon_contract_from_payload,
+    extract_horizon_bucket,
+    extract_atr_tf_ms,
 )
 
 
@@ -28,13 +28,13 @@ from services.horizon_contract import (
 
 def _make_signal(**kwargs):
     base = {
-        "symbol": "btcusdt"
-        "kind": "breakout"
-        "price": 65000.0
-        "entry": 65010.0
-        "atr": 250.0
-        "confidence": 88.5
-        "meta": {"regime": "trend_up"}
+        "symbol": "btcusdt",
+        "kind": "breakout",
+        "price": 65000.0,
+        "entry": 65010.0,
+        "atr": 250.0,
+        "confidence": 88.5,
+        "meta": {"regime": "trend_up"},
     }
     base.update(kwargs)
     return base
@@ -60,12 +60,12 @@ def test_preprocess_adds_phase0_horizon_contract():
 
 def test_preprocess_preserves_existing_signal_id_and_meta():
     sig = _make_signal(
-        signal_id="fixed-sid-1"
-        symbol="ETHUSDT"
-        kind="absorption"
-        price=3100.0
-        atr=45.0
-        meta={"sl_mode": "ATR", "sl_atr_mult": 1.5}
+        signal_id="fixed-sid-1",
+        symbol="ETHUSDT",
+        kind="absorption",
+        price=3100.0,
+        atr=45.0,
+        meta={"sl_mode": "ATR", "sl_atr_mult": 1.5},
     )
     out = preprocess_signal_for_publish(sig, symbol="ETHUSDT", source="CryptoOrderFlow", logger=None)
 
@@ -78,10 +78,10 @@ def test_preprocess_preserves_existing_signal_id_and_meta():
 
 def test_preprocess_does_not_change_trading_fields():
     sig = _make_signal(
-        sl_price=64500.0
-        tp1_price=65600.0
-        tradeable=True
-        atr=300.0
+        sl_price=64500.0,
+        tp1_price=65600.0,
+        tradeable=True,
+        atr=300.0,
     )
     out = preprocess_signal_for_publish(sig, symbol="BTCUSDT", source="CryptoOrderFlow", logger=None)
 
@@ -216,36 +216,36 @@ def test_build_main_row_accepts_horizon_fields():
         close_reason = "tp1"
         signal_payload = {
             "meta": {
-                "contract_ver": 2
+                "contract_ver": 2,
                 "horizon": {
-                    "contract_ver": 2
-                    "phase_mode": "off"
-                    "hold_target_ms": 0
-                    "alpha_half_life_ms": 0
-                    "max_signal_age_ms": 0
-                    "risk_horizon_bucket": "unknown"
-                    "profile_source": "static_bootstrap"
-                    "profile_conf": 0.0
-                    "reason_code": "HZ_STATIC_BOOTSTRAP"
-                    "reason_details": {}
-                }
+                    "contract_ver": 2,
+                    "phase_mode": "off",
+                    "hold_target_ms": 0,
+                    "alpha_half_life_ms": 0,
+                    "max_signal_age_ms": 0,
+                    "risk_horizon_bucket": "unknown",
+                    "profile_source": "static_bootstrap",
+                    "profile_conf": 0.0,
+                    "reason_code": "HZ_STATIC_BOOTSTRAP",
+                    "reason_details": {},
+                },
                 "atr_profile": {
-                    "mode": "legacy"
-                    "atr_value": 250.0
-                    "atr_tf_ms": 60000
-                    "atr_window_n": 14
-                    "atr_age_ms": 0
-                    "atr_source": "legacy"
-                    "atr_regime_value": 250.0
-                    "atr_trail_value": 250.0
-                    "atr_regime_tf_ms": 60000
-                    "atr_trail_tf_ms": 60000
-                    "atr_pct": 0.00385
-                    "vol_ratio_fast_slow": 1.0
-                    "vol_ratio_z": 0.0
+                    "mode": "legacy",
+                    "atr_value": 250.0,
+                    "atr_tf_ms": 60000,
+                    "atr_window_n": 14,
+                    "atr_age_ms": 0,
+                    "atr_source": "legacy",
+                    "atr_regime_value": 250.0,
+                    "atr_trail_value": 250.0,
+                    "atr_regime_tf_ms": 60000,
+                    "atr_trail_tf_ms": 60000,
+                    "atr_pct": 0.00385,
+                    "vol_ratio_fast_slow": 1.0,
+                    "vol_ratio_z": 0.0,
                 }
-            }
-            "config_snapshot": {"key": "val"}
+            },
+            "config_snapshot": {"key": "val"},
         }
 
     row = _build_main_row(_FakeClosed())

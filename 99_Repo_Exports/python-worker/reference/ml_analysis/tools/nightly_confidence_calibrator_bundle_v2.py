@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 logging.basicConfig(
-    level=logging.INFO
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("nightly_conf_cal_v2")
@@ -82,14 +82,14 @@ def main():
     # 1. Build Dataset
     logger.info("Step 1: Building dataset from Redis...")
     ok, out, err = _run(
-        "ml_analysis.tools.build_edge_stack_dataset_from_redis"
+        "ml_analysis.tools.build_edge_stack_dataset_from_redis",
         [
-            "--redis_url", args.redis_url
-            "--out_jsonl", dataset_jsonl
-            "--out_report_json", dataset_report
-            "--since_ms", str(since_ms)
-            "--until_ms", str(now_ms)
-            "--signals_count", str(args.signals_count)
+            "--redis_url", args.redis_url,
+            "--out_jsonl", dataset_jsonl,
+            "--out_report_json", dataset_report,
+            "--since_ms", str(since_ms),
+            "--until_ms", str(now_ms),
+            "--signals_count", str(args.signals_count),
              # Defaults for others
         ]
     )
@@ -99,13 +99,13 @@ def main():
     # 2. Train V2 Bundle
     logger.info(f"Step 2: Training V2 Bundle ({args.method}, {args.bucket_by})...")
     ok, out, err = _run(
-        "ml_analysis.tools.train_confidence_calibrator_v2"
+        "ml_analysis.tools.train_confidence_calibrator_v2",
         [
-            "--in_jsonl", dataset_jsonl
-            "--out_bundle", bundle_tmp
-            "--method", args.method
-            "--bucket_by", args.bucket_by
-            "--key", args.key
+            "--in_jsonl", dataset_jsonl,
+            "--out_bundle", bundle_tmp,
+            "--method", args.method,
+            "--bucket_by", args.bucket_by,
+            "--key", args.key,
         ]
     )
     if not ok:

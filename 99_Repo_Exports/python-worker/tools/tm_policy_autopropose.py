@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Auto-propose EntryPolicyOverridesV1 based on tm_policy_tuner JSON.
 
@@ -11,7 +12,6 @@ Does NOT auto-apply: approvals workflow remains.
 apply_kind="overrides_v1"
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

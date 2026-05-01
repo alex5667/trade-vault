@@ -135,11 +135,11 @@ def run_rules(df: pd.DataFrame, cfg: Dict, use_gpu: bool) -> List[Tuple[int, int
 
 
 def evaluate(
-    df: pd.DataFrame
-    sigs: List[Tuple[int, int, str]]
-    horizon: int = 60
-    min_edge: float = 0.0
-    use_gpu: bool = False
+    df: pd.DataFrame,
+    sigs: List[Tuple[int, int, str]],
+    horizon: int = 60,
+    min_edge: float = 0.0,
+    use_gpu: bool = False,
 ) -> Dict:
     """
     Evaluate signal performance using forward returns.
@@ -155,15 +155,15 @@ def evaluate(
     """
     if not sigs:
         return {
-            "signals": 0
-            "evaluated": 0
-            "win_rate": 0.0
-            "avg_edge": 0.0
-            "p50_edge": 0.0
-            "p75_edge": 0.0
-            "p95_edge": 0.0
-            "max_edge": 0.0
-            "min_edge": 0.0
+            "signals": 0,
+            "evaluated": 0,
+            "win_rate": 0.0,
+            "avg_edge": 0.0,
+            "p50_edge": 0.0,
+            "p75_edge": 0.0,
+            "p95_edge": 0.0,
+            "max_edge": 0.0,
+            "min_edge": 0.0,
         }
 
     # GPU-вариант: векторно считаем forward returns и метрики
@@ -175,15 +175,15 @@ def evaluate(
             n = mid.size
             if n == 0 or horizon <= 0 or horizon >= n:
                 return {
-                    "signals": len(sigs)
-                    "evaluated": 0
-                    "win_rate": 0.0
-                    "avg_edge": 0.0
-                    "p50_edge": 0.0
-                    "p75_edge": 0.0
-                    "p95_edge": 0.0
-                    "max_edge": 0.0
-                    "min_edge": 0.0
+                    "signals": len(sigs),
+                    "evaluated": 0,
+                    "win_rate": 0.0,
+                    "avg_edge": 0.0,
+                    "p50_edge": 0.0,
+                    "p75_edge": 0.0,
+                    "p95_edge": 0.0,
+                    "max_edge": 0.0,
+                    "min_edge": 0.0,
                 }
 
             # forward return для валидных индексов
@@ -196,15 +196,15 @@ def evaluate(
             valid_mask = idxs + horizon < n
             if not bool(cp.any(valid_mask)):
                 return {
-                    "signals": len(sigs)
-                    "evaluated": 0
-                    "win_rate": 0.0
-                    "avg_edge": 0.0
-                    "p50_edge": 0.0
-                    "p75_edge": 0.0
-                    "p95_edge": 0.0
-                    "max_edge": 0.0
-                    "min_edge": 0.0
+                    "signals": len(sigs),
+                    "evaluated": 0,
+                    "win_rate": 0.0,
+                    "avg_edge": 0.0,
+                    "p50_edge": 0.0,
+                    "p75_edge": 0.0,
+                    "p95_edge": 0.0,
+                    "max_edge": 0.0,
+                    "min_edge": 0.0,
                 }
 
             idxs = idxs[valid_mask]
@@ -220,15 +220,15 @@ def evaluate(
 
             qs = _compute_quantiles(edges_cpu, [0.50, 0.75, 0.95], use_gpu=True)
             return {
-                "signals": len(sigs)
-                "evaluated": len(edges_cpu)
-                "win_rate": wins / total
-                "avg_edge": float(np.nanmean(edges_cpu)) if edges_cpu.size else 0.0
-                "p50_edge": qs[0]
-                "p75_edge": qs[1]
-                "p95_edge": qs[2]
-                "max_edge": float(np.nanmax(edges_cpu)) if edges_cpu.size else 0.0
-                "min_edge": float(np.nanmin(edges_cpu)) if edges_cpu.size else 0.0
+                "signals": len(sigs),
+                "evaluated": len(edges_cpu),
+                "win_rate": wins / total,
+                "avg_edge": float(np.nanmean(edges_cpu)) if edges_cpu.size else 0.0,
+                "p50_edge": qs[0],
+                "p75_edge": qs[1],
+                "p95_edge": qs[2],
+                "max_edge": float(np.nanmax(edges_cpu)) if edges_cpu.size else 0.0,
+                "min_edge": float(np.nanmin(edges_cpu)) if edges_cpu.size else 0.0,
             }
         except Exception:
             # fallback на CPU ниже
@@ -255,23 +255,23 @@ def evaluate(
 
     qs_cpu = _compute_quantiles(edges, [0.50, 0.75, 0.95], use_gpu=False)
     return {
-        "signals": len(sigs)
-        "evaluated": len(edges)
-        "win_rate": wins / total
-        "avg_edge": float(np.nanmean(edges)) if edges else 0.0
-        "p50_edge": qs_cpu[0]
-        "p75_edge": qs_cpu[1]
-        "p95_edge": qs_cpu[2]
-        "max_edge": float(np.nanmax(edges)) if edges else 0.0
-        "min_edge": float(np.nanmin(edges)) if edges else 0.0
+        "signals": len(sigs),
+        "evaluated": len(edges),
+        "win_rate": wins / total,
+        "avg_edge": float(np.nanmean(edges)) if edges else 0.0,
+        "p50_edge": qs_cpu[0],
+        "p75_edge": qs_cpu[1],
+        "p95_edge": qs_cpu[2],
+        "max_edge": float(np.nanmax(edges)) if edges else 0.0,
+        "min_edge": float(np.nanmin(edges)) if edges else 0.0,
     }
 
 
 def main():
     """Main entry point."""
     ap = argparse.ArgumentParser(
-        description="Validate XAUUSD signal rules against historical data"
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Validate XAUUSD signal rules against historical data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Basic validation
@@ -286,10 +286,10 @@ Examples:
     )
     ap.add_argument("--data", required=True, help="Features file (.parquet or .csv)")
     ap.add_argument(
-        "--horizon"
-        type=int
-        default=60
-        help="Forward horizon in samples (default: 60 = ~1 min)"
+        "--horizon",
+        type=int,
+        default=60,
+        help="Forward horizon in samples (default: 60 = ~1 min)",
     )
     ap.add_argument(
         "--delta_z", type=float, default=3.0, help="Delta Z-score threshold (default: 3.0)"
@@ -299,10 +299,10 @@ Examples:
         "--min_edge", type=float, default=0.0, help="Minimum edge for win (default: 0.0)"
     )
     ap.add_argument(
-        "--use-gpu"
-        action="store_true"
-        default=False
-        help="Enable GPU acceleration (requires cupy and available GPU)."
+        "--use-gpu",
+        action="store_true",
+        default=False,
+        help="Enable GPU acceleration (requires cupy and available GPU).",
     )
     args = ap.parse_args()
     
@@ -319,7 +319,7 @@ Examples:
     
     # Configuration
     cfg = {
-        "DELTA_Z_THRESHOLD": args.delta_z
+        "DELTA_Z_THRESHOLD": args.delta_z,
         "OBI_THRESHOLD": args.obi
     }
     
@@ -344,11 +344,11 @@ Examples:
     # Evaluate
     print("📊 Evaluating performance...")
     metrics = evaluate(
-        df
-        sigs
-        horizon=args.horizon
-        min_edge=args.min_edge
-        use_gpu=use_gpu
+        df,
+        sigs,
+        horizon=args.horizon,
+        min_edge=args.min_edge,
+        use_gpu=use_gpu,
     )
     
     # Display results

@@ -53,10 +53,10 @@ def main():
         notify_flags.append("--emit-suggestions")
 
     tools = [
-        ["ml_sre_monitor.py", []]
-        ["cfg_suggestions_sre_monitor_v2.py", []]
-        ["tb_sre_monitor_v2.py", []]
-        ["ml_confirm_stream_sre_monitor.py", []]
+        ["ml_sre_monitor.py", []],
+        ["cfg_suggestions_sre_monitor_v2.py", []],
+        ["tb_sre_monitor_v2.py", []],
+        ["ml_confirm_stream_sre_monitor.py", []],
     ]
 
     # Optional: P32 meta outcome auto-apply

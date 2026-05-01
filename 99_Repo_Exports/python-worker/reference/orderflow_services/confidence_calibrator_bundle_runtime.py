@@ -72,9 +72,9 @@ class ConfidenceCalibratorBundleRuntime:
             "result": raw_conf, 
             "method": "identity", 
             "bucket_key": "global", 
-            "bucket_by": "none"
-            "bucket_level": "none"
-            "fallback_depth": 0
+            "bucket_by": "none",
+            "bucket_level": "none",
+            "fallback_depth": 0,
             "schema_version": 0
         }
 
@@ -118,9 +118,9 @@ class ConfidenceCalibratorBundleRuntime:
                     f"{sym}|any|{r}",       # Symbol + Regime
                     f"{sym}|any|any",       # Symbol Only
                     # Global fallbacks
-                    f"GLOBAL|{s}|{r}"
-                    f"GLOBAL|{s}|any"
-                    f"GLOBAL|any|{r}"
+                    f"GLOBAL|{s}|{r}",
+                    f"GLOBAL|{s}|any",
+                    f"GLOBAL|any|{r}",
                     "global"
                 ]
             else:

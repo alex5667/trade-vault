@@ -8,10 +8,10 @@ from pathlib import Path
 import math
 
 from core.flags_sessions_v1 import (
-    compute_a5_flags
-    session_onehot
-    session_open_close_flags
-    update_time_ema
+    compute_a5_flags,
+    session_onehot,
+    session_open_close_flags,
+    update_time_ema,
 )
 from core.feature_registry import get_edge_stack_feature_spec
 
@@ -71,26 +71,26 @@ def test_update_time_ema_dt() -> None:
 def test_compute_a5_flags_basic() -> None:
     ts_ms = _ts(10)
     indicators = {
-        "vol_ratio_z": 2.1
-        "microbar_range_bps": 12.0
-        "microbar_body_bps": 2.0
-    }
+        "vol_ratio_z": 2.1,
+        "microbar_range_bps": 12.0,
+        "microbar_body_bps": 2.0,
+    },
 
     out = compute_a5_flags(
-        ts_ms=ts_ms
-        qty=10.0
-        indicators=indicators
-        trade_qty_ema=1.5
-        depth_total10=100.0
-        depth_total10_ema=400.0
+        ts_ms=ts_ms,
+        qty=10.0,
+        indicators=indicators,
+        trade_qty_ema=1.5,
+        depth_total10=100.0,
+        depth_total10_ema=400.0,
         cfg={
-            "a5_high_vol_z_th": 2.0
-            "a5_low_liq_ratio_th": 0.35
-            "a5_large_trade_mult": 6.0
-            "a5_mr_body_ratio_th": 0.35
-            "a5_mr_range_th_bps": 5.0
-            "a5_session_edge_window_ms": 300_000
-        }
+            "a5_high_vol_z_th": 2.0,
+            "a5_low_liq_ratio_th": 0.35,
+            "a5_large_trade_mult": 6.0,
+            "a5_mr_body_ratio_th": 0.35,
+            "a5_mr_range_th_bps": 5.0,
+            "a5_session_edge_window_ms": 300_000,
+        },
     )
 
     assert out["flag_high_vol"] == 1
@@ -116,7 +116,7 @@ def test_feature_registry_v10_includes_session_onehot() -> None:
     f_cols = [c for c in spec.feature_cols if c.startswith("f_")]
     assert len(f_cols) >= 160, f"v10_of only has {len(f_cols)} f_* cols, expected >= 160"
     # Spot-check key Group 2 additions
-    for key in ("f_vpin_rolling", "f_rsi_price", "f_spread_bps", "f_microbar_range_bps"
+    for key in ("f_vpin_rolling", "f_rsi_price", "f_spread_bps", "f_microbar_range_bps",
                 "f_mae_r", "f_btc_corr_5m", "f_book_slope_bid"):
         assert key in spec.feature_cols, f"v10_of missing expected key {key}"
 

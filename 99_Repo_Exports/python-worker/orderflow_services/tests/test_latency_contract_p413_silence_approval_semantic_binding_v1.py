@@ -1,9 +1,9 @@
+from __future__ import annotations
 """P4.13 semantic approval binding workflow tests.
 
 Tests that the dual-control approval is invalidated when gate_reason_code,
 errors_count, or details_json fingerprint change between prepare/approve and final ack.
 """
-from __future__ import annotations
 
 from orderflow_services import latency_contract_deploy_lint_silence_v1 as mod
 

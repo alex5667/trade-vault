@@ -23,12 +23,12 @@ class ATRArchiveAndReplayService:
     def __init__(self):
         # Formal Artifact Taxonomy
         self.taxonomy = {
-            "signal": {"hot": 14, "warm": 90, "cold": 365, "format": "ndjson"}
-            "dispatch": {"hot": 7, "warm": 30, "cold": 0, "format": "ndjson"}
-            "execution": {"hot": 14, "warm": 180, "cold": 365, "format": "ndjson"}
-            "protective": {"hot": 30, "warm": 180, "cold": 365, "format": "ndjson"}
-            "post_trade": {"hot": 90, "warm": 365, "cold": 1095, "format": "parquet"}
-            "governance": {"hot": 90, "warm": 365, "cold": 1095, "format": "manifest_json"}
+            "signal": {"hot": 14, "warm": 90, "cold": 365, "format": "ndjson"},
+            "dispatch": {"hot": 7, "warm": 30, "cold": 0, "format": "ndjson"},
+            "execution": {"hot": 14, "warm": 180, "cold": 365, "format": "ndjson"},
+            "protective": {"hot": 30, "warm": 180, "cold": 365, "format": "ndjson"},
+            "post_trade": {"hot": 90, "warm": 365, "cold": 1095, "format": "parquet"},
+            "governance": {"hot": 90, "warm": 365, "cold": 1095, "format": "manifest_json"},
         }
 
     def _now(self):
@@ -37,16 +37,16 @@ class ATRArchiveAndReplayService:
     def classify_artifact(self, topic_or_table: str) -> str:
         """Classify a data source into one of the artifact classes."""
         mapping = {
-            "signals:crypto:raw": "signal"
-            "orders:queue": "dispatch"
-            "orders:queue:mt5": "dispatch"
-            "fills": "execution"
-            "order_payloads": "execution"
-            "protective_transitions": "protective"
-            "closed_trades": "post_trade"
-            "slippage_ema": "post_trade"
-            "control_plane": "governance"
-            "incidents": "governance"
+            "signals:crypto:raw": "signal",
+            "orders:queue": "dispatch",
+            "orders:queue:mt5": "dispatch",
+            "fills": "execution",
+            "order_payloads": "execution",
+            "protective_transitions": "protective",
+            "closed_trades": "post_trade",
+            "slippage_ema": "post_trade",
+            "control_plane": "governance",
+            "incidents": "governance",
         }
         for key, cls in mapping.items():
             if topic_or_table == key or topic_or_table.startswith(key + ":"):
@@ -71,7 +71,7 @@ class ATRArchiveAndReplayService:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO atr_backup_jobs (job_id, job_kind, artifact_class, status, summary_json, finished_at) "
-                        "VALUES (%s, %s, %s, %s, %s, %s)"
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
                         (job_id, "archive_compaction", artifact_class, "passed", json.dumps(summary), self._now())
                     )
                 conn.commit()
@@ -95,12 +95,12 @@ class ATRArchiveAndReplayService:
             files.append({"name": filename, "sha256": fake_hash})
             
         manifest = {
-            "bundle_id": bundle_id
-            "time_range": time_range
-            "scope": scope
-            "files": files
+            "bundle_id": bundle_id,
+            "time_range": time_range,
+            "scope": scope,
+            "files": files,
             "config_snapshot": {
-                "signal_version": "v17"
+                "signal_version": "v17",
                 "outbox_sem_dedup_bucket_ms": 1000
             }
         }
@@ -110,7 +110,7 @@ class ATRArchiveAndReplayService:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO atr_replay_bundles (bundle_id, artifact_scope, time_start, time_end, status, manifest_json, incident_linked) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (bundle_id) DO UPDATE SET manifest_json = EXCLUDED.manifest_json"
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (bundle_id) DO UPDATE SET manifest_json = EXCLUDED.manifest_json",
                         (bundle_id, ",".join(scope.get("symbols", [])), time_range["start"], time_range["end"], "ready", json.dumps(manifest), False)
                     )
                 conn.commit()
@@ -158,7 +158,7 @@ class ATRArchiveAndReplayService:
                 with get_db_connection() as conn:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "UPDATE atr_replay_bundles SET restored_at = %s WHERE bundle_id = %s"
+                            "UPDATE atr_replay_bundles SET restored_at = %s WHERE bundle_id = %s",
                             (self._now(), bundle_id)
                         )
                     conn.commit()
@@ -171,7 +171,7 @@ class ATRArchiveAndReplayService:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO atr_archive_integrity_checks (check_id, bundle_id, check_kind, status, details_json) "
-                        "VALUES (%s, %s, %s, %s, %s)"
+                        "VALUES (%s, %s, %s, %s, %s)",
                         (check_id, bundle_id, check_kind, status, json.dumps(details))
                     )
                 conn.commit()

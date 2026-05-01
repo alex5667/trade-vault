@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Unit tests for services.db_batch_writer.AsyncBatchWriter.
 
 All tests run without a real PostgreSQL database: psycopg2 is mocked
 so that we can verify batching logic, retry behaviour, Prometheus counters,
 and shutdown/drain semantics without any external dependencies.
 """
-from __future__ import annotations
 
 import queue
 import threading

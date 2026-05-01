@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Live calibration health loop + safe rollback.
 
 Run periodically (hourly recommended) to validate that calibrated confidence
@@ -39,7 +40,6 @@ Env defaults (can be overridden by CLI):
   Y_MIN_R=0.10
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

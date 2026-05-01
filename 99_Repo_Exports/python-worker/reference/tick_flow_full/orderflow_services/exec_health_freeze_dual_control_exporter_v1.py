@@ -4,8 +4,8 @@ from utils.time_utils import get_ny_time_millis
 
 """P9 dual-control thaw state exporter for Prometheus.
 
-Reads the freeze control hash, state hash, and event stream from Redis
-evaluates the dual-control thaw chain via evaluate_freeze_dual_control
+Reads the freeze control hash, state hash, and event stream from Redis,
+evaluates the dual-control thaw chain via evaluate_freeze_dual_control,
 and exposes metrics on EXEC_HEALTH_FREEZE_DUAL_CONTROL_EXPORTER_PORT (default 9829).
 
 Metrics exposed:

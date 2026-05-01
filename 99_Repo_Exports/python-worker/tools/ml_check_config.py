@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Проверка конфигурации ML из Redis cfg:ml_confirm.
 
@@ -9,7 +10,6 @@
 - Canary настройки
 """
 
-from __future__ import annotations
 
 import argparse
 import json

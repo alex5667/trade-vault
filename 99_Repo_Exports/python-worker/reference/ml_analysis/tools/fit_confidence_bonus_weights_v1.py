@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Fit ConfidenceScorer confirmation bonus weights from closed trades.
 
 Goal:
@@ -18,7 +19,6 @@ Notes:
 - It does not train the ML model; Phase-3 ML uses ml_p_cal fusion in the scorer.
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -39,28 +39,28 @@ class Row:
 
 FEATURES: Tuple[str, ...] = (
     # base confirmations
-    "reclaim"
-    "obi_stable"
-    "iceberg_strict"
-    "fp_edge_absorb"
-    "rsi_agree"
-    "div_match"
+    "reclaim",
+    "obi_stable",
+    "iceberg_strict",
+    "fp_edge_absorb",
+    "rsi_agree",
+    "div_match",
     # sweep types
-    "sweep_eqh"
-    "sweep_eql"
-    "sweep_eq"
-    "sweep"
+    "sweep_eqh",
+    "sweep_eql",
+    "sweep_eq",
+    "sweep",
     # interactions
-    "syn_sweep_reclaim"
-    "syn_sweepeq_reclaim"
-    "syn_sweep_fp"
-    "syn_div_sweep"
-    "syn_rsi_obi"
-    "syn_ice_fp"
+    "syn_sweep_reclaim",
+    "syn_sweepeq_reclaim",
+    "syn_sweep_fp",
+    "syn_div_sweep",
+    "syn_rsi_obi",
+    "syn_ice_fp",
     # regimes (optional)
-    "regime_trend"
-    "regime_range"
-    "regime_mixed"
+    "regime_trend",
+    "regime_range",
+    "regime_mixed",
 )
 
 
@@ -187,8 +187,8 @@ def _fetch_rows(dsn: str, table: str, symbol: str, source: str, limit: int) -> L
 
     q = f"""
         SELECT
-            COALESCE(r_multiple, 0) AS r_multiple
-            COALESCE(pnl_net, 0) AS pnl_net
+            COALESCE(r_multiple, 0) AS r_multiple,
+            COALESCE(pnl_net, 0) AS pnl_net,
             COALESCE(config_json, '{{}}'::jsonb) AS config_json
         FROM {table}
         WHERE symbol = %s AND source = %s
@@ -282,21 +282,21 @@ def main() -> int:
     p = 1.0 / (1.0 + np.exp(-np.clip(X @ coef + intercept, -35, 35)))
 
     metrics = {
-        "rows": int(len(rows))
-        "pos_rate": float(np.mean(y))
-        "auc": _auc_roc(y.astype(int), p)
-        "brier": _brier(y, p)
-        "fit": used
+        "rows": int(len(rows)),
+        "pos_rate": float(np.mean(y)),
+        "auc": _auc_roc(y.astype(int), p),
+        "brier": _brier(y, p),
+        "fit": used,
     }
 
     # Map coefficients to scorer config keys (roughly in bonus-space).
     # We keep only positive coefficients for bonuses; interactions are separate keys.
     cfg_out: Dict[str, Any] = {
-        "symbol": args.symbol
-        "source": args.source
-        "metrics": metrics
-        "logit_intercept": float(intercept)
-        "weights": {}
+        "symbol": args.symbol,
+        "source": args.source,
+        "metrics": metrics,
+        "logit_intercept": float(intercept),
+        "weights": {},
     }
 
     def put(k: str, v: float) -> None:

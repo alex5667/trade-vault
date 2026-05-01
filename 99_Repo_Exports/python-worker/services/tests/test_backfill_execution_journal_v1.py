@@ -27,8 +27,8 @@ def test_parse_exec_stream_entry_explicit_event_type():
 
 def test_derive_snapshot_rows_merges_latest_by_sid():
     events = [
-        mod.ExecEventRow('1-0', 's1', 'BTCUSDT', 'open', 1000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'action': 'open', 'status': 'submitted', 'fsm_state': 'ENTRY_SUBMITTED'}))
-        mod.ExecEventRow('2-0', 's1', 'BTCUSDT', 'protect', 2000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'sl_algo_id': 11, 'tp1_algo_id': 12, 'fsm_state': 'PROTECTED'}))
+        mod.ExecEventRow('1-0', 's1', 'BTCUSDT', 'open', 1000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'action': 'open', 'status': 'submitted', 'fsm_state': 'ENTRY_SUBMITTED'})),
+        mod.ExecEventRow('2-0', 's1', 'BTCUSDT', 'protect', 2000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'sl_algo_id': 11, 'tp1_algo_id': 12, 'fsm_state': 'PROTECTED'})),
     ]
     snapshots, refs = mod.derive_snapshot_rows(events)
     assert len(snapshots) == 1
@@ -41,8 +41,8 @@ def test_derive_snapshot_rows_merges_latest_by_sid():
 
 def test_derive_snapshot_rows_multiple_sids():
     events = [
-        mod.ExecEventRow('1-0', 's1', 'BTCUSDT', 'open', 1000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'fsm_state': 'ENTRY_SUBMITTED'}))
-        mod.ExecEventRow('2-0', 's2', 'ETHUSDT', 'open', 2000, json.dumps({'sid': 's2', 'symbol': 'ETHUSDT', 'fsm_state': 'ENTRY_SUBMITTED'}))
+        mod.ExecEventRow('1-0', 's1', 'BTCUSDT', 'open', 1000, json.dumps({'sid': 's1', 'symbol': 'BTCUSDT', 'fsm_state': 'ENTRY_SUBMITTED'})),
+        mod.ExecEventRow('2-0', 's2', 'ETHUSDT', 'open', 2000, json.dumps({'sid': 's2', 'symbol': 'ETHUSDT', 'fsm_state': 'ENTRY_SUBMITTED'})),
     ]
     snapshots, refs = mod.derive_snapshot_rows(events)
     assert len(snapshots) == 2
@@ -59,7 +59,7 @@ def test_derive_snapshot_rows_empty():
 
 def test_derive_snapshot_rows_skips_empty_sid():
     events = [
-        mod.ExecEventRow('1-0', '', 'BTCUSDT', 'open', 1000, json.dumps({'symbol': 'BTCUSDT', 'fsm_state': 'X'}))
+        mod.ExecEventRow('1-0', '', 'BTCUSDT', 'open', 1000, json.dumps({'symbol': 'BTCUSDT', 'fsm_state': 'X'})),
     ]
     snapshots, refs = mod.derive_snapshot_rows(events)
     assert snapshots == []

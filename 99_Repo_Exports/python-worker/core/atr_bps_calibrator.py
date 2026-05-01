@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ATR(bps) Sanity Calibrator (per-symbol, per-regime)
 ---------------------------------------------------
@@ -22,7 +23,6 @@ Semantics:
     (these are "sanity floors" that scale with symbol's typical noise)
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

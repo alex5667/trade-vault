@@ -175,7 +175,7 @@ def sanitize_breakpoints(x: List[float], p: List[float], *, mode: str = "linear"
         return None
     tmp.sort(key=lambda t: t[0])
 
-    # Convert to pseudo-samples: (x, y, w) where y is probability -> use as label with weight
+    # Convert to pseudo-samples: (x, y, w) where y is probability -> use as label with weight,
     # but better: run PAV on blocks directly; simplest: approximate by two samples per point.
     # For stability and simplicity: treat each point as mean with weight 1.0 and run PAV by using
     # (x, p, w=1).

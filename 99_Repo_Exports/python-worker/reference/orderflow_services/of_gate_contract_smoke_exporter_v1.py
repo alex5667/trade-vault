@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """P76 — OF gate contract smoke exporter (v1)
 
 Reads the latest record from Redis Stream `sre:of_gate_contract_smoke` and
@@ -18,7 +19,6 @@ Top breakdowns (top-10 only):
   - of_gate_contract_smoke_reason_code_bad_total{reason_code}
 """
 
-from __future__ import annotations
 
 import json
 import logging

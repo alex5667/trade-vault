@@ -1,3 +1,4 @@
+from __future__ import annotations
 """services.news_reco_reader.metrics
 
 Minimal Prometheus metrics for trade-side news recommendations reader.
@@ -9,7 +10,6 @@ Design goals
   no-op stubs (unit tests and minimal environments must not break).
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -53,15 +53,15 @@ def build_metrics(prefix: str = "trade_news_reco_reader") -> NewsRecoMetrics:
         from prometheus_client import Counter, Gauge  # type: ignore
     except Exception:  # pragma: no cover
         return NewsRecoMetrics(
-            hits_total=_mk_noop()
-            miss_total=_mk_noop()
-            stale_total=_mk_noop()
-            update_total=_mk_noop()
-            parse_errors_total=_mk_noop()
-            redis_errors_total=_mk_noop()
-            symbols=_mk_noop()
-            last_ok_ts_ms=_mk_noop()
-            lag_ms=_mk_noop()
+            hits_total=_mk_noop(),
+            miss_total=_mk_noop(),
+            stale_total=_mk_noop(),
+            update_total=_mk_noop(),
+            parse_errors_total=_mk_noop(),
+            redis_errors_total=_mk_noop(),
+            symbols=_mk_noop(),
+            last_ok_ts_ms=_mk_noop(),
+            lag_ms=_mk_noop(),
         )
 
     hits_total = Counter(f"{prefix}_hits_total", "Cache hits (hot-path)")
@@ -76,13 +76,13 @@ def build_metrics(prefix: str = "trade_news_reco_reader") -> NewsRecoMetrics:
     lag_ms = Gauge(f"{prefix}_lag_ms", "Lag between now and map.ts_ms (ms)")
 
     return NewsRecoMetrics(
-        hits_total=hits_total
-        miss_total=miss_total
-        stale_total=stale_total
-        update_total=update_total
-        parse_errors_total=parse_errors_total
-        redis_errors_total=redis_errors_total
-        symbols=symbols
-        last_ok_ts_ms=last_ok_ts_ms
-        lag_ms=lag_ms
+        hits_total=hits_total,
+        miss_total=miss_total,
+        stale_total=stale_total,
+        update_total=update_total,
+        parse_errors_total=parse_errors_total,
+        redis_errors_total=redis_errors_total,
+        symbols=symbols,
+        last_ok_ts_ms=last_ok_ts_ms,
+        lag_ms=lag_ms,
     )

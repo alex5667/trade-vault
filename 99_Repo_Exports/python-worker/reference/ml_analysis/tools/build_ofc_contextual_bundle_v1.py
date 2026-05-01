@@ -58,18 +58,18 @@ def build_bundle(*, exec_cost_model_path: str, rule_success_model_path: str, reg
     exec_cost = _load_json(exec_cost_model_path)
     rule_success = _load_json(rule_success_model_path)
     gate_cfg = _load_json(gate_cfg_path) if gate_cfg_path else {
-        'p_min_default': float(rule_success.get('defaults', {}).get('score_min_ctx', 0.55) or 0.55)
-        'edge_floor_p50_bps': 0.0
-        'edge_floor_p90_bps': -2.0
-        'mode': 'shadow'
+        'p_min_default': float(rule_success.get('defaults', {}).get('score_min_ctx', 0.55) or 0.55),
+        'edge_floor_p50_bps': 0.0,
+        'edge_floor_p90_bps': -2.0,
+        'mode': 'shadow',
     }
     manifest = {
-        'kind': kind
-        'bundle_version': version
-        'created_ts_ms': get_ny_time_millis()
-        'exec_cost_model_ver': str(exec_cost.get('version', ''))
-        'rule_success_model_ver': str(rule_success.get('version', ''))
-        'gate_cfg_ver': str(gate_cfg.get('version', 'gate_v1'))
+        'kind': kind,
+        'bundle_version': version,
+        'created_ts_ms': get_ny_time_millis(),
+        'exec_cost_model_ver': str(exec_cost.get('version', '')),
+        'rule_success_model_ver': str(rule_success.get('version', '')),
+        'gate_cfg_ver': str(gate_cfg.get('version', 'gate_v1')),
     }
     write_json_atomic(str(bundle_dir / 'manifest.json'), manifest)
     _copy2(exec_cost_model_path, str(bundle_dir / 'exec_cost_model.json'))
@@ -93,13 +93,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument('--kind', default='ofc_ctx_bundle')
     args = ap.parse_args(argv)
     build_bundle(
-        exec_cost_model_path=str(args.exec_cost_model_path)
-        rule_success_model_path=str(args.rule_success_model_path)
-        registry_dir=str(args.registry_dir)
-        gate_cfg_path=str(args.gate_cfg_path or '') or None
-        out_bundle_dir=str(args.out_bundle_dir or '') or None
-        promote_dir=str(args.promote_dir or '') or None
-        kind=str(args.kind)
+        exec_cost_model_path=str(args.exec_cost_model_path),
+        rule_success_model_path=str(args.rule_success_model_path),
+        registry_dir=str(args.registry_dir),
+        gate_cfg_path=str(args.gate_cfg_path or '') or None,
+        out_bundle_dir=str(args.out_bundle_dir or '') or None,
+        promote_dir=str(args.promote_dir or '') or None,
+        kind=str(args.kind),
     )
     return 0
 

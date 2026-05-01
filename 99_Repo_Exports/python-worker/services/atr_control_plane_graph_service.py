@@ -83,7 +83,7 @@ class ControlPlaneGraphService:
         initial_state: Dict[str, Any],
         actor: str,
         reason_code: str,
-        evidence: Optional[Dict[str, Any]] = None
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Create a new formal node in the unified graph."""
         try:

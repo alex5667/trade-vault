@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Deep trailing vs baseline analyzer for trades_closed in Redis Stream.
 
 Ожидается stream (по умолчанию trades:closed) с полями минимум:
-  source, symbol, entry_tag, pnl_net, pnl_if_fixed_exit, one_r_money
-  mfe_pnl, mae_pnl, giveback, missed_profit
-  trailing_started, trailing_active
-  close_reason, close_reason_raw, close_reason_detail
+  source, symbol, entry_tag, pnl_net, pnl_if_fixed_exit, one_r_money,
+  mfe_pnl, mae_pnl, giveback, missed_profit,
+  trailing_started, trailing_active,
+  close_reason, close_reason_raw, close_reason_detail,
   notional_usd, exit_ts_ms
 
 Если имена другие — поправьте маппинг в load_trades.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -199,12 +199,12 @@ def _to_bool(value: Any) -> bool:
 
 
 def load_trades(
-    redis_client
-    stream: str
-    source: str
-    symbol: str
-    limit: int = 200
-    since_days: Optional[int] = None
+    redis_client,
+    stream: str,
+    source: str,
+    symbol: str,
+    limit: int = 200,
+    since_days: Optional[int] = None,
 ) -> List[TradeRow]:
     threshold_ms: Optional[int] = None
     if since_days is not None and since_days > 0:
@@ -227,23 +227,23 @@ def load_trades(
             continue
 
         trade = TradeRow(
-            source=s_source
-            symbol=s_symbol
-            entry_tag=str(fields.get("entry_tag") or "")
-            pnl_net=_to_float(fields.get("pnl_net"))
-            pnl_fixed=_to_float(fields.get("pnl_if_fixed_exit"))
-            one_r=_to_float(fields.get("one_r_money"))
-            mfe_pnl=_to_float(fields.get("mfe_pnl"))
-            mae_pnl=_to_float(fields.get("mae_pnl"))
-            giveback=_to_float(fields.get("giveback"))
-            missed_profit=_to_float(fields.get("missed_profit"))
-            trailing_started=_to_bool(fields.get("trailing_started"))
-            trailing_active=_to_bool(fields.get("trailing_active"))
-            close_reason=str(fields.get("close_reason") or "")
-            close_reason_raw=str(fields.get("close_reason_raw") or "")
-            close_reason_detail=str(fields.get("close_reason_detail") or "")
-            notional_usd=_to_float(fields.get("notional_usd"))
-            exit_ts_ms=exit_ts_ms
+            source=s_source,
+            symbol=s_symbol,
+            entry_tag=str(fields.get("entry_tag") or ""),
+            pnl_net=_to_float(fields.get("pnl_net")),
+            pnl_fixed=_to_float(fields.get("pnl_if_fixed_exit")),
+            one_r=_to_float(fields.get("one_r_money")),
+            mfe_pnl=_to_float(fields.get("mfe_pnl")),
+            mae_pnl=_to_float(fields.get("mae_pnl")),
+            giveback=_to_float(fields.get("giveback")),
+            missed_profit=_to_float(fields.get("missed_profit")),
+            trailing_started=_to_bool(fields.get("trailing_started")),
+            trailing_active=_to_bool(fields.get("trailing_active")),
+            close_reason=str(fields.get("close_reason") or ""),
+            close_reason_raw=str(fields.get("close_reason_raw") or ""),
+            close_reason_detail=str(fields.get("close_reason_detail") or ""),
+            notional_usd=_to_float(fields.get("notional_usd")),
+            exit_ts_ms=exit_ts_ms,
         )
         trades.append(trade)
 
@@ -308,40 +308,40 @@ class TagStats:
         trailing_losses = sum(1 for trade in trailing_closes if trade.is_loss)
 
         return {
-            "tag": self.tag
-            "n": total
-            "wins": wins
-            "losses": losses
-            "be": be
-            "wr": wins / total if total > 0 else 0.0
-            "wins_fixed": wins_fixed
-            "losses_fixed": losses_fixed
-            "be_fixed": be_fixed
-            "wr_fixed": wins_fixed / total if total > 0 else 0.0
-            "expectancy_managed_r": mean(r_m)
-            "expectancy_baseline_r": mean(r_b)
-            "delta_expectancy_r": mean(diffs_r)
-            "avg_diff_usd": mean(diffs_usd)
-            "giveback_avg_usd": mean(giveback_vals_usd)
-            "giveback_avg_r": mean(giveback_vals_r)
-            "giveback_avg_ratio": mean(giveback_ratios)
-            "giveback_share": giveback_count / total if total > 0 else 0.0
-            "missed_avg_usd": mean(missed_vals_usd)
-            "missed_avg_r": mean(missed_vals_r)
-            "missed_avg_ratio": mean(missed_ratios)
-            "missed_share": missed_count / total if total > 0 else 0.0
-            "mfe_avg_r": mean(mfe_vals_r)
-            "mae_avg_r": mean(mae_vals_r)
-            "trailing_share": trailing_total / total if total > 0 else 0.0
-            "trailing_close_share": trailing_close_total / total if total > 0 else 0.0
+            "tag": self.tag,
+            "n": total,
+            "wins": wins,
+            "losses": losses,
+            "be": be,
+            "wr": wins / total if total > 0 else 0.0,
+            "wins_fixed": wins_fixed,
+            "losses_fixed": losses_fixed,
+            "be_fixed": be_fixed,
+            "wr_fixed": wins_fixed / total if total > 0 else 0.0,
+            "expectancy_managed_r": mean(r_m),
+            "expectancy_baseline_r": mean(r_b),
+            "delta_expectancy_r": mean(diffs_r),
+            "avg_diff_usd": mean(diffs_usd),
+            "giveback_avg_usd": mean(giveback_vals_usd),
+            "giveback_avg_r": mean(giveback_vals_r),
+            "giveback_avg_ratio": mean(giveback_ratios),
+            "giveback_share": giveback_count / total if total > 0 else 0.0,
+            "missed_avg_usd": mean(missed_vals_usd),
+            "missed_avg_r": mean(missed_vals_r),
+            "missed_avg_ratio": mean(missed_ratios),
+            "missed_share": missed_count / total if total > 0 else 0.0,
+            "mfe_avg_r": mean(mfe_vals_r),
+            "mae_avg_r": mean(mae_vals_r),
+            "trailing_share": trailing_total / total if total > 0 else 0.0,
+            "trailing_close_share": trailing_close_total / total if total > 0 else 0.0,
             "trailing_wr": trailing_wins / trailing_close_total
             if trailing_close_total > 0
-            else 0.0
-            "trailing_expectancy_r": mean(r_m_tr) if trailing_total > 0 else 0.0
-            "trailing_expectancy_fixed_r": mean(r_b_tr) if trailing_total > 0 else 0.0
+            else 0.0,
+            "trailing_expectancy_r": mean(r_m_tr) if trailing_total > 0 else 0.0,
+            "trailing_expectancy_fixed_r": mean(r_b_tr) if trailing_total > 0 else 0.0,
             "trailing_delta_expectancy_r": mean(diffs_r_tr)
             if trailing_total > 0
-            else 0.0
+            else 0.0,
         }
 
 
@@ -363,10 +363,10 @@ def analyze_global(trades: List[TradeRow]) -> Dict[str, Any]:
     out: Dict[str, Any] = dict(stats_tag)
     out.update(
         {
-            "sharpe_r": sharpe
-            "sortino_r": sortino
-            "mdd_net_usd": mdd_net
-            "mdd_baseline_usd": mdd_baseline
+            "sharpe_r": sharpe,
+            "sortino_r": sortino,
+            "mdd_net_usd": mdd_net,
+            "mdd_baseline_usd": mdd_baseline,
         }
     )
     return out
@@ -484,38 +484,38 @@ def main() -> None:
         description="Deep trailing vs baseline analyzer for trades_closed in Redis Stream."
     )
     parser.add_argument(
-        "--redis-url"
-        type=str
-        default=None
-        help="Redis URL, e.g. redis://localhost:6379/0 (по умолчанию REDIS_URL)"
+        "--redis-url",
+        type=str,
+        default=None,
+        help="Redis URL, e.g. redis://localhost:6379/0 (по умолчанию REDIS_URL)",
     )
     parser.add_argument(
-        "--stream"
-        type=str
-        default=None
-        help="Имя stream (по умолчанию TRADES_CLOSED_STREAM_NAME или trades:closed)"
+        "--stream",
+        type=str,
+        default=None,
+        help="Имя stream (по умолчанию TRADES_CLOSED_STREAM_NAME или trades:closed)",
     )
     parser.add_argument(
         "--source", type=str, default="CryptoOrderFlow", help="source (strategy source)"
     )
     parser.add_argument(
-        "--symbols"
-        type=str
-        default="ETHUSDT,BTCUSDT"
-        help="comma-separated list of symbols"
+        "--symbols",
+        type=str,
+        default="ETHUSDT,BTCUSDT",
+        help="comma-separated list of symbols",
     )
     parser.add_argument("--limit", type=int, default=200, help="max trades per symbol")
     parser.add_argument(
-        "--since-days"
-        type=int
-        default=0
-        help="optional, cut window by last N days"
+        "--since-days",
+        type=int,
+        default=0,
+        help="optional, cut window by last N days",
     )
     parser.add_argument(
-        "--min-trades-per-tag"
-        type=int
-        default=10
-        help="min trades per entry_tag to show stats"
+        "--min-trades-per-tag",
+        type=int,
+        default=10,
+        help="min trades per entry_tag to show stats",
     )
 
     args = parser.parse_args()
@@ -529,12 +529,12 @@ def main() -> None:
 
     for sym in symbols:
         trades = load_trades(
-            r
-            stream_name
-            source=args.source
-            symbol=sym
-            limit=args.limit
-            since_days=args.since_days if args.since_days > 0 else None
+            r,
+            stream_name,
+            source=args.source,
+            symbol=sym,
+            limit=args.limit,
+            since_days=args.since_days if args.since_days > 0 else None,
         )
         if not trades:
             print(f"Нет сделок для source={args.source}, symbol={sym}")

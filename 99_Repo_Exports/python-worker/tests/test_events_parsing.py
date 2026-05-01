@@ -36,8 +36,8 @@ def test_event_row_position_id_and_meta_json():
         "position_id": "12345678",
         "ts": 1706380000000,
         "meta": '{"close_reason": "trailing_stop"}',
-        "sid": "XAUUSD:absorption:v1",
-        "symbol": "XAUUSD",
+        "sid": ":absorption:v1",
+        "symbol": "",
     }
     row = svc.event_row("1706380000000-0", payload)
 
@@ -80,8 +80,8 @@ def test_event_row_meta_none():
         "event_type": "TRAILING_MOVE",
         "position_id": "11111111",
         "ts": 1706380000000,
-        "sid": "XAUUSD:test",
-        "symbol": "XAUUSD",
+        "sid": ":test",
+        "symbol": "",
     }
     row = svc.event_row("1706380000000-0", payload)
 
@@ -166,7 +166,7 @@ def test_entry_row_decision_normalization():
     # decision в поле "result"
     payload1 = {
         "result": "ALLOW",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "ts": 1706380000000,
     }
     row1 = svc.entry_row("1706380000000-0", payload1)
@@ -207,7 +207,7 @@ def test_entry_row_arm_normalization():
     # ab_arm
     payload1 = {
         "ab_arm": "B",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "ts": 1706380000000,
     }
     row1 = svc.entry_row("1706380000000-0", payload1)
@@ -231,7 +231,7 @@ def test_entry_row_ab_group_normalization():
     # ab_group
     payload1 = {
         "ab_group": "gold",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "ts": 1706380000000,
     }
     row1 = svc.entry_row("1706380000000-0", payload1)

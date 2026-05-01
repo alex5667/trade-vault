@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """P71 Policy Effectiveness Report Worker.
 
 Computes 24h policy effectiveness deltas vs baseline (policy_effective_mode=ok)
@@ -21,7 +22,6 @@ This worker is intentionally lightweight and low-cardinality.
 Input freshness is monitored separately by P70 signal quality policy-mode alerts.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -60,7 +60,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    }
+    },
 
 async def load_last_rollback(r: Any) -> Optional[Dict[str, Any]]:
     res = await r.xrevrange(ROLLBACK_JOURNAL_STREAM, max="+", min="-", count=1)
@@ -97,7 +97,7 @@ async def perform_retry_reapply(r: Any, db_url: str, rb_target: Dict[str, Any]) 
         with psycopg.connect(db_url) as conn:  # pragma: no cover
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_retry_results (
                         action, target_json, ts_ms
                     ) VALUES (

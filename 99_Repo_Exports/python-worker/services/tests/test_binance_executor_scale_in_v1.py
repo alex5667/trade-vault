@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Scale-in integration tests for BinanceExecutor.
 
 Tests:
@@ -6,7 +7,6 @@ Tests:
 3. handle_resize persists scale-in fields in state save
 4. _expected_requested_tp_qtys extracts from payload and state
 """
-from __future__ import annotations
 
 import importlib.util
 import json
@@ -84,7 +84,7 @@ class FakeClient:
         return 100_000.0
 
     def inspect_protection_set(self, symbol, sid, **kwargs):
-        return {"is_complete": True, "missing": [], "mismatched": []
+        return {"is_complete": True, "missing": [], "mismatched": [],
                 "sl": {"algoId": 1}, "tp_by_index": {}, "trail": None, "by_client_algo_id": {}}
 
 
@@ -169,8 +169,8 @@ def _mk_executor(*, position_amt=0.01, **overrides):
 def test_expected_requested_tp_qtys_from_payload():
     ex = _mk_executor()
     tp_qtys = ex._expected_requested_tp_qtys(
-        {"tp_qtys_requested_json": json.dumps([0.005, 0.003, 0.002])}
-        {}
+        {"tp_qtys_requested_json": json.dumps([0.005, 0.003, 0.002])},
+        {},
     )
     assert tp_qtys == [0.005, 0.003, 0.002]
 
@@ -178,8 +178,8 @@ def test_expected_requested_tp_qtys_from_payload():
 def test_expected_requested_tp_qtys_from_state():
     ex = _mk_executor()
     tp_qtys = ex._expected_requested_tp_qtys(
-        {}
-        {"tp_qtys_requested_json": json.dumps([0.01, 0.02])}
+        {},
+        {"tp_qtys_requested_json": json.dumps([0.01, 0.02])},
     )
     assert tp_qtys == [0.01, 0.02]
 
@@ -192,8 +192,8 @@ def test_expected_requested_tp_qtys_none_when_absent():
 def test_expected_requested_tp_qtys_payload_wins():
     ex = _mk_executor()
     tp_qtys = ex._expected_requested_tp_qtys(
-        {"tp_qtys_requested_json": json.dumps([0.1])}
-        {"tp_qtys_requested_json": json.dumps([0.2])}
+        {"tp_qtys_requested_json": json.dumps([0.1])},
+        {"tp_qtys_requested_json": json.dumps([0.2])},
     )
     assert tp_qtys == [0.1]
 
@@ -211,7 +211,7 @@ def test_place_protective_tp_qtys_override():
 
     original_place = ex.__class__._place_protective
 
-    # We can't easily call the real _place_protective due to exchange API calls
+    # We can't easily call the real _place_protective due to exchange API calls,
     # so test the split logic directly
     tps = [102000.0, 104000.0, 106000.0]
     tp_qtys = [0.005, 0.003, 0.002]
@@ -280,12 +280,12 @@ def test_handle_resize_persists_scale_in_fields():
     ex = _mk_executor(position_amt=0.001)
 
     ex._state_cache["sid-scale-1"] = {
-        "symbol": "BTCUSDT"
-        "fsm_state": mod.FSM_PROTECTED
-        "side": "LONG"
-        "qty": 0.001
-        "sl_requested": 98000.0
-        "tp_levels_requested": [103000.0]
+        "symbol": "BTCUSDT",
+        "fsm_state": mod.FSM_PROTECTED,
+        "side": "LONG",
+        "qty": 0.001,
+        "sl_requested": 98000.0,
+        "tp_levels_requested": [103000.0],
     }
 
     # Mock methods
@@ -307,16 +307,16 @@ def test_handle_resize_persists_scale_in_fields():
 
     tp_qtys_json = json.dumps([0.001, 0.001])
     result = ex.handle_resize({
-        "sid": "sid-scale-1"
-        "symbol": "BTCUSDT"
-        "resize_mode": "delta_qty"
-        "delta_qty": 0.001
+        "sid": "sid-scale-1",
+        "symbol": "BTCUSDT",
+        "resize_mode": "delta_qty",
+        "delta_qty": 0.001,
         # Scale-in fields from router
-        "tp_qtys_requested_json": tp_qtys_json
-        "trail_activate_tp_level_requested": 1
-        "scale_in_seq": 1
-        "source_signal_id": "new-signal-1"
-        "owner_sid": "sid-scale-1"
+        "tp_qtys_requested_json": tp_qtys_json,
+        "trail_activate_tp_level_requested": 1,
+        "scale_in_seq": 1,
+        "source_signal_id": "new-signal-1",
+        "owner_sid": "sid-scale-1",
     })
 
     state = ex._state_cache.get("sid-scale-1", {})

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Phase 8.6 — Graph-Backed Protective State Resolver
 
@@ -8,7 +9,6 @@ state from Redis open_positions for dual-read comparison.
 Consumers (Phase 8.6): auditor, cert service, diagnostics, postmortem.
 NOT for broker execution.
 """
-from __future__ import annotations
 
 import json
 import logging

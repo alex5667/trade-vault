@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Trail Post-Analyzer — MFE/MAE post-analysis per symbol × regime.
 
@@ -16,7 +17,6 @@ GPU-accelerated: uses CuPy for array operations when available (CUDA).
 Fallback: numpy on CPU if CuPy not installed or no GPU.
 Fail-open: never raises on Redis/data errors.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import math

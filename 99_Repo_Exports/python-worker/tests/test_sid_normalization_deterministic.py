@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Test for SID normalization and deterministic sampling.
 
@@ -9,7 +10,6 @@ Tests:
   - Enforce/canary routing with sid+run_id
 """
 
-from __future__ import annotations
 
 import pytest
 from services.ml_confirm_gate import (

@@ -1,9 +1,9 @@
+from __future__ import annotations
 """ML feature schema v6 (OrderFlow).
 
 v6_of = v5_of + world-practice flow + realized adverse drift.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List

@@ -33,9 +33,9 @@ microbar_symbols_active = _metric(Gauge, "microbar_symbols_active", "Number of a
 redis_used_memory_mb = _metric(Gauge, "redis_used_memory_mb", "Redis used_memory in MB (INFO used_memory)")
 
 of_engine_build_seconds = _metric(
-    Histogram
-    "of_engine_build_seconds"
-    "Latency of OFConfirmEngine.build() in seconds"
+    Histogram,
+    "of_engine_build_seconds",
+    "Latency of OFConfirmEngine.build() in seconds",
     buckets=(0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0)
 )
 
@@ -62,11 +62,11 @@ ml_confirm_enforce_share = _metric(Gauge, "ml_confirm_enforce_share", "Current e
 ml_confirm_model_loaded = _metric(Gauge, "ml_confirm_model_loaded", "Whether ML model is loaded", ["kind"])
 
 ml_confirm_model_load_seconds = _metric(
-    Histogram, "ml_confirm_model_load_seconds", "Time to load the ML model", ["kind"]
+    Histogram, "ml_confirm_model_load_seconds", "Time to load the ML model", ["kind"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10)
 )
 ml_confirm_latency_seconds = _metric(
-    Histogram, "ml_confirm_latency_seconds", "End-to-end latency of ML confirm gate", ["kind"]
+    Histogram, "ml_confirm_latency_seconds", "End-to-end latency of ML confirm gate", ["kind"],
     buckets=(0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 1)
 )
 
@@ -84,17 +84,17 @@ atr_promotion_rollback_review_total = _metric(Counter, "atr_promotion_rollback_r
 
 worker_lag_ms_p99 = _metric(Gauge, "worker_lag_ms_p99", "99th percentile of worker lag (ms)", ["symbol"])
 signal_emit_latency_us = _metric(
-    Histogram, "signal_emit_latency_us", "Signal emit latency (us)", ["symbol", "stream"]
+    Histogram, "signal_emit_latency_us", "Signal emit latency (us)", ["symbol", "stream"],
     buckets=(50, 100, 250, 500, 1000, 2000, 5000, 8000, 15000, 30000)
 )
 
 ml_inference_time_us = _metric(
-    Histogram, "ml_inference_time_us", "Time spent performing MetaModelLR inference (us)", ["symbol", "model"]
+    Histogram, "ml_inference_time_us", "Time spent performing MetaModelLR inference (us)", ["symbol", "model"],
     buckets=(500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 250000, 500000)
 )
 
 ml_telemetry_io_time_us = _metric(
-    Histogram, "ml_telemetry_io_time_us", "Time spent in Redis IO for telemetry continuation (us)", ["symbol"]
+    Histogram, "ml_telemetry_io_time_us", "Time spent in Redis IO for telemetry continuation (us)", ["symbol"],
     buckets=(100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000)
 )
 
@@ -118,7 +118,7 @@ dq_flag_rate = _metric(Gauge, "dq_flag_rate", "Rate of DQ flags applied", ["flag
 notional_clamped_total = _metric(Counter, "notional_clamped_total", "Count of trade quantity clampings", ["symbol"])
 
 pipeline_stage_ms = _metric(
-    Histogram, "pipeline_stage_ms", "Latency of individual pipeline stages", ["kind", "symbol", "stage"]
+    Histogram, "pipeline_stage_ms", "Latency of individual pipeline stages", ["kind", "symbol", "stage"],
     buckets=(0.5, 1, 2, 5, 10, 20, 50, 100, 250, 500, 1000)
 )
 

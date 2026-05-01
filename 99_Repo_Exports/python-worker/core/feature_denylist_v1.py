@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Feature denylist loader (v1).
 
 Purpose
@@ -31,7 +32,6 @@ Notes
 - Loader is fail-open: any read/parse error returns an empty denylist.
 """
 
-from __future__ import annotations
 
 import json
 import os

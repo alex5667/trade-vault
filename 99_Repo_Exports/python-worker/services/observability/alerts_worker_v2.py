@@ -51,14 +51,14 @@ def _connect_redis_with_retry(redis_url: str, max_retries: int = 10, retry_delay
             # ✅ FIX: Add max_connections and disable health_check_interval to prevent recursion
             # Health check can cause recursion errors in some Redis versions
             r = redis.Redis.from_url(
-                redis_url
-                decode_responses=False
-                socket_connect_timeout=10
-                socket_timeout=30
-                retry_on_timeout=True
+                redis_url,
+                decode_responses=False,
+                socket_connect_timeout=10,
+                socket_timeout=30,
+                retry_on_timeout=True,
                 max_connections=5,  # Alerts worker needs minimal connections
                 health_check_interval=0,  # Disable to prevent recursion errors
-                socket_keepalive=True
+                socket_keepalive=True,
             )
             # Test connection
             r.ping()

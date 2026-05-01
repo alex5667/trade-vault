@@ -32,7 +32,7 @@ def _mk_monitor() -> TradeMonitorService:
     mon.rr_levels = [1.0, 2.0, 3.0]
     mon._crypto_suffixes = ("USDT", "USDC", "BUSD")
     mon._crypto_exclude_prefixes = ()
-    mon._margin_fx_symbols = frozenset({"XAUUSD", "XAGUSD"})
+    mon._margin_fx_symbols = frozenset({""})
     return mon
 
 

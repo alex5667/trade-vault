@@ -73,9 +73,9 @@ except ModuleNotFoundError:
 
 # Optional internal trackers used by runtime; not required for this unit test.
 for _mod, _cls in (
-    ("core.rolling_vwap_tracker", "RollingVWAPTracker")
-    ("core.rolling_momentum_tracker", "RollingMomentumTracker")
-    ("core.rolling_volatility_tracker", "RollingVolatilityTracker")
+    ("core.rolling_vwap_tracker", "RollingVWAPTracker"),
+    ("core.rolling_momentum_tracker", "RollingMomentumTracker"),
+    ("core.rolling_volatility_tracker", "RollingVolatilityTracker"),
 ):
     try:
         importlib.import_module(_mod)
@@ -124,14 +124,14 @@ def _make_tp(redis: _DummyRedis, *, refresh_ms=1500, stale_ms=120000):
 def test_liqmap_injection_updates_indicators_and_throttles_refresh():
     now_ms = 10_000
     snap = {
-        "ts_ms": now_ms - 2_000
-        "symbol": "BTCUSDT"
-        "window": "1h"
+        "ts_ms": now_ms - 2_000,
+        "symbol": "BTCUSDT",
+        "window": "1h",
         "levels": [
-            {"price": 99.0, "long_usd": 100.0, "short_usd": 200.0}
-            {"price": 100.0, "long_usd": 400.0, "short_usd": 100.0}
-            {"price": 101.0, "long_usd": 50.0, "short_usd": 900.0}
-        ]
+            {"price": 99.0, "long_usd": 100.0, "short_usd": 200.0},
+            {"price": 100.0, "long_usd": 400.0, "short_usd": 100.0},
+            {"price": 101.0, "long_usd": 50.0, "short_usd": 900.0},
+        ],
     }
 
     key = "liqmap:snapshot:BTCUSDT:1h"
@@ -163,13 +163,13 @@ def test_liqmap_injection_updates_indicators_and_throttles_refresh():
 def test_liqmap_injection_failopen_reuses_last_good_when_snapshot_missing():
     base_ms = 20_000
     snap = {
-        "ts_ms": base_ms - 2_000
-        "symbol": "BTCUSDT"
-        "window": "1h"
+        "ts_ms": base_ms - 2_000,
+        "symbol": "BTCUSDT",
+        "window": "1h",
         "levels": [
-            {"price": 100.0, "long_usd": 100.0, "short_usd": 100.0}
-            {"price": 101.0, "long_usd": 200.0, "short_usd": 0.0}
-        ]
+            {"price": 100.0, "long_usd": 100.0, "short_usd": 100.0},
+            {"price": 101.0, "long_usd": 200.0, "short_usd": 0.0},
+        ],
     }
 
     key = "liqmap:snapshot:BTCUSDT:1h"

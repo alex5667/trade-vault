@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Build an edge-stack training dataset by joining Redis streams via SID.
 
 Primary intent: produce JSONL rows for tools.train_edge_stack_v1_oof (OOF stacking).
@@ -10,15 +11,15 @@ Join key: canonical sid = crypto-of:{SYMBOL}:{ts_ms}
 
 Output JSONL row schema (per line):
   {
-    "ts_ms": <int>
-    "close_ts_ms": <int>
-    "sid": "crypto-of:..."
-    "symbol": "BTCUSDT"
-    "direction": "BUY"|"SELL"
-    "scenario": "..." (scenario_v4 from replay)
+    "ts_ms": <int>,
+    "close_ts_ms": <int>,
+    "sid": "crypto-of:...",
+    "symbol": "BTCUSDT",
+    "direction": "BUY"|"SELL",
+    "scenario": "..." (scenario_v4 from replay),
     "indicators": { ... },        # feature snapshot
-    "pnl": <float>
-    "risk_usd": <float>
+    "pnl": <float>,
+    "risk_usd": <float>,
     "r_mult": <float>,            # pnl / risk_usd (if risk_usd>0)
     "y": <0|1>                    # r_mult >= y_min_r
   }
@@ -35,12 +36,11 @@ Notes:
   - This tool is intentionally deterministic: stable sorting by ts_ms then sid.
   - It is safe to run against large streams by limiting COUNT for each stream.
   - v2 adds:
-      * quarantine JSONL for dropped records
-      * drop-reason counters + examples
+      * quarantine JSONL for dropped records,
+      * drop-reason counters + examples,
       * sid mismatch diagnostics for unmatched closes (nearest signal by time per symbol).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -92,21 +92,21 @@ except Exception:
 
 FGH_NUMERIC_KEYS: List[str] = [
     # F) leader-relative
-    "rel_ofi_ml_norm_btc"
-    "rel_lob_micro_shift_bps_btc"
+    "rel_ofi_ml_norm_btc",
+    "rel_lob_micro_shift_bps_btc",
     # G) replenishment imbalance
-    "ask_replenish_imb"
-    "bid_replenish_imb"
-    "lob_replenishment_pressure"
-    "replenish_ratio_ask"
-    "replenish_ratio_bid"
-    "replenish_ratio_diff"
+    "ask_replenish_imb",
+    "bid_replenish_imb",
+    "lob_replenishment_pressure",
+    "replenish_ratio_ask",
+    "replenish_ratio_bid",
+    "replenish_ratio_diff",
     # H) acceleration / velocity
-    "ofi_ml_wsum_vel"
-    "micro_shift_bps_vel"
-    "ofi_ml_wsum_vel_z_ema"
-    "micro_shift_bps_vel_z_ema"
-]
+    "ofi_ml_wsum_vel",
+    "micro_shift_bps_vel",
+    "ofi_ml_wsum_vel_z_ema",
+    "micro_shift_bps_vel_z_ema",
+],
 
 
 def _now_ms() -> int:
@@ -355,12 +355,12 @@ def _open_text_maybe_gzip(path: str):
     return open(path, "r", encoding="utf-8", errors="replace")
 
 def _read_archive_items(
-    archive_dir: str
-    *
-    start_ms: Optional[int]
-    end_ms: Optional[int]
-    lookback_days: int
-    max_records: int
+    archive_dir: str,
+    *,
+    start_ms: Optional[int],
+    end_ms: Optional[int],
+    lookback_days: int,
+    max_records: int,
 ) -> Tuple[List[Tuple[str, Dict[str, Any]]], Dict[str, Any]]:
     files = _list_archive_files(archive_dir, start_ms=start_ms, end_ms=end_ms, lookback_days=int(lookback_days))
     items: List[Tuple[str, Dict[str, Any]]] = []
@@ -401,11 +401,11 @@ def _read_archive_items(
 
 
 def _filter_by_time(
-    items: Sequence[Tuple[str, Dict[str, Any]]]
-    *
-    ts_field_candidates: Sequence[str]
-    start_ms: Optional[int]
-    end_ms: Optional[int]
+    items: Sequence[Tuple[str, Dict[str, Any]]],
+    *,
+    ts_field_candidates: Sequence[str],
+    start_ms: Optional[int],
+    end_ms: Optional[int],
 ) -> List[Tuple[str, Dict[str, Any]]]:
     if not start_ms and not end_ms:
         return list(items)
@@ -491,8 +491,8 @@ class DropStats:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "counts": dict(sorted(self.counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0]))))
-            "examples": self.examples
+            "counts": dict(sorted(self.counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))),
+            "examples": self.examples,
         }
 
 
@@ -506,13 +506,13 @@ class NearestJoinStats:
     bucket_used: int = 0
 
     def add(
-        self
-        *
-        cand_n: int
-        cand2_n: int
-        ambiguous: bool
-        example: Optional[Dict[str, Any]] = None
-        bucket_used: bool = False
+        self,
+        *,
+        cand_n: int,
+        cand2_n: int,
+        ambiguous: bool,
+        example: Optional[Dict[str, Any]] = None,
+        bucket_used: bool = False,
     ) -> None:
         self.candidates.append(int(cand_n))
         self.candidates_after_secondary.append(int(cand2_n))
@@ -533,14 +533,14 @@ class NearestJoinStats:
 
     def summary(self) -> Dict[str, Any]:
         return {
-            "n": int(len(self.candidates))
-            "cand_p50": int(self._pct(self.candidates, 0.50))
-            "cand_p95": int(self._pct(self.candidates, 0.95))
-            "cand2_p50": int(self._pct(self.candidates_after_secondary, 0.50))
-            "cand2_p95": int(self._pct(self.candidates_after_secondary, 0.95))
-            "ambiguous": int(self.ambiguous)
-            "ambiguous_examples": self.ambiguous_examples
-            "bucket_used": int(self.bucket_used)
+            "n": int(len(self.candidates)),
+            "cand_p50": int(self._pct(self.candidates, 0.50)),
+            "cand_p95": int(self._pct(self.candidates, 0.95)),
+            "cand2_p50": int(self._pct(self.candidates_after_secondary, 0.50)),
+            "cand2_p95": int(self._pct(self.candidates_after_secondary, 0.95)),
+            "ambiguous": int(self.ambiguous),
+            "ambiguous_examples": self.ambiguous_examples,
+            "bucket_used": int(self.bucket_used),
         }
 
 
@@ -552,11 +552,11 @@ class QuarantineWriter:
 
     def write(self, kind: str, reason: str, *, stream: str, msg_id: str, data: Any) -> None:
         rec = {
-            "kind": str(kind)
-            "reason": str(reason)
-            "stream": str(stream)
-            "id": str(msg_id)
-            "data": _minify(data)
+            "kind": str(kind),
+            "reason": str(reason),
+            "stream": str(stream),
+            "id": str(msg_id),
+            "data": _minify(data),
         }
         self._f.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")))
         self._f.write("\n")
@@ -642,8 +642,8 @@ def parse_replay_signal(fields: Dict[str, Any]) -> Optional[SignalRow]:
         if ts_ms <= 0:
             ts_ms = _as_int(
                 decision.get("ts_ms")
-                or ((decision.get("inputs") or {}).get("tick_ts_ms") if isinstance(decision.get("inputs"), dict) else 0)
-                0
+                or ((decision.get("inputs") or {}).get("tick_ts_ms") if isinstance(decision.get("inputs"), dict) else 0),
+                0,
             )
         if not symbol:
             symbol = _as_str(decision.get("symbol") or "").upper()
@@ -687,12 +687,12 @@ def parse_replay_signal(fields: Dict[str, Any]) -> Optional[SignalRow]:
             direction = "BUY"
 
     return SignalRow(
-        sid=sid
-        ts_ms=int(ts_ms)
-        symbol=symbol
-        direction=direction
-        scenario=str(scenario)
-        indicators=indicators
+        sid=sid,
+        ts_ms=int(ts_ms),
+        symbol=symbol,
+        direction=direction,
+        scenario=str(scenario),
+        indicators=indicators,
     )
 
 
@@ -758,23 +758,23 @@ def parse_trade_closed(fields: Dict[str, Any]) -> Optional[CloseRow]:
                     buckets[k] = v
 
     return CloseRow(
-        sid=sid
-        close_ts_ms=int(close_ts_ms or 0)
-        symbol=symbol
-        pnl=float(pnl)
-        risk_usd=float(risk_usd)
-        direction=str(direction)
-        scenario=str(scenario)
-        buckets=buckets
+        sid=sid,
+        close_ts_ms=int(close_ts_ms or 0),
+        symbol=symbol,
+        pnl=float(pnl),
+        risk_usd=float(risk_usd),
+        direction=str(direction),
+        scenario=str(scenario),
+        buckets=buckets,
     )
 
 
 def load_tb_labels_from_stream(
-    r: "redis.Redis"
-    *
-    stream: str
-    field: str
-    count: int
+    r: "redis.Redis",
+    *,
+    stream: str,
+    field: str,
+    count: int,
 ) -> Dict[str, Dict[str, Any]]:
     """Load most recent TB labels into {sid -> payload} map."""
     out: Dict[str, Dict[str, Any]] = {}
@@ -836,9 +836,9 @@ def _build_signal_index_by_symbol(signals: Sequence[SignalRow]) -> Dict[str, Lis
 
 
 def _nearest_signal_for_ts(
-    arr: List[Tuple[int, str]]
-    times: List[int]
-    ts_ms: int
+    arr: List[Tuple[int, str]],
+    times: List[int],
+    ts_ms: int,
 ) -> Optional[Tuple[int, str, int]]:
     """Return (signal_ts_ms, signal_sid, delta_ms=ts_ms-signal_ts_ms) for nearest signal."""
     if not arr or not times:
@@ -869,12 +869,12 @@ def _split_csv_keys(x: Any) -> List[str]:
 
 
 def _nearest_candidates_for_ts(
-    arr: List[Tuple[int, str]]
-    times: List[int]
-    ts_ms: int
-    *
-    tol_ms: int
-    max_scan: int
+    arr: List[Tuple[int, str]],
+    times: List[int],
+    ts_ms: int,
+    *,
+    tol_ms: int,
+    max_scan: int,
 ) -> List[Tuple[int, str, int]]:
     """Return candidate signals around ts_ms within tol_ms.
 
@@ -981,19 +981,19 @@ def _bucket_score(close: CloseRow, sig: SignalRow, keys: Sequence[str]) -> int:
 
 
 def diagnose_unmatched_closes(
-    unmatched_closes: Sequence[CloseRow]
-    *
-    signal_index_by_symbol: Dict[str, List[Tuple[int, str]]]
-    max_examples: int = 50
+    unmatched_closes: Sequence[CloseRow],
+    *,
+    signal_index_by_symbol: Dict[str, List[Tuple[int, str]]],
+    max_examples: int = 50,
 ) -> Dict[str, Any]:
     """For each unmatched close, find nearest signal by time for same symbol and bucketize deltas."""
     buckets = [
-        (1_000, "<=1s")
-        (10_000, "<=10s")
-        (60_000, "<=60s")
-        (300_000, "<=5m")
-        (10**18, ">5m")
-    ]
+        (1_000, "<=1s"),
+        (10_000, "<=10s"),
+        (60_000, "<=60s"),
+        (300_000, "<=5m"),
+        (10**18, ">5m"),
+    ],
     counts: Dict[str, int] = {name: 0 for _, name in buckets}
     examples: List[Dict[str, Any]] = []
 
@@ -1033,12 +1033,12 @@ def diagnose_unmatched_closes(
         if len(examples) < int(max_examples):
             examples.append(
                 {
-                    "symbol": sym
-                    "sid_close": str(c.sid)
-                    "close_ts_ms": int(c.close_ts_ms)
-                    "nearest_signal_sid": str(sid)
-                    "nearest_signal_ts_ms": int(t)
-                    "delta_ms": int(d)
+                    "symbol": sym,
+                    "sid_close": str(c.sid),
+                    "close_ts_ms": int(c.close_ts_ms),
+                    "nearest_signal_sid": str(sid),
+                    "nearest_signal_ts_ms": int(t),
+                    "delta_ms": int(d),
                 }
             )
 
@@ -1046,24 +1046,24 @@ def diagnose_unmatched_closes(
 
 
 def join_signals_with_closes_v2(
-    signals: Sequence[SignalRow]
-    closes: Sequence[CloseRow]
-    *
-    y_min_r: float
-    dedup_signals: str = "latest"
-    drop_invalid_risk: bool = False
-    join_strategy: str = "sid_or_nearest"
-    join_tolerance_ms: int = 10_000
-    join_secondary: str = "dir_scenario_soft"
-    nearest_max_scan: int = 50
-    join_bucket_keys: Optional[Sequence[str]] = None
-    join_debug: Optional[Dict[str, Any]] = None
-    drop: Optional[DropStats] = None
-    quarantine: Optional[QuarantineWriter] = None
-    closed_stream: str = ""
-    tb_by_sid: Optional[Dict[str, Dict[str, Any]]] = None
-    label_source: str = "closed"
-    tb_util_min_r: float = 0.0
+    signals: Sequence[SignalRow],
+    closes: Sequence[CloseRow],
+    *,
+    y_min_r: float,
+    dedup_signals: str = "latest",
+    drop_invalid_risk: bool = False,
+    join_strategy: str = "sid_or_nearest",
+    join_tolerance_ms: int = 10_000,
+    join_secondary: str = "dir_scenario_soft",
+    nearest_max_scan: int = 50,
+    join_bucket_keys: Optional[Sequence[str]] = None,
+    join_debug: Optional[Dict[str, Any]] = None,
+    drop: Optional[DropStats] = None,
+    quarantine: Optional[QuarantineWriter] = None,
+    closed_stream: str = "",
+    tb_by_sid: Optional[Dict[str, Dict[str, Any]]] = None,
+    label_source: str = "closed",
+    tb_util_min_r: float = 0.0,
 ) -> Tuple[List[Dict[str, Any]], List[CloseRow]]:
     """Join signals with closes and build JSONL rows.
 
@@ -1081,13 +1081,13 @@ def join_signals_with_closes_v2(
     use_nearest = js in ("nearest", "sid_or_nearest")
     sec_mode = str(join_secondary or "none").strip().lower()
     allowed_sec = {
-        "none"
-        "dir"
-        "scenario"
-        "dir_scenario"
-        "dir_soft"
-        "scenario_soft"
-        "dir_scenario_soft"
+        "none",
+        "dir",
+        "scenario",
+        "dir_scenario",
+        "dir_soft",
+        "scenario_soft",
+        "dir_scenario_soft",
     }
     if sec_mode not in allowed_sec:
         sec_mode = "none"
@@ -1118,8 +1118,8 @@ def join_signals_with_closes_v2(
         if drop_invalid_risk and float(c.risk_usd) <= 0.0:
             if drop is not None:
                 drop.add(
-                    "close_invalid_risk"
-                    {"sid": str(c.sid), "symbol": str(c.symbol), "risk_usd": float(c.risk_usd), "pnl": float(c.pnl)}
+                    "close_invalid_risk",
+                    {"sid": str(c.sid), "symbol": str(c.symbol), "risk_usd": float(c.risk_usd), "pnl": float(c.pnl)},
                 )
             if quarantine is not None:
                 quarantine.write("close", "close_invalid_risk", stream=closed_stream, msg_id="", data={"sid": c.sid})
@@ -1137,11 +1137,11 @@ def join_signals_with_closes_v2(
             times = sig_times_by_symbol.get(sym) or []
 
             cands = _nearest_candidates_for_ts(
-                arr
-                times
-                int(c.close_ts_ms)
-                tol_ms=tol_ms
-                max_scan=int(nearest_max_scan)
+                arr,
+                times,
+                int(c.close_ts_ms),
+                tol_ms=tol_ms,
+                max_scan=int(nearest_max_scan),
             )
             join_cand_n = int(len(cands))
 
@@ -1162,22 +1162,22 @@ def join_signals_with_closes_v2(
             ex = None
             if ambiguous:
                 ex = {
-                    "symbol": sym
-                    "sid_close": str(c.sid)
-                    "close_ts_ms": int(c.close_ts_ms)
-                    "join_secondary": str(sec_mode)
-                    "bucket_keys": list(bucket_keys)
+                    "symbol": sym,
+                    "sid_close": str(c.sid),
+                    "close_ts_ms": int(c.close_ts_ms),
+                    "join_secondary": str(sec_mode),
+                    "bucket_keys": list(bucket_keys),
                     "candidates": [
                         {"sid": sid, "ts_ms": int(t), "delta_ms": int(d), "bucket_score": int(sc)}
                         for (sc, t, sid, d) in filtered[:5]
-                    ]
+                    ],
                 }
             nearest_stats.add(
-                cand_n=join_cand_n
-                cand2_n=join_cand2_n
-                ambiguous=ambiguous
-                example=ex
-                bucket_used=bool(bucket_keys) and any(int(sc) > 0 for (sc, _t, _sid, _d) in filtered[:1])
+                cand_n=join_cand_n,
+                cand2_n=join_cand2_n,
+                ambiguous=ambiguous,
+                example=ex,
+                bucket_used=bool(bucket_keys) and any(int(sc) > 0 for (sc, _t, _sid, _d) in filtered[:1]),
             )
 
             if filtered:
@@ -1196,39 +1196,39 @@ def join_signals_with_closes_v2(
                         if best_any is not None:
                             _t_near, sid_near, d_ms = best_any
                             drop.add(
-                                "join_nearest_too_far"
+                                "join_nearest_too_far",
                                 {
-                                    "symbol": sym
-                                    "sid_close": str(c.sid)
-                                    "close_ts_ms": int(c.close_ts_ms)
-                                    "nearest_signal_sid": str(sid_near)
-                                    "delta_ms": int(d_ms)
-                                    "tolerance_ms": int(tol_ms)
+                                    "symbol": sym,
+                                    "sid_close": str(c.sid),
+                                    "close_ts_ms": int(c.close_ts_ms),
+                                    "nearest_signal_sid": str(sid_near),
+                                    "delta_ms": int(d_ms),
+                                    "tolerance_ms": int(tol_ms),
                                 }
                             )
                         else:
                             drop.add(
-                                "join_nearest_no_candidates"
-                                {"symbol": sym, "sid_close": str(c.sid), "close_ts_ms": int(c.close_ts_ms)}
+                                "join_nearest_no_candidates",
+                                {"symbol": sym, "sid_close": str(c.sid), "close_ts_ms": int(c.close_ts_ms)},
                             )
                     elif join_cand_n <= 0:
                         drop.add(
-                            "join_nearest_no_candidates"
-                            {"symbol": sym, "sid_close": str(c.sid), "close_ts_ms": int(c.close_ts_ms)}
+                            "join_nearest_no_candidates",
+                            {"symbol": sym, "sid_close": str(c.sid), "close_ts_ms": int(c.close_ts_ms)},
                         )
                     else:
                         drop.add(
-                            "join_secondary_no_match"
+                            "join_secondary_no_match",
                             {
-                                "symbol": sym
-                                "sid_close": str(c.sid)
-                                "close_ts_ms": int(c.close_ts_ms)
-                                "join_secondary": str(sec_mode)
-                                "bucket_keys": list(bucket_keys)
+                                "symbol": sym,
+                                "sid_close": str(c.sid),
+                                "close_ts_ms": int(c.close_ts_ms),
+                                "join_secondary": str(sec_mode),
+                                "bucket_keys": list(bucket_keys),
                                 "nearest_candidates": [
                                     {"sid": str(sid_near), "ts_ms": int(t), "delta_ms": int(d_ms)}
                                     for (t, sid_near, d_ms) in cands[:5]
-                                ]
+                                ],
                             }
                         )
 
@@ -1261,32 +1261,32 @@ def join_signals_with_closes_v2(
 
         out.append(
             {
-                "ts_ms": int(s.ts_ms)
-                "close_ts_ms": int(c.close_ts_ms or 0)
-                "sid": str(s.sid)
-                "sid_close": str(c.sid)
-                "join_method": str(join_method)
-                "join_delta_ms": int(int(c.close_ts_ms or 0) - int(s.ts_ms or 0))
-                "join_secondary": str(sec_mode) if str(join_method) == "nearest" else ""
-                "join_bucket_score": int(join_bucket_score)
-                "join_candidate_n": int(join_cand_n)
-                "join_candidate2_n": int(join_cand2_n)
-                "symbol": str(s.symbol)
-                "direction": str(s.direction)
-                "scenario": str(s.scenario)
-                "indicators": s.indicators or {}
-                "pnl": float(c.pnl)
-                "risk_usd": float(c.risk_usd)
-                "label_source": str(src)
-                "r_mult_closed": float(r_mult_closed)
-                "y_closed": int(y_closed)
-                "r_mult": float(r_mult)
-                "y": int(y)
-                "tb_primary_label": str(tb_primary.get("label", "") or "") if isinstance(tb_primary, dict) else ""
-                "tb_primary_ret_bps": float(tb_primary.get("ret_bps", 0.0) or 0.0) if isinstance(tb_primary, dict) else 0.0
-                "tb_primary_y_edge": int(tb_primary.get("y_edge", 0) or 0) if isinstance(tb_primary, dict) else 0
-                "tb_util_r": float(tb_meta.get("util_r", 0.0) or 0.0) if isinstance(tb_meta, dict) else 0.0
-                "tb_exec_cost_r": float(tb_meta.get("exec_cost_r", 0.0) or 0.0) if isinstance(tb_meta, dict) else 0.0
+                "ts_ms": int(s.ts_ms),
+                "close_ts_ms": int(c.close_ts_ms or 0),
+                "sid": str(s.sid),
+                "sid_close": str(c.sid),
+                "join_method": str(join_method),
+                "join_delta_ms": int(int(c.close_ts_ms or 0) - int(s.ts_ms or 0)),
+                "join_secondary": str(sec_mode) if str(join_method) == "nearest" else "",
+                "join_bucket_score": int(join_bucket_score),
+                "join_candidate_n": int(join_cand_n),
+                "join_candidate2_n": int(join_cand2_n),
+                "symbol": str(s.symbol),
+                "direction": str(s.direction),
+                "scenario": str(s.scenario),
+                "indicators": s.indicators or {},
+                "pnl": float(c.pnl),
+                "risk_usd": float(c.risk_usd),
+                "label_source": str(src),
+                "r_mult_closed": float(r_mult_closed),
+                "y_closed": int(y_closed),
+                "r_mult": float(r_mult),
+                "y": int(y),
+                "tb_primary_label": str(tb_primary.get("label", "") or "") if isinstance(tb_primary, dict) else "",
+                "tb_primary_ret_bps": float(tb_primary.get("ret_bps", 0.0) or 0.0) if isinstance(tb_primary, dict) else 0.0,
+                "tb_primary_y_edge": int(tb_primary.get("y_edge", 0) or 0) if isinstance(tb_primary, dict) else 0,
+                "tb_util_r": float(tb_meta.get("util_r", 0.0) or 0.0) if isinstance(tb_meta, dict) else 0.0,
+                "tb_exec_cost_r": float(tb_meta.get("exec_cost_r", 0.0) or 0.0) if isinstance(tb_meta, dict) else 0.0,
             }
         )
 
@@ -1301,29 +1301,29 @@ def join_signals_with_closes_v2(
 
 
 def join_signals_with_closes(
-    signals: Sequence[SignalRow]
-    closes: Sequence[CloseRow]
-    *
-    y_min_r: float
-    dedup_signals: str = "latest"
+    signals: Sequence[SignalRow],
+    closes: Sequence[CloseRow],
+    *,
+    y_min_r: float,
+    dedup_signals: str = "latest",
 ) -> List[Dict[str, Any]]:
     """Backward-compatible join (v1 signature)."""
     rows, _unmatched = join_signals_with_closes_v2(
-        signals
-        closes
-        y_min_r=y_min_r
-        dedup_signals=dedup_signals
-        drop_invalid_risk=False
-        join_strategy="sid"
+        signals,
+        closes,
+        y_min_r=y_min_r,
+        dedup_signals=dedup_signals,
+        drop_invalid_risk=False,
+        join_strategy="sid",
     )
     return rows
 
 
 def validate_feature_cols_strict(
-    feature_cols: Sequence[str]
-    *
-    strict_feature_cols: bool
-    forbid_scenario_v4_onehot: bool
+    feature_cols: Sequence[str],
+    *,
+    strict_feature_cols: bool,
+    forbid_scenario_v4_onehot: bool,
 ) -> None:
     """Strict schema guardrails for feature_cols.
 
@@ -1331,7 +1331,7 @@ def validate_feature_cols_strict(
       - Prevent unbounded cardinality drifts (e.g. scenario_v4_* exploding).
       - Make train-time and serve-time schemas explicitly compatible.
 
-    In strict mode we allow only bucket-based scenarios (bucket:trend|range|other)
+    In strict mode we allow only bucket-based scenarios (bucket:trend|range|other),
     and we forbid raw scenario_v4_* one-hots.
     """
     if not bool(strict_feature_cols):
@@ -1347,15 +1347,15 @@ def validate_feature_cols_strict(
 
 
 def infer_feature_cols(
-    dataset_rows: Sequence[Dict[str, Any]]
-    *
-    max_numeric: int = 128
-    include_direction: bool = True
-    include_scenario: bool = True
-    scenario_prefix: str = "bucket:"
-    include_time_onehot: bool = True
-    strict_feature_cols: bool = False
-    forbid_scenario_v4_onehot: bool = False
+    dataset_rows: Sequence[Dict[str, Any]],
+    *,
+    max_numeric: int = 128,
+    include_direction: bool = True,
+    include_scenario: bool = True,
+    scenario_prefix: str = "bucket:",
+    include_time_onehot: bool = True,
+    strict_feature_cols: bool = False,
+    forbid_scenario_v4_onehot: bool = False,
 ) -> List[str]:
     """
     Infer feature column order from dataset rows.
@@ -1382,17 +1382,17 @@ def infer_feature_cols(
                 if kk in ("sid", "symbol", "ts_ms", "direction", "scenario", "scenario_v4"):
                     continue
                 # Important: do NOT let DQ policy / runtime meta leak into model feature columns.
-                # These keys are either constant knobs (dq_policy_*) or decision outputs (dq_*)
+                # These keys are either constant knobs (dq_policy_*) or decision outputs (dq_*),
                 # and including them in inferred feature_cols breaks train==serve stability.
                 if kk.startswith("dq_policy_"):
                     continue
                 if kk in (
-                    "runtime_start_ts_ms"
-                    "dq_uptime_sec"
-                    "dq_pen"
-                    "dq_veto"
-                    "dq_level"
-                    "dq_health_score"
+                    "runtime_start_ts_ms",
+                    "dq_uptime_sec",
+                    "dq_pen",
+                    "dq_veto",
+                    "dq_level",
+                    "dq_health_score",
                 ):
                     continue
                 fv = _as_float(v, default=float("nan"))
@@ -1442,9 +1442,9 @@ def infer_feature_cols(
             cols.append(f"dow:{d}")
 
     validate_feature_cols_strict(
-        cols
-        strict_feature_cols=bool(strict_feature_cols)
-        forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot)
+        cols,
+        strict_feature_cols=bool(strict_feature_cols),
+        forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
     )
     return cols
 
@@ -1459,11 +1459,11 @@ def _write_jsonl(path: str, rows: Sequence[Dict[str, Any]]) -> None:
 
 
 def build_dataset_df(
-    redis_url: str
-    lookback_hours: int
-    max_rows: Optional[int] = None
-    signal_stream: str = "signals:of:inputs"
-    closed_stream: str = "trades:closed"
+    redis_url: str,
+    lookback_hours: int,
+    max_rows: Optional[int] = None,
+    signal_stream: str = "signals:of:inputs",
+    closed_stream: str = "trades:closed",
 ) -> pd.DataFrame:
     """
     Helper function for P60 shadow evaluation.
@@ -1506,11 +1506,11 @@ def build_dataset_df(
 
     # Join
     rows, _ = join_signals_with_closes_v2(
-        signals
-        closes
+        signals,
+        closes,
         y_min_r=0.10,  # default
-        dedup_signals="latest"
-        join_strategy="sid_or_nearest"
+        dedup_signals="latest",
+        join_strategy="sid_or_nearest",
     )
 
     if not rows:
@@ -1524,10 +1524,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument(
-        "--signal_stream"
-        default=os.environ.get("ML_REPLAY_STREAM", "signals:of:inputs")
-        choices=["", "v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v5_stable", "ml_replay_inputs_v1"]
-        help="Redis stream with ML inputs (indicators+sid)."
+        "--signal_stream",
+        default=os.environ.get("ML_REPLAY_STREAM", "signals:of:inputs"),
+        choices=["", "v2", "v3", "v4", "v4_of", "v5", "v5_of", "v5_of_stable", "v5_stable", "ml_replay_inputs_v1"],
+        help="Redis stream with ML inputs (indicators+sid).",
     )
     ap.add_argument("--closed_stream", default=os.environ.get("TRADES_CLOSED_STREAM", "trades:closed"))
     ap.add_argument("--signals_count", type=int, default=int(os.environ.get("SIGNALS_COUNT", "200000")))
@@ -1542,14 +1542,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Archive fallback (P58): load beyond Redis retention from NDJSON archives.
     ap.add_argument(
-        "--signal_archive_dir"
-        default=os.environ.get("SIGNALS_ARCHIVE_DIR", "")
-        help="Directory with YYYY-MM-DD.ndjson(.gz) archives for signals:of:inputs (optional)."
+        "--signal_archive_dir",
+        default=os.environ.get("SIGNALS_ARCHIVE_DIR", ""),
+        help="Directory with YYYY-MM-DD.ndjson(.gz) archives for signals:of:inputs (optional).",
     )
     ap.add_argument(
-        "--closed_archive_dir"
-        default=os.environ.get("TRADES_CLOSED_ARCHIVE_DIR", "")
-        help="Directory with YYYY-MM-DD.ndjson(.gz) archives for trades:closed (optional)."
+        "--closed_archive_dir",
+        default=os.environ.get("TRADES_CLOSED_ARCHIVE_DIR", ""),
+        help="Directory with YYYY-MM-DD.ndjson(.gz) archives for trades:closed (optional).",
     )
     ap.add_argument("--archive_lookback_days", type=int, default=int(os.environ.get("ARCHIVE_LOOKBACK_DAYS", "7")))
     ap.add_argument("--file_fallback", type=int, default=int(os.environ.get("FILE_FALLBACK", "1")))
@@ -1563,33 +1563,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--dedup_signals", default="latest", choices=["latest", "earliest", "keep_first"])
 
     ap.add_argument(
-        "--join_strategy"
-        default=os.environ.get("JOIN_STRATEGY", "sid_or_nearest")
-        choices=["sid", "nearest", "sid_or_nearest"]
+        "--join_strategy",
+        default=os.environ.get("JOIN_STRATEGY", "sid_or_nearest"),
+        choices=["sid", "nearest", "sid_or_nearest"],
     )
     ap.add_argument(
-        "--join_tolerance_ms"
-        type=int
-        default=int(os.environ.get("JOIN_TOLERANCE_MS", "10000"))
-        help="Max abs(close_ts_ms - signal_ts_ms) to accept nearest join (ms). 0 disables tolerance."
+        "--join_tolerance_ms",
+        type=int,
+        default=int(os.environ.get("JOIN_TOLERANCE_MS", "10000")),
+        help="Max abs(close_ts_ms - signal_ts_ms) to accept nearest join (ms). 0 disables tolerance.",
     )
 
     ap.add_argument(
-        "--join_secondary"
-        default=os.environ.get("JOIN_SECONDARY", "dir_scenario_soft")
-        choices=["none", "dir", "scenario", "dir_scenario", "dir_soft", "scenario_soft", "dir_scenario_soft"]
-        help="Secondary filter for nearest-join. Uses CloseRow direction/scenario when available; *_soft ignores missing close fields."
+        "--join_secondary",
+        default=os.environ.get("JOIN_SECONDARY", "dir_scenario_soft"),
+        choices=["none", "dir", "scenario", "dir_scenario", "dir_soft", "scenario_soft", "dir_scenario_soft"],
+        help="Secondary filter for nearest-join. Uses CloseRow direction/scenario when available; *_soft ignores missing close fields.",
     )
     ap.add_argument(
-        "--nearest_max_scan"
-        type=int
-        default=int(os.environ.get("NEAREST_MAX_SCAN", "50"))
-        help="How many candidate signals to scan on each side of close_ts_ms for nearest-join."
+        "--nearest_max_scan",
+        type=int,
+        default=int(os.environ.get("NEAREST_MAX_SCAN", "50")),
+        help="How many candidate signals to scan on each side of close_ts_ms for nearest-join.",
     )
     ap.add_argument(
-        "--join_bucket_keys"
-        default=os.environ.get("JOIN_BUCKET_KEYS", "")
-        help="Comma-separated indicator keys used as deterministic tie-breaker for nearest-join (match close.meta vs signal.indicators)."
+        "--join_bucket_keys",
+        default=os.environ.get("JOIN_BUCKET_KEYS", ""),
+        help="Comma-separated indicator keys used as deterministic tie-breaker for nearest-join (match close.meta vs signal.indicators).",
     )
 
     ap.add_argument("--drop_invalid_risk", type=int, default=int(os.environ.get("DROP_INVALID_RISK", "0")))
@@ -1603,11 +1603,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Feature Registry: детерминированный feature_cols из Registry вместо infer_feature_cols()
     # При установке: PYTHONPATH=./tick_flow_full:./ml_analysis (see docs)
     ap.add_argument(
-        "--feature_schema_ver"
-        default=os.environ.get("ML_FEATURE_SCHEMA_VER", "")
-        choices=_schema_choices(include_empty=True)
+        "--feature_schema_ver",
+        default=os.environ.get("ML_FEATURE_SCHEMA_VER", ""),
+        choices=_schema_choices(include_empty=True),
         help="Если задан, feature_cols берётся из Feature Registry (детерминированно), "
-            "а не из infer_feature_cols() (sample-зависимый). Empty = прежнее поведение."
+            "а не из infer_feature_cols() (sample-зависимый). Empty = прежнее поведение.",
     )
     ap.add_argument("--max_numeric", type=int, default=int(os.environ.get("MAX_NUMERIC", "128")))
     ap.add_argument("--include_direction", type=int, default=int(os.environ.get("INCLUDE_DIRECTION", "1")))
@@ -1619,31 +1619,31 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--derive_fgh", type=int, default=int(os.environ.get("DERIVE_FGH", "0")))
     ap.add_argument("--fgh_leader_symbol", default=os.environ.get("FGH_LEADER_SYMBOL", "BTCUSDT"))
     ap.add_argument(
-        "--fgh_leader_max_lag_ms"
-        type=int
-        default=int(os.environ.get("FGH_LEADER_MAX_LAG_MS", "2000"))
+        "--fgh_leader_max_lag_ms",
+        type=int,
+        default=int(os.environ.get("FGH_LEADER_MAX_LAG_MS", "2000")),
     )
     ap.add_argument(
-        "--fgh_vel_z_alpha"
-        type=float
-        default=float(os.environ.get("FGH_VEL_Z_ALPHA", "0.06"))
+        "--fgh_vel_z_alpha",
+        type=float,
+        default=float(os.environ.get("FGH_VEL_Z_ALPHA", "0.06")),
     )
     ap.add_argument(
-        "--fgh_store_debug_flags"
-        type=int
-        default=int(os.environ.get("FGH_STORE_DEBUG_FLAGS", "0"))
+        "--fgh_store_debug_flags",
+        type=int,
+        default=int(os.environ.get("FGH_STORE_DEBUG_FLAGS", "0")),
     )
     ap.add_argument(
-        "--fgh_append_feature_cols"
-        type=int
-        default=int(os.environ.get("FGH_APPEND_FEATURE_COLS", "1"))
-        help="If --emit_feature_cols_json is used, append F/G/H columns to feature_cols (for offline ablation)."
+        "--fgh_append_feature_cols",
+        type=int,
+        default=int(os.environ.get("FGH_APPEND_FEATURE_COLS", "1")),
+        help="If --emit_feature_cols_json is used, append F/G/H columns to feature_cols (for offline ablation).",
     )
     # Strict feature schema: forbid scenario_v4_* one-hots to guarantee bounded cardinality
     ap.add_argument(
-        "--strict_feature_cols"
-        type=int
-        default=int(os.environ.get("ML_STRICT_FEATURE_COLS", os.environ.get("STRICT_FEATURE_COLS", "0")) or 0)
+        "--strict_feature_cols",
+        type=int,
+        default=int(os.environ.get("ML_STRICT_FEATURE_COLS", os.environ.get("STRICT_FEATURE_COLS", "0")) or 0),
     )
     ap.add_argument("--forbid_scenario_v4_onehot", type=int, default=None)
 
@@ -1708,7 +1708,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         closes.append(c)
 
 
-    # Optional archive fallback: if you request an older window or Redis retention is short
+    # Optional archive fallback: if you request an older window or Redis retention is short,
     # we can augment signals/closes from on-disk NDJSON archives.
     file_stats: Dict[str, Any] = {}
     if int(args.file_fallback) == 1:
@@ -1721,11 +1721,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         if sig_need:
             sig_file_items, st = _read_archive_items(
-                str(args.signal_archive_dir)
-                start_ms=start_ms
-                end_ms=end_ms
-                lookback_days=lb_days
-                max_records=max_rec
+                str(args.signal_archive_dir),
+                start_ms=start_ms,
+                end_ms=end_ms,
+                lookback_days=lb_days,
+                max_records=max_rec,
             )
             file_stats["signals_archive"] = st
             file_stats["signals_file_raw"] = int(len(sig_file_items))
@@ -1751,11 +1751,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         if close_need:
             close_file_items, st = _read_archive_items(
-                str(args.closed_archive_dir)
-                start_ms=start_ms
-                end_ms=end_ms
-                lookback_days=lb_days
-                max_records=max_rec
+                str(args.closed_archive_dir),
+                start_ms=start_ms,
+                end_ms=end_ms,
+                lookback_days=lb_days,
+                max_records=max_rec,
             )
             file_stats["closes_archive"] = st
             file_stats["closes_file_raw"] = int(len(close_file_items))
@@ -1788,30 +1788,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     tb_by_sid: Optional[Dict[str, Dict[str, Any]]] = None
     if str(args.label_source) in ("tb_primary", "tb_util"):
         tb_by_sid = load_tb_labels_from_stream(
-            r
-            stream=str(args.tb_labels_stream)
-            field=str(args.tb_labels_field)
-            count=int(args.tb_labels_count)
+            r,
+            stream=str(args.tb_labels_stream),
+            field=str(args.tb_labels_field),
+            count=int(args.tb_labels_count),
         )
 
     rows, unmatched = join_signals_with_closes_v2(
-        signals
-        closes
-        y_min_r=float(args.y_min_r)
-        dedup_signals=(dedup or "latest")
-        drop_invalid_risk=False
-        join_strategy=str(args.join_strategy)
-        join_tolerance_ms=int(args.join_tolerance_ms)
-        join_secondary=str(args.join_secondary)
-        nearest_max_scan=int(args.nearest_max_scan)
-        join_bucket_keys=_split_csv_keys(args.join_bucket_keys)
-        join_debug=join_debug
-        drop=drop
-        quarantine=quarantine
-        tb_by_sid=tb_by_sid
-        label_source=str(args.label_source)
-        tb_util_min_r=float(args.tb_util_min_r)
-        closed_stream=str(args.closed_stream)
+        signals,
+        closes,
+        y_min_r=float(args.y_min_r),
+        dedup_signals=(dedup or "latest"),
+        drop_invalid_risk=False,
+        join_strategy=str(args.join_strategy),
+        join_tolerance_ms=int(args.join_tolerance_ms),
+        join_secondary=str(args.join_secondary),
+        nearest_max_scan=int(args.nearest_max_scan),
+        join_bucket_keys=_split_csv_keys(args.join_bucket_keys),
+        join_debug=join_debug,
+        drop=drop,
+        quarantine=quarantine,
+        tb_by_sid=tb_by_sid,
+        label_source=str(args.label_source),
+        tb_util_min_r=float(args.tb_util_min_r),
+        closed_stream=str(args.closed_stream),
     )
 
     derived_fgh: Dict[str, Any] = {}
@@ -1820,11 +1820,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("[WARN] derive_fgh requested but ml_analysis.common.derived_fgh is unavailable")
         else:
             derived_fgh = derive_fgh_rows(
-                rows
-                leader_symbol=str(getattr(args, "fgh_leader_symbol", "BTCUSDT") or "BTCUSDT")
-                leader_max_lag_ms=int(getattr(args, "fgh_leader_max_lag_ms", 2000) or 2000)
-                vel_z_alpha=float(getattr(args, "fgh_vel_z_alpha", 0.06) or 0.06)
-                store_debug_flags=int(getattr(args, "fgh_store_debug_flags", 0) or 0) == 1
+                rows,
+                leader_symbol=str(getattr(args, "fgh_leader_symbol", "BTCUSDT") or "BTCUSDT"),
+                leader_max_lag_ms=int(getattr(args, "fgh_leader_max_lag_ms", 2000) or 2000),
+                vel_z_alpha=float(getattr(args, "fgh_vel_z_alpha", 0.06) or 0.06),
+                store_debug_flags=int(getattr(args, "fgh_store_debug_flags", 0) or 0) == 1,
             )
             if isinstance(derived_fgh, dict) and derived_fgh.get("ok"):
                 print(f"[derive_fgh] ok stats={derived_fgh.get('stats', {})}")
@@ -1839,22 +1839,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         mismatch = diagnose_unmatched_closes(unmatched, signal_index_by_symbol=sig_index, max_examples=int(args.max_examples))
 
     stats: Dict[str, Any] = {
-        "signal_stream": str(args.signal_stream)
-        "closed_stream": str(args.closed_stream)
-        "signals_raw": int(len(sig_items))
-        "signals_parsed": int(len(signals))
-        "closes_raw": int(len(close_items))
-        "closes_parsed": int(len(closes))
-        "joined": int(len(rows))
-        "unmatched_closes": int(len(unmatched))
-        "y_min_r": float(args.y_min_r)
-        "since_ms": int(start_ms or 0)
-        "until_ms": int(end_ms or 0)
-        "generated_ms": _now_ms()
+        "signal_stream": str(args.signal_stream),
+        "closed_stream": str(args.closed_stream),
+        "signals_raw": int(len(sig_items)),
+        "signals_parsed": int(len(signals)),
+        "closes_raw": int(len(close_items)),
+        "closes_parsed": int(len(closes)),
+        "joined": int(len(rows)),
+        "unmatched_closes": int(len(unmatched)),
+        "y_min_r": float(args.y_min_r),
+        "since_ms": int(start_ms or 0),
+        "until_ms": int(end_ms or 0),
+        "generated_ms": _now_ms(),
         # strict schema flags for audit/traceability
-        "strict_feature_cols": int(strict_feature_cols)
-        "forbid_scenario_v4_onehot": int(bool(forbid_scenario_v4_onehot))
-        "drop": drop.to_dict()
+        "strict_feature_cols": int(strict_feature_cols),
+        "forbid_scenario_v4_onehot": int(bool(forbid_scenario_v4_onehot)),
+        "drop": drop.to_dict(),
     }
 
     if 'derived_fgh' in locals() and isinstance(derived_fgh, dict) and derived_fgh:
@@ -1863,19 +1863,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # archive fallback diagnostics
     if 'file_stats' in locals() and isinstance(file_stats, dict) and file_stats:
         stats["file_fallback"] = {
-            "enabled": True
-            "signal_archive_dir": str(args.signal_archive_dir)
-            "closed_archive_dir": str(args.closed_archive_dir)
-            "archive_lookback_days": int(args.archive_lookback_days)
-            "file_max_records": int(args.file_max_records)
-            "signals_file_raw": int(file_stats.get("signals_file_raw", 0))
-            "signals_file_parsed": int(file_stats.get("signals_file_parsed", 0))
-            "signals_file_added": int(file_stats.get("signals_file_added", 0))
-            "closes_file_raw": int(file_stats.get("closes_file_raw", 0))
-            "closes_file_parsed": int(file_stats.get("closes_file_parsed", 0))
-            "closes_file_added": int(file_stats.get("closes_file_added", 0))
-            "signals_archive": file_stats.get("signals_archive", {})
-            "closes_archive": file_stats.get("closes_archive", {})
+            "enabled": True,
+            "signal_archive_dir": str(args.signal_archive_dir),
+            "closed_archive_dir": str(args.closed_archive_dir),
+            "archive_lookback_days": int(args.archive_lookback_days),
+            "file_max_records": int(args.file_max_records),
+            "signals_file_raw": int(file_stats.get("signals_file_raw", 0)),
+            "signals_file_parsed": int(file_stats.get("signals_file_parsed", 0)),
+            "signals_file_added": int(file_stats.get("signals_file_added", 0)),
+            "closes_file_raw": int(file_stats.get("closes_file_raw", 0)),
+            "closes_file_parsed": int(file_stats.get("closes_file_parsed", 0)),
+            "closes_file_added": int(file_stats.get("closes_file_added", 0)),
+            "signals_archive": file_stats.get("signals_archive", {}),
+            "closes_archive": file_stats.get("closes_archive", {}),
         }
 
     stats["join_strategy"] = str(args.join_strategy)
@@ -1909,10 +1909,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             spec = _get_edge_stack_spec(feature_ver)
             cols = list(spec.feature_cols)
             stats["feature_registry"] = {
-                "ver": spec.ver
-                "source": "registry"
-                "feature_cols_hash": spec.feature_cols_hash
-                "n_cols": len(cols)
+                "ver": spec.ver,
+                "source": "registry",
+                "feature_cols_hash": spec.feature_cols_hash,
+                "n_cols": len(cols),
             }
             print(f"[feature_registry] feature_cols ({len(cols)} кол.) из Registry ver={spec.ver} "
                   f"hash={spec.feature_cols_hash[:16]}…")
@@ -1921,27 +1921,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"[WARN] Feature Registry недоступен (проверьте PYTHONPATH). "
                   f"Fallback на infer_feature_cols().")
             cols = infer_feature_cols(
-                rows
-                max_numeric=int(args.max_numeric)
-                include_direction=int(args.include_direction) == 1
-                include_scenario=int(args.include_scenario) == 1
-                scenario_prefix=str(args.scenario_prefix)
-                include_time_onehot=int(args.include_time_onehot) == 1
-                strict_feature_cols=bool(strict_feature_cols)
-                forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot)
+                rows,
+                max_numeric=int(args.max_numeric),
+                include_direction=int(args.include_direction) == 1,
+                include_scenario=int(args.include_scenario) == 1,
+                scenario_prefix=str(args.scenario_prefix),
+                include_time_onehot=int(args.include_time_onehot) == 1,
+                strict_feature_cols=bool(strict_feature_cols),
+                forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
             )
             stats["feature_registry"] = {"ver": feature_ver, "source": "infer_fallback"}
         else:
             # Старый путь: infer_feature_cols()
             cols = infer_feature_cols(
-                rows
-                max_numeric=int(args.max_numeric)
-                include_direction=int(args.include_direction) == 1
-                include_scenario=int(args.include_scenario) == 1
-                scenario_prefix=str(args.scenario_prefix)
-                include_time_onehot=int(args.include_time_onehot) == 1
-                strict_feature_cols=bool(strict_feature_cols)
-                forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot)
+                rows,
+                max_numeric=int(args.max_numeric),
+                include_direction=int(args.include_direction) == 1,
+                include_scenario=int(args.include_scenario) == 1,
+                scenario_prefix=str(args.scenario_prefix),
+                include_time_onehot=int(args.include_time_onehot) == 1,
+                strict_feature_cols=bool(strict_feature_cols),
+                forbid_scenario_v4_onehot=bool(forbid_scenario_v4_onehot),
             )
 
         # If derived F/G/H is enabled, append those numeric keys to feature_cols

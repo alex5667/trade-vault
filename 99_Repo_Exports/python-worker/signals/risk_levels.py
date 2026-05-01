@@ -1,5 +1,5 @@
 """
-Модуль Уровней Риска - вычисление SL/TP для сигналов XAUUSD.
+Модуль Уровней Риска - вычисление SL/TP для сигналов .
 
 Предоставляет гибкое вычисление SL/TP с множественными режимами:
 - Stop Loss: на основе ATR, Процента или Фиксированных пунктов
@@ -122,7 +122,7 @@ def compute_levels(
     side: str,
     cfg: Dict,
     *,
-    symbol: str = "",
+    symbol="",
     stop_dist_override: Optional[float] = None,
     tp1_dist_override: Optional[float] = None,
 ) -> Dict:

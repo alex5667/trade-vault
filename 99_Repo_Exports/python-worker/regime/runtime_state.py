@@ -14,11 +14,11 @@ class RegimeRuntimeState:
         self.redis = redis.from_url(redis_dsn, decode_responses=True)
 
     def get_state(
-        self
-        venue: str
-        symbol: str
-        timeframe: str
-        family: str
+        self,
+        venue: str,
+        symbol: str,
+        timeframe: str,
+        family: str,
     ) -> tuple[Status, float]:
         """
         Возвращает (status, threshold_mult).

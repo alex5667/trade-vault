@@ -23,10 +23,10 @@ class Signal:
     """
     Унифицированная структура торгового сигнала.
 
-    Универсальна для всех типов инструментов (XAUUSD, Crypto, Forex и т.д.)
+    Универсальна для всех типов инструментов ( Crypto, Forex и т.д.)
     """
     sid: str                        # Уникальный ID сигнала
-    symbol: str                     # Символ инструмента (XAUUSD, BTCUSD и т.д.)
+    symbol: str                     # Символ инструмента ( BTCUSD и т.д.)
     side: str                       # Направление: LONG | SHORT
     entry: float                    # Цена входа
     sl: float                       # Stop Loss
@@ -239,7 +239,7 @@ class UnifiedSignalFormatter:
         Формирует сообщение для Telegram.
         
         Автоматически адаптирует формат под тип инструмента:
-        - Для XAUUSD/XAGUSD: 2-3 знака после запятой
+        - Для /XAGUSD: 2-3 знака после запятой
         - Для Crypto (high price): 2 знака ($50000.00)
         - Для Crypto (low price): 4 знака ($0.0001)
         
@@ -253,7 +253,7 @@ class UnifiedSignalFormatter:
         symbol_upper = signal.symbol.upper()
 
         is_crypto = symbol_upper.endswith("USDT") or symbol_upper in {"BTCUSD", "ETHUSD"}
-        is_precious = symbol_upper in {"XAUUSD", "XAGUSD"}
+        is_precious = symbol_upper in {""}
         if is_crypto or is_precious:
             import os
             

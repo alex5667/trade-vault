@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_metrics_contract_check_v1.py
 
 P40: Producer-side contract check for metrics:of_gate.
@@ -16,7 +17,6 @@ This tool is safe to run from SRE timers. It returns:
   1: Hard fail (Redis/infrastructure error)
 """
 
-from __future__ import annotations
 
 import argparse
 import os

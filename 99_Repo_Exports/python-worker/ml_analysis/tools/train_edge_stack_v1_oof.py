@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Train edge_stack_v1 with strict out-of-fold stacking (OOF).
 
 This tool trains a two-base-model stack:
@@ -21,7 +22,6 @@ Example:
     --n_splits 5 --purge_ms 300000 --embargo_ms 120000
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P1-1 regression: exchange_ts_ms is preserved immutably; missing exchange ts → dq_tradeable=False.
 
@@ -7,7 +8,6 @@ Coverage:
   - payload_ts_ms <= 0 → tick["dq_tradeable"] = False, tick["dq_reason"] = "missing_exchange_ts"
   - valid payload_ts_ms → no dq_tradeable override
 """
-from __future__ import annotations
 
 import unittest
 

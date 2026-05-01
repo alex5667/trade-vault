@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: Half-Kelly position sizer — boundary math invariants (merge-blocker).
 
@@ -12,7 +13,6 @@ Tests:
 Run:
     cd python-worker && python -m pytest tests/test_position_sizer_kelly.py -v
 """
-from __future__ import annotations
 
 import asyncio
 import pytest

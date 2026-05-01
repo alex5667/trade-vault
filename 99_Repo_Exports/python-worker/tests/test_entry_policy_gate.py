@@ -99,7 +99,7 @@ def test_entry_policy_gate_hard_profile_veto_book_stale(monkeypatch):
     g = EntryPolicyGate.from_env()
     ctx = SimpleNamespace(
         book_trade_consistency_stale_book_ms=1300.0,
-        spread_bps=10.0
+        spread_bps=10.0,
     )
     
     d = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout")

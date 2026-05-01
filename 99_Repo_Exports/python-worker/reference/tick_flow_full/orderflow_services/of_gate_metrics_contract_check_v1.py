@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """P76 — OF gate contract smoke-check (v1)
 
 Reads the tail of Redis Stream `metrics:of_gate`, validates each row against
@@ -20,7 +21,6 @@ Intended to be run periodically (timer/cron) and paired with
 and a Grafana dashboard.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -55,9 +55,9 @@ def _load_contract():
     """Load contract validators, preferring services/ over ok_rate_logic/ fallback."""
     try:
         from services.orderflow.of_gate_metrics_contract import (  # type: ignore
-            validate_of_gate_row
-            why_label
-            derive_reason_code
+            validate_of_gate_row,
+            why_label,
+            derive_reason_code,
         )
 
         return validate_of_gate_row, why_label, derive_reason_code
@@ -66,9 +66,9 @@ def _load_contract():
 
     try:
         from ok_rate_logic.of_gate_metrics_contract import (  # type: ignore
-            validate_of_gate_row
-            why_label
-            derive_reason_code
+            validate_of_gate_row,
+            why_label,
+            derive_reason_code,
         )
 
         return validate_of_gate_row, why_label, derive_reason_code
@@ -128,10 +128,10 @@ def _top(counter: Counter, k: int = 10) -> List[Tuple[str, int]]:
 def _notify_redis_stream(r, stream: str, text: str) -> None:
     try:
         r.xadd(
-            stream
-            {"ts_ms": str(_now_ms()), "source": "of_gate_contract_smoke", "text": text}
-            maxlen=5000
-            approximate=True
+            stream,
+            {"ts_ms": str(_now_ms()), "source": "of_gate_contract_smoke", "text": text},
+            maxlen=5000,
+            approximate=True,
         )
     except Exception as e:
         logger.warning(f"notify stream failed: {e}")
@@ -145,9 +145,9 @@ def main() -> int:
 
     ap.add_argument("--bad-max", type=float, default=float(os.getenv("OF_GATE_CONTRACT_BAD_MAX", "0.001")))
     ap.add_argument(
-        "--schema-missing-max"
-        type=float
-        default=float(os.getenv("OF_GATE_CONTRACT_SCHEMA_MISSING_MAX", "0.25"))
+        "--schema-missing-max",
+        type=float,
+        default=float(os.getenv("OF_GATE_CONTRACT_SCHEMA_MISSING_MAX", "0.25")),
     )
 
     ap.add_argument("--out-stream", default=os.getenv("OF_GATE_CONTRACT_SMOKE_OUT_STREAM", "sre:of_gate_contract_smoke"))
@@ -211,20 +211,20 @@ def main() -> int:
 
     # Write compact summary to output stream (read by exporter → Prometheus)
     out = {
-        "ts_ms": str(_now_ms())
-        "stream": str(args.stream)
-        "limit": str(args.limit)
-        "n_total": str(n_total)
-        "bad_total": str(bad_total)
-        "bad_share": f"{bad_share:.9f}"
-        "bad_max": f"{float(args.bad_max):.9f}"
-        "schema_version_mode": str(schema_version_mode)
-        "schema_missing_total": str(schema_missing_total)
-        "schema_missing_share": f"{schema_missing_share:.9f}"
-        "schema_missing_max": f"{float(args.schema_missing_max):.9f}"
-        "top_dq_json": json.dumps(_top(dq, 10), ensure_ascii=False)
-        "top_reason_code_json": json.dumps(_top(reason_all, 10), ensure_ascii=False)
-        "top_reason_code_bad_json": json.dumps(_top(reason_bad, 10), ensure_ascii=False)
+        "ts_ms": str(_now_ms()),
+        "stream": str(args.stream),
+        "limit": str(args.limit),
+        "n_total": str(n_total),
+        "bad_total": str(bad_total),
+        "bad_share": f"{bad_share:.9f}",
+        "bad_max": f"{float(args.bad_max):.9f}",
+        "schema_version_mode": str(schema_version_mode),
+        "schema_missing_total": str(schema_missing_total),
+        "schema_missing_share": f"{schema_missing_share:.9f}",
+        "schema_missing_max": f"{float(args.schema_missing_max):.9f}",
+        "top_dq_json": json.dumps(_top(dq, 10), ensure_ascii=False),
+        "top_reason_code_json": json.dumps(_top(reason_all, 10), ensure_ascii=False),
+        "top_reason_code_bad_json": json.dumps(_top(reason_bad, 10), ensure_ascii=False),
     }
 
     try:

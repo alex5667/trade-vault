@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 signal_scoring/_helpers.py
 ===========================
 Shared pure-Python utility functions used across the signal_scoring package.
 All functions are stateless, deterministic, and importable without side-effects.
 """
-from __future__ import annotations
 
 import math
 from typing import Any, Optional

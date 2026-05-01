@@ -1,7 +1,7 @@
 from services.orderflow.policy.circuit_breaker_v1 import (
-    _norm_state
-    decide_circuit_breaker
-    apply_circuit_breaker_overrides
+    _norm_state,
+    decide_circuit_breaker,
+    apply_circuit_breaker_overrides,
     CircuitBreakerDecision
 )
 
@@ -43,9 +43,9 @@ def test_decide_circuit_breaker_base():
 
 def test_decide_circuit_breaker_quality_escalation():
     cfg = {
-        "cb_enable": True
-        "cb_quality_min_n_24h": 10
-        "signal_quality_n_24h": 20
+        "cb_enable": True,
+        "cb_quality_min_n_24h": 10,
+        "signal_quality_n_24h": 20,
         "signal_quality_ece_24h": 0.25, # High ECE -> should block
     }
     
@@ -57,15 +57,15 @@ def test_decide_circuit_breaker_quality_escalation():
 def test_apply_overrides():
     cfg = {"cb_enable": True}
     decision = CircuitBreakerDecision(
-        ver="v1"
-        regime="block"
-        reason="test"
-        force_rule_strong_only=True
-        disable_ml_enforce=True
-        dq_state="ok"
-        drift_state="ok"
-        ece_24h=0.0
-        expectancy_r_24h=0.0
+        ver="v1",
+        regime="block",
+        reason="test",
+        force_rule_strong_only=True,
+        disable_ml_enforce=True,
+        dq_state="ok",
+        drift_state="ok",
+        ece_24h=0.0,
+        expectancy_r_24h=0.0,
         precision_top5p_24h=0.0
     )
     

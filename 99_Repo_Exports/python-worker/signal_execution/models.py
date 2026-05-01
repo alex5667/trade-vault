@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 Execution Plan and Performance models for signal processing.
 Extended data structures for TTD, risk management, and performance tracking.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum

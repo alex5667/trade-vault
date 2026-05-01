@@ -92,11 +92,11 @@ def join_features(df: pd.DataFrame, feats_path: str) -> pd.DataFrame:
     feats_sorted = feats.sort_values("ts")
     
     merged = pd.merge_asof(
-        df_sorted
-        feats_sorted
-        on="ts"
-        direction="nearest"
-        tolerance=pd.Timedelta("1min")
+        df_sorted,
+        feats_sorted,
+        on="ts",
+        direction="nearest",
+        tolerance=pd.Timedelta("1min"),
         suffixes=("", "_feat")
     )
     
@@ -127,9 +127,9 @@ def join_exec(df: pd.DataFrame, exec_path: str) -> pd.DataFrame:
     # Join by sid
     if "sid" in df.columns and "sid" in exec_df.columns:
         merged = df.merge(
-            exec_df[["sid", "profit", "price", "volume"]]
-            on="sid"
-            how="left"
+            exec_df[["sid", "profit", "price", "volume"]],
+            on="sid",
+            how="left",
             suffixes=("", "_exec")
         )
         print(f"✅ Joined {len(merged)} records with exec data")
@@ -209,8 +209,8 @@ def compute_pnl(df: pd.DataFrame) -> pd.DataFrame:
     
     if "exec_price" in df.columns and "volume" in df.columns:
         df[["pnl_gross", "pnl_net"]] = df.apply(
-            calc_pnl
-            axis=1
+            calc_pnl,
+            axis=1,
             result_type='expand'
         )
         

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """P91 — LOB pressure smoke-check (v1)
 
 Goal:
@@ -19,7 +20,6 @@ Exit codes:
 Writes a compact JSON summary into `sre:lob_pressure_smoke` (for dashboards/exporters).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -41,28 +41,28 @@ logger = logging.getLogger("lob_pressure_smoke_check")
 
 
 KEY_FLOAT_FIELDS = [
-    "lob_qi_mean"
-    "lob_qi_max_abs"
-    "lob_qi_slope"
-    "lob_micro_mid_div_bps"
-    "lob_micro_shift_bps"
-    "lob_depth_slope_imb"
-    "lob_depth_convexity_imb"
-    "lob_dw_obi"
-    "lob_dw_obi_z"
-    "lob_dw_obi_stability_score"
-    "lob_dw_obi_stable_secs"
+    "lob_qi_mean",
+    "lob_qi_max_abs",
+    "lob_qi_slope",
+    "lob_micro_mid_div_bps",
+    "lob_micro_shift_bps",
+    "lob_depth_slope_imb",
+    "lob_depth_convexity_imb",
+    "lob_dw_obi",
+    "lob_dw_obi_z",
+    "lob_dw_obi_stability_score",
+    "lob_dw_obi_stable_secs",
 ]
 
 KEY_INT_FIELDS = [
-    "lob_dw_obi_stable"
+    "lob_dw_obi_stable",
 ]
 
 # Keys used for "stuck" detection: if all have near-zero range over recent window → suspicious.
 STUCK_KEYS = [
-    ("lob_micro_shift_bps", 0.05)
-    ("lob_qi_mean", 0.02)
-    ("lob_dw_obi_z", 0.05)
+    ("lob_micro_shift_bps", 0.05),
+    ("lob_qi_mean", 0.02),
+    ("lob_dw_obi_z", 0.05),
 ]
 
 
@@ -233,19 +233,19 @@ def main() -> int:
         issues.append("stuck_lob")
 
     out = {
-        "ts_ms": str(now_ms)
-        "stream": str(args.stream)
-        "limit": str(args.limit)
-        "window_sec": str(args.window_sec)
-        "n_recent": int(n_recent)
-        "no_data": int(no_data)
-        "missing_max_share": float(f"{missing_max_share:.6f}")
-        "missing_max": float(args.missing_max)
-        "invalid_share": float(f"{invalid_share:.6f}")
-        "invalid_max": float(args.invalid_max)
-        "stuck_lob": int(stuck_lob)
-        "issues": issues
-        "top_missing": _top_missing(missing, 10)
+        "ts_ms": str(now_ms),
+        "stream": str(args.stream),
+        "limit": str(args.limit),
+        "window_sec": str(args.window_sec),
+        "n_recent": int(n_recent),
+        "no_data": int(no_data),
+        "missing_max_share": float(f"{missing_max_share:.6f}"),
+        "missing_max": float(args.missing_max),
+        "invalid_share": float(f"{invalid_share:.6f}"),
+        "invalid_max": float(args.invalid_max),
+        "stuck_lob": int(stuck_lob),
+        "issues": issues,
+        "top_missing": _top_missing(missing, 10),
     }
 
     # Write compact summary to output stream (optional consumer/exporter can turn this into Prom metrics)

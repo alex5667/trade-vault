@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ML feature schema v8 (OrderFlow).
 
 v8_of = v7_of + strict data-quality (DQ) metrics + LiqMap compact features.
@@ -29,7 +30,6 @@ To stay robust during refactors we include both variants in v8. If a key is not
 present at runtime it simply vectorizes to 0.0 (safe).
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List

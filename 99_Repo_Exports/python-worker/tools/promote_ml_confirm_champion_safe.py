@@ -1,4 +1,5 @@
-"""
+from __future__ import annotations
+""",
 Безопасный промоут challenger в champion для ML Confirm Gate.
 
 ВАЖНО: После промоута challenger обычно пустой. Если вы повторите этот скрипт позже,
@@ -10,9 +11,8 @@
     python3 -m tools.promote_ml_confirm_champion_safe
     python3 -m tools.promote_ml_confirm_champion_safe --redis-url redis://redis-worker-1:6379/0
     python3 -m tools.promote_ml_confirm_champion_safe --dry-run  # только проверка, без изменений
-"""
+""",
 
-from __future__ import annotations
 
 import argparse
 import json

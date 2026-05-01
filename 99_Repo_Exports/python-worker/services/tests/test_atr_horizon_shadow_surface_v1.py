@@ -1,5 +1,5 @@
-"""Phase 2.2 — unit tests for shadow stop/entry risk surface builder."""
 from __future__ import annotations
+"""Phase 2.2 — unit tests for shadow stop/entry risk surface builder."""
 
 import pytest
 
@@ -11,27 +11,27 @@ from services.atr_horizon_shadow_surface import build_risk_surface_shadow
 # ---------------------------------------------------------------------------
 
 def _sig(
-    side: str = "BUY"
-    entry_price: float = 100.0
-    sl_atr_mult: float | None = None
-    tp1_atr_mult: float | None = None
-    atr_value: float = 4.0
-    atr_tf_ms: int = 60_000
-    atr_pct: float = 0.04
-    hold_target_ms: int = 300_000
-    alpha_half_life_ms: int = 180_000
-    max_signal_age_ms: int = 90_000
+    side: str = "BUY",
+    entry_price: float = 100.0,
+    sl_atr_mult: float | None = None,
+    tp1_atr_mult: float | None = None,
+    atr_value: float = 4.0,
+    atr_tf_ms: int = 60_000,
+    atr_pct: float = 0.04,
+    hold_target_ms: int = 300_000,
+    alpha_half_life_ms: int = 180_000,
+    max_signal_age_ms: int = 90_000,
 ) -> dict:
     meta: dict = {
         "horizon": {
-            "hold_target_ms": hold_target_ms
-            "alpha_half_life_ms": alpha_half_life_ms
-            "max_signal_age_ms": max_signal_age_ms
-        }
+            "hold_target_ms": hold_target_ms,
+            "alpha_half_life_ms": alpha_half_life_ms,
+            "max_signal_age_ms": max_signal_age_ms,
+        },
         "atr_profile": {
-            "atr_value": atr_value
-            "atr_tf_ms": atr_tf_ms
-            "atr_pct": atr_pct
+            "atr_value": atr_value,
+            "atr_tf_ms": atr_tf_ms,
+            "atr_pct": atr_pct,
         }
     }
     if sl_atr_mult is not None:
@@ -122,8 +122,8 @@ def test_shadow_surface_env_multiplier_fallback(monkeypatch):
     monkeypatch.setenv("ATR_HORIZON_SHADOW_TP1_ATR_MULT", "3.0")
     # No multipliers in meta → should read from ENV
     sig = {"side": "BUY", "entry_price": 100.0, "meta": {
-        "atr_profile": {"atr_value": 4.0, "atr_tf_ms": 60_000, "atr_pct": 0.04}
-        "horizon": {"hold_target_ms": 300_000, "alpha_half_life_ms": 180_000, "max_signal_age_ms": 90_000}
+        "atr_profile": {"atr_value": 4.0, "atr_tf_ms": 60_000, "atr_pct": 0.04},
+        "horizon": {"hold_target_ms": 300_000, "alpha_half_life_ms": 180_000, "max_signal_age_ms": 90_000},
     }}
     out = build_risk_surface_shadow(sig)
     assert out["sl_atr_mult"] == pytest.approx(2.0)
@@ -138,11 +138,11 @@ def test_shadow_surface_env_multiplier_fallback(monkeypatch):
 
 def test_shadow_surface_carries_horizon_fields():
     sig = _sig(
-        atr_value=4.0
-        atr_tf_ms=15_000
-        hold_target_ms=60_000
-        alpha_half_life_ms=30_000
-        max_signal_age_ms=30_000
+        atr_value=4.0,
+        atr_tf_ms=15_000,
+        hold_target_ms=60_000,
+        alpha_half_life_ms=30_000,
+        max_signal_age_ms=30_000,
     )
     out = build_risk_surface_shadow(sig)
     assert out["atr_tf_ms"] == 15_000

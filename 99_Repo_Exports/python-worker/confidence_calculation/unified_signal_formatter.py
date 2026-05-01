@@ -2,7 +2,7 @@ from utils.time_utils import get_ny_time_millis
 """
 Унифицированный форматер сигналов для всех торговых инструментов.
 
-Заменяет специфичные форматеры (xauusd_signal_formatter.py) на универсальный
+Заменяет специфичные форматеры (xauusd_signal_formatter.py) на универсальный,
 который автоматически адаптируется под тип инструмента.
 """
 
@@ -23,10 +23,10 @@ class Signal:
     """
     Унифицированная структура торгового сигнала.
 
-    Универсальна для всех типов инструментов (XAUUSD, Crypto, Forex и т.д.)
+    Универсальна для всех типов инструментов ( Crypto, Forex и т.д.)
     """
     sid: str                        # Уникальный ID сигнала
-    symbol: str                     # Символ инструмента (XAUUSD, BTCUSD и т.д.)
+    symbol: str                     # Символ инструмента ( BTCUSD и т.д.)
     side: str                       # Направление: LONG | SHORT
     entry: float                    # Цена входа
     sl: float                       # Stop Loss
@@ -53,9 +53,9 @@ class Signal:
             try:
                 specs = get_specs(self.symbol)
                 self.metadata = {
-                    "contract_size": specs.contract_size
-                    "lot_step": specs.lot_step
-                    "price_decimals": specs.price_decimals
+                    "contract_size": specs.contract_size,
+                    "lot_step": specs.lot_step,
+                    "price_decimals": specs.price_decimals,
                     "volume_decimals": specs.volume_decimals
                 }
             except ValueError:
@@ -67,7 +67,7 @@ class UnifiedSignalFormatter:
     """
     Универсальный форматер сигналов для всех инструментов.
     
-    Автоматически адаптирует формат под тип инструмента (количество знаков
+    Автоматически адаптирует формат под тип инструмента (количество знаков,
     единицы измерения, стиль сообщения и т.д.)
     """
     
@@ -146,23 +146,23 @@ class UnifiedSignalFormatter:
         confidence_pct, confidence_ratio = UnifiedSignalFormatter.normalize_confidence_pct(raw_conf)
 
         payload = {
-            "sid": signal.sid
-            "symbol": signal.symbol
-            "side": signal.side
-            "entry": str(signal.entry)
-            "sl": str(signal.sl)
-            "tp_levels": ",".join(str(tp) for tp in signal.tp_levels)
-            "lot": str(signal.lot)
-            "source": signal.source
-            "reason": signal.reason
-            "confidence_pct": f"{confidence_pct:.2f}"
-            "confidence": f"{confidence_pct:.2f}"
-            "confidence_ratio": f"{confidence_ratio:.4f}"
-            "atr": str(signal.atr)
-            "ts": str(signal.ts)
-            "trail_after_tp1": str(signal.trail_after_tp1).lower()
-            "trail_profile": signal.trail_profile
-            "text": message
+            "sid": signal.sid,
+            "symbol": signal.symbol,
+            "side": signal.side,
+            "entry": str(signal.entry),
+            "sl": str(signal.sl),
+            "tp_levels": ",".join(str(tp) for tp in signal.tp_levels),
+            "lot": str(signal.lot),
+            "source": signal.source,
+            "reason": signal.reason,
+            "confidence_pct": f"{confidence_pct:.2f}",
+            "confidence": f"{confidence_pct:.2f}",
+            "confidence_ratio": f"{confidence_ratio:.4f}",
+            "atr": str(signal.atr),
+            "ts": str(signal.ts),
+            "trail_after_tp1": str(signal.trail_after_tp1).lower(),
+            "trail_profile": signal.trail_profile,
+            "text": message,
         }
         
         # ✅ Для крипты добавляем position_size_usd
@@ -243,7 +243,7 @@ class UnifiedSignalFormatter:
         Формирует сообщение для Telegram.
         
         Автоматически адаптирует формат под тип инструмента:
-        - Для XAUUSD/XAGUSD: 2-3 знака после запятой
+        - Для /XAGUSD: 2-3 знака после запятой
         - Для Crypto (high price): 2 знака ($50000.00)
         - Для Crypto (low price): 4 знака ($0.0001)
         
@@ -257,7 +257,7 @@ class UnifiedSignalFormatter:
         symbol_upper = signal.symbol.upper()
 
         is_crypto = symbol_upper.endswith("USDT") or symbol_upper in {"BTCUSD", "ETHUSD"}
-        is_precious = symbol_upper in {"XAUUSD", "XAGUSD"}
+        is_precious = symbol_upper in {""}
         if is_crypto or is_precious:
             import os
             
@@ -279,26 +279,26 @@ class UnifiedSignalFormatter:
             leverage = signal.leverage if signal.leverage is not None else float(os.getenv("ACCOUNT_LEVERAGE", "100"))
             
             crypto_signal = CryptoSignal(
-                sid=signal.sid
-                symbol=signal.symbol
-                side=signal.side.upper()
-                entry=signal.entry
-                sl=signal.sl
-                tp_levels=signal.tp_levels
-                lot=signal.lot
-                atr=max(signal.atr, 1e-6)
-                confidence=confidence_ratio
-                ts=timestamp_ms
-                source=signal.source or "OrderFlow"
-                reason_mix=mix_dict
-                confirmations=base_confirmations
-                position_size_usd=signal.position_size_usd
-                deposit=deposit
-                leverage=leverage
-                trail_profile=signal.trail_profile
-                trail_after_tp1=signal.trail_after_tp1
-                config_params=signal.signal_settings
-                indicators=signal.indicators or {}
+                sid=signal.sid,
+                symbol=signal.symbol,
+                side=signal.side.upper(),
+                entry=signal.entry,
+                sl=signal.sl,
+                tp_levels=signal.tp_levels,
+                lot=signal.lot,
+                atr=max(signal.atr, 1e-6),
+                confidence=confidence_ratio,
+                ts=timestamp_ms,
+                source=signal.source or "OrderFlow",
+                reason_mix=mix_dict,
+                confirmations=base_confirmations,
+                position_size_usd=signal.position_size_usd,
+                deposit=deposit,
+                leverage=leverage,
+                trail_profile=signal.trail_profile,
+                trail_after_tp1=signal.trail_after_tp1,
+                config_params=signal.signal_settings,
+                indicators=signal.indicators or {},
             )
             text = CryptoSignalFormatter.format_telegram_message(crypto_signal)
             if emoji and emoji != "🚨" and text.startswith("🚨"):
@@ -516,19 +516,19 @@ class UnifiedSignalFormatter:
             Словарь для HTTP POST /orders/push
         """
         return {
-            "symbol": signal.symbol
+            "symbol": signal.symbol,
             "side": signal.side.lower(),  # long/short (lowercase для MT5)
-            "entry": signal.entry
-            "sl": signal.sl
+            "entry": signal.entry,
+            "sl": signal.sl,
             "tp": signal.tp_levels[0] if signal.tp_levels else signal.entry,  # Первый TP
-            "lot": signal.lot
-            "source": signal.source
-            "signal_id": signal.sid
-            "confidence": signal.confidence
+            "lot": signal.lot,
+            "source": signal.source,
+            "signal_id": signal.sid,
+            "confidence": signal.confidence,
             "metadata": {
-                "reason": signal.reason
-                "atr": signal.atr
-                "ts": signal.ts
+                "reason": signal.reason,
+                "atr": signal.atr,
+                "ts": signal.ts,
                 "indicators": signal.indicators
             }
         }
@@ -574,19 +574,19 @@ class UnifiedSignalFormatter:
                     metadata[meta_key] = value
         
         return Signal(
-            sid=fields.get("sid", "")
-            symbol=fields.get("symbol", "")
-            side=fields.get("side", "")
-            entry=float(fields.get("entry", 0))
-            sl=float(fields.get("sl", 0))
-            tp_levels=tp_levels
-            lot=float(fields.get("lot", 0))
-            source=fields.get("source", "")
-            reason=fields.get("reason", "")
-            confidence=float(fields.get("confidence", 0))
-            atr=float(fields.get("atr", 0))
-            ts=int(fields.get("ts", get_ny_time_millis()))
-            indicators=indicators
+            sid=fields.get("sid", ""),
+            symbol=fields.get("symbol", ""),
+            side=fields.get("side", ""),
+            entry=float(fields.get("entry", 0)),
+            sl=float(fields.get("sl", 0)),
+            tp_levels=tp_levels,
+            lot=float(fields.get("lot", 0)),
+            source=fields.get("source", ""),
+            reason=fields.get("reason", ""),
+            confidence=float(fields.get("confidence", 0)),
+            atr=float(fields.get("atr", 0)),
+            ts=int(fields.get("ts", get_ny_time_millis())),
+            indicators=indicators,
             metadata=metadata if metadata else None
         )
 
@@ -596,19 +596,19 @@ class UnifiedSignalFormatter:
 # ═════════════════════════════════════════════════════════════════════
 
 def create_signal(
-    symbol: str
-    side: str
-    entry: float
-    sl: float
-    tp_levels: List[float]
-    lot: float
-    source: str
-    reason: str
-    confidence: float
-    atr: float
-    ts: Optional[int] = None
-    indicators: Optional[Dict[str, Any]] = None
-    signal_settings: Optional[Dict[str, Any]] = None
+    symbol: str,
+    side: str,
+    entry: float,
+    sl: float,
+    tp_levels: List[float],
+    lot: float,
+    source: str,
+    reason: str,
+    confidence: float,
+    atr: float,
+    ts: Optional[int] = None,
+    indicators: Optional[Dict[str, Any]] = None,
+    signal_settings: Optional[Dict[str, Any]] = None,
     entry_tag: str = ""
 ) -> Signal:
     """
@@ -641,20 +641,20 @@ def create_signal(
     sid = UnifiedSignalFormatter.create_signal_id(symbol, side, entry, ts)
     
     return Signal(
-        sid=sid
-        symbol=symbol
-        side=side
-        entry=entry
-        sl=sl
-        tp_levels=tp_levels
-        lot=lot
-        source=source
-        reason=reason
-        confidence=confidence
-        atr=atr
-        ts=ts
-        indicators=indicators
-        entry_tag=entry_tag
+        sid=sid,
+        symbol=symbol,
+        side=side,
+        entry=entry,
+        sl=sl,
+        tp_levels=tp_levels,
+        lot=lot,
+        source=source,
+        reason=reason,
+        confidence=confidence,
+        atr=atr,
+        ts=ts,
+        indicators=indicators,
+        entry_tag=entry_tag,
         signal_settings=signal_settings
     )
 

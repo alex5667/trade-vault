@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Tests for Strong Gate Calibrator — core evaluation logic.
 
 Run:
     cd python-worker && python -m pytest tests/test_strong_gate_calibrator.py -v
 """
-from __future__ import annotations
 
 import pytest
 

@@ -1,5 +1,6 @@
 # tick_flow_full/core/book_resilience.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Liquidity resilience / replenishment tracker.
 
@@ -12,7 +13,6 @@ Usage:
 - Call on_book(ts_ms, bid_depth_usd, ask_depth_usd) on each L2 book update.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict

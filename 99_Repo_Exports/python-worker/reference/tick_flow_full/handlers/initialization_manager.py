@@ -1,9 +1,9 @@
 # initialization_manager.py
+from __future__ import annotations
 """
 Initialization management functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from dataclasses import dataclass
@@ -127,7 +127,7 @@ class InitializationManager:
                 if is_loading_error and attempt < max_retries - 1:
                     delay = min(base_delay * (2 ** attempt), max_delay)
                     self.logger.warning(
-                        "Redis %s is loading dataset (attempt %d/%d), retrying in %.1fs: %s"
+                        "Redis %s is loading dataset (attempt %d/%d), retrying in %.1fs: %s",
                         connection_type, attempt + 1, max_retries, delay, e
                     )
                     time.sleep(delay)
@@ -201,7 +201,7 @@ class InitializationManager:
         if L3Queue:
             try:
                 self.handler.l3_queue = L3Queue(
-                    bucket_ms=self.handler.delta_bucket_ms
+                    bucket_ms=self.handler.delta_bucket_ms,
                     alpha=l3_alpha
                 )
             except Exception as e:
@@ -240,11 +240,11 @@ class InitializationManager:
         if Burst:
             try:
                 self.handler.burst = Burst(
-                    bucket_ms=self.handler.delta_bucket_ms
-                    half_life_short_ms=burst_half_life_short_ms
-                    half_life_long_ms=burst_half_life_long_ms
-                    fano_window_buckets=burst_fano_window_buckets
-                    dt_alpha=burst_dt_alpha
+                    bucket_ms=self.handler.delta_bucket_ms,
+                    half_life_short_ms=burst_half_life_short_ms,
+                    half_life_long_ms=burst_half_life_long_ms,
+                    fano_window_buckets=burst_fano_window_buckets,
+                    dt_alpha=burst_dt_alpha,
                 )
             except Exception as e:
                 self.logger.warning("BurstinessTracker init failed: %s", e)
@@ -276,8 +276,8 @@ class InitializationManager:
             try:
                 ServiceCls, ConfigCls = ExtremaPair
                 config = ConfigCls(
-                    min_bars_between_extremes=int(os.getenv("MIN_EXTREMA_DIST_TICKS", "50"))
-                    min_move_bps=float(os.getenv("MIN_EXTREMA_MOVE_BPS", "20.0"))
+                    min_bars_between_extremes=int(os.getenv("MIN_EXTREMA_DIST_TICKS", "50")),
+                    min_move_bps=float(os.getenv("MIN_EXTREMA_MOVE_BPS", "20.0")),
                 )
                 self.handler._extrema_service = ServiceCls(config=config)
             except Exception as e:
@@ -314,8 +314,8 @@ class InitializationManager:
                 PubCls, OutboxCls = OutboxPair
                 outbox = OutboxCls()
                 self.handler._outbox_publisher = PubCls(
-                    outbox=outbox
-                    source="orderflow"
+                    outbox=outbox,
+                    source="orderflow",
                     strategy="orderflow"
                 )
             except Exception as e:
@@ -330,9 +330,9 @@ class InitializationManager:
         if L2GPU:
             try:
                 self.handler.l2_gpu_processor = L2GPU(
-                    symbol=self.handler.symbol
-                    batch_size=int(os.getenv("GPU_BATCH_SIZE", "1000"))
-                    buffer_timeout_ms=int(os.getenv("GPU_BUFFER_TIMEOUT_MS", "1000"))
+                    symbol=self.handler.symbol,
+                    batch_size=int(os.getenv("GPU_BATCH_SIZE", "1000")),
+                    buffer_timeout_ms=int(os.getenv("GPU_BUFFER_TIMEOUT_MS", "1000")),
                 )
             except Exception:
                 self.handler.l2_gpu_processor = None
@@ -351,8 +351,8 @@ class InitializationManager:
                 ServiceCls, ConfigCls = RegimePair
                 try:
                     config = ConfigCls(
-                        update_interval_ms=int(os.getenv("REGIME_UPDATE_INTERVAL_MS", "60000"))
-                        stability_threshold=float(os.getenv("REGIME_STABILITY_THRESHOLD", "0.7"))
+                        update_interval_ms=int(os.getenv("REGIME_UPDATE_INTERVAL_MS", "60000")),
+                        stability_threshold=float(os.getenv("REGIME_STABILITY_THRESHOLD", "0.7")),
                     )
                 except TypeError:
                     config = ConfigCls()  # type: ignore[call-arg]
@@ -390,16 +390,16 @@ class InitializationManager:
                 redis_url_main = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 
                 basic_config = SymbolSetupConfig(
-                    symbol=self.handler.symbol
-                    setup_type="orderflow"
-                    expiry_bars=60
-                    min_stop_ticks=10
-                    max_stop_R=0.05
-                    atr_buffer_ratio=0.5
-                    entry_zone_min_R=0.01
-                    entry_zone_max_R=0.03
-                    default_tp_R=(1.0, 2.0, 3.0)
-                    score_buckets=(0.4, 0.7, 0.85)
+                    symbol=self.handler.symbol,
+                    setup_type="orderflow",
+                    expiry_bars=60,
+                    min_stop_ticks=10,
+                    max_stop_R=0.05,
+                    atr_buffer_ratio=0.5,
+                    entry_zone_min_R=0.01,
+                    entry_zone_max_R=0.03,
+                    default_tp_R=(1.0, 2.0, 3.0),
+                    score_buckets=(0.4, 0.7, 0.85),
                     risk_multipliers=(0.5, 1.0, 1.5, 2.0)
                 )
                 setup_configs = {(self.handler.symbol, "orderflow"): basic_config}
@@ -410,10 +410,10 @@ class InitializationManager:
                 self.handler._signal_bus = d.signal_bus(redis_url_main)
                 self.handler._performance_tracker = d.performance_tracker(self.handler._signal_repo, bus=self.handler._signal_bus)
                 self.handler._signal_service = d.signal_service(
-                    self.handler._signal_repo
-                    self.handler._execution_planner
-                    self.handler._performance_tracker
-                    self.handler._signal_bus
+                    self.handler._signal_repo,
+                    self.handler._execution_planner,
+                    self.handler._performance_tracker,
+                    self.handler._signal_bus,
                 )
             except Exception as e:
                 self.logger.warning("Failed to initialize execution components: %s", e)
@@ -432,13 +432,13 @@ class InitializationManager:
         try:
             EngineCls, ConfigCls = ScoringPair
             cfg = ConfigCls(
-                confidence_threshold=float(os.getenv("SCORING_CONFIDENCE_THRESHOLD", "0.5"))
-                max_score_age_ms=int(os.getenv("MAX_SCORE_AGE_MS", "300000"))
+                confidence_threshold=float(os.getenv("SCORING_CONFIDENCE_THRESHOLD", "0.5")),
+                max_score_age_ms=int(os.getenv("MAX_SCORE_AGE_MS", "300000")),
             )
 
             if hasattr(self.handler, 'local_calibration') and self.handler.local_calibration is not None:
                 self.handler._scoring_engine = EngineCls(
-                    calib_store=self.handler.local_calibration
+                    calib_store=self.handler.local_calibration,
                     config=cfg
                 )
             else:
@@ -465,11 +465,11 @@ class InitializationManager:
         self.handler.daily_pivots = None
 
     def initialize_all(
-        self
-        symbol: str
-        config: Optional[Any] = None
-        local_calibration: Optional["LCStoreV2"] = None
-        unified_pipeline: Optional[Any] = None
+        self,
+        symbol: str,
+        config: Optional[Any] = None,
+        local_calibration: Optional["LCStoreV2"] = None,
+        unified_pipeline: Optional[Any] = None,
     ) -> Infra:
         self.handler.symbol = symbol
         cfg = self._ensure_config()
@@ -481,9 +481,9 @@ class InitializationManager:
         self._init_stream_config(symbol)
 
         config_manager = ConfigManager(
-            symbol
-            signal_stream_prefix=getattr(self.handler, "signal_stream_prefix", None)
-            strategy_key="orderflow"
+            symbol,
+            signal_stream_prefix=getattr(self.handler, "signal_stream_prefix", None),
+            strategy_key="orderflow",
         )
         cache_service = CacheService(self.handler.redis, symbol)
 
@@ -514,20 +514,20 @@ class InitializationManager:
         self._init_analysis_state()
 
         self.handler._error_handler = ErrorHandler(
-            symbol
-            max_fail_retries=int(getattr(self.handler, "max_fail_retries", 3))
+            symbol,
+            max_fail_retries=int(getattr(self.handler, "max_fail_retries", 3)),
         )
 
         return Infra(
-            redis=self.handler.redis
-            redis_ticks=self.handler.redis_ticks
-            tick_stream=self.handler.tick_stream
-            book_stream=self.handler.book_stream
-            l3_stream=self.handler.l3_stream
-            group=self.handler.group
-            consumer_name_prefix=self.handler.consumer_name_prefix
-            cache_service=cache_service
-            config_manager=config_manager
+            redis=self.handler.redis,
+            redis_ticks=self.handler.redis_ticks,
+            tick_stream=self.handler.tick_stream,
+            book_stream=self.handler.book_stream,
+            l3_stream=self.handler.l3_stream,
+            group=self.handler.group,
+            consumer_name_prefix=self.handler.consumer_name_prefix,
+            cache_service=cache_service,
+            config_manager=config_manager,
         )
 
 

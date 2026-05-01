@@ -4,7 +4,7 @@ from utils.time_utils import get_ny_time_millis
 
 """Auto-trigger checkpoint scrubber from health report.
 
-P3.3-autonomy: reads the latest execution health JSON report
+P3.3-autonomy: reads the latest execution health JSON report,
 decides whether to trigger the checkpoint scrubber (and optionally
 the retention-guard quarantine policy), then writes
 ``latest_auto_scrubber.json`` to the report directory.
@@ -90,22 +90,22 @@ def main() -> int:
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
     parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
     parser.add_argument(
-        '--health-report'
+        '--health-report',
         default=os.getenv(
-            'EXECUTION_HEALTH_REPORT_PATH'
-            os.path.join(os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'), 'latest_execution_health.json')
+            'EXECUTION_HEALTH_REPORT_PATH',
+            os.path.join(os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'), 'latest_execution_health.json'),
         )
     )
     parser.add_argument('--report-dir', default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'))
     parser.add_argument(
-        '--trigger-on-warning'
-        action='store_true'
-        default=os.getenv('EXEC_AUTONOMY_TRIGGER_ON_WARNING', '1') != '0'
+        '--trigger-on-warning',
+        action='store_true',
+        default=os.getenv('EXEC_AUTONOMY_TRIGGER_ON_WARNING', '1') != '0',
     )
     parser.add_argument(
-        '--apply-retention-quarantine'
-        action='store_true'
-        default=os.getenv('EXEC_RETENTION_GUARD_QUARANTINE_ENABLE', '1') != '0'
+        '--apply-retention-quarantine',
+        action='store_true',
+        default=os.getenv('EXEC_RETENTION_GUARD_QUARANTINE_ENABLE', '1') != '0',
     )
     args = parser.parse_args()
 
@@ -117,23 +117,23 @@ def main() -> int:
     decision = should_trigger(report, trigger_on_warning=bool(args.trigger_on_warning))
 
     out: Dict[str, Any] = {
-        'checked_at_ms': get_ny_time_millis()
-        'health_report': str(health_path)
-        'decision': decision
-        'scrub_report': None
-        'retention_quarantine_report': None
+        'checked_at_ms': get_ny_time_millis(),
+        'health_report': str(health_path),
+        'decision': decision,
+        'scrub_report': None,
+        'retention_quarantine_report': None,
     }
 
     if decision['trigger']:
         out['scrub_report'] = scrubber.run_scrub(
-            r
-            exec_stream=os.getenv('EXEC_STREAM', 'orders:exec')
-            checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:')
-            state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:')
-            journal_dsn=args.journal_dsn
-            scan_count=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000'))
-            sample_limit=int(os.getenv('EXEC_REPLAY_CHECKPOINT_SCRUB_SAMPLE_LIMIT', '5000'))
-            dry_run=False
+            r,
+            exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+            checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
+            state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
+            journal_dsn=args.journal_dsn,
+            scan_count=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')),
+            sample_limit=int(os.getenv('EXEC_REPLAY_CHECKPOINT_SCRUB_SAMPLE_LIMIT', '5000')),
+            dry_run=False,
         )
         if (
             args.apply_retention_quarantine
@@ -141,16 +141,16 @@ def main() -> int:
             and 'retention_guard_breached' in decision['reasons']
         ):
             out['retention_quarantine_report'] = retention_quarantine.run_policy(
-                r
-                exec_stream=os.getenv('EXEC_STREAM', 'orders:exec')
-                checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:')
-                state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:')
-                journal_dsn=args.journal_dsn
-                quarantine_prefix=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:')
-                ledger_dsn=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', args.journal_dsn)
-                sample_limit=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000'))
-                scan_count=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000'))
-                dry_run=False
+                r,
+                exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+                checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
+                state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
+                journal_dsn=args.journal_dsn,
+                quarantine_prefix=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'),
+                ledger_dsn=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', args.journal_dsn),
+                sample_limit=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000')),
+                scan_count=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')),
+                dry_run=False,
             )
 
     out_path = Path(args.report_dir) / 'latest_auto_scrubber.json'

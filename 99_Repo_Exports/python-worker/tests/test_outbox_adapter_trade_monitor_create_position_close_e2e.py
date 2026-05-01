@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Closing integration test (in-repo, no real Redis):
 
@@ -17,7 +18,6 @@ This test is intentionally "hard-fixed" to catch regressions:
   - close-time execution fields must be attached deterministically
 """
 
-from __future__ import annotations
 
 import json
 from types import SimpleNamespace
@@ -76,7 +76,7 @@ class _SpecStub:
     def calculate_fees(self, *, entry_price, exit_price, lot, side, duration_ms) -> float:
         return 0.0
 
-    def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol: str = "") -> float:
+    def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
         sign = 1.0 if str(direction).upper() == "LONG" else -1.0
         return (float(price) - float(entry_price)) * sign * float(lot)
 

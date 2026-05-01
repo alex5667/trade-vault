@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P84: DLQ auto-triage fix-hints registry for OF-Gate.
 
 This module provides stable, low-cardinality hint codes and recommended
@@ -15,7 +16,6 @@ Outputs:
   - actions: list[str]
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional

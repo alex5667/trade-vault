@@ -1,5 +1,5 @@
-"""P4.10 dual-control silence approval workflow tests."""
 from __future__ import annotations
+"""P4.10 dual-control silence approval workflow tests."""
 
 import pytest
 from unittest.mock import MagicMock

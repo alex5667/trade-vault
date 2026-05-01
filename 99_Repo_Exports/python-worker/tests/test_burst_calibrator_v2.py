@@ -5,7 +5,7 @@ from core.burst_calibrator import BurstCalibrator
 def test_burst_calibrator_low_pressure_wide_gaps():
     cal = BurstCalibrator(
         base_window_ms=2500, min_window_ms=300, max_window_ms=3000,
-        base_max_age_ms=8000
+        base_max_age_ms=8000,
     )
     # Slow ticks (e.g. 1 per second => 1000ms gap)
     w, a = cal.compute(gap_p50_ms=1000.0, cand_per_min=5.0)

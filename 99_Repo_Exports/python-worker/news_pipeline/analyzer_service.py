@@ -23,14 +23,14 @@ class LLMClient(Protocol):
         """
         Вернуть dict (тяжёлое):
         {
-          "summary": "..."
-          "risk": 0..1
-          "surprise": -1..1
-          "tags": ["cpi","risk_off"]
-          "confidence": 0..1
-          "symbol_hints": ["BTCUSDT"] (optional)
+          "summary": "...",
+          "risk": 0..1,
+          "surprise": -1..1,
+          "tags": ["cpi","risk_off"],
+          "confidence": 0..1,
+          "symbol_hints": ["BTCUSDT"] (optional),
           "notes": ...
-        }
+        },
         """
         ...
 
@@ -59,12 +59,12 @@ class GeminiClient:
         #
         # Ниже — безопасный stub:
         return {
-            "summary": item.title[:240]
-            "risk": 0.2
-            "surprise": 0.0
-            "tags": ["macro"]
-            "confidence": 0.5
-        }
+            "summary": item.title[:240],
+            "risk": 0.2,
+            "surprise": 0.0,
+            "tags": ["macro"],
+            "confidence": 0.5,
+        },
 
 
 def _analysis_key(uid: str) -> str:
@@ -85,13 +85,13 @@ class NewsAnalyzerService:
     """
 
     def __init__(
-        self
-        r: redis.Redis
-        llm: LLMClient
-        consumer: str = "analyzer-1"
-        block_ms: int = 5000
-        batch: int = 10
-        dlq_stream: str = "news:dlq"
+        self,
+        r: redis.Redis,
+        llm: LLMClient,
+        consumer: str = "analyzer-1",
+        block_ms: int = 5000,
+        batch: int = 10,
+        dlq_stream: str = "news:dlq",
     ) -> None:
         self.r = r
         self.llm = llm
@@ -110,12 +110,12 @@ class NewsAnalyzerService:
 
         while not self._stop:
             items = xreadgroup_block(
-                self.r
-                config.NEWS_RAW_STREAM
-                config.NEWS_ANALYZER_GROUP
-                consumer=self.consumer
-                count=self.batch
-                block_ms=self.block_ms
+                self.r,
+                config.NEWS_RAW_STREAM,
+                config.NEWS_ANALYZER_GROUP,
+                consumer=self.consumer,
+                count=self.batch,
+                block_ms=self.block_ms,
             )
             if not items:
                 continue
@@ -151,33 +151,33 @@ class NewsAnalyzerService:
                         # тяжёлое в key
                         key = _analysis_key(raw.uid)
                         heavy_payload = {
-                            "uid": raw.uid
-                            "source": raw.source
-                            "url": raw.url
-                            "title": raw.title
-                            "ts_ms": raw.ts_ms
-                            "symbols": raw.symbols
-                            "analysis": heavy
-                        }
+                            "uid": raw.uid,
+                            "source": raw.source,
+                            "url": raw.url,
+                            "title": raw.title,
+                            "ts_ms": raw.ts_ms,
+                            "symbols": raw.symbols,
+                            "analysis": heavy,
+                        },
                         self.r.set(key, json.dumps(heavy_payload, ensure_ascii=False))
                         self.r.expire(key, int(config.NEWS_ANALYSIS_KEY_TTL_SEC))
 
                         compact = NewsAnalysisCompact(
-                            uid=raw.uid
-                            ts_ms=raw.ts_ms or now_ms()
-                            symbols=raw.symbols
-                            risk=risk
-                            surprise=surprise
-                            tags_mask=mask
-                            primary_tag_id=primary
-                            confidence=confidence
-                            news_ref=key
+                            uid=raw.uid,
+                            ts_ms=raw.ts_ms or now_ms(),
+                            symbols=raw.symbols,
+                            risk=risk,
+                            surprise=surprise,
+                            tags_mask=mask,
+                            primary_tag_id=primary,
+                            confidence=confidence,
+                            news_ref=key,
                         )
                         xadd_trim(
-                            self.r
-                            config.NEWS_ANALYSIS_STREAM
-                            compact.to_stream_fields()
-                            maxlen=config.NEWS_MAXLEN
+                            self.r,
+                            config.NEWS_ANALYSIS_STREAM,
+                            compact.to_stream_fields(),
+                            maxlen=config.NEWS_MAXLEN,
                         )
 
                         # ack после успеха
@@ -188,15 +188,15 @@ class NewsAnalyzerService:
                         try:
                             # DLQ (компактно)
                             xadd_trim(
-                                self.r
-                                self.dlq_stream
+                                self.r,
+                                self.dlq_stream,
                                 {
-                                    "src_stream": config.NEWS_RAW_STREAM
-                                    "msg_id": str(msg_id)
-                                    "err": str(e)[:512]
-                                    "ts_ms": str(now_ms())
-                                }
-                                maxlen=config.NEWS_MAXLEN
+                                    "src_stream": config.NEWS_RAW_STREAM,
+                                    "msg_id": str(msg_id),
+                                    "err": str(e)[:512],
+                                    "ts_ms": str(now_ms()),
+                                },
+                                maxlen=config.NEWS_MAXLEN,
                             )
                         except Exception:
                             pass

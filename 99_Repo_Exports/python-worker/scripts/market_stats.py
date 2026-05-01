@@ -205,44 +205,44 @@ async def analyze_symbol(r_main, r_ticks, symbol):
                 s = s_raw
             
             if s.get("symbol") == symbol:
-                ts = safe_int(s.get("ts_ms") or s.get("ts"))
+                ts = safe_int(s.get("ts_ms") or s.get("ts")),
                 if ts < start_ms: continue
                 
-                bucket = ts // 60000 
-                sigs_1min_count[bucket] += 1
+                bucket = ts // 60000,
+                sigs_1min_count[bucket] += 1,
         except:
             pass
             
-    signal_rates = list(sigs_1min_count.values())
-    if not signal_rates: signal_rates = [0]
+    signal_rates = list(sigs_1min_count.values()),
+    if not signal_rates: signal_rates = [0],
     
     # Helper
     def get_percentile(data, p):
-        if not data: return 0.0
-        return np.percentile(data, p)
+        if not data: return 0.0,
+        return np.percentile(data, p),
         
     stats = {
         "abs_delta_price": {
-            "p50": get_percentile(delta_metrics, 50)
-            "p80": get_percentile(delta_metrics, 80)
-            "p95": get_percentile(delta_metrics, 95)
+            "p50": get_percentile(delta_metrics, 50),
+            "p80": get_percentile(delta_metrics, 80),
+            "p95": get_percentile(delta_metrics, 95),
             "count": len(delta_metrics)
-        }
+        },
         "spread_bps": {
-            "p50": get_percentile(spreads_bps, 50)
-            "p90": get_percentile(spreads_bps, 90)
-            "p99": get_percentile(spreads_bps, 99)
+            "p50": get_percentile(spreads_bps, 50),
+            "p90": get_percentile(spreads_bps, 90),
+            "p99": get_percentile(spreads_bps, 99),
             "count": len(spreads_bps)
-        }
+        },
         "book_rate_hz": {
-            "p50": get_percentile(book_rates, 50)
-            "p10": get_percentile(book_rates, 10)
+            "p50": get_percentile(book_rates, 50),
+            "p10": get_percentile(book_rates, 10),
             "count": len(book_rates)
-        }
+        },
         "signals_per_min": {
-            "avg": np.mean(signal_rates) if signal_rates else 0.0
-            "max": np.max(signal_rates) if signal_rates else 0.0
-            "total": sum(signal_rates)
+            "avg": np.mean(signal_rates) if signal_rates else 0.0,
+            "max": np.max(signal_rates) if signal_rates else 0.0,
+            "total": sum(signal_rates),
             "minutes_active": len(sigs_1min_count) if sigs_1min_count else 0
         }
     }

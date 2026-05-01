@@ -55,11 +55,11 @@ class RegimeConfig:
             # базовая евродоллар/золото логика:
             # Азия — больше рендж, Лондон/NY — более трендовые
             self.session_bias_default = {
-                "asia": -0.4
-                "london": +0.4
-                "ny": +0.6
-                "late_us": 0.0
-                "other": 0.0
+                "asia": -0.4,
+                "london": +0.4,
+                "ny": +0.6,
+                "late_us": 0.0,
+                "other": 0.0,
             }
 
 

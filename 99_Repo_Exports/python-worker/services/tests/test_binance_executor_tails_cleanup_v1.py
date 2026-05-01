@@ -29,7 +29,7 @@ def _make_exec():
     ex._exec_event = MagicMock()
     ex._cancel_by_token = MagicMock(return_value=0)
     ex._cancel_all_symbol_orders_best_effort = MagicMock(return_value={
-        "plain_seen": 3, "algo_seen": 0, "plain_canceled": 3, "algo_canceled": 0
+        "plain_seen": 3, "algo_seen": 0, "plain_canceled": 3, "algo_canceled": 0,
     })
     ex._position_qty_tolerance = MagicMock(return_value=0.0001)
     return ex
@@ -43,22 +43,22 @@ def test_monitor_trade_lifecycle_uses_cancel_all_on_close():
 
     # Seq: 1.0 -> 0.0
     client.get_position_risk.side_effect = [
-        [{"symbol": "BTCUSDT", "positionAmt": "1.0"}]
+        [{"symbol": "BTCUSDT", "positionAmt": "1.0"}],
         [{"symbol": "BTCUSDT", "positionAmt": "0.0"}]
     ]
 
     with patch("time.sleep"):
         with patch("time.time", side_effect=[100, 101, 102, 103]):
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-test"
-                symbol="BTCUSDT"
-                logical_side="LONG"
+                sid="sid-test",
+                symbol="BTCUSDT",
+                logical_side="LONG",
                 client=client
             )
 
     # Must use cancel_all (not cancel_by_token) for fully closed positions
     ex._cancel_all_symbol_orders_best_effort.assert_called_once_with(
-        symbol="BTCUSDT", client=client
+        symbol="BTCUSDT", client=client,
     )
     ex._cancel_by_token.assert_not_called()
 
@@ -86,9 +86,9 @@ def test_monitor_trade_lifecycle_uses_cancel_by_token_on_reversal():
     with patch("time.sleep"):
         with patch("time.time", side_effect=[100, 101, 102, 103]):
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-rev"
-                symbol="BTCUSDT"
-                logical_side="LONG"
+                sid="sid-rev",
+                symbol="BTCUSDT",
+                logical_side="LONG",
                 client=client
             )
 
@@ -104,21 +104,21 @@ def test_monitor_trade_lifecycle_cancel_all_includes_algo_orders():
     """Verify that algo order cancellation counts are included when position closes."""
     ex = _make_exec()
     ex._cancel_all_symbol_orders_best_effort = MagicMock(return_value={
-        "plain_seen": 1, "algo_seen": 2, "plain_canceled": 1, "algo_canceled": 2
+        "plain_seen": 1, "algo_seen": 2, "plain_canceled": 1, "algo_canceled": 2,
     })
     client = MagicMock()
 
     client.get_position_risk.side_effect = [
-        [{"symbol": "ETHUSDT", "positionAmt": "-0.5"}]
+        [{"symbol": "ETHUSDT", "positionAmt": "-0.5"}],
         [{"symbol": "ETHUSDT", "positionAmt": "0.0"}]
     ]
 
     with patch("time.sleep"):
         with patch("time.time", side_effect=[100, 101, 102, 103]):
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-eth"
-                symbol="ETHUSDT"
-                logical_side="SHORT"
+                sid="sid-eth",
+                symbol="ETHUSDT",
+                logical_side="SHORT",
                 client=client
             )
 

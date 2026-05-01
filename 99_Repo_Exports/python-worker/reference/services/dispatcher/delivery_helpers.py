@@ -66,9 +66,9 @@ class DeliveryHelpers:
     
     @staticmethod
     def calculate_retry_delay(
-        attempt: int
-        base_ms: int = 250
-        max_ms: int = 15000
+        attempt: int,
+        base_ms: int = 250,
+        max_ms: int = 15000,
         jitter_ms: int = 250
     ) -> int:
         """
@@ -90,13 +90,13 @@ class DeliveryHelpers:
     
     @staticmethod
     def send_to_dlq(
-        redis_client: Any
-        dlq_stream: str
-        target: str
-        sid: str
-        env: Dict[str, Any]
-        reason: str
-        error: str
+        redis_client: Any,
+        dlq_stream: str,
+        target: str,
+        sid: str,
+        env: Dict[str, Any],
+        reason: str,
+        error: str,
         logger: Optional[logging.Logger] = None
     ) -> bool:
         """
@@ -116,19 +116,19 @@ class DeliveryHelpers:
             True if successful, False otherwise
         """
         payload = {
-            "ts": get_ny_time_millis()
-            "reason": reason
-            "target": target
-            "sid": sid
-            "error": error
-            "env": env
+            "ts": get_ny_time_millis(),
+            "reason": reason,
+            "target": target,
+            "sid": sid,
+            "error": error,
+            "env": env,
         }
         
         try:
             redis_client.xadd(
-                dlq_stream
-                {"data": json.dumps(payload, ensure_ascii=False)}
-                maxlen=200000
+                dlq_stream,
+                {"data": json.dumps(payload, ensure_ascii=False)},
+                maxlen=200000,
                 approximate=True
             )
             return True
@@ -139,12 +139,12 @@ class DeliveryHelpers:
     
     @staticmethod
     def get_dlq_stream_for_target(
-        target: str
-        dlq_notify: str
-        dlq_signal_stream: str
-        dlq_audit: str
-        dlq_manual: str
-        dlq_snapshot: str
+        target: str,
+        dlq_notify: str,
+        dlq_signal_stream: str,
+        dlq_audit: str,
+        dlq_manual: str,
+        dlq_snapshot: str,
         dlq_default: str
     ) -> str:
         """
@@ -163,10 +163,10 @@ class DeliveryHelpers:
             DLQ stream name
         """
         dlq_map = {
-            "notify": dlq_notify
-            "signal_stream": dlq_signal_stream
-            "audit": dlq_audit
-            "manual": dlq_manual
-            "snapshot": dlq_snapshot
+            "notify": dlq_notify,
+            "signal_stream": dlq_signal_stream,
+            "audit": dlq_audit,
+            "manual": dlq_manual,
+            "snapshot": dlq_snapshot,
         }
         return dlq_map.get(target, dlq_default)

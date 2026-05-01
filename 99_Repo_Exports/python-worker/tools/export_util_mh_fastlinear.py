@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Export a trained UtilMH joblib model to a portable FASTLINEAR JSON.
 
 This is meant to satisfy the online "one function" requirement:
@@ -16,7 +17,6 @@ Notes:
     * otherwise you should distill (train a linear student on teacher predictions)
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 core/v13_of_features.py
 =======================
@@ -10,7 +11,6 @@ Design principles:
   - No heavy imports; only stdlib math + existing runtime attributes.
 """
 
-from __future__ import annotations
 
 import math
 from typing import Any, Dict

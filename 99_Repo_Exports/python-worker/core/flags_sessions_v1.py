@@ -1,3 +1,4 @@
+from __future__ import annotations
 """A5: flags + sessions helpers.
 
 Design goals:
@@ -10,7 +11,6 @@ This module is used by tick_processor to:
 - compute A5 flags and session one-hot
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

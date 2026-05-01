@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Candle → OF features (delta/z/ratio/cvd/bodyATR/absorbed) → Redis:
 
@@ -20,7 +21,6 @@ ATR:
 - Если кэша нет, считаем локально Wilder(14) на лету
 """
 
-from __future__ import annotations
 import os
 import json
 import math
@@ -33,20 +33,20 @@ from typing import Dict, Any, Optional, List
 from core.redis_client import get_redis
 from core.dual_redis_client import get_dual_signals_redis
 from core.config import (
-    OF_WINDOW_BARS
-    OF_Z_THRESHOLD
-    OF_RATIO_THRESHOLD
-    OF_MIN_BODY_ATR
-    OF_MIN_VOLUME_Q
-    OF_Z_THRESHOLD_PROXY
-    OF_RATIO_THRESHOLD_PROXY
-    OF_MIN_VOLUME_Q_PROXY
-    OF_STREAM_BAR
-    OF_STREAM_SPIKE
-    SUBSCRIBE_STREAM
-    OF_CONSUMER_GROUP
-    OF_READ_COUNT
-    OF_READ_BLOCK_MS
+    OF_WINDOW_BARS,
+    OF_Z_THRESHOLD,
+    OF_RATIO_THRESHOLD,
+    OF_MIN_BODY_ATR,
+    OF_MIN_VOLUME_Q,
+    OF_Z_THRESHOLD_PROXY,
+    OF_RATIO_THRESHOLD_PROXY,
+    OF_MIN_VOLUME_Q_PROXY,
+    OF_STREAM_BAR,
+    OF_STREAM_SPIKE,
+    SUBSCRIBE_STREAM,
+    OF_CONSUMER_GROUP,
+    OF_READ_COUNT,
+    OF_READ_BLOCK_MS,
     STREAM_MAX_LENGTH
 )
 
@@ -156,13 +156,13 @@ class CandleDeltaDetector:
         return 100.0 * less / len(self.vols)
 
     def on_closed_candle(
-        self
-        open_: float
-        high: float
-        low: float
-        close: float
-        volume: float
-        atr: float
+        self,
+        open_: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: float,
+        atr: float,
         taker_buy_vol: Optional[float]
     ) -> Dict[str, Any]:
         """
@@ -214,16 +214,16 @@ class CandleDeltaDetector:
         direction = 'long' if spike_long else ('short' if spike_short else None)
 
         return {
-            "buyVol": buy_vol
-            "sellVol": sell_vol
-            "delta": delta
-            "cvd": self.cvd
-            "deltaRatio": ratio
-            "zDelta": z
-            "bodyATR": body_atr
-            "absorbed": absorbed
-            "isSpike": direction is not None
-            "dir": direction
+            "buyVol": buy_vol,
+            "sellVol": sell_vol,
+            "delta": delta,
+            "cvd": self.cvd,
+            "deltaRatio": ratio,
+            "zDelta": z,
+            "bodyATR": body_atr,
+            "absorbed": absorbed,
+            "isSpike": direction is not None,
+            "dir": direction,
             "volumeQ": vol_q
         }
 
@@ -382,16 +382,16 @@ class CandleOrderFlowWorker:
             atr = self._get_atr_value(symbol, timeframe, o, h, l, c)
 
             return {
-                'symbol': symbol
-                'timeframe': timeframe
-                'ts': ts_ms
-                'open': o
-                'high': h
-                'low': l
-                'close': c
-                'volume': v
-                'takerBuyVolume': tb
-                'atr': atr
+                'symbol': symbol,
+                'timeframe': timeframe,
+                'ts': ts_ms,
+                'open': o,
+                'high': h,
+                'low': l,
+                'close': c,
+                'volume': v,
+                'takerBuyVolume': tb,
+                'atr': atr,
                 'message_id': message_id # Keep ID for acking if needed, though we ack in loop
             }
         except Exception:
@@ -399,7 +399,7 @@ class CandleOrderFlowWorker:
 
     def _process_global_batch(self, batch_candles: List[Dict[str, Any]]) -> None:
         """
-        Processes a mixed batch of candles (various symbols) via GPU if available
+        Processes a mixed batch of candles (various symbols) via GPU if available,
         then publishes results.
         """
         if not batch_candles:
@@ -415,12 +415,12 @@ class CandleOrderFlowWorker:
                 gpu_inputs = []
                 for c in batch_candles:
                     gpu_inputs.append({
-                        'open': c['open']
-                        'high': c['high']
-                        'low': c['low']
-                        'close': c['close']
-                        'volume': c['volume']
-                        'takerBuyVolume': c['takerBuyVolume']
+                        'open': c['open'],
+                        'high': c['high'],
+                        'low': c['low'],
+                        'close': c['close'],
+                        'volume': c['volume'],
+                        'takerBuyVolume': c['takerBuyVolume'],
                         'atr': c['atr']
                     })
                 
@@ -433,14 +433,14 @@ class CandleOrderFlowWorker:
                         # Merge GPU metrics into candle dict or a results dict
                         # We use id(c) or index as key? Just iterate.
                         c['gpu_result'] = {
-                            "delta": float(gpu_out['deltas'][i])
-                            "buyVol": float(gpu_out['buy_vols'][i])
-                            "sellVol": float(gpu_out['sell_vols'][i])
+                            "delta": float(gpu_out['deltas'][i]),
+                            "buyVol": float(gpu_out['buy_vols'][i]),
+                            "sellVol": float(gpu_out['sell_vols'][i]),
                             "cvd": float(gpu_out['cvd'][i]), # Note: this is batch-local CVD accumulation usually
-                            "deltaRatio": float(gpu_out['delta_ratio'][i])
-                            "zDelta": float(gpu_out['z_deltas'][i])
-                            "bodyATR": float(gpu_out['body_atr'][i])
-                            "atr": float(gpu_out['atr'][i])
+                            "deltaRatio": float(gpu_out['delta_ratio'][i]),
+                            "zDelta": float(gpu_out['z_deltas'][i]),
+                            "bodyATR": float(gpu_out['body_atr'][i]),
+                            "atr": float(gpu_out['atr'][i]),
                         }
                     processed_via_gpu = True
             except Exception as e:
@@ -470,7 +470,7 @@ class CandleOrderFlowWorker:
                     # CPU code uses `detector.stats.z` (Welford). 
                     # Let's trust Welford for consistency or use GPU's if we trust it. 
                     # Existing code favored detector.stats.z(delta).
-                    # Let's stick to detector logic for stateful metrics (CVD, Z) to ensure continuity
+                    # Let's stick to detector logic for stateful metrics (CVD, Z) to ensure continuity,
                     # BUT use GPU for stateless heavy ops if any.
                     # Actually, the previous implementation did: `detector.stats.update(delta); z = detector.stats.z(delta)` 
                     # AFTER getting delta from GPU.
@@ -478,21 +478,21 @@ class CandleOrderFlowWorker:
                     z_val = detector.stats.z(g['delta'])  # Use Welford Z for consistency across updates
                     
                     res = {
-                        "buyVol": g['buyVol']
-                        "sellVol": g['sellVol']
-                        "delta": g['delta']
-                        "cvd": detector.cvd
-                        "deltaRatio": g['deltaRatio']
+                        "buyVol": g['buyVol'],
+                        "sellVol": g['sellVol'],
+                        "delta": g['delta'],
+                        "cvd": detector.cvd,
+                        "deltaRatio": g['deltaRatio'],
                         "zDelta": z_val, 
-                        "bodyATR": g['bodyATR']
-                        "atr": g['atr']
-                        "volumeQ": detector._vol_quantile(c['volume'])
+                        "bodyATR": g['bodyATR'],
+                        "atr": g['atr'],
+                        "volumeQ": detector._vol_quantile(c['volume']),
                         "type": "of_bar"
                     }
                 else:
                     # CPU Fallback
                     res_cpu = detector.on_closed_candle(
-                         open_=c['open'], high=c['high'], low=c['low'], close=c['close']
+                         open_=c['open'], high=c['high'], low=c['low'], close=c['close'],
                          volume=c['volume'], atr=c['atr'], taker_buy_vol=c['takerBuyVolume']
                     )
                     res = {**res_cpu, "type": "of_bar", "atr": c['atr']}
@@ -526,19 +526,19 @@ class CandleOrderFlowWorker:
 
                 # Construct final payload
                 payload = {
-                    "symbol": symbol
-                    "timeframe": timeframe
-                    "ts": c['ts']
-                    "o": o, "h": h, "l": l, "c": cl, "volume": c['volume']
-                    "buyVol": res["buyVol"]
-                    "sellVol": res["sellVol"]
-                    "delta": res["delta"]
-                    "cvd": res["cvd"]
-                    "deltaRatio": res["deltaRatio"]
-                    "zDelta": res["zDelta"]
-                    "bodyATR": res["bodyATR"]
-                    "absorbed": res["absorbed"]
-                    "windowN": detector.stats.n
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "ts": c['ts'],
+                    "o": o, "h": h, "l": l, "c": cl, "volume": c['volume'],
+                    "buyVol": res["buyVol"],
+                    "sellVol": res["sellVol"],
+                    "delta": res["delta"],
+                    "cvd": res["cvd"],
+                    "deltaRatio": res["deltaRatio"],
+                    "zDelta": res["zDelta"],
+                    "bodyATR": res["bodyATR"],
+                    "absorbed": res["absorbed"],
+                    "windowN": detector.stats.n,
                     "type": "of_bar"
                 }
 
@@ -574,16 +574,16 @@ class CandleOrderFlowWorker:
                 close_time = get_current_timestamp_ms()
             
             message_data = {
-                'data': json.dumps(data)
+                'data': json.dumps(data),
                 'timestamp': format_timestamp_for_redis(close_time),  # Время события (UTC ms)
-                'type': data.get('type', 'unknown')
+                'type': data.get('type', 'unknown'),
                 'symbol': data.get('symbol', 'unknown')
             }
             
             message_id_1, message_id_2 = self.dual_redis.xadd(
-                stream_name
-                message_data
-                maxlen=STREAM_MAX_LENGTH
+                stream_name,
+                message_data,
+                maxlen=STREAM_MAX_LENGTH,
                 approximate=True
             )
             
@@ -598,10 +598,10 @@ class CandleOrderFlowWorker:
         """Обрабатывает pending сообщения при старте."""
         try:
             pending_info = self.redis_client.xpending_range(
-                SUBSCRIBE_STREAM
-                OF_CONSUMER_GROUP
-                min='-'
-                max='+'
+                SUBSCRIBE_STREAM,
+                OF_CONSUMER_GROUP,
+                min='-',
+                max='+',
                 count=100
             )
             
@@ -615,10 +615,10 @@ class CandleOrderFlowWorker:
                 for p in pending_info:
                     message_id = p['message_id']
                     messages = self.redis_client.xclaim(
-                        SUBSCRIBE_STREAM
-                        OF_CONSUMER_GROUP
-                        consumer_name
-                        min_idle_time=0
+                        SUBSCRIBE_STREAM,
+                        OF_CONSUMER_GROUP,
+                        consumer_name,
+                        min_idle_time=0,
                         message_ids=[message_id]
                     )
                     
@@ -648,9 +648,9 @@ class CandleOrderFlowWorker:
             try:
                 # Read a chunk of messages (e.g. 50-100)
                 messages = self.redis_client.xreadgroup(
-                    OF_CONSUMER_GROUP
-                    consumer_name
-                    {SUBSCRIBE_STREAM: last_id}
+                    OF_CONSUMER_GROUP,
+                    consumer_name,
+                    {SUBSCRIBE_STREAM: last_id},
                     count=max(self.batch_size, OF_READ_COUNT), # Read enough to fill preferred batch
                     block=OF_READ_BLOCK_MS
                 )
@@ -678,7 +678,7 @@ class CandleOrderFlowWorker:
 
                 # Batch Ack
                 # Simplification: we ack everything we read. 
-                # If crash happens during processing, we might lose data (at-most-once for processed)
+                # If crash happens during processing, we might lose data (at-most-once for processed),
                 # but we are using 'xreadgroup', so they stay in PEL if not acked?
                 # Wait, if we crash inside _process_global_batch, we haven't acked yet.
                 # So we have at-least-once semantics. Good.
@@ -707,9 +707,9 @@ class CandleOrderFlowWorker:
             # Создаём consumer group если не существует
             try:
                 self.redis_client.xgroup_create(
-                    SUBSCRIBE_STREAM
-                    OF_CONSUMER_GROUP
-                    id='$'
+                    SUBSCRIBE_STREAM,
+                    OF_CONSUMER_GROUP,
+                    id='$',
                     mkstream=True
                 )
                 print(f"✅ OrderFlow: Consumer group {OF_CONSUMER_GROUP} создана")

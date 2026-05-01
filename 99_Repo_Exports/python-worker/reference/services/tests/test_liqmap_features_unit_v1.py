@@ -15,19 +15,19 @@ def test_compute_features_basic():
     # Longs liquidated at 90.
     # Shorts liquidated at 110.
     payload = {
-        "ts_ms": now_ms
+        "ts_ms": now_ms,
         "levels": [
-            {"price": "90", "long_usd": "1000", "short_usd": "0"}
+            {"price": "90", "long_usd": "1000", "short_usd": "0"},
             {"price": "110", "long_usd": "0", "short_usd": "2000"}
         ]
     }
     feats = compute_liqmap_features_from_snapshot(
-        payload=payload
-        mid_px=100.0
-        now_ms=now_ms + 100
-        max_stale_ms=3500
+        payload=payload,
+        mid_px=100.0,
+        now_ms=now_ms + 100,
+        max_stale_ms=3500,
         peak_range_bps=2000.0, # 20%
-        front_run_bps=20.0
+        front_run_bps=20.0,
         sl_buffer_bps=15.0
     )
     

@@ -47,22 +47,22 @@ def certify(*, drill_code: str, target: Dict[str, Any], run_id: str = "", mode: 
     active_ref_key = f"cfg:atr_policy:active_ref:{_active_ref(active_key)}"
 
     checks = {
-        "active_restored": bool(r.get(active_key))
-        "last_good_restored": bool(r.get(last_good_key))
-        "active_ref_restored": bool(r.get(active_ref_key))
-        "pending_queue_present": len(r.smembers("queue:atr_policy:pending") or []) >= 0
-        "decided_queue_present": len(r.smembers("queue:atr_policy:decided") or []) >= 0
+        "active_restored": bool(r.get(active_key)),
+        "last_good_restored": bool(r.get(last_good_key)),
+        "active_ref_restored": bool(r.get(active_ref_key)),
+        "pending_queue_present": len(r.smembers("queue:atr_policy:pending") or []) >= 0,
+        "decided_queue_present": len(r.smembers("queue:atr_policy:decided") or []) >= 0,
     }
 
     # lightweight resolver compatibility check
     try:
         from services.atr_policy_resolver import get_atr_policy_resolver
         res = get_atr_policy_resolver().resolve(
-            source=target["source"]
-            symbol=target["symbol"]
-            scenario=target["scenario"]
-            regime=target["regime"]
-            risk_horizon_bucket=target["risk_horizon_bucket"]
+            source=target["source"],
+            symbol=target["symbol"],
+            scenario=target["scenario"],
+            regime=target["regime"],
+            risk_horizon_bucket=target["risk_horizon_bucket"],
         )
         checks["resolver_exact_or_fallback_hit"] = bool(res.get("hit", False))
     except Exception:
@@ -71,29 +71,29 @@ def certify(*, drill_code: str, target: Dict[str, Any], run_id: str = "", mode: 
     status = "passed" if all(bool(v) for v in checks.values()) else "failed"
     cert_id = _cert_id(drill_code, target)
     summary = {
-        "status": status
-        "drill_code": drill_code
-        "target": target
-        "failed_checks": [k for k, v in checks.items() if not v]
+        "status": status,
+        "drill_code": drill_code,
+        "target": target,
+        "failed_checks": [k for k, v in checks.items() if not v],
     }
 
     conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_policy_restore_cert_service")
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO atr_policy_restore_certifications (
-                  cert_id, run_id, mode, drill_code
-                  source, symbol, scenario, regime, risk_horizon_bucket
+                  cert_id, run_id, mode, drill_code,
+                  source, symbol, scenario, regime, risk_horizon_bucket,
                   status, checks_json, summary_json
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)
-                """
+                """,
                 (
-                    cert_id, run_id, mode, drill_code
-                    target["source"], target["symbol"], target["scenario"], target["regime"], target["risk_horizon_bucket"]
-                    status
-                    json.dumps(checks, ensure_ascii=False, sort_keys=True)
-                    json.dumps(summary, ensure_ascii=False, sort_keys=True)
+                    cert_id, run_id, mode, drill_code,
+                    target["source"], target["symbol"], target["scenario"], target["regime"], target["risk_horizon_bucket"],
+                    status,
+                    json.dumps(checks, ensure_ascii=False, sort_keys=True),
+                    json.dumps(summary, ensure_ascii=False, sort_keys=True),
                 )
             )
     finally:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_platt_fit_stability.py
 
@@ -9,7 +10,6 @@ test_platt_fit_stability.py
   - детерминированность (одинаковые входы -> одинаковые выходы)
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

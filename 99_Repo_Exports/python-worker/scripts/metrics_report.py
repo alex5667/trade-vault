@@ -21,8 +21,8 @@ async def main():
     # Attempt to connect to Redis
     # Try local host mapping first if running outside container, or service name if inside
     urls = [
-        os.getenv("REDIS_URL")
-        "redis://redis-worker-1:6379/0"
+        os.getenv("REDIS_URL"),
+        "redis://redis-worker-1:6379/0",
         "redis://localhost:6379/0"
     ]
     

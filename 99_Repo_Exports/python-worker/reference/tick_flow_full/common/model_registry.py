@@ -75,12 +75,12 @@ def version_stamp(ts_ms: Optional[int] = None) -> str:
 
 
 def write_versioned_model(
-    model_path: str
-    registry_dir: str
-    *
-    kind: str = "meta_lr"
-    ts_ms: Optional[int] = None
-    extra_meta: Optional[Dict[str, Any]] = None
+    model_path: str,
+    registry_dir: str,
+    *,
+    kind: str = "meta_lr",
+    ts_ms: Optional[int] = None,
+    extra_meta: Optional[Dict[str, Any]] = None,
 ) -> Tuple[WriteResult, str]:
     """
     Store a copy into registry dir under a versioned name and write a small metadata json.
@@ -91,12 +91,12 @@ def write_versioned_model(
     dst_model = Path(registry_dir) / f"{kind}.{v}.json"
     wr = atomic_copy(model_path, str(dst_model))
     meta = {
-        "kind": kind
-        "version": v
-        "model_file": dst_model.name
-        "sha256": wr.sha256
-        "size": wr.size
-        "ts_ms": ts_ms if ts_ms is not None else get_ny_time_millis()
+        "kind": kind,
+        "version": v,
+        "model_file": dst_model.name,
+        "sha256": wr.sha256,
+        "size": wr.size,
+        "ts_ms": ts_ms if ts_ms is not None else get_ny_time_millis(),
     }
     if extra_meta:
         meta.update(extra_meta)
@@ -114,12 +114,12 @@ def promote_version(registry_dir: str, kind: str, version: str, dst_path: str) -
     wr = atomic_copy(str(model_file), dst_path)
     # keep pointer
     pointer = {
-        "kind": kind
-        "version": version
-        "dst_path": dst_path
-        "sha256": wr.sha256
-        "size": wr.size
-        "applied_ts_ms": get_ny_time_millis()
+        "kind": kind,
+        "version": version,
+        "dst_path": dst_path,
+        "sha256": wr.sha256,
+        "size": wr.size,
+        "applied_ts_ms": get_ny_time_millis(),
     }
     write_json_atomic(str(Path(registry_dir) / f"{kind}.champion.json"), pointer)
     return pointer

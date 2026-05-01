@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Calibration report for raw vs calibrated confidences.
 
 Computes:
@@ -12,7 +13,6 @@ Requires joined JSONL with:
   - indicators.confidence_v1 / confidence_v2 and/or confidence_cal_v1 / confidence_cal_v2
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -62,12 +62,12 @@ def load(path: str) -> Dict[str, np.ndarray]:
             c_v2.append(cv2 if cv2 is not None else np.nan)
 
     return {
-        "y": np.asarray(y, dtype=np.float64)
-        "r": np.asarray(r, dtype=np.float64)
-        "p_v1": np.asarray(p_v1, dtype=np.float64)
-        "p_v2": np.asarray(p_v2, dtype=np.float64)
-        "c_v1": np.asarray(c_v1, dtype=np.float64)
-        "c_v2": np.asarray(c_v2, dtype=np.float64)
+        "y": np.asarray(y, dtype=np.float64),
+        "r": np.asarray(r, dtype=np.float64),
+        "p_v1": np.asarray(p_v1, dtype=np.float64),
+        "p_v2": np.asarray(p_v2, dtype=np.float64),
+        "c_v1": np.asarray(c_v1, dtype=np.float64),
+        "c_v2": np.asarray(c_v2, dtype=np.float64),
     }
 
 
@@ -110,10 +110,10 @@ def expectancy_topk(r: np.ndarray, p: np.ndarray, frac: float = 0.05) -> float:
 
 def report(y: np.ndarray, r: np.ndarray, p: np.ndarray) -> Dict[str, float]:
     return {
-        "ece": ece(y, p)
-        "brier": brier(y, p)
-        "precision_top5pct": precision_topk(y, p, 0.05)
-        "expectancy_r_top5pct": expectancy_topk(r, p, 0.05)
+        "ece": ece(y, p),
+        "brier": brier(y, p),
+        "precision_top5pct": precision_topk(y, p, 0.05),
+        "expectancy_r_top5pct": expectancy_topk(r, p, 0.05),
     }
 
 

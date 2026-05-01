@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Chaos test: Redis disconnect во время XADD.
 
@@ -8,7 +9,6 @@ Chaos test: Redis disconnect во время XADD.
   4. Partial failures (N-1 XADD падений, последний успех) — eventual success.
   5. DLQ write failure при _send_dlq → SIGNAL_LOSS_SILENT_TOTAL{reason=dlq_write_failed}.
 """
-from __future__ import annotations
 
 import json
 import unittest

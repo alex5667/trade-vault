@@ -63,7 +63,7 @@ async def test_refresh_async_mode_off_clears_state():
     gate = _make_gate_async(
         mode="OFF", 
         _cfg={"kind": "util_mh_v1"}, 
-        _model=object()
+        _model=object(),
     )
     mock_redis = AsyncMock()
     

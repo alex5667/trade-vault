@@ -339,7 +339,7 @@ def _should_start_trailing_after_tp1(pos) -> bool:
             # -----------------------------------------------------------------
             # NEW: robust read.
             #
-            # Some deployments may not copy trail_after_tp1 into PositionState fields
+            # Some deployments may not copy trail_after_tp1 into PositionState fields,
             # but they DO keep the original signal payload in pos.signal_payload.
             # We support both:
             #   - pos.trail_after_tp1 (preferred)
@@ -413,19 +413,19 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> Optional["TradeEve
             pass
         try:
             return TradeEvent(
-                event_type="TRAILING_SKIPPED"
-                order_id=pos.id
-                sid=pos.sid
-                strategy=pos.strategy
-                source=pos.source
-                symbol=pos.symbol
-                tf=pos.tf
-                direction=pos.direction
-                ts_ms=int(ts_ms)
+                event_type="TRAILING_SKIPPED",
+                order_id=pos.id,
+                sid=pos.sid,
+                strategy=pos.strategy,
+                source=pos.source,
+                symbol=pos.symbol,
+                tf=pos.tf,
+                direction=pos.direction,
+                ts_ms=int(ts_ms),
                 payload={
-                    "reason": str(getattr(pos, "trail_after_tp1_reason", "") or "COND_DISABLED")
-                    "trail_profile": str(getattr(pos, "trail_profile", "") or "")
-                }
+                    "reason": str(getattr(pos, "trail_after_tp1_reason", "") or "COND_DISABLED"),
+                    "trail_profile": str(getattr(pos, "trail_profile", "") or ""),
+                },
             )
         except Exception:
             return None
@@ -490,12 +490,12 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> Optional["TradeEve
         secured_sl = current_sl
 
     ev = apply_trailing_update(
-        pos
-        new_sl=float(secured_sl)
-        ts_ms=int(ts_ms)
-        trailing_distance=float(offset) if offset > 0 else 0.0
-        point_size=0.0
-        clear_future_tp_levels=False
+        pos,
+        new_sl=float(secured_sl),
+        ts_ms=int(ts_ms),
+        trailing_distance=float(offset) if offset > 0 else 0.0,
+        point_size=0.0,
+        clear_future_tp_levels=False,
     )
     if ev is not None:
         try:
@@ -564,12 +564,12 @@ def _arm_trailing_after_tp1(pos, *, ts_ms: int) -> Optional["TradeEvent"]:
 
         # IMPORTANT: new_sl is set to current SL => no immediate SL move here.
         return apply_trailing_update(
-            pos
-            new_sl=float(pos.sl)
-            ts_ms=int(ts_ms)
-            trailing_distance=float(td) if math.isfinite(td) and td > 0 else 0.0
-            point_size=float(pt) if math.isfinite(pt) and pt > 0 else 0.0
-            clear_future_tp_levels=bool(clear_future_tp_levels)
+            pos,
+            new_sl=float(pos.sl),
+            ts_ms=int(ts_ms),
+            trailing_distance=float(td) if math.isfinite(td) and td > 0 else 0.0,
+            point_size=float(pt) if math.isfinite(pt) and pt > 0 else 0.0,
+            clear_future_tp_levels=bool(clear_future_tp_levels),
         )
     except Exception:
         return None
@@ -577,7 +577,7 @@ def _arm_trailing_after_tp1(pos, *, ts_ms: int) -> Optional["TradeEvent"]:
 def _rocket_trailing_only_mode(pos, *, is_rocket_trail: bool, idx: int) -> bool:
     """
     Rocket v1 special behavior:
-      after TP1, if trailing is active -> do NOT close further partial TP volume
+      after TP1, if trailing is active -> do NOT close further partial TP volume,
       just count TP hits for reporting.
 
     With conditional trailing enabled, we must NOT enter this mode unless
@@ -593,17 +593,17 @@ def _rocket_trailing_only_mode(pos, *, is_rocket_trail: bool, idx: int) -> bool:
 
 
 def _safe_call_apply_trailing_update(
-    pos: Any
-    *
-    spec: Any
-    tick: Any
-    px: float
+    pos: Any,
+    *,
+    spec: Any,
+    tick: Any,
+    px: float,
 ) -> bool:
     """
     Calls apply_trailing_update() if it exists, but does not assume its signature.
 
     Why:
-      - You said apply_trailing_update() is implemented and used elsewhere
+      - You said apply_trailing_update() is implemented and used elsewhere,
         but process_tick does not call it after TP1.
       - We must reuse the existing trailing state machine (locks, stop calc, etc.)
         instead of setting flags manually (that would be dangerous / inconsistent).
@@ -618,13 +618,13 @@ def _safe_call_apply_trailing_update(
         return False
     # Try common kw signatures first (cheapest and safest).
     kw_tries = [
-        {"pos": pos, "spec": spec, "tick": tick, "price": px}
-        {"pos": pos, "spec": spec, "tick": tick, "mid": px}
-        {"pos": pos, "tick": tick, "price": px}
-        {"pos": pos, "tick": tick, "mid": px}
-        {"pos": pos, "price": px}
-        {"pos": pos, "mid": px}
-        {"pos": pos}
+        {"pos": pos, "spec": spec, "tick": tick, "price": px},
+        {"pos": pos, "spec": spec, "tick": tick, "mid": px},
+        {"pos": pos, "tick": tick, "price": px},
+        {"pos": pos, "tick": tick, "mid": px},
+        {"pos": pos, "price": px},
+        {"pos": pos, "mid": px},
+        {"pos": pos},
     ]
     for kw in kw_tries:
         try:
@@ -638,10 +638,10 @@ def _safe_call_apply_trailing_update(
             return True
     # Then try positional fallbacks.
     arg_tries = [
-        (pos, spec, tick, px)
-        (pos, tick, px)
-        (pos, px)
-        (pos,)
+        (pos, spec, tick, px),
+        (pos, tick, px),
+        (pos, px),
+        (pos,),
     ]
     for args in arg_tries:
         try:
@@ -655,11 +655,11 @@ def _safe_call_apply_trailing_update(
 
 
 def _maybe_start_trailing_after_tp1(
-    pos: Any
-    *
-    spec: Any
-    tick: Any
-    px: float
+    pos: Any,
+    *,
+    spec: Any,
+    tick: Any,
+    px: float,
 ) -> None:
     """
     Called right after TP1 is hit.
@@ -798,12 +798,12 @@ def maybe_snapshot_time_buckets(pos: Any, spec: Any, ts_ms: int) -> None:
                 continue
 
             tb[b] = {
-                "ts_ms": int(ts_ms)
-                "mfe_pnl": float(mfe_pnl)
-                "mae_pnl": float(mae_pnl)
-                "mfe_price": float(favorable_price)
-                "mae_price": float(adverse_price)
-            }
+                "ts_ms": int(ts_ms),
+                "mfe_pnl": float(mfe_pnl),
+                "mae_pnl": float(mae_pnl),
+                "mfe_price": float(favorable_price),
+                "mae_price": float(adverse_price),
+            },
     except Exception:
         return
 
@@ -843,9 +843,9 @@ def _baseline_update(pos: PositionState, last_price: float, now_ms: int) -> None
                 _baseline_force_close(pos, pos.baseline_sl, now_ms, "BASELINE_SL")
                 return
             for level, label in (
-                (pos.baseline_tp3, "BASELINE_TP3")
-                (pos.baseline_tp2, "BASELINE_TP2")
-                (pos.baseline_tp1, "BASELINE_TP1")
+                (pos.baseline_tp3, "BASELINE_TP3"),
+                (pos.baseline_tp2, "BASELINE_TP2"),
+                (pos.baseline_tp1, "BASELINE_TP1"),
             ):
                 if level > 0 and last_price >= level:
                     _baseline_force_close(pos, level, now_ms, label)
@@ -855,9 +855,9 @@ def _baseline_update(pos: PositionState, last_price: float, now_ms: int) -> None
                 _baseline_force_close(pos, pos.baseline_sl, now_ms, "BASELINE_SL")
                 return
             for level, label in (
-                (pos.baseline_tp3, "BASELINE_TP3")
-                (pos.baseline_tp2, "BASELINE_TP2")
-                (pos.baseline_tp1, "BASELINE_TP1")
+                (pos.baseline_tp3, "BASELINE_TP3"),
+                (pos.baseline_tp2, "BASELINE_TP2"),
+                (pos.baseline_tp1, "BASELINE_TP1"),
             ):
                 if level > 0 and last_price <= level:
                     _baseline_force_close(pos, level, now_ms, label)
@@ -877,9 +877,9 @@ def _build_features_snapshot(feats: Dict[str, Any]) -> Dict[str, Any]:
     whitelist = {
         "delta_z", "dn_usd", "obi", "cvd_slope", "absorption_score", 
         "weak_progress", "vwap_pos", "atr_bps", "liq_scale", 
-        "confidence", "spread_bps_at_entry", "book_age_ms", "slippage_bps_est"
+        "confidence", "spread_bps_at_entry", "book_age_ms", "slippage_bps_est",
         "scenario", "regime", "tier", "data_health", "expected_slippage_bps"
-    }
+    },
     if not isinstance(feats, dict):
         return {}
         
@@ -928,41 +928,41 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
         lot_v = float(signal.lot or 0.0)
 
     pos = PositionState(
-        id=pos_id
-        sid=signal.sid
-        strategy=signal.strategy
-        source=signal.source
-        symbol=signal.symbol
-        tf=signal.tf
-        direction=signal.direction
-        entry_price=float(signal.entry_price)
-        entry_ts_ms=int(signal.entry_ts_ms)
-        lot=float(lot_v)
-        qty=float(lot_v)
-        quantity=float(lot_v)
-        remaining_qty=float(lot_v)
-        sl=float(signal.sl)
-        tp_levels=[float(x) for x in signal.tp_levels[:3]]
-        signal_payload=signal.payload
-        entry_tag=str(signal.entry_tag or "")
-        trail_profile=trail_profile
-        trailing_min_lock_r=trailing_min_lock_r
+        id=pos_id,
+        sid=signal.sid,
+        strategy=signal.strategy,
+        source=signal.source,
+        symbol=signal.symbol,
+        tf=signal.tf,
+        direction=signal.direction,
+        entry_price=float(signal.entry_price),
+        entry_ts_ms=int(signal.entry_ts_ms),
+        lot=float(lot_v),
+        qty=float(lot_v),
+        quantity=float(lot_v),
+        remaining_qty=float(lot_v),
+        sl=float(signal.sl),
+        tp_levels=[float(x) for x in signal.tp_levels[:3]],
+        signal_payload=signal.payload,
+        entry_tag=str(signal.entry_tag or ""),
+        trail_profile=trail_profile,
+        trailing_min_lock_r=trailing_min_lock_r,
         min_lock_price=0.0,  # посчитаем ниже после one_r_money
-        baseline_mode=baseline_mode
-        baseline_horizon_ms=baseline_horizon_ms
-        baseline_sl=baseline_sl
-        baseline_tp1=baseline_tp1
-        baseline_tp2=baseline_tp2
-        baseline_tp3=baseline_tp3
+        baseline_mode=baseline_mode,
+        baseline_horizon_ms=baseline_horizon_ms,
+        baseline_sl=baseline_sl,
+        baseline_tp1=baseline_tp1,
+        baseline_tp2=baseline_tp2,
+        baseline_tp3=baseline_tp3,
 
-        atr=float(payload.get("atr") or signal.payload.get("atr") or 0.0)
+        atr=float(payload.get("atr") or signal.payload.get("atr") or 0.0),
         # AB attribution
-        ab_arm=str(payload.get("ab_arm") or "A")
-        ab_group=str(payload.get("ab_group") or "default")
-        ab_key=str(payload.get("ab_key") or "")
-        arm_ver=int(float(payload.get("arm_ver") or 0))
-        entry_regime=str(payload.get("regime") or "na")
-        entry_zone_id=str(payload.get("zone_id") or "")
+        ab_arm=str(payload.get("ab_arm") or "A"),
+        ab_group=str(payload.get("ab_group") or "default"),
+        ab_key=str(payload.get("ab_key") or ""),
+        arm_ver=int(float(payload.get("arm_ver") or 0)),
+        entry_regime=str(payload.get("regime") or "na"),
+        entry_zone_id=str(payload.get("zone_id") or ""),
 
         # P41 Native Meta Fields
         # NOTE: meta_enforce_cov_bucket is in payload["indicators"] (not top-level payload).
@@ -971,7 +971,7 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
             payload.get("meta_enforce_cov_bucket")
             or _indicators_pl.get("meta_enforce_cov_bucket")
             or ""
-        )
+        ),
         meta_enforce_applied=int(
             payload.get("meta_enforce_applied")
             if payload.get("meta_enforce_applied") is not None
@@ -999,8 +999,8 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
                     pos.remaining_qty = rec_lot
                     recovered = True
                     logger.info(
-                        "🔧 lot=0 recovered from risk_usd for %s: lot=%.6f (risk_usd=%.2f)"
-                        pos.symbol, rec_lot, r_usd_payload
+                        "🔧 lot=0 recovered from risk_usd for %s: lot=%.6f (risk_usd=%.2f)",
+                        pos.symbol, rec_lot, r_usd_payload,
                     )
         except Exception:
             pass
@@ -1014,14 +1014,14 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
                     pos.remaining_qty = default_lot
                     logger.warning(
                         "⚠️ lot=0 and risk_usd=0 for %s sid=%s — using DEFAULT_LOT=%.4f. "
-                        "Check signal publisher: qty/lot and risk_usd fields are both absent!"
-                        pos.symbol, pos.sid, default_lot
+                        "Check signal publisher: qty/lot and risk_usd fields are both absent!",
+                        pos.symbol, pos.sid, default_lot,
                     )
                 else:
                     logger.warning(
                         "⚠️ lot=0 and no recovery possible for %s sid=%s — PnL will be 0.0. "
-                        "Check signal publisher: qty/lot and risk_usd fields are both absent!"
-                        pos.symbol, pos.sid
+                        "Check signal publisher: qty/lot and risk_usd fields are both absent!",
+                        pos.symbol, pos.sid,
                     )
             except Exception:
                 pass
@@ -1119,7 +1119,7 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
     # (dynamic attrs; no dataclass schema change needed)
     #
     # Why:
-    #   - TradeClosed has no "kind"/"venue"/"confidence" fields by schema
+    #   - TradeClosed has no "kind"/"venue"/"confidence" fields by schema,
     #     but you already rely on dynamic fields being persisted via __dict__.
     #   - Needed for:
     #       * slipema:v2 (venue/kind)
@@ -1245,12 +1245,12 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
 
 
 def apply_trailing_update(
-    pos: PositionState
-    new_sl: float
-    ts_ms: int
-    trailing_distance: float = 0.0
-    point_size: float = 0.0
-    clear_future_tp_levels: bool = False
+    pos: PositionState,
+    new_sl: float,
+    ts_ms: int,
+    trailing_distance: float = 0.0,
+    point_size: float = 0.0,
+    clear_future_tp_levels: bool = False,
 ) -> Optional[TradeEvent]:
     if pos.closed:
         return None
@@ -1310,30 +1310,30 @@ def apply_trailing_update(
         pos.tp_levels = keep
 
     return TradeEvent(
-        event_type="TRAILING_SYNC"
-        order_id=pos.id
-        sid=pos.sid
-        strategy=pos.strategy
-        source=pos.source
-        symbol=pos.symbol
-        tf=pos.tf
-        direction=pos.direction
-        ts_ms=ts_ms
+        event_type="TRAILING_SYNC",
+        order_id=pos.id,
+        sid=pos.sid,
+        strategy=pos.strategy,
+        source=pos.source,
+        symbol=pos.symbol,
+        tf=pos.tf,
+        direction=pos.direction,
+        ts_ms=ts_ms,
         payload={
-            "previous_sl": prev
-            "new_sl": pos.sl
-            "trailing_distance": pos.trailing_distance
-            "point_size": pos.trailing_point
-            "clear_future_tp_levels": int(clear_future_tp_levels)
-        }
+            "previous_sl": prev,
+            "new_sl": pos.sl,
+            "trailing_distance": pos.trailing_distance,
+            "point_size": pos.trailing_point,
+            "clear_future_tp_levels": int(clear_future_tp_levels),
+        },
     )
 
 
 def process_tick(
-    pos: PositionState
-    tick: Tick
-    spec
-    tp_ratios: Sequence[float]
+    pos: PositionState,
+    tick: Tick,
+    spec,
+    tp_ratios: Sequence[float],
     fill_policy: str = "level",  # "level" или "tick"
 ) -> Tuple[List[TradeEvent], Optional[TradeClosed]]:
     """
@@ -1420,9 +1420,9 @@ def process_tick(
         if _inverted_count > 0:
             logger.warning(
                 "⚠️ INVERTED_TP: %s %s removed %d inverted TP levels "
-                "(entry=%.6f, original_tps=%s, valid_tps=%s)"
-                pos.symbol, pos.direction, _inverted_count
-                pos.entry_price, pos.tp_levels, _valid_tps
+                "(entry=%.6f, original_tps=%s, valid_tps=%s)",
+                pos.symbol, pos.direction, _inverted_count,
+                pos.entry_price, pos.tp_levels, _valid_tps,
             )
             pos.tp_levels = _valid_tps
 
@@ -1444,27 +1444,27 @@ def process_tick(
             if tp_level >= 3:
                 pos.tp3_hit = True
             events.append(TradeEvent(
-                event_type="TP_HIT"
-                order_id=pos.id
-                sid=pos.sid
-                strategy=pos.strategy
-                source=pos.source
-                symbol=pos.symbol
-                tf=pos.tf
-                direction=pos.direction
-                ts_ms=tick.ts_ms
+                event_type="TP_HIT",
+                order_id=pos.id,
+                sid=pos.sid,
+                strategy=pos.strategy,
+                source=pos.source,
+                symbol=pos.symbol,
+                tf=pos.tf,
+                direction=pos.direction,
+                ts_ms=tick.ts_ms,
                 payload={
-                    "tp_level": tp_level
-                    "tp_price": level_price
-                    "fill_price": level_price
-                    "closed_qty": 0.0
-                    "remaining_qty": pos.remaining_qty
-                    "pnl_part_gross": 0.0
-                    "tp_hits": pos.tp_hits
-                    "trailing_only": 1
+                    "tp_level": tp_level,
+                    "tp_price": level_price,
+                    "fill_price": level_price,
+                    "closed_qty": 0.0,
+                    "remaining_qty": pos.remaining_qty,
+                    "pnl_part_gross": 0.0,
+                    "tp_hits": pos.tp_hits,
+                    "trailing_only": 1,
                     # audit: explain why rocket trailing-only is active
-                    "trail_after_tp1": 1 if _should_start_trailing_after_tp1(pos) else 0
-                }
+                    "trail_after_tp1": 1 if _should_start_trailing_after_tp1(pos) else 0,
+                },
             ))
             continue
 
@@ -1517,27 +1517,27 @@ def process_tick(
                         pass
 
             events.append(TradeEvent(
-                event_type="TP_HIT"
-                order_id=pos.id
-                sid=pos.sid
-                strategy=pos.strategy
-                source=pos.source
-                symbol=pos.symbol
-                tf=pos.tf
-                direction=pos.direction
-                ts_ms=tick.ts_ms
+                event_type="TP_HIT",
+                order_id=pos.id,
+                sid=pos.sid,
+                strategy=pos.strategy,
+                source=pos.source,
+                symbol=pos.symbol,
+                tf=pos.tf,
+                direction=pos.direction,
+                ts_ms=tick.ts_ms,
                 payload={
-                    "tp_level": tp_level
-                    "tp_price": level_price
-                    "fill_price": float(fill_price)
+                    "tp_level": tp_level,
+                    "tp_price": level_price,
+                    "fill_price": float(fill_price),
                     "closed_qty": 0.0,  # fail-safe: no volume closed
-                    "remaining_qty": float(pos.remaining_qty)
-                    "pnl_part_gross": 0.0
-                    "tp_hits": int(pos.tp_hits)
+                    "remaining_qty": float(pos.remaining_qty),
+                    "pnl_part_gross": 0.0,
+                    "tp_hits": int(pos.tp_hits),
                     # audit (doesn't affect execution)
-                    "trail_after_tp1": 1 if bool(getattr(pos, "trail_after_tp1", True)) else 0
-                    "trail_after_tp1_reason": str(getattr(pos, "trail_after_tp1_reason", "") or "")[:256]
-                }
+                    "trail_after_tp1": 1 if bool(getattr(pos, "trail_after_tp1", True)) else 0,
+                    "trail_after_tp1_reason": str(getattr(pos, "trail_after_tp1_reason", "") or "")[:256],
+                },
             ))
             continue
 
@@ -1560,7 +1560,7 @@ def process_tick(
         # ------------------------------------------------------------------
         # NEW: start trailing after TP1 (conditional).
         #
-        # Previously this branch had "pass", so even when policy allowed trailing
+        # Previously this branch had "pass", so even when policy allowed trailing,
         # trailing never actually started here. That broke:
         #   - FORCE_TRAIL_AFTER_TP1 semantics
         #   - conditional trailing (trail_after_tp1)
@@ -1591,27 +1591,27 @@ def process_tick(
                     pass
 
         events.append(TradeEvent(
-            event_type="TP_HIT"
-            order_id=pos.id
-            sid=pos.sid
-            strategy=pos.strategy
-            source=pos.source
-            symbol=pos.symbol
-            tf=pos.tf
-            direction=pos.direction
-            ts_ms=tick.ts_ms
+            event_type="TP_HIT",
+            order_id=pos.id,
+            sid=pos.sid,
+            strategy=pos.strategy,
+            source=pos.source,
+            symbol=pos.symbol,
+            tf=pos.tf,
+            direction=pos.direction,
+            ts_ms=tick.ts_ms,
             payload={
-                "tp_level": tp_level
-                "tp_price": level_price
-                "fill_price": fill_price
-                "closed_qty": close_qty
-                "remaining_qty": pos.remaining_qty
-                "pnl_part_gross": pnl_part
-                "tp_hits": pos.tp_hits
+                "tp_level": tp_level,
+                "tp_price": level_price,
+                "fill_price": fill_price,
+                "closed_qty": close_qty,
+                "remaining_qty": pos.remaining_qty,
+                "pnl_part_gross": pnl_part,
+                "tp_hits": pos.tp_hits,
                 # audit (safe for downstream; doesn't affect execution)
-                "trail_after_tp1": 1 if bool(getattr(pos, "trail_after_tp1", True)) else 0
-                "trail_after_tp1_reason": str(getattr(pos, "trail_after_tp1_reason", "") or "")[:256]
-            }
+                "trail_after_tp1": 1 if bool(getattr(pos, "trail_after_tp1", True)) else 0,
+                "trail_after_tp1_reason": str(getattr(pos, "trail_after_tp1_reason", "") or "")[:256],
+            },
         ))
 
         # -----------------------------------------------------------------
@@ -1637,21 +1637,21 @@ def process_tick(
             pos.exit_ts_ms = tick.ts_ms
             pos.exit_price = fill_price
             closed = finalize_trade(
-                pos, spec, exit_price=fill_price, exit_ts_ms=tick.ts_ms
-                close_reason_raw=f"TP{tp_level}"
-                tp_ratios=tp_ratios
+                pos, spec, exit_price=fill_price, exit_ts_ms=tick.ts_ms,
+                close_reason_raw=f"TP{tp_level}",
+                tp_ratios=tp_ratios,
             )
             events.append(TradeEvent(
-                event_type="CLOSE"
-                order_id=pos.id
-                sid=pos.sid
-                strategy=pos.strategy
-                source=pos.source
-                symbol=pos.symbol
-                tf=pos.tf
-                direction=pos.direction
-                ts_ms=tick.ts_ms
-                payload={"reason": closed.close_reason, "reason_raw": closed.close_reason_raw}
+                event_type="CLOSE",
+                order_id=pos.id,
+                sid=pos.sid,
+                strategy=pos.strategy,
+                source=pos.source,
+                symbol=pos.symbol,
+                tf=pos.tf,
+                direction=pos.direction,
+                ts_ms=tick.ts_ms,
+                payload={"reason": closed.close_reason, "reason_raw": closed.close_reason_raw},
             ))
             return events, closed
 
@@ -1663,16 +1663,16 @@ def process_tick(
             pos.sl = float(new_sl)
             pos.trailing_moves_count += 1
             events.append(TradeEvent(
-                event_type="TRAILING_MOVE"
-                order_id=pos.id
-                sid=pos.sid
-                strategy=pos.strategy
-                source=pos.source
-                symbol=pos.symbol
-                tf=pos.tf
-                direction=pos.direction
-                ts_ms=tick.ts_ms
-                payload={"previous_sl": prev, "new_sl": pos.sl, "price": mid, "moves": pos.trailing_moves_count}
+                event_type="TRAILING_MOVE",
+                order_id=pos.id,
+                sid=pos.sid,
+                strategy=pos.strategy,
+                source=pos.source,
+                symbol=pos.symbol,
+                tf=pos.tf,
+                direction=pos.direction,
+                ts_ms=tick.ts_ms,
+                payload={"previous_sl": prev, "new_sl": pos.sl, "price": mid, "moves": pos.trailing_moves_count},
             ))
 
     # -------------------------------------------------------------------------
@@ -1718,56 +1718,56 @@ def process_tick(
                 pos.exit_price = exit_price
 
                 closed = finalize_trade(
-                    pos, spec, exit_price=exit_price, exit_ts_ms=tick.ts_ms
-                    close_reason_raw=reason_code
-                    tp_ratios=tp_ratios
+                    pos, spec, exit_price=exit_price, exit_ts_ms=tick.ts_ms,
+                    close_reason_raw=reason_code,
+                    tp_ratios=tp_ratios,
                 )
 
                 events.append(TradeEvent(
-                    event_type="TIME_BE_EXIT"
-                    order_id=pos.id
-                    sid=pos.sid
-                    strategy=pos.strategy
-                    source=pos.source
-                    symbol=pos.symbol
-                    tf=pos.tf
-                    direction=pos.direction
-                    ts_ms=tick.ts_ms
+                    event_type="TIME_BE_EXIT",
+                    order_id=pos.id,
+                    sid=pos.sid,
+                    strategy=pos.strategy,
+                    source=pos.source,
+                    symbol=pos.symbol,
+                    tf=pos.tf,
+                    direction=pos.direction,
+                    ts_ms=tick.ts_ms,
                     payload={
-                        "exit_price": exit_price
-                        "remaining_qty_closed": pos.remaining_qty
-                        "reason_raw": reason_code
-                        "pnl_net_bps": pnl_net_bps
-                    }
+                        "exit_price": exit_price,
+                        "remaining_qty_closed": pos.remaining_qty,
+                        "reason_raw": reason_code,
+                        "pnl_net_bps": pnl_net_bps,
+                    },
                 ))
                 events.append(TradeEvent(
-                    event_type="CLOSE"
-                    order_id=pos.id
-                    sid=pos.sid
-                    strategy=pos.strategy
-                    source=pos.source
-                    symbol=pos.symbol
-                    tf=pos.tf
-                    direction=pos.direction
-                    ts_ms=tick.ts_ms
-                    payload={"reason": closed.close_reason, "reason_raw": closed.close_reason_raw}
+                    event_type="CLOSE",
+                    order_id=pos.id,
+                    sid=pos.sid,
+                    strategy=pos.strategy,
+                    source=pos.source,
+                    symbol=pos.symbol,
+                    tf=pos.tf,
+                    direction=pos.direction,
+                    ts_ms=tick.ts_ms,
+                    payload={"reason": closed.close_reason, "reason_raw": closed.close_reason_raw},
                 ))
                 return events, closed
             elif reason_code.endswith("_SHADOW"):
                 events.append(TradeEvent(
-                    event_type="TIME_BE_EXIT_SHADOW"
-                    order_id=pos.id
-                    sid=pos.sid
-                    strategy=pos.strategy
-                    source=pos.source
-                    symbol=pos.symbol
-                    tf=pos.tf
-                    direction=pos.direction
-                    ts_ms=tick.ts_ms
+                    event_type="TIME_BE_EXIT_SHADOW",
+                    order_id=pos.id,
+                    sid=pos.sid,
+                    strategy=pos.strategy,
+                    source=pos.source,
+                    symbol=pos.symbol,
+                    tf=pos.tf,
+                    direction=pos.direction,
+                    ts_ms=tick.ts_ms,
                     payload={
-                        "reason_raw": reason_code
-                        "pnl_net_bps": pnl_net_bps
-                    }
+                        "reason_raw": reason_code,
+                        "pnl_net_bps": pnl_net_bps,
+                    },
                 ))
 
     # 3) SL check (по trigger цене)
@@ -1796,39 +1796,39 @@ def process_tick(
             pos.exit_price = exit_price
 
             closed = finalize_trade(
-                pos, spec, exit_price=exit_price, exit_ts_ms=tick.ts_ms
-                close_reason_raw=raw
-                tp_ratios=tp_ratios
+                pos, spec, exit_price=exit_price, exit_ts_ms=tick.ts_ms,
+                close_reason_raw=raw,
+                tp_ratios=tp_ratios,
             )
 
             events.append(TradeEvent(
-                event_type="SL_HIT"
-                order_id=pos.id
-                sid=pos.sid
-                strategy=pos.strategy
-                source=pos.source
-                symbol=pos.symbol
-                tf=pos.tf
-                direction=pos.direction
-                ts_ms=tick.ts_ms
+                event_type="SL_HIT",
+                order_id=pos.id,
+                sid=pos.sid,
+                strategy=pos.strategy,
+                source=pos.source,
+                symbol=pos.symbol,
+                tf=pos.tf,
+                direction=pos.direction,
+                ts_ms=tick.ts_ms,
                 payload={
-                    "sl": pos.sl
-                    "exit_price": exit_price
-                    "remaining_qty_closed": pos.remaining_qty
-                    "reason_raw": raw
-                }
+                    "sl": pos.sl,
+                    "exit_price": exit_price,
+                    "remaining_qty_closed": pos.remaining_qty,
+                    "reason_raw": raw,
+                },
             ))
             events.append(TradeEvent(
-                event_type="CLOSE"
-                order_id=pos.id
-                sid=pos.sid
-                strategy=pos.strategy
-                source=pos.source
-                symbol=pos.symbol
-                tf=pos.tf
-                direction=pos.direction
-                ts_ms=tick.ts_ms
-                payload={"reason": closed.close_reason, "reason_raw": closed.close_reason_raw}
+                event_type="CLOSE",
+                order_id=pos.id,
+                sid=pos.sid,
+                strategy=pos.strategy,
+                source=pos.source,
+                symbol=pos.symbol,
+                tf=pos.tf,
+                direction=pos.direction,
+                ts_ms=tick.ts_ms,
+                payload={"reason": closed.close_reason, "reason_raw": closed.close_reason_raw},
             ))
             # после закрытия остаток 0
             pos.remaining_qty = 0.0
@@ -1838,16 +1838,16 @@ def process_tick(
 
 
 def _build_close_reason_detail(
-    *
-    close_reason_raw: str
-    bucket: str
-    trailing_started: bool
-    trailing_active: bool
-    tp_hits: int
+    *,
+    close_reason_raw: str,
+    bucket: str,
+    trailing_started: bool,
+    trailing_active: bool,
+    tp_hits: int,
 ) -> str:
     """
     FIX: Build structured close_reason_detail so consumers have context.
-    Previously this field was always "" (default from TradeClosed dataclass)
+    Previously this field was always "" (default from TradeClosed dataclass),
     making trades:closed stream entries useless for analytics segmentation.
 
     Examples:
@@ -1888,12 +1888,12 @@ def _build_close_reason_detail(
 
 
 def finalize_trade(
-    pos: PositionState
-    spec
-    exit_price: float
-    exit_ts_ms: int
-    close_reason_raw: str
-    tp_ratios: Sequence[float]
+    pos: PositionState,
+    spec,
+    exit_price: float,
+    exit_ts_ms: int,
+    close_reason_raw: str,
+    tp_ratios: Sequence[float],
 ) -> TradeClosed:
     # --- Time Sync Defense (Expert Recommendation) ---
     # Ensure causality: entry must happen before or at the same time as exit.
@@ -1916,10 +1916,10 @@ def finalize_trade(
 
     # ✅ Time contract: hold_ms + quarantine (fail-open)
     from common.trade_report_contract import (
-        compute_hold_ms_with_quarantine
-        normalize_close_bucket
-        clamp_one_r_money
-        infer_trailing_started
+        compute_hold_ms_with_quarantine,
+        normalize_close_bucket,
+        clamp_one_r_money,
+        infer_trailing_started,
     )
 
     # Try to wire metrics/quarantine if your PositionState carries them (optional)
@@ -1931,12 +1931,12 @@ def finalize_trade(
     )
 
     hold_ms, time_quarantined = compute_hold_ms_with_quarantine(
-        entry_ts_ms=int(entry_ts)
-        exit_ts_ms=int(exit_ts_ms)
-        quarantine=quarantine
-        metrics=metrics
-        max_back_ms=int(getattr(spec, "max_time_back_ms", 0) or 0)
-        unit_mismatch_guard=True
+        entry_ts_ms=int(entry_ts),
+        exit_ts_ms=int(exit_ts_ms),
+        quarantine=quarantine,
+        metrics=metrics,
+        max_back_ms=int(getattr(spec, "max_time_back_ms", 0) or 0),
+        unit_mismatch_guard=True,
     )
 
     # ------------------------------------------------------------------
@@ -1950,11 +1950,11 @@ def finalize_trade(
 
     if hasattr(spec, 'calculate_fees'):
         fees = spec.calculate_fees(
-            entry_price=pos.entry_price
-            exit_price=exit_price
-            lot=pos.lot
-            side=pos.direction
-            duration_ms=hold_ms
+            entry_price=pos.entry_price,
+            exit_price=exit_price,
+            lot=pos.lot,
+            side=pos.direction,
+            duration_ms=hold_ms,
         )
     else:
         # Fallback: используем pos.fees (если уже установлен) или 0.0
@@ -1994,10 +1994,10 @@ def finalize_trade(
     trailing_moves = int(getattr(pos, "trailing_moves_count", 0) or 0)
     trailing_active = bool(getattr(pos, "trailing_active", False)) or trailing_moves > 0
     trailing_started = infer_trailing_started(
-        trailing_started=bool(getattr(pos, "trailing_started", False))
-        trailing_active=trailing_active
-        trailing_moves=trailing_moves
-        trailing_profile=trailing_profile
+        trailing_started=bool(getattr(pos, "trailing_started", False)),
+        trailing_active=trailing_active,
+        trailing_moves=trailing_moves,
+        trailing_profile=trailing_profile,
     )
 
     # if SL was moved (best-effort)
@@ -2009,23 +2009,23 @@ def finalize_trade(
         pass
 
     bucket = normalize_close_bucket(
-        close_reason_raw_bucket=str(base_bucket or "")
-        pnl_net=float(pnl_net)
-        tp_hits=int(pos.tp_hits or 0)
-        trailing_started=trailing_started
-        trailing_active=trailing_active
-        sl_moved_to_be=sl_moved_to_be
-        time_quarantined=bool(time_quarantined)
+        close_reason_raw_bucket=str(base_bucket or ""),
+        pnl_net=float(pnl_net),
+        tp_hits=int(pos.tp_hits or 0),
+        trailing_started=trailing_started,
+        trailing_active=trailing_active,
+        sl_moved_to_be=sl_moved_to_be,
+        time_quarantined=bool(time_quarantined),
     )
 
     # ✅ Fix: ensure MFE/MAE PnL are calculated if missing
     if float(pos.mfe_pnl) == 0.0 and float(pos.max_favorable_price or 0.0) != 0.0:
         try:
             pos.mfe_pnl = float(spec.pnl_money(
-                float(pos.entry_price)
-                float(pos.max_favorable_price)
-                float(pos.lot)
-                str(pos.direction)
+                float(pos.entry_price),
+                float(pos.max_favorable_price),
+                float(pos.lot),
+                str(pos.direction),
                 symbol=str(pos.symbol or "")
             ))
         except Exception:
@@ -2034,10 +2034,10 @@ def finalize_trade(
     if float(pos.mae_pnl) == 0.0 and float(getattr(pos, "max_adverse_price", 0.0) or 0.0) != 0.0:
         try:
             pos.mae_pnl = float(spec.pnl_money(
-                float(pos.entry_price)
-                float(getattr(pos, "max_adverse_price", 0.0))
-                float(pos.lot)
-                str(pos.direction)
+                float(pos.entry_price),
+                float(getattr(pos, "max_adverse_price", 0.0)),
+                float(pos.lot),
+                str(pos.direction),
                 symbol=str(pos.symbol or "")
             ))
         except Exception:
@@ -2063,11 +2063,11 @@ def finalize_trade(
     min_risk_usd = float(getattr(spec, "report_min_risk_usd", 1.0) or 1.0)
     fees_risk_mult = float(getattr(spec, "report_fees_risk_mult", 3.0) or 3.0)
     one_r, _clamped = clamp_one_r_money(
-        one_r_money=one_r_raw
-        fees_usd=float(fees)
-        min_risk_usd=min_risk_usd
-        fees_risk_mult=fees_risk_mult
-        metrics=metrics
+        one_r_money=one_r_raw,
+        fees_usd=float(fees),
+        min_risk_usd=min_risk_usd,
+        fees_risk_mult=fees_risk_mult,
+        metrics=metrics,
     )
     r_mult = (pnl_net / one_r) if one_r > 1e-12 else 0.0
 
@@ -2086,86 +2086,86 @@ def finalize_trade(
 
     closed = TradeClosed(
         # Identity
-        order_id=pos.id
-        trade_id=pos.id
-        sid=pos.sid
-        strategy=pos.strategy
-        source=pos.source
-        symbol=pos.symbol
-        tf=pos.tf
+        order_id=pos.id,
+        trade_id=pos.id,
+        sid=pos.sid,
+        strategy=pos.strategy,
+        source=pos.source,
+        symbol=pos.symbol,
+        tf=pos.tf,
         direction=pos.direction,  # FIX: was missing → all trades defaulted to "LONG"
         side=str(pos.direction),  # FIX: mirror for TradeClosed.side field
-        is_virtual=getattr(pos, "is_virtual", False)
+        is_virtual=getattr(pos, "is_virtual", False),
         entry_regime=str(getattr(pos, "entry_regime", "na") or "na"),  # FIX: propagate regime
 
         # times/prices
-        entry_ts_ms=pos.entry_ts_ms
-        exit_ts_ms=exit_ts_ms
-        entry_price=pos.entry_price
-        exit_price=exit_price
-        lot=pos.lot
-        notional_usd=notional_usd
+        entry_ts_ms=pos.entry_ts_ms,
+        exit_ts_ms=exit_ts_ms,
+        entry_price=pos.entry_price,
+        exit_price=exit_price,
+        lot=pos.lot,
+        notional_usd=notional_usd,
 
         # pnl
-        pnl_net=pnl_net
-        pnl_gross=pnl_gross
-        fees=fees
-        fees_usd=fees
-        pnl_pct=pct
+        pnl_net=pnl_net,
+        pnl_gross=pnl_gross,
+        fees=fees,
+        fees_usd=fees,
+        pnl_pct=pct,
 
         # excursions (money)
-        mfe_pnl=float(pos.mfe_pnl)
-        mae_pnl=float(pos.mae_pnl)
-        giveback=giveback
-        missed_profit=missed
-        one_r_money=float(one_r)
-        r_multiple=float(r_mult)
-        risk_usd=float(one_r)
-        r_mult=float(r_mult)
-        duration_ms=dur
-        is_final_close=True
+        mfe_pnl=float(pos.mfe_pnl),
+        mae_pnl=float(pos.mae_pnl),
+        giveback=giveback,
+        missed_profit=missed,
+        one_r_money=float(one_r),
+        r_multiple=float(r_mult),
+        risk_usd=float(one_r),
+        r_mult=float(r_mult),
+        duration_ms=dur,
+        is_final_close=True,
 
         # User Req 4.3: Turnover variants
-        turnover_entry=turnover_entry
-        turnover_roundtrip=turnover_roundtrip
+        turnover_entry=turnover_entry,
+        turnover_roundtrip=turnover_roundtrip,
 
-        pnl_net_baseline=pnl_if_fixed_exit
-        mgmt_edge=(pnl_net - pnl_if_fixed_exit)
-        tp1_hit=bool(getattr(pos, "tp1_hit", False))
-        tp2_hit=bool(getattr(pos, "tp2_hit", False))
-        tp3_hit=bool(getattr(pos, "tp3_hit", False))
-        tp_hits=int(getattr(pos, "tp_hits", 0) or 0)
-        tp_before_sl=int(pos.tp_hits)
-        trailing_started=bool(trailing_started)
-        trailing_active=bool(trailing_active)
-        trailing_moves=int(trailing_moves)
-        close_reason=bucket
-        close_reason_raw=(close_reason_raw or "")
+        pnl_net_baseline=pnl_if_fixed_exit,
+        mgmt_edge=(pnl_net - pnl_if_fixed_exit),
+        tp1_hit=bool(getattr(pos, "tp1_hit", False)),
+        tp2_hit=bool(getattr(pos, "tp2_hit", False)),
+        tp3_hit=bool(getattr(pos, "tp3_hit", False)),
+        tp_hits=int(getattr(pos, "tp_hits", 0) or 0),
+        tp_before_sl=int(pos.tp_hits),
+        trailing_started=bool(trailing_started),
+        trailing_active=bool(trailing_active),
+        trailing_moves=int(trailing_moves),
+        close_reason=bucket,
+        close_reason_raw=(close_reason_raw or ""),
         # FIX: populate close_reason_detail so trades:closed consumers get structured info.
         # Previously always "", making downstream analytics blind to trailing/TP context.
         close_reason_detail=_build_close_reason_detail(
-            close_reason_raw=close_reason_raw
-            bucket=bucket
-            trailing_started=bool(trailing_started)
-            trailing_active=bool(trailing_active)
-            tp_hits=int(getattr(pos, "tp_hits", 0) or 0)
-        )
-        baseline_exit_reason=pos.baseline_exit_reason
-        baseline_exit_ts_ms=int(pos.baseline_exit_ts_ms or exit_ts_ms)
-        baseline_exit_price=float(pos.baseline_exit_price or exit_price)
-        atr=float(getattr(pos, "atr", 0.0))
-        sl=float(getattr(pos, "sl", 0.0))
-        tp_levels=list(getattr(pos, "tp_levels", []))
+            close_reason_raw=close_reason_raw,
+            bucket=bucket,
+            trailing_started=bool(trailing_started),
+            trailing_active=bool(trailing_active),
+            tp_hits=int(getattr(pos, "tp_hits", 0) or 0),
+        ),
+        baseline_exit_reason=pos.baseline_exit_reason,
+        baseline_exit_ts_ms=int(pos.baseline_exit_ts_ms or exit_ts_ms),
+        baseline_exit_price=float(pos.baseline_exit_price or exit_price),
+        atr=float(getattr(pos, "atr", 0.0)),
+        sl=float(getattr(pos, "sl", 0.0)),
+        tp_levels=list(getattr(pos, "tp_levels", [])),
         tp1_price=float(pos.tp_levels[0]) if pos.tp_levels else 0.0,  # #15: guard against empty tp_levels
-        entry_tag=str(pos.entry_tag or "")
-        max_favorable_price=float(pos.max_favorable_price or 0.0)
-        max_favorable_ts=int(pos.max_favorable_ts or 0)
-        remaining_qty=0.0
-        status="CLOSED"
-        trailing_profile=trailing_profile
-        trailing_min_lock_r=float(getattr(pos, "trailing_min_lock_r", 0.0))
-        min_lock_price=float(getattr(pos, "min_lock_price", 0.0) or 0.0)
-        signal_payload=(pos.signal_payload or {})
+        entry_tag=str(pos.entry_tag or ""),
+        max_favorable_price=float(pos.max_favorable_price or 0.0),
+        max_favorable_ts=int(pos.max_favorable_ts or 0),
+        remaining_qty=0.0,
+        status="CLOSED",
+        trailing_profile=trailing_profile,
+        trailing_min_lock_r=float(getattr(pos, "trailing_min_lock_r", 0.0)),
+        min_lock_price=float(getattr(pos, "min_lock_price", 0.0) or 0.0),
+        signal_payload=(pos.signal_payload or {}),
     )
 
     # -------------------------------------------------------------------------
@@ -2179,7 +2179,7 @@ def finalize_trade(
 
     # Transfer TP1 hit ts and excursion snapshots
     for name in [
-        "tp1_hit_ts_ms", "mfe_pnl_at_tp1", "mae_pnl_before_tp1", "mfe_price_at_tp1"
+        "tp1_hit_ts_ms", "mfe_pnl_at_tp1", "mae_pnl_before_tp1", "mfe_price_at_tp1",
         "mfe_ts_at_tp1", "mae_price_before_tp1", "mae_ts_before_tp1", "ab_arm"
     ]:
         try:

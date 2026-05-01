@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/news_pipeline/test_p6_budget_overbudget_dlq_no_llm.py
 
@@ -11,7 +12,6 @@ Verifies:
 
 No real Redis/LLM needed; uses in-process fakes.
 """
-from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field

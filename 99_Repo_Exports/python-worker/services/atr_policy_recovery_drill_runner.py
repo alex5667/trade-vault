@@ -17,11 +17,11 @@ def _redis():
 
 def _target() -> Dict[str, str]:
     return {
-        "source": os.getenv("ATR_POLICY_CERT_SOURCE", "CryptoOrderFlow")
-        "symbol": os.getenv("ATR_POLICY_CERT_SYMBOL", "BTCUSDT")
-        "scenario": os.getenv("ATR_POLICY_CERT_SCENARIO", "restore_cert")
-        "regime": os.getenv("ATR_POLICY_CERT_REGIME", "na")
-        "risk_horizon_bucket": os.getenv("ATR_POLICY_CERT_BUCKET", "test")
+        "source": os.getenv("ATR_POLICY_CERT_SOURCE", "CryptoOrderFlow"),
+        "symbol": os.getenv("ATR_POLICY_CERT_SYMBOL", "BTCUSDT"),
+        "scenario": os.getenv("ATR_POLICY_CERT_SCENARIO", "restore_cert"),
+        "regime": os.getenv("ATR_POLICY_CERT_REGIME", "na"),
+        "risk_horizon_bucket": os.getenv("ATR_POLICY_CERT_BUCKET", "test"),
     }
 
 

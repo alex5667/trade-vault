@@ -1,10 +1,10 @@
 #!/usr/bin/env python
+from __future__ import annotations
 """
 Edge analytics by entry_tag with baseline pnl_if_fixed_exit.
 Provides reusable functions for CLI and programmatic use.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

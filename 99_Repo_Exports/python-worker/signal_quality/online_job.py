@@ -1,10 +1,10 @@
-"""
+from __future__ import annotations
+""",
 Online signal quality computation job.
 
 This module maintains rolling quality assessment based on recent signal performance.
-"""
+""",
 
-from __future__ import annotations
 
 import logging
 
@@ -23,12 +23,12 @@ _ONLINE_MIN_N: int = 10
 
 
 def run_online_quality_job(
-    pg_dsn: str
-    horizon: str = "R_main"
-    roll_n: int = ROLL_N
-    alpha: float = ALPHA
+    pg_dsn: str,
+    horizon: str = "R_main",
+    roll_n: int = ROLL_N,
+    alpha: float = ALPHA,
 ) -> None:
-    """
+    """,
     Run online rolling quality computation job.
 
     This function maintains recent quality metrics for each signal type
@@ -39,15 +39,15 @@ def run_online_quality_job(
         horizon: R horizon ('R_main', 'R_30m', etc.)
         roll_n: Rolling window size
         alpha: VaR/CVaR quantile
-    """
+    """,
     # roll_n is an internal int — safe to interpolate (not user-supplied data)
     assert isinstance(roll_n, int) and roll_n > 0, f"roll_n must be a positive int, got {roll_n!r}"
 
     logger.info(
-        "Starting online quality computation (horizon=%s, roll_n=%d, alpha=%.2f)"
-        horizon
-        roll_n
-        alpha
+        "Starting online quality computation (horizon=%s, roll_n=%d, alpha=%.2f)",
+        horizon,
+        roll_n,
+        alpha,
     )
 
     conn = psycopg2.connect(pg_dsn)
@@ -59,11 +59,11 @@ def run_online_quality_job(
                 f"""
                 WITH ranked AS (
                     SELECT
-                        symbol
-                        signal_type
-                        side
-                        pnl_r
-                        ts
+                        symbol,
+                        signal_type,
+                        side,
+                        pnl_r,
+                        ts,
                         ROW_NUMBER() OVER (
                           PARTITION BY symbol, signal_type, side
                           ORDER BY ts DESC
@@ -77,7 +77,7 @@ def run_online_quality_job(
                 SELECT symbol, signal_type, side, pnl_r
                 FROM ranked
                 WHERE rn <= {roll_n}
-                """
+                """,
             )
             rows = cur.fetchall()
 
@@ -112,30 +112,30 @@ def run_online_quality_job(
                     status = "disabled"
 
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO signal_quality_online
-                        (symbol, signal_type, side, horizon
-                         n_recent, win_rate_recent, expectancy_r_recent
-                         var_r_recent, cvar_r_recent
+                        (symbol, signal_type, side, horizon,
+                         n_recent, win_rate_recent, expectancy_r_recent,
+                         var_r_recent, cvar_r_recent,
                          quality_score_online, status, updated_at)
-                    VALUES (%s,%s,%s,%s
-                            %s,%s,%s,%s,%s
+                    VALUES (%s,%s,%s,%s,
+                            %s,%s,%s,%s,%s,
                             %s,%s,now())
                     ON CONFLICT (symbol, signal_type, side, horizon)
                     DO UPDATE SET
-                        n_recent           = EXCLUDED.n_recent
-                        win_rate_recent    = EXCLUDED.win_rate_recent
-                        expectancy_r_recent = EXCLUDED.expectancy_r_recent
-                        var_r_recent       = EXCLUDED.var_r_recent
-                        cvar_r_recent      = EXCLUDED.cvar_r_recent
-                        quality_score_online = EXCLUDED.quality_score_online
-                        status             = EXCLUDED.status
+                        n_recent           = EXCLUDED.n_recent,
+                        win_rate_recent    = EXCLUDED.win_rate_recent,
+                        expectancy_r_recent = EXCLUDED.expectancy_r_recent,
+                        var_r_recent       = EXCLUDED.var_r_recent,
+                        cvar_r_recent      = EXCLUDED.cvar_r_recent,
+                        quality_score_online = EXCLUDED.quality_score_online,
+                        status             = EXCLUDED.status,
                         updated_at         = now()
-                    """
+                    """,
                     (
-                        symbol, stype, side, horizon
-                        n, wr, exp_r, var_r, cvar_r
-                        q_online, status
+                        symbol, stype, side, horizon,
+                        n, wr, exp_r, var_r, cvar_r,
+                        q_online, status,
                     )
                 )
 
@@ -158,8 +158,8 @@ if __name__ == "__main__":
     import sys
 
     logging.basicConfig(
-        level="INFO"
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        level="INFO",
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
     if len(sys.argv) < 2:

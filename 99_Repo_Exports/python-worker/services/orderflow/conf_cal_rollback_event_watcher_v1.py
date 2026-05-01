@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 conf_cal_rollback_event_watcher_v1.py
 
@@ -19,7 +20,6 @@ Env / Args
 - GRAFANA_DASHBOARD_UID / GRAFANA_PANEL_ID (optional, for scoping annotations)
 """
 
-from __future__ import annotations
 import os
 import sys
 

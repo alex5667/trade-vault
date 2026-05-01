@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Smoke tests for v7 schema wiring in ML analysis CLI tools.
 
 We keep this test intentionally lightweight:
@@ -6,7 +7,6 @@ We keep this test intentionally lightweight:
     should produce parquet + summary json without crashing on FeatureRegistry.
 """
 
-from __future__ import annotations
 
 import json
 import os

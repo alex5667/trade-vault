@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_rollups_freshness_probe_v1.py
 
 Probe DB rollup freshness for OF-gate ok_rate continuous aggregates.
@@ -24,7 +25,6 @@ Exit:
   2: failed (db error / missing views / empty buckets)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

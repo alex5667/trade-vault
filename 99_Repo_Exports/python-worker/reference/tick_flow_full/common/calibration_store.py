@@ -88,12 +88,12 @@ class CalibStore:
     """
 
     def __init__(
-        self
-        path: str
-        *
-        min_samples: int = 300
-        reload_sec: int = 30
-        logger: Optional[logging.Logger] = None
+        self,
+        path: str,
+        *,
+        min_samples: int = 300,
+        reload_sec: int = 30,
+        logger: Optional[logging.Logger] = None,
     ) -> None:
         self.path = str(path or "")
         self.min_samples = int(min_samples)
@@ -241,25 +241,25 @@ class CalibStore:
         # Side-aware (most specific first)
         if side is not None:
             keys.extend([
-                f"kind:{kind_s}|symbol:{symbol_s}|side:{side_s}"
-                f"kind:{kind_s}|symbol:{symbol_s}|side:*"
-                f"kind:{kind_s}|symbol:*|side:{side_s}"
-                f"kind:*|symbol:{symbol_s}|side:{side_s}"
+                f"kind:{kind_s}|symbol:{symbol_s}|side:{side_s}",
+                f"kind:{kind_s}|symbol:{symbol_s}|side:*",
+                f"kind:{kind_s}|symbol:*|side:{side_s}",
+                f"kind:*|symbol:{symbol_s}|side:{side_s}",
             ])
         # Side-agnostic (new format)
         keys.extend([
-            f"kind:{kind_s}|symbol:{symbol_s}|side:*"
-            f"kind:{kind_s}|symbol:*|side:*"
-            f"kind:*|symbol:{symbol_s}|side:*"
-            "global"
+            f"kind:{kind_s}|symbol:{symbol_s}|side:*",
+            f"kind:{kind_s}|symbol:*|side:*",
+            f"kind:*|symbol:{symbol_s}|side:*",
+            "global",
         ])
 
         # Backward-compatible keys (older calibration.json without side)
         keys_legacy = [
-            f"kind:{kind_s}|symbol:{symbol_s}"
-            f"kind:{kind_s}|symbol:*"
-            f"kind:*|symbol:{symbol_s}"
-            "global"
+            f"kind:{kind_s}|symbol:{symbol_s}",
+            f"kind:{kind_s}|symbol:*",
+            f"kind:*|symbol:{symbol_s}",
+            "global",
         ]
         g, k = self._pick(keys)
         if g is not None:

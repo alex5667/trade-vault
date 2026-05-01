@@ -1,7 +1,7 @@
 """P1.2.4 — orchestration asset validation tests.
 
 Verifies that the compose file, alert rules, and env.example contain the
-required P1.2.4 orchestration artifacts (healthcheck, supervised executor
+required P1.2.4 orchestration artifacts (healthcheck, supervised executor,
 new incident/runbook keys).
 """
 from pathlib import Path

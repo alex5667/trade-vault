@@ -28,20 +28,20 @@ PROM_GO_LIVE_CONSTRAINTS = Gauge("atr_go_live_constraints_total", "Active constr
 PROM_GO_LIVE_REJECTIONS = Counter("atr_go_live_rejections_total", "Rejections by reason", ["reason_code"])
 
 REQUIRED_DOMAINS = [
-    "signal_and_gates"
-    "dispatch_and_runtime"
-    "execution"
-    "protective_lifecycle"
-    "control_plane_governance"
+    "signal_and_gates",
+    "dispatch_and_runtime",
+    "execution",
+    "protective_lifecycle",
+    "control_plane_governance",
     "dr_replay_archive"
 ]
 
 REQUIRED_ROLES = [
-    "runtime_owner"
-    "execution_owner"
-    "protective_owner"
-    "control_plane_owner"
-    "oncall"
+    "runtime_owner",
+    "execution_owner",
+    "protective_owner",
+    "control_plane_owner",
+    "oncall",
     "technical_owner"
 ]
 
@@ -148,9 +148,9 @@ class ATRGoLiveReadinessService:
         # For a full live integration, we query atr_operating_charters, atr_charter_compliance_checks, etc.
         # This acts as a stub returning perfectly healthy defaults
         return {
-            "execution_yellow": False
-            "dr_restore_fail": False
-            "charter_compliance_fail": False
+            "execution_yellow": False,
+            "dr_restore_fail": False,
+            "charter_compliance_fail": False,
             "protective_drift": False
         }
 
@@ -237,16 +237,16 @@ class ATRGoLiveReadinessService:
                 expires_at += timedelta(days=1)
                 
             summary = {
-                "critical_fails": critical_fails
-                "warnings": warnings
-                "missing_domains": incomplete_domains
-                "approved_roles": list(approved_roles)
+                "critical_fails": critical_fails,
+                "warnings": warnings,
+                "missing_domains": incomplete_domains,
+                "approved_roles": list(approved_roles),
                 "constraints": constraints_block
             }
 
             cur.execute("""
                 UPDATE atr_go_live_readiness_packages
-                SET package_status = %s, verdict = %s, summary_json = %s
+                SET package_status = %s, verdict = %s, summary_json = %s,
                     signed_at = NOW(), expires_at = %s
                 WHERE package_id = %s
             """, (package_status, verdict, json.dumps(summary), expires_at, package_id))

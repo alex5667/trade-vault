@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """P91 — LOB pressure smoke-check (v1)
 
 Goal:
@@ -19,7 +20,6 @@ Exit codes:
 Writes a compact JSON summary into `sre:lob_pressure_smoke` (for dashboards/exporters).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

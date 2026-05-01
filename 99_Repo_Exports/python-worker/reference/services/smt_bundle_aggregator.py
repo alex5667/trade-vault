@@ -215,10 +215,10 @@ class SmtAggregatorConfig:
         return cls(
             window_n=_i("SMT_COH_WINDOW_N", 180),              # returns samples
             max_lag=_i("SMT_COH_MAX_LAG", 5),                  # steps
-            leader_confirm_min_bps=_f("SMT_LEADER_CONFIRM_MIN_BPS", 12.0)
-            leader_dir_window=_i("SMT_LEADER_DIR_WINDOW", 6)
-            coh_min_corr=_f("SMT_COH_MIN_CORR", 0.55)
-            price_stale_ms=_i("SMT_PRICE_STALE_MS", 7_000)
+            leader_confirm_min_bps=_f("SMT_LEADER_CONFIRM_MIN_BPS", 12.0),
+            leader_dir_window=_i("SMT_LEADER_DIR_WINDOW", 6),
+            coh_min_corr=_f("SMT_COH_MIN_CORR", 0.55),
+            price_stale_ms=_i("SMT_PRICE_STALE_MS", 7_000),
         )
 
 
@@ -248,21 +248,21 @@ class SmtBundleAggregator:
         
         self._enricher = NewsEnricherSync(redis=self.redis)
         self._news = NewsGate(
-            redis_client=self.redis
-            asset_class=str(os.getenv("NEWS_ASSET_CLASS", "crypto"))
-            window_sec=int(os.getenv("NEWS_GATE_WINDOW_SEC", "300"))
-            grade_min=int(os.getenv("NEWS_GATE_GRADE_MIN", "4"))
-            manual_key=str(os.getenv("NEWS_GATE_MANUAL_KEY", "news:hi:active"))
-            cal_agg_prefix=str(os.getenv("NEWS_GATE_CAL_AGG_PREFIX", "calendar:agg:"))
+            redis_client=self.redis,
+            asset_class=str(os.getenv("NEWS_ASSET_CLASS", "crypto")),
+            window_sec=int(os.getenv("NEWS_GATE_WINDOW_SEC", "300")),
+            grade_min=int(os.getenv("NEWS_GATE_GRADE_MIN", "4")),
+            manual_key=str(os.getenv("NEWS_GATE_MANUAL_KEY", "news:hi:active")),
+            cal_agg_prefix=str(os.getenv("NEWS_GATE_CAL_AGG_PREFIX", "calendar:agg:")),
             # soft gate parameters
-            soft_enabled=True
-            soft_window_sec=int(os.getenv("NEWS_GATE_WINDOW_SEC", "300"))
-            soft_grade_min=2
-            soft_grade2_bps=5000
-            soft_grade3_bps=3500
-            soft_grade4_bps=2500
-            soft_news_k=0.9
-            soft_news_min_bps=2500
+            soft_enabled=True,
+            soft_window_sec=int(os.getenv("NEWS_GATE_WINDOW_SEC", "300")),
+            soft_grade_min=2,
+            soft_grade2_bps=5000,
+            soft_grade3_bps=3500,
+            soft_grade4_bps=2500,
+            soft_news_k=0.9,
+            soft_news_min_bps=2500,
         )
 
     def _load_snapshot(self, sym: str) -> Optional[SymbolSnapshot]:
@@ -285,10 +285,10 @@ class SmtBundleAggregator:
         """
         try:
             msg = {
-                "type": "smt_setup"
-                "bundle": bundle_id
-                "ts_ms": int(payload.get("ts_ms") or get_ny_time_millis())
-                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                "type": "smt_setup",
+                "bundle": bundle_id,
+                "ts_ms": int(payload.get("ts_ms") or get_ny_time_millis()),
+                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
             }
             self.redis.xadd(self.smt_setup_stream, msg, maxlen=20000, approximate=True)
         except Exception:
@@ -463,25 +463,25 @@ class SmtBundleAggregator:
         coh = max(0.0, min(1.0, float(coh)))
 
         return {
-            "bundle_id": b.bundle_id
-            "leader": best_sym
-            "leader_dir": leader_dir
-            "leader_confirm": int(leader_confirm)
-            "coh": float(coh)
-            "ts_ms": int(_now_ms())
+            "bundle_id": b.bundle_id,
+            "leader": best_sym,
+            "leader_dir": leader_dir,
+            "leader_confirm": int(leader_confirm),
+            "coh": float(coh),
+            "ts_ms": int(_now_ms()),
         }
 
     def write_bundle_state(self, st: Dict[str, Any]) -> None:
         key = f"{self.cfg.write_key_prefix}{st.get('bundle_id')}"
         try:
             self.redis.hset(
-                key
+                key,
                 mapping={
-                    "leader": str(st.get("leader") or "")
-                    "leader_dir": str(st.get("leader_dir") or "")
-                    "leader_confirm": str(int(st.get("leader_confirm") or 0))
-                    "coh": f"{float(st.get('coh') or 0.0):.6f}"
-                    "ts_ms": str(int(st.get("ts_ms") or _now_ms()))
+                    "leader": str(st.get("leader") or ""),
+                    "leader_dir": str(st.get("leader_dir") or ""),
+                    "leader_confirm": str(int(st.get("leader_confirm") or 0)),
+                    "coh": f"{float(st.get('coh') or 0.0):.6f}",
+                    "ts_ms": str(int(st.get("ts_ms") or _now_ms())),
                 }
             )
         except Exception:
@@ -541,29 +541,29 @@ class SmtBundleAggregator:
                 asof_ts_ms = ctx.news.asof_ts_ms if ctx.news else None
 
                 gate_decision = self._news.decide(
-                    now_ts_ms=ts_ms
-                    symbols=tuple(b.symbols)
-                    news_risk=news_risk
-                    news_grade_id=news_grade_id
-                    confidence=confidence
-                    horizon_sec=horizon_sec
-                    asof_ts_ms=asof_ts_ms
+                    now_ts_ms=ts_ms,
+                    symbols=tuple(b.symbols),
+                    news_risk=news_risk,
+                    news_grade_id=news_grade_id,
+                    confidence=confidence,
+                    horizon_sec=horizon_sec,
+                    asof_ts_ms=asof_ts_ms,
                 )
 
                 # Config wrapper for decision
                 d_cfg = {
-                    "smt_coh_threshold": float(os.getenv("SMT_COH_THR", "0.65"))
-                    "smt_leader_conf_min_score": float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65"))
-                    "smt_basket_k": int(os.getenv("SMT_BASKET_K", "2"))
-                    "smt_rank_mode": str(os.getenv("SMT_RANK_MODE", "ts"))
-                    "smt_rank_ts_window": int(os.getenv("SMT_RANK_TS_WINDOW", "240"))
-                    "smt_zone_max_bp": float(os.getenv("SMT_ZONE_MAX_BP", "15.0"))
-                    "smt_leader_min_of_score": float(os.getenv("SMT_LEADER_MIN_OF_SCORE", "1.0"))
+                    "smt_coh_threshold": float(os.getenv("SMT_COH_THR", "0.65")),
+                    "smt_leader_conf_min_score": float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65")),
+                    "smt_basket_k": int(os.getenv("SMT_BASKET_K", "2")),
+                    "smt_rank_mode": str(os.getenv("SMT_RANK_MODE", "ts")),
+                    "smt_rank_ts_window": int(os.getenv("SMT_RANK_TS_WINDOW", "240")),
+                    "smt_zone_max_bp": float(os.getenv("SMT_ZONE_MAX_BP", "15.0")),
+                    "smt_leader_min_of_score": float(os.getenv("SMT_LEADER_MIN_OF_SCORE", "1.0")),
                     "gate_decision": gate_decision,  # new: full decision object
-                    "news_blocked": 1 if gate_decision.hard_block else 0
-                    "news_reason": str(gate_decision.hard_reason or "")
-                    "news_until_ts_ms": int(gate_decision.until_ts_ms or 0)
-                    "risk_factor_bps": gate_decision.risk_factor_bps
+                    "news_blocked": 1 if gate_decision.hard_block else 0,
+                    "news_reason": str(gate_decision.hard_reason or ""),
+                    "news_until_ts_ms": int(gate_decision.until_ts_ms or 0),
+                    "risk_factor_bps": gate_decision.risk_factor_bps,
                 }
                 
                 dec = decide_smt(leader_snap, snaps, coh=coh, cfg=d_cfg)
@@ -581,7 +581,7 @@ class SmtBundleAggregator:
                     dec.news_until_ts_ms = 0
                 
                 # Override leader_confirm with snap-based truth if possible:
-                # confirmed iff decision is continuation and leader has strong-of+closeCross
+                # confirmed iff decision is continuation and leader has strong-of+closeCross,
                 # OR you can read it directly from leader_confirm_reject_v2 via dec.reason.
                 leader_confirm_v2 = 1 if (dec.kind == "continuation" and float(dec.conf_score or 0.0) > 0) else 0
 
@@ -598,28 +598,28 @@ class SmtBundleAggregator:
 
                 # Save full gate decision for audit and risk analysis
                 st["gate_decision"] = {
-                    "hard_block": gate_decision.hard_block
-                    "hard_reason": gate_decision.hard_reason
-                    "until_ts_ms": gate_decision.until_ts_ms
-                    "risk_factor_bps": gate_decision.risk_factor_bps
-                    "soft_reasons": gate_decision.soft_reasons
-                    "dq_flags": gate_decision.dq_flags
-                    "meta": gate_decision.meta
+                    "hard_block": gate_decision.hard_block,
+                    "hard_reason": gate_decision.hard_reason,
+                    "until_ts_ms": gate_decision.until_ts_ms,
+                    "risk_factor_bps": gate_decision.risk_factor_bps,
+                    "soft_reasons": gate_decision.soft_reasons,
+                    "dq_flags": gate_decision.dq_flags,
+                    "meta": gate_decision.meta,
                 }
                 
                 # Re-write state with extended fields
                 key = f"{self.cfg.write_key_prefix}{b.bundle_id}"
                 mapping = {
-                    "decision": str(dec.kind)
-                    "pick": str(dec.pick or "")
-                    "trend_dir": str(dec.trend_dir)
-                    "div": str(dec.div or "")
-                    "reason": str(dec.reason)
-                    "leader_conf_score": f"{float(getattr(dec, 'conf_score', 0.0) or 0.0):.4f}"
-                    "leader_confirm": str(int(leader_confirm_v2))
-                    "news_blocked": str(int(getattr(dec, "news_blocked", news_blocked) or 0))
-                    "news_until_ts_ms": str(int(getattr(dec, "news_until_ts_ms", news_until_ts_ms) or 0))
-                    "risk_factor_bps": str(int(getattr(dec, "risk_factor_bps", 10000) or 10000))
+                    "decision": str(dec.kind),
+                    "pick": str(dec.pick or ""),
+                    "trend_dir": str(dec.trend_dir),
+                    "div": str(dec.div or ""),
+                    "reason": str(dec.reason),
+                    "leader_conf_score": f"{float(getattr(dec, 'conf_score', 0.0) or 0.0):.4f}",
+                    "leader_confirm": str(int(leader_confirm_v2)),
+                    "news_blocked": str(int(getattr(dec, "news_blocked", news_blocked) or 0)),
+                    "news_until_ts_ms": str(int(getattr(dec, "news_until_ts_ms", news_until_ts_ms) or 0)),
+                    "risk_factor_bps": str(int(getattr(dec, "risk_factor_bps", 10000) or 10000)),
                 }
                 self.redis.hset(key, mapping=mapping)
 
@@ -627,18 +627,18 @@ class SmtBundleAggregator:
                 # Never emit setups during news block.
                 if int(getattr(dec, "news_blocked", 0) or 0) == 0 and dec.kind in ("continuation", "reversal") and dec.pick:
                     out = {
-                        "ts_ms": int(ts_ms)
-                        "kind": dec.kind
-                        "leader": dec.leader
-                        "coh": float(dec.coh)
-                        "trend_dir": dec.trend_dir
-                        "pick": dec.pick
-                        "div": dec.div
-                        "reason": dec.reason
-                        "leader_conf_score": float(getattr(dec, "conf_score", 0.0) or 0.0)
-                        "news_blocked": int(getattr(dec, "news_blocked", 0) or 0)
-                        "news_until_ts_ms": int(getattr(dec, "news_until_ts_ms", 0) or 0)
-                        "risk_factor_bps": int(getattr(dec, "risk_factor_bps", 10000) or 10000)
+                        "ts_ms": int(ts_ms),
+                        "kind": dec.kind,
+                        "leader": dec.leader,
+                        "coh": float(dec.coh),
+                        "trend_dir": dec.trend_dir,
+                        "pick": dec.pick,
+                        "div": dec.div,
+                        "reason": dec.reason,
+                        "leader_conf_score": float(getattr(dec, "conf_score", 0.0) or 0.0),
+                        "news_blocked": int(getattr(dec, "news_blocked", 0) or 0),
+                        "news_until_ts_ms": int(getattr(dec, "news_until_ts_ms", 0) or 0),
+                        "risk_factor_bps": int(getattr(dec, "risk_factor_bps", 10000) or 10000),
                     }
                     self._publish_smt_setup(out, b.bundle_id)
 

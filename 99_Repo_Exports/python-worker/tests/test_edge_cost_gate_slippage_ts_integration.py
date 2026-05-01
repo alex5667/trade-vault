@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 test_edge_cost_gate_slippage_ts_integration.py
 
@@ -8,7 +9,6 @@ Key invariants:
   2. ts in seconds → normalize to ms → EMA can be used
   3. EMA key includes symbol×venue×session×tf×kind dimensions
 """
-from __future__ import annotations
 
 import pytest
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate

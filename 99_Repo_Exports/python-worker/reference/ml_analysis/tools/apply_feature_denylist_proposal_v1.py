@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Apply an *approved* feature denylist proposal to the active denylist json.
 
 Safety properties:
@@ -8,7 +9,6 @@ Safety properties:
  - Updates manifest.status -> 'applied'
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -60,9 +60,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True, help="Path to denylist_proposal_*.manifest.json")
     ap.add_argument(
-        "--denylist-path"
-        default=""
-        help="Optional. Defaults to tick_flow_full/core/feature_denylist_v1.json (repo-relative)."
+        "--denylist-path",
+        default="",
+        help="Optional. Defaults to tick_flow_full/core/feature_denylist_v1.json (repo-relative).",
     )
     ap.add_argument("--applier", default=os.environ.get("USER", ""))
     ap.add_argument("--apply", type=int, default=0, help="1 = apply (otherwise dry-run)")
@@ -130,16 +130,16 @@ def main() -> int:
     ph = str(m.get("proposal_hash") or "")
     ph8 = _sha256_short(ph or mp.as_posix(), 8)
     audit = {
-        "kind": "feature_denylist_apply_record_v1"
-        "applied_utc": _utc_now()
-        "applier": args.applier
-        "manifest": str(mp)
-        "proposal_hash": ph
-        "denylist_path": str(denylist_path)
-        "backup_path": str(bak)
-        "adds": {"deny_num": add_dn, "deny_bool": add_db}
-        "counts_before": {"deny_num": len(before_dn), "deny_bool": len(before_db)}
-        "counts_after": {"deny_num": len(new_dn), "deny_bool": len(new_db)}
+        "kind": "feature_denylist_apply_record_v1",
+        "applied_utc": _utc_now(),
+        "applier": args.applier,
+        "manifest": str(mp),
+        "proposal_hash": ph,
+        "denylist_path": str(denylist_path),
+        "backup_path": str(bak),
+        "adds": {"deny_num": add_dn, "deny_bool": add_db},
+        "counts_before": {"deny_num": len(before_dn), "deny_bool": len(before_db)},
+        "counts_after": {"deny_num": len(new_dn), "deny_bool": len(new_db)},
     }
     audit_path = denylist_path.parent / f"feature_denylist_apply_{ts}_{ph8}.json"
     _atomic_write_json(audit_path, audit)

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Liquidity resiliency / recovery-time tracker (Phase C / P2).
 
 Measures how quickly spread/depth return to baseline after a stress episode.
@@ -8,7 +9,6 @@ Outputs:
 - liq_fragility_score: 0..1 (higher => more fragile)
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass
@@ -46,11 +46,11 @@ class LiquidityResiliencyTracker:
 
         if ts_ms <= 0 or not math.isfinite(sb) or not math.isfinite(du) or sb < 0 or du < 0:
             return {
-                "liq_recovery_time_ms": int(0)
-                "liq_fragility_score": float(0.0)
-                "liq_stress_active": int(1 if self.stress_active else 0)
-                "liq_spread_ema": float(self.spread_ema)
-                "liq_depth_ema_usd": float(self.depth_ema_usd)
+                "liq_recovery_time_ms": int(0),
+                "liq_fragility_score": float(0.0),
+                "liq_stress_active": int(1 if self.stress_active else 0),
+                "liq_spread_ema": float(self.spread_ema),
+                "liq_depth_ema_usd": float(self.depth_ema_usd),
             }
 
         # EMA init/update
@@ -99,11 +99,11 @@ class LiquidityResiliencyTracker:
             rec_ms = int(max(0, ts_ms - self.stress_start_ms))
 
         return {
-            "liq_recovery_time_ms": int(rec_ms)
-            "liq_fragility_score": float(frag)
-            "liq_stress_active": int(1 if self.stress_active else 0)
-            "liq_spread_ema": float(self.spread_ema)
-            "liq_depth_ema_usd": float(self.depth_ema_usd)
-            "liq_spread_ratio": float(spread_ratio)
-            "liq_depth_ratio": float(depth_ratio)
+            "liq_recovery_time_ms": int(rec_ms),
+            "liq_fragility_score": float(frag),
+            "liq_stress_active": int(1 if self.stress_active else 0),
+            "liq_spread_ema": float(self.spread_ema),
+            "liq_depth_ema_usd": float(self.depth_ema_usd),
+            "liq_spread_ratio": float(spread_ratio),
+            "liq_depth_ratio": float(depth_ratio),
         }

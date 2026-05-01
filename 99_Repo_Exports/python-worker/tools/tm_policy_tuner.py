@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 tm_policy_tuner.py
 
@@ -14,7 +15,6 @@ Usage:
   PYTHONPATH=".:.." python tools/tm_policy_tuner.py --input /tmp/closed_7d.ndjson --window-days 7
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

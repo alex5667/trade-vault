@@ -1,5 +1,5 @@
-"""P4.14 tests: verify alerts YAML and dashboard JSON contain required metrics."""
 from __future__ import annotations
+"""P4.14 tests: verify alerts YAML and dashboard JSON contain required metrics."""
 
 import json
 import os

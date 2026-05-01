@@ -1,4 +1,5 @@
-"""
+from __future__ import annotations
+""",
 Пересчет p99 latency для metrics:of_gate (build vs ml).
 
 Анализирует последние N событий из metrics:of_gate и вычисляет:
@@ -8,9 +9,8 @@
 Использование:
     python3 -m tools.analyze_of_gate_latency_p99 --count 2000
     python3 -m tools.analyze_of_gate_latency_p99 --count 5000 --redis-url redis://redis-worker-1:6379/0
-"""
+""",
 
-from __future__ import annotations
 
 import argparse
 import os

@@ -1,5 +1,5 @@
-"""Phase 2.4A unit tests: should_apply_live_surface canary router."""
 from __future__ import annotations
+"""Phase 2.4A unit tests: should_apply_live_surface canary router."""
 
 import pytest
 

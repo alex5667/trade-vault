@@ -2,7 +2,7 @@
 """
 Export labels from Redis Stream to Parquet/CSV.
 
-Exports trade labels from labels:trades stream for offline analysis
+Exports trade labels from labels:trades stream for offline analysis,
 supervised learning, and calibration.
 
 Usage:
@@ -54,8 +54,8 @@ def parse_time(s: str) -> str:
 
 
 def export_labels(
-    r: redis.Redis
-    start_id: str
+    r: redis.Redis,
+    start_id: str,
     end_id: str
 ) -> List[Dict]:
     """
@@ -100,8 +100,8 @@ def export_labels(
 def main():
     """Main entry point."""
     ap = argparse.ArgumentParser(
-        description="Export labels from Redis Stream to Parquet/CSV"
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Export labels from Redis Stream to Parquet/CSV",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Export day's labels

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Train confidence calibrator (temperature / Platt) on joined JSONL.
 
 Input JSONL: each line is a dict with at least:
@@ -14,7 +15,6 @@ Why logit-domain?
   raw confidence as a probability proxy and calibrate its logit.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

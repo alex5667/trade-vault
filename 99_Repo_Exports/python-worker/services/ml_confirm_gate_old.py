@@ -2324,7 +2324,7 @@ class MLConfirmGate:
             indicators=indicators,
             direction=direction,
             scenario=scenario,
-            ts_ms=ts_ms
+            ts_ms=ts_ms,
         )
         dec.missing = missing
 
@@ -2766,7 +2766,7 @@ class MLConfirmGate:
             indicators=indicators,
             direction=direction,
             scenario=scenario,
-            ts_ms=ts_ms
+            ts_ms=ts_ms,
         )
         dec.missing = missing
         
@@ -2993,7 +2993,7 @@ class MLConfirmGate:
             indicators=indicators,
             direction=direction,
             scenario=scenario,
-            ts_ms=ts_ms
+            ts_ms=ts_ms,
         )
         dec.missing = missing
         
@@ -3194,7 +3194,7 @@ class MLConfirmGate:
             indicators=indicators,
             direction=direction,
             scenario=scenario,
-            ts_ms=ts_ms
+            ts_ms=ts_ms,
         )
         dec.missing = missing
         

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Unit tests for Phase 3.6 ATR Policy Guard Rails.
 
@@ -7,7 +8,6 @@ Tests:
   - confirm tokens (issue / consume-once / expiry / actor mismatch)
   - arm_cooldown side-effects
 """
-from __future__ import annotations
 
 import json
 import time
@@ -19,35 +19,35 @@ import pytest
 
 
 def _make_obj(
-    *
-    stop_n: int = 100
-    trail_n: int = 100
-    pnl_stop: float = 2.0
-    pnl_trail: float = 2.0
-    source: str = "src"
-    symbol: str = "BTCUSDT"
-    scenario: str = "s1"
-    regime: str = "bull"
-    bucket: str = "2h"
+    *,
+    stop_n: int = 100,
+    trail_n: int = 100,
+    pnl_stop: float = 2.0,
+    pnl_trail: float = 2.0,
+    source: str = "src",
+    symbol: str = "BTCUSDT",
+    scenario: str = "s1",
+    regime: str = "bull",
+    bucket: str = "2h",
 ) -> dict:
     return {
-        "source": source
-        "symbol": symbol
-        "scenario": scenario
-        "regime": regime
-        "risk_horizon_bucket": bucket
+        "source": source,
+        "symbol": symbol,
+        "scenario": scenario,
+        "regime": regime,
+        "risk_horizon_bucket": bucket,
         "evidence": {
             "stop_ttl": {
-                "n_canary": stop_n
-                "n_control": stop_n
-                "pnl_canary": pnl_stop + 1.0
-                "pnl_control": 1.0
-            }
+                "n_canary": stop_n,
+                "n_control": stop_n,
+                "pnl_canary": pnl_stop + 1.0,
+                "pnl_control": 1.0,
+            },
             "trailing": {
-                "n_canary": trail_n
-                "n_control": trail_n
-                "pnl_canary": pnl_trail + 1.0
-                "pnl_control": 1.0
+                "n_canary": trail_n,
+                "n_control": trail_n,
+                "pnl_canary": pnl_trail + 1.0,
+                "pnl_control": 1.0,
             }
         }
     }
@@ -57,8 +57,8 @@ def _make_obj(
 
 
 def _fake_redis(
-    cooldown_raw: str | None = None
-    flip_count: int = 0
+    cooldown_raw: str | None = None,
+    flip_count: int = 0,
 ) -> MagicMock:
     r = MagicMock()
     r.get.return_value = cooldown_raw

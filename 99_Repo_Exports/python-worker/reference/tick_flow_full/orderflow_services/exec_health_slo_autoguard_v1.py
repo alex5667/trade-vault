@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 from services.orderflow.exec_health_freeze_control import (
-    build_autoguard_latch_update
-    stringify_mapping
+    build_autoguard_latch_update,
+    stringify_mapping,
 )
 from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_async
 from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_async
@@ -82,23 +82,23 @@ class GuardCfg:
     @staticmethod
     def from_env() -> "GuardCfg":
         return GuardCfg(
-            redis_url=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-            summary_key=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last")
-            state_key=os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
-            freeze_key=os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1")
-            control_key=os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
-            notify_stream=os.getenv("EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM", "notify:telegram")
-            event_stream=os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1")
-            loop_s=max(5, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_CHECK_EVERY_S", "30"), 30))
-            mode_mismatch_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_MODE_MISMATCH_MINUTES", "5"), 5))
-            drift_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_MINUTES", "10"), 10))
-            drift_instances_min=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_INSTANCES_MIN", "1"), 1))
-            freeze_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_FREEZE_MINUTES", "30"), 30))
-            cooldown_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_COOLDOWN_MINUTES", "30"), 30))
-            rollback_enable=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ENABLE", "1"))
-            rollback_on_mode_mismatch=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_MODE_MISMATCH", "1"))
-            rollback_on_drift=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_DRIFT", "0"))
-            enabled=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ENABLE", "1"))
+            redis_url=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
+            summary_key=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"),
+            state_key=os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state"),
+            freeze_key=os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1"),
+            control_key=os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1"),
+            notify_stream=os.getenv("EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM", "notify:telegram"),
+            event_stream=os.getenv("EXEC_HEALTH_FREEZE_EVENT_STREAM", "ops:exec_health:freeze_events:v1"),
+            loop_s=max(5, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_CHECK_EVERY_S", "30"), 30)),
+            mode_mismatch_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_MODE_MISMATCH_MINUTES", "5"), 5)),
+            drift_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_MINUTES", "10"), 10)),
+            drift_instances_min=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_DRIFT_INSTANCES_MIN", "1"), 1)),
+            freeze_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_FREEZE_MINUTES", "30"), 30)),
+            cooldown_minutes=max(1, _i(os.getenv("EXEC_HEALTH_AUTOGUARD_COOLDOWN_MINUTES", "30"), 30)),
+            rollback_enable=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ENABLE", "1")),
+            rollback_on_mode_mismatch=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_MODE_MISMATCH", "1")),
+            rollback_on_drift=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ROLLBACK_ON_DRIFT", "0")),
+            enabled=_b(os.getenv("EXEC_HEALTH_AUTOGUARD_ENABLE", "1")),
         )
 
 
@@ -146,12 +146,12 @@ def evaluate_autoguard(
         reasons.append("rollout_drift")
 
     return EvalResult(
-        mode_mismatch_active=mm_active
-        rollout_drift_active=drift_active
-        mode_mismatch_since_ts_ms=mm_since
-        rollout_drift_since_ts_ms=dr_since
-        should_trigger=bool(reasons)
-        trigger_reasons=reasons
+        mode_mismatch_active=mm_active,
+        rollout_drift_active=drift_active,
+        mode_mismatch_since_ts_ms=mm_since,
+        rollout_drift_since_ts_ms=dr_since,
+        should_trigger=bool(reasons),
+        trigger_reasons=reasons,
     )
 
 
@@ -179,9 +179,9 @@ class AutoGuard:
         """Send notification to Telegram notify stream (best-effort)."""
         try:
             await self.r.xadd(
-                self.cfg.notify_stream
-                {"ts_ms": str(_now_ms()), "source": "exec_health_slo_autoguard_v1", "text": text}
-                maxlen=5000
+                self.cfg.notify_stream,
+                {"ts_ms": str(_now_ms()), "source": "exec_health_slo_autoguard_v1", "text": text},
+                maxlen=5000,
             )
         except Exception:
             pass
@@ -212,12 +212,12 @@ class AutoGuard:
         """
         prev = await self._read_hash(self.cfg.control_key)
         payload = build_autoguard_latch_update(
-            prev=prev
-            now_ms=now_ms
-            reasons=list(reasons)
-            freeze_until_ts_ms=int(freeze_until_ts_ms)
-            ack_nonce=str(ack_nonce)
-            trigger_event_id=str(trigger_event_id or "")
+            prev=prev,
+            now_ms=now_ms,
+            reasons=list(reasons),
+            freeze_until_ts_ms=int(freeze_until_ts_ms),
+            ack_nonce=str(ack_nonce),
+            trigger_event_id=str(trigger_event_id or ""),
         )
         await self.r.hset(self.cfg.control_key, mapping=stringify_mapping(payload))
         await self.r.expire(self.cfg.control_key, max(86400, self.cfg.freeze_minutes * 86400))
@@ -226,12 +226,12 @@ class AutoGuard:
         """Write freeze key with TTL = freeze_minutes. Idempotent (overwrite is safe)."""
         until = now_ms + int(self.cfg.freeze_minutes * 60 * 1000)
         payload = {
-            "schema_name": "exec_health_auto_freeze"
-            "schema_version": 1
-            "ts_ms": now_ms
-            "freeze_active": 1
-            "freeze_reason": ",".join(reasons)
-            "freeze_until_ts_ms": until
+            "schema_name": "exec_health_auto_freeze",
+            "schema_version": 1,
+            "ts_ms": now_ms,
+            "freeze_active": 1,
+            "freeze_reason": ",".join(reasons),
+            "freeze_until_ts_ms": until,
         }
         await self.r.set(self.cfg.freeze_key, json.dumps(payload, separators=(",", ":")))
         await self.r.pexpire(self.cfg.freeze_key, int(self.cfg.freeze_minutes * 60 * 1000))
@@ -264,8 +264,8 @@ class AutoGuard:
         await self.r.set("cfg:orderflow:overrides:v1:active_sid", prev_sid)
         rb = {"ts_ms": now_ms, "reason": ",".join(reasons), "from_sid": active_sid, "to_sid": prev_sid}
         await self.r.set(
-            f"cfg:orderflow:overrides:v1:rollback:{active_sid}"
-            json.dumps(rb, separators=(",", ":"))
+            f"cfg:orderflow:overrides:v1:rollback:{active_sid}",
+            json.dumps(rb, separators=(",", ":")),
         )
         return True, active_sid, prev_sid
 
@@ -294,17 +294,17 @@ class AutoGuard:
         ev = evaluate_autoguard(summary=summary, prev_state=state, cfg=self.cfg, now_ms=now)
         state.update(
             {
-                "schema_name": "exec_health_slo_autoguard_state"
-                "schema_version": 1
-                "updated_ts_ms": now
-                "mode_mismatch_active": int(ev.mode_mismatch_active)
-                "rollout_drift_active": int(ev.rollout_drift_active)
-                "mode_mismatch_since_ts_ms": int(ev.mode_mismatch_since_ts_ms)
-                "rollout_drift_since_ts_ms": int(ev.rollout_drift_since_ts_ms)
-                "last_eval_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False)
-                "freeze_active": int(freeze_active)
-                "freeze_until_ts_ms": int(freeze_until)
-                "cooldown_until_ts_ms": int(cooldown_until)
+                "schema_name": "exec_health_slo_autoguard_state",
+                "schema_version": 1,
+                "updated_ts_ms": now,
+                "mode_mismatch_active": int(ev.mode_mismatch_active),
+                "rollout_drift_active": int(ev.rollout_drift_active),
+                "mode_mismatch_since_ts_ms": int(ev.mode_mismatch_since_ts_ms),
+                "rollout_drift_since_ts_ms": int(ev.rollout_drift_since_ts_ms),
+                "last_eval_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
+                "freeze_active": int(freeze_active),
+                "freeze_until_ts_ms": int(freeze_until),
+                "cooldown_until_ts_ms": int(cooldown_until),
             }
         )
 
@@ -315,13 +315,13 @@ class AutoGuard:
             # so the event_id can be stored alongside the nonce in the control hash.
             ack_nonce = secrets.token_hex(16)
             trigger_event_id = await self._emit_event({
-                "ts_ms": now
-                "kind": "autoguard_freeze_latch"
-                "ack_nonce": ack_nonce
-                "trigger_ts_ms": now
-                "reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False)
-                "freeze_until_ts_ms": freeze_until_ts_ms
-                "source": "exec_health_slo_autoguard_v1"
+                "ts_ms": now,
+                "kind": "autoguard_freeze_latch",
+                "ack_nonce": ack_nonce,
+                "trigger_ts_ms": now,
+                "reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
+                "freeze_until_ts_ms": freeze_until_ts_ms,
+                "source": "exec_health_slo_autoguard_v1",
             })
             await self._set_freeze(now_ms=now, reasons=ev.trigger_reasons)
             # P7/P8: write latched control hash with nonce for CAS check at thaw time
@@ -331,31 +331,31 @@ class AutoGuard:
             )
             state.update(
                 {
-                    "freeze_active": 1
-                    "freeze_until_ts_ms": int(freeze_until_ts_ms)
-                    "last_trigger_ts_ms": int(now)
-                    "last_trigger_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False)
-                    "last_action": "freeze+rollback" if did_rb else "freeze"
+                    "freeze_active": 1,
+                    "freeze_until_ts_ms": int(freeze_until_ts_ms),
+                    "last_trigger_ts_ms": int(now),
+                    "last_trigger_reasons_json": json.dumps(list(ev.trigger_reasons), ensure_ascii=False),
+                    "last_action": "freeze+rollback" if did_rb else "freeze",
                     # P7/P8: include manual_ack and nonce fields in state hash so fallback read also sees the latch
-                    "manual_ack_required": 1
-                    "manual_ack_ts_ms": 0
-                    "manual_ack_operator": ""
-                    "manual_ack_reason": ""
-                    "manual_ack_ticket": ""
-                    "manual_ack_nonce": ""
-                    "manual_ack_sig": ""
-                    "manual_ack_event_id": ""
-                    "expected_ack_nonce": str(ack_nonce)
-                    "last_trigger_nonce": str(ack_nonce)
-                    "last_trigger_event_id": str(trigger_event_id or "")
-                    "control_source": "autoguard"
-                    "effective_freeze_active": 1
-                    "last_trigger_ts_ms": int(now)
-                    "last_rollback_ts_ms": int(now if did_rb else _i(state.get("last_rollback_ts_ms"), 0))
-                    "last_rollback_from_sid": str(from_sid or state.get("last_rollback_from_sid") or "")
-                    "last_rollback_to_sid": str(to_sid or state.get("last_rollback_to_sid") or "")
-                    "rollback_total": int(_i(state.get("rollback_total"), 0) + (1 if did_rb else 0))
-                    "cooldown_until_ts_ms": int(now + self.cfg.cooldown_minutes * 60 * 1000)
+                    "manual_ack_required": 1,
+                    "manual_ack_ts_ms": 0,
+                    "manual_ack_operator": "",
+                    "manual_ack_reason": "",
+                    "manual_ack_ticket": "",
+                    "manual_ack_nonce": "",
+                    "manual_ack_sig": "",
+                    "manual_ack_event_id": "",
+                    "expected_ack_nonce": str(ack_nonce),
+                    "last_trigger_nonce": str(ack_nonce),
+                    "last_trigger_event_id": str(trigger_event_id or ""),
+                    "control_source": "autoguard",
+                    "effective_freeze_active": 1,
+                    "last_trigger_ts_ms": int(now),
+                    "last_rollback_ts_ms": int(now if did_rb else _i(state.get("last_rollback_ts_ms"), 0)),
+                    "last_rollback_from_sid": str(from_sid or state.get("last_rollback_from_sid") or ""),
+                    "last_rollback_to_sid": str(to_sid or state.get("last_rollback_to_sid") or ""),
+                    "rollback_total": int(_i(state.get("rollback_total"), 0) + (1 if did_rb else 0)),
+                    "cooldown_until_ts_ms": int(now + self.cfg.cooldown_minutes * 60 * 1000),
                 }
             )
             await self._notify(

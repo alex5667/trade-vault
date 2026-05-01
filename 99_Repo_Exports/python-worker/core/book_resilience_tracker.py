@@ -1,5 +1,6 @@
 # tick_flow_full/core/book_resilience_tracker.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Side-aware adapter over BookResilienceTracker.
 
@@ -13,7 +14,6 @@ which tracks bid+ask pairs. Single-side callers pass the same value for
 both legs; the tracker behaves correctly because min(x, x) == x.
 """
 
-from __future__ import annotations
 
 from typing import Dict, Optional
 

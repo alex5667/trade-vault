@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_archiver_exporter_v1.py
 
 Prometheus exporter (P78) for OF-gate archiver + quarantine archiver + rollups refresh status.
@@ -30,7 +31,6 @@ Notes:
   - tick loop every 5s; blocking HGETALL
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -47,46 +47,46 @@ except Exception:
 
 # Prometheus gauge families — one label `kind` to differentiate archiver types
 GAUGE_LAST_RUN_TS_MS = Gauge(
-    "of_gate_archiver_last_run_ts_ms"
-    "Timestamp of last archiver run in milliseconds since epoch"
-    ["kind"]
+    "of_gate_archiver_last_run_ts_ms",
+    "Timestamp of last archiver run in milliseconds since epoch",
+    ["kind"],
 )
 GAUGE_STALENESS_SEC = Gauge(
-    "of_gate_archiver_staleness_sec"
-    "Seconds elapsed since last archiver run"
-    ["kind"]
+    "of_gate_archiver_staleness_sec",
+    "Seconds elapsed since last archiver run",
+    ["kind"],
 )
 GAUGE_LAST_STREAM_TS_MS = Gauge(
-    "of_gate_archiver_last_stream_ts_ms"
-    "Timestamp extracted from last processed stream ID (ms)"
-    ["kind"]
+    "of_gate_archiver_last_stream_ts_ms",
+    "Timestamp extracted from last processed stream ID (ms)",
+    ["kind"],
 )
 GAUGE_INSERTED_TOTAL = Gauge(
-    "of_gate_archiver_inserted_total"
-    "Cumulative rows inserted (monotonic-ish gauge from Redis hash)"
-    ["kind"]
+    "of_gate_archiver_inserted_total",
+    "Cumulative rows inserted (monotonic-ish gauge from Redis hash)",
+    ["kind"],
 )
 GAUGE_ERROR_TOTAL = Gauge(
-    "of_gate_archiver_error_total"
-    "Cumulative error count (monotonic-ish gauge from Redis hash)"
-    ["kind"]
+    "of_gate_archiver_error_total",
+    "Cumulative error count (monotonic-ish gauge from Redis hash)",
+    ["kind"],
 )
 
 # P80: Rollups freshness probe gauges (written by of_gate_rollups_freshness_probe_v1)
 GAUGE_ROLLUPS_BUCKET_AGE_SEC = Gauge(
-    "of_gate_rollups_bucket_age_sec"
-    "Seconds since the latest rollups CAGG bucket"
-    ["view"]
+    "of_gate_rollups_bucket_age_sec",
+    "Seconds since the latest rollups CAGG bucket",
+    ["view"],
 )
 GAUGE_ROLLUPS_BUCKET_TS_MS = Gauge(
-    "of_gate_rollups_bucket_ts_ms"
-    "Latest rollups CAGG bucket timestamp (ms since epoch)"
-    ["view"]
+    "of_gate_rollups_bucket_ts_ms",
+    "Latest rollups CAGG bucket timestamp (ms since epoch)",
+    ["view"],
 )
 GAUGE_ROLLUPS_FRESHNESS_OK = Gauge(
-    "of_gate_rollups_freshness_ok"
-    "1 if rollups freshness probe ran successfully and found data in both 5m/1h views"
-    []
+    "of_gate_rollups_freshness_ok",
+    "1 if rollups freshness probe ran successfully and found data in both 5m/1h views",
+    [],
 )
 
 # P81: Timescale policy probe gauges (written by of_gate_timescale_policy_probe_v1)
@@ -226,10 +226,10 @@ class Exporter:
             GAUGE_TS_POLICIES_DISABLED.set(_i(d.get('disabled_count'), 0))
 
             policies = [
-                'retention_of_gate_metrics'
-                'retention_of_gate_metrics_quarantine'
-                'refresh_of_gate_ok_rate_5m'
-                'refresh_of_gate_ok_rate_1h'
+                'retention_of_gate_metrics',
+                'retention_of_gate_metrics_quarantine',
+                'refresh_of_gate_ok_rate_5m',
+                'refresh_of_gate_ok_rate_1h',
             ]
             for p in policies:
                 GAUGE_TS_POLICY_PRESENT.labels(policy=p).set(_i(d.get(f'present_{p}'), 0))

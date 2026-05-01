@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """conf_cal_proof_state_controller_v1.py
 
 Proof-state controller for calibrated confidence gating (P75+).
@@ -26,7 +27,6 @@ ENV:
   CONF_CAL_PROOF_CANARY_BUMP_MIN_SEC     default 1800
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

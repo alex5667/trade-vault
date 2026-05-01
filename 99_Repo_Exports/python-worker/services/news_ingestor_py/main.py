@@ -73,10 +73,10 @@ def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
             redis.connection.Connection.lib_version = None
 
             r = redis.Redis.from_url(
-                redis_url
-                decode_responses=True
-                health_check_interval=30
-                socket_timeout=10
+                redis_url,
+                decode_responses=True,
+                health_check_interval=30,
+                socket_timeout=10,
             )
             # Test connection
             r.ping()
@@ -140,13 +140,13 @@ def main() -> None:
                             continue
 
                         xadd(r, NEWS_RAW_STREAM, {
-                            "uid": uid
-                            "source": f"rss:{rss_url}"
-                            "title": title
-                            "url": link
-                            "ts_ms": published * 1000
-                            "symbol": ""
-                            "asset_class": ""
+                            "uid": uid,
+                            "source": f"rss:{rss_url}",
+                            "title": title,
+                            "url": link,
+                            "ts_ms": published * 1000,
+                            "symbol": "",
+                            "asset_class": "",
                         })
                     except Exception as e:
                         try:

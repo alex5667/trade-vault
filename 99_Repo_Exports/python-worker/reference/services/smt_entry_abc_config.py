@@ -87,12 +87,12 @@ class ABCPolicyLoader:
                         splits = d.get("splits", None)
                         overrides = d.get("overrides", None)
                         self._cfg = ABCConfig(
-                            enabled=_b(d.get("enabled", 0))
-                            version=ver
-                            salt=str(d.get("salt") or "smt-entry-v1")
-                            poll_ms=_i(d.get("poll_ms", 2000), 2000)
-                            splits=splits if isinstance(splits, dict) else (self._cfg.splits or {"default":{"b":10,"c":10},"thin":{"b":15,"c":15}})
-                            overrides=overrides if isinstance(overrides, dict) else (self._cfg.overrides or {"A":"cfg:smt_entry:policy:A","B":"cfg:smt_entry:policy:B","C":"cfg:smt_entry:policy:C"})
+                            enabled=_b(d.get("enabled", 0)),
+                            version=ver,
+                            salt=str(d.get("salt") or "smt-entry-v1"),
+                            poll_ms=_i(d.get("poll_ms", 2000), 2000),
+                            splits=splits if isinstance(splits, dict) else (self._cfg.splits or {"default":{"b":10,"c":10},"thin":{"b":15,"c":15}}),
+                            overrides=overrides if isinstance(overrides, dict) else (self._cfg.overrides or {"A":"cfg:smt_entry:policy:A","B":"cfg:smt_entry:policy:B","C":"cfg:smt_entry:policy:C"}),
                         )
         except Exception:
             pass
@@ -118,13 +118,13 @@ class ABCPolicyLoader:
                 # shadow flag is mandatory for B/C
                 shadow = _b(ov.get("ENTRY_POLICY_SHADOW", 1 if arm in ("B","C") else 0))
                 pol = ArmPolicy(
-                    version=ver
-                    shadow=shadow
-                    touch_bp=_f(ov.get("SMT_TOUCH_BP", 10.0), 10.0)
-                    away_bp=_f(ov.get("SMT_AWAY_BP", 25.0), 25.0)
-                    retest_bp=_f(ov.get("SMT_RETEST_BP", 10.0), 10.0)
-                    min_of_score=_f(ov.get("SMT_ENTRY_MIN_OF_SCORE", 1.0), 1.0)
-                    obi_min_sec=_f(ov.get("SMT_ENTRY_OBI_MIN_SEC", 1.5), 1.5)
+                    version=ver,
+                    shadow=shadow,
+                    touch_bp=_f(ov.get("SMT_TOUCH_BP", 10.0), 10.0),
+                    away_bp=_f(ov.get("SMT_AWAY_BP", 25.0), 25.0),
+                    retest_bp=_f(ov.get("SMT_RETEST_BP", 10.0), 10.0),
+                    min_of_score=_f(ov.get("SMT_ENTRY_MIN_OF_SCORE", 1.0), 1.0),
+                    obi_min_sec=_f(ov.get("SMT_ENTRY_OBI_MIN_SEC", 1.5), 1.5),
                 )
                 self._arm_cache[arm] = pol
                 self._arm_ver[arm] = ver
@@ -136,12 +136,12 @@ class ABCPolicyLoader:
         # defaults: A enforce-ish, B/C shadow-ish
         if a not in self._arm_cache:
             return ArmPolicy(
-                version=0
-                shadow=(a in ("B","C"))
-                touch_bp=10.0
-                away_bp=25.0
-                retest_bp=10.0
-                min_of_score=1.0
-                obi_min_sec=1.5
+                version=0,
+                shadow=(a in ("B","C")),
+                touch_bp=10.0,
+                away_bp=25.0,
+                retest_bp=10.0,
+                min_of_score=1.0,
+                obi_min_sec=1.5,
             )
         return self._arm_cache[a]

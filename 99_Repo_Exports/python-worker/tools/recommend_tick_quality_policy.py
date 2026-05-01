@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Recommend tick-quality policy & alert thresholds from Step13 smoke JSON.
 
 Step 14 goal
@@ -34,7 +35,6 @@ Notes
   - It does NOT modify any running services; it only prints recommendations.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

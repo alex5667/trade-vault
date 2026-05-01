@@ -1,3 +1,4 @@
+from __future__ import annotations
 """python-worker/news_pipeline/news_debug.py
 
 News logging helpers.
@@ -11,7 +12,6 @@ Sampling must be deterministic per (symbol, ts) so you can compare runs.
 No external dependencies.
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -104,14 +104,14 @@ def log_news_mini(logger: Any, ctx: Any, *, sample_pct: int = 1) -> None:
 
     # Hex mask is helpful when debugging bitmaps.
     logger.debug(
-        "news_mini symbol=%s ts_ms=%d risk=%.4f tminus=%d grade=%d tags_mask=%d(0x%x)"
-        symbol
-        ts_ms
-        news_risk
-        event_tminus
-        news_grade_id
-        tags_mask
-        tags_mask
+        "news_mini symbol=%s ts_ms=%d risk=%.4f tminus=%d grade=%d tags_mask=%d(0x%x)",
+        symbol,
+        ts_ms,
+        news_risk,
+        event_tminus,
+        news_grade_id,
+        tags_mask,
+        tags_mask,
     )
 
 

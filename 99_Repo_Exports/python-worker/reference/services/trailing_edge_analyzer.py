@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Trailing Edge Analyzer - мини-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга).
 
@@ -10,7 +11,6 @@ Trailing Edge Analyzer - мини-анализатор pnl_if_fixed_exit vs pnl_
 Интегрирован в PeriodicReporter для автоматической отправки отчетов в Telegram.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time
@@ -122,15 +122,15 @@ def _build_trade_from_fields(fields: Dict[str, str]) -> Optional[Trade]:
     pnl_net_val = _sf(fields.get("pnl_net") or 0.0, 0.0)
 
     return Trade(
-        source=src
-        symbol=sym
-        exit_ts_ms=exit_ts
-        pnl_net=pnl_net_val
-        close_reason=raw_cr
-        close_reason_raw=str(fields.get("close_reason_raw") or "")
-        close_reason_detail=str(fields.get("close_reason_detail") or "")
+        source=src,
+        symbol=sym,
+        exit_ts_ms=exit_ts,
+        pnl_net=pnl_net_val,
+        close_reason=raw_cr,
+        close_reason_raw=str(fields.get("close_reason_raw") or ""),
+        close_reason_detail=str(fields.get("close_reason_detail") or ""),
         trailing_started=trailing_started_final,  # <--- UPDATED
-        trailing_active=_sb(fields.get("trailing_active"))
+        trailing_active=_sb(fields.get("trailing_active")),
         trailing_profile=tprof, # original field
         trail_profile=aprof,    # combined/fallback
         # we can store is_trail_exit if needed for stricter analysis, but analyzer mainly uses trailing_started filter?
@@ -167,24 +167,24 @@ class TrailingEdgeResult:
     def to_telegram_message(self) -> str:
         """Форматирует результат для отправки в Telegram."""
         lines = [
-            "🎯 <b>Trailing Edge Analysis</b>"
-            f"📊 {self.source} / {self.symbol}"
-            f"🕐 Окно: {self.analysis_window}"
-            ""
-            f"📈 Всего сделок: <b>{self.total_trades}</b>"
-            f"🎯 Трейлинговых: <b>{self.trailing_trades}</b>"
-            ""
-            "💰 <b>Expectancy (R)</b>"
-            f"  Managed: <b>{self.exp_managed_r:+.3f}</b>"
-            f"  Baseline: <b>{self.exp_baseline_r:+.3f}</b>"
-            f"  ΔEdge: <b>{self.delta_exp_r:+.3f}</b>"
-            ""
-            "📊 <b>Распределение сделок</b>"
-            f"  Лучше: <b>{self.share_better*100:.1f}%</b>"
-            f"  Хуже: <b>{self.share_worse*100:.1f}%</b>"
-            f"  Равно: <b>{self.share_equal*100:.1f}%</b>"
-            ""
-            f"💵 Средняя разница: <b>{self.avg_diff_usd:+.3f} USD</b>"
+            "🎯 <b>Trailing Edge Analysis</b>",
+            f"📊 {self.source} / {self.symbol}",
+            f"🕐 Окно: {self.analysis_window}",
+            "",
+            f"📈 Всего сделок: <b>{self.total_trades}</b>",
+            f"🎯 Трейлинговых: <b>{self.trailing_trades}</b>",
+            "",
+            "💰 <b>Expectancy (R)</b>",
+            f"  Managed: <b>{self.exp_managed_r:+.3f}</b>",
+            f"  Baseline: <b>{self.exp_baseline_r:+.3f}</b>",
+            f"  ΔEdge: <b>{self.delta_exp_r:+.3f}</b>",
+            "",
+            "📊 <b>Распределение сделок</b>",
+            f"  Лучше: <b>{self.share_better*100:.1f}%</b>",
+            f"  Хуже: <b>{self.share_worse*100:.1f}%</b>",
+            f"  Равно: <b>{self.share_equal*100:.1f}%</b>",
+            "",
+            f"💵 Средняя разница: <b>{self.avg_diff_usd:+.3f} USD</b>",
         ]
 
         # Добавляем интерпретацию
@@ -217,7 +217,7 @@ class TrailingEdgeResult:
             return None
 
         recommendations = {
-            "analysis_timestamp": get_ny_time_millis()
+            "analysis_timestamp": get_ny_time_millis(),
             "confidence_level": "low",  # low, medium, high
             "actions": []
         }
@@ -256,34 +256,34 @@ class TrailingEdgeResult:
         # Формируем рекомендации
         if strong_positive_edge:
             recommendations["actions"].append({
-                "type": "increase_trailing_aggression"
-                "reason": f"Strong positive edge: ΔExp={self.delta_exp_r:.3f}R, better={self.share_better*100:.1f}%"
+                "type": "increase_trailing_aggression",
+                "reason": f"Strong positive edge: ΔExp={self.delta_exp_r:.3f}R, better={self.share_better*100:.1f}%",
                 "suggested_changes": {
-                    "trailing_tp1_offset_atr": "decrease_by_20_percent"
+                    "trailing_tp1_offset_atr": "decrease_by_20_percent",
                     "trailing_profile": "more_aggressive"
                 }
             })
         elif strong_negative_edge:
             recommendations["actions"].append({
-                "type": "decrease_trailing_aggression"
-                "reason": f"Strong negative edge: ΔExp={self.delta_exp_r:.3f}R, worse={self.share_worse*100:.1f}%"
+                "type": "decrease_trailing_aggression",
+                "reason": f"Strong negative edge: ΔExp={self.delta_exp_r:.3f}R, worse={self.share_worse*100:.1f}%",
                 "suggested_changes": {
-                    "trailing_tp1_offset_atr": "increase_by_50_percent"
+                    "trailing_tp1_offset_atr": "increase_by_50_percent",
                     "trailing_profile": "more_conservative"
                 }
             })
         elif moderate_positive_edge:
             recommendations["actions"].append({
-                "type": "slight_increase_trailing_aggression"
-                "reason": f"Moderate positive edge: ΔExp={self.delta_exp_r:.3f}R, better={self.share_better*100:.1f}%"
+                "type": "slight_increase_trailing_aggression",
+                "reason": f"Moderate positive edge: ΔExp={self.delta_exp_r:.3f}R, better={self.share_better*100:.1f}%",
                 "suggested_changes": {
                     "trailing_tp1_offset_atr": "decrease_by_10_percent"
                 }
             })
         elif moderate_negative_edge:
             recommendations["actions"].append({
-                "type": "slight_decrease_trailing_aggression"
-                "reason": f"Moderate negative edge: ΔExp={self.delta_exp_r:.3f}R, worse={self.share_worse*100:.1f}%"
+                "type": "slight_decrease_trailing_aggression",
+                "reason": f"Moderate negative edge: ΔExp={self.delta_exp_r:.3f}R, worse={self.share_worse*100:.1f}%",
                 "suggested_changes": {
                     "trailing_tp1_offset_atr": "increase_by_25_percent"
                 }
@@ -294,16 +294,16 @@ class TrailingEdgeResult:
 
         if trailing_ratio < 0.3 and strong_positive_edge:
             recommendations["actions"].append({
-                "type": "increase_trailing_coverage"
-                "reason": f"Low trailing coverage ({trailing_ratio*100:.1f}%) with positive edge"
+                "type": "increase_trailing_coverage",
+                "reason": f"Low trailing coverage ({trailing_ratio*100:.1f}%) with positive edge",
                 "suggested_changes": {
                     "trailing_share_target": 0.7
                 }
             })
         elif trailing_ratio > 0.8 and strong_negative_edge:
             recommendations["actions"].append({
-                "type": "decrease_trailing_coverage"
-                "reason": f"High trailing coverage ({trailing_ratio*100:.1f}%) with negative edge"
+                "type": "decrease_trailing_coverage",
+                "reason": f"High trailing coverage ({trailing_ratio*100:.1f}%) with negative edge",
                 "suggested_changes": {
                     "trailing_share_target": 0.4
                 }
@@ -320,10 +320,10 @@ class TrailingEdgeAnalyzer:
         self.eps = 1e-6
 
     def analyze_last_trades(
-        self
-        source: str
-        symbol: str
-        limit: int = 200
+        self,
+        source: str,
+        symbol: str,
+        limit: int = 200,
         since_hours: Optional[int] = None
     ) -> Optional[TrailingEdgeResult]:
         """
@@ -351,17 +351,17 @@ class TrailingEdgeAnalyzer:
             return None
 
     def _load_trades(
-        self
-        source: str
-        symbol: str
-        limit: int
+        self,
+        source: str,
+        symbol: str,
+        limit: int,
         since_hours: Optional[int]
     ) -> List[Trade]:
         """
         Загружает сделки из Redis stream trades:closed.
 
         Важно:
-          - при TRADES_CLOSED_STREAM_COMPACT=1 payload может быть частичным
+          - при TRADES_CLOSED_STREAM_COMPACT=1 payload может быть частичным,
             поэтому используем hydrate_trade_closed_batch() (pipeline) для восстановления из order:{id}.
           - также нормализуем alias trailing_profile <-> trail_profile (делает hydrator).
         """
@@ -378,8 +378,8 @@ class TrailingEdgeAnalyzer:
 
         # 2) Гидрируем пачкой (1 roundtrip через pipeline для всех order:{id}, кому нужно)
         hydrated_items = hydrate_trade_closed_batch(
-            self.redis
-            raw_items
+            self.redis,
+            raw_items,
             require_closed=False,   # анализ best-effort
             merge_precedence="hash" # hash — source of truth
         )
@@ -403,11 +403,11 @@ class TrailingEdgeAnalyzer:
         return trades
 
     def _analyze_trades(
-        self
-        trades: List[Trade]
-        source: str
-        symbol: str
-        limit: int
+        self,
+        trades: List[Trade],
+        source: str,
+        symbol: str,
+        limit: int,
         since_hours: Optional[int]
     ) -> TrailingEdgeResult:
         """Выполняет анализ trailing edge на списке сделок."""
@@ -462,16 +462,16 @@ class TrailingEdgeAnalyzer:
         avg_diff_usd = sum(diffs_usd) / len(diffs_usd) if diffs_usd else 0.0
 
         return TrailingEdgeResult(
-            symbol=symbol
-            source=source
-            total_trades=total_trades
-            trailing_trades=trailing_trades
-            exp_managed_r=exp_managed_r
-            exp_baseline_r=exp_baseline_r
-            delta_exp_r=delta_exp_r
-            share_better=share_better
-            share_worse=share_worse
-            share_equal=share_equal
-            avg_diff_usd=avg_diff_usd
-            analysis_window=analysis_window
+            symbol=symbol,
+            source=source,
+            total_trades=total_trades,
+            trailing_trades=trailing_trades,
+            exp_managed_r=exp_managed_r,
+            exp_baseline_r=exp_baseline_r,
+            delta_exp_r=delta_exp_r,
+            share_better=share_better,
+            share_worse=share_worse,
+            share_equal=share_equal,
+            avg_diff_usd=avg_diff_usd,
+            analysis_window=analysis_window,
         )

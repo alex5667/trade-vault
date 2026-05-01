@@ -13,11 +13,11 @@ Features:
 
 Endpoints:
     POST /book - Receive book snapshot from MT5 BookBridge
-    GET /features/obi?symbol=XAUUSD&last=200 - Get OBI history
-    GET /metrics/obi?symbol=XAUUSD - Get latest OBI metrics
-    GET /events/pull?symbol=XAUUSD - Get recent OBI events
-    GET /render/obi.png?symbol=XAUUSD - PNG: OBI timeline
-    GET /render/depth.png?symbol=XAUUSD - PNG: Depth profile
+    GET /features/obi?symbol=&last=200 - Get OBI history
+    GET /metrics/obi?symbol= - Get latest OBI metrics
+    GET /events/pull?symbol= - Get recent OBI events
+    GET /render/obi.png?symbol= - PNG: OBI timeline
+    GET /render/depth.png?symbol= - PNG: Depth profile
     GET /healthz - Health check
 
 Usage:
@@ -284,7 +284,7 @@ def notify_event(event: OBIEvent) -> None:
                 "symbol": event.symbol,
                 "duration_ms": event.duration_ms,
                 "obi": event.value,
-                "threshold": OBI_THRESHOLD
+                "threshold": OBI_THRESHOLD,
             },
             timeout=1.5
         )

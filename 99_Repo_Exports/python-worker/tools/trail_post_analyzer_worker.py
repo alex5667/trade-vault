@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Trail Post-Analyzer & Calibrator Worker — unified timer entry point.
 
@@ -20,7 +21,6 @@ Usage:
   python3 -m tools.trail_post_analyzer_worker --once
   python3 -m tools.trail_post_analyzer_worker --loop --interval 21600
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

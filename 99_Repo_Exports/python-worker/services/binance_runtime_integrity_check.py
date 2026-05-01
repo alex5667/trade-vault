@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P4: Runtime integrity checker — class-aware duplicate method scanner.
 
 Scans each of the two runtime source files for methods that appear MORE THAN
@@ -9,7 +10,6 @@ Usage (standalone CLI):
     python services/binance_runtime_integrity_check.py
     # exits 0 → OK, exits 1 → duplicates found
 """
-from __future__ import annotations
 
 import re
 from pathlib import Path

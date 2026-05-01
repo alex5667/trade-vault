@@ -34,10 +34,10 @@ class CalibStore:
 
     JSON schema (пример):
     {
-      "version": 2
-      "trained_at": 1730000000
+      "version": 2,
+      "trained_at": 1730000000,
       "groups": {
-        "global": { "type":"isotonic", "x":[...], "p":[...], "n": 12000 }
+        "global": { "type":"isotonic", "x":[...], "p":[...], "n": 12000 },
         "kind:absorption|symbol:BTCUSDT|side:LONG": { "type":"isotonic", "x":[...], "p":[...], "n": 980 }
       }
     }
@@ -125,18 +125,18 @@ class CalibStore:
         sd = str(side or "*")
 
         keys = [
-            f"kind:{k}|symbol:{s}|side:{sd}"
-            f"kind:{k}|symbol:{s}|side:*"
-            f"kind:{k}|symbol:*|side:{sd}"
-            f"kind:{k}|symbol:*|side:*"
-            f"kind:*|symbol:{s}|side:{sd}"
-            f"kind:*|symbol:{s}|side:*"
-            f"kind:*|symbol:*|side:{sd}"
-            "global"
+            f"kind:{k}|symbol:{s}|side:{sd}",
+            f"kind:{k}|symbol:{s}|side:*",
+            f"kind:{k}|symbol:*|side:{sd}",
+            f"kind:{k}|symbol:*|side:*",
+            f"kind:*|symbol:{s}|side:{sd}",
+            f"kind:*|symbol:{s}|side:*",
+            f"kind:*|symbol:*|side:{sd}",
+            "global",
             # legacy:
-            f"kind:{k}|symbol:{s}"
-            f"kind:{k}|symbol:*"
-            f"kind:*|symbol:{s}"
+            f"kind:{k}|symbol:{s}",
+            f"kind:{k}|symbol:*",
+            f"kind:*|symbol:{s}",
         ]
         for kk in keys:
             g = self._groups.get(kk)

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Fail-open contract tests (Hypothesis).
 
 Goals (per request 5.2):
@@ -13,7 +14,6 @@ Notes:
       * validate invariants instead of exact reason strings
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Iterable, Tuple

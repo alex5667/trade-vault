@@ -149,9 +149,9 @@ def validate_tradeable_signal_payload(payload: Dict[str, Any]) -> None:
 
 
 def enforce_payload_budget(
-    *
-    payload: Dict[str, Any]
-    payload_meta: Optional[Dict[str, Any]] = None
+    *,
+    payload: Dict[str, Any],
+    payload_meta: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Enforces:
@@ -232,11 +232,11 @@ def enforce_payload_budget(
 
 
 def enforce_and_validate_payload(
-    *
-    payload: Dict[str, Any]
-    payload_meta: Optional[Dict[str, Any]] = None
-    logger: Optional[Any] = None
-    where: str = ""
+    *,
+    payload: Dict[str, Any],
+    payload_meta: Optional[Dict[str, Any]] = None,
+    logger: Optional[Any] = None,
+    where: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Single entry point:

@@ -73,7 +73,7 @@ ALLOWED_APPLY_STRATEGIES = {"SHADOW_PRIMARY", "SINGLE_ARM"}
 PROMOTE_DECISION_TO_ARM = {
     "PROMOTE_VERTEX_CANDIDATE": "vertex_candidate",
     "PROMOTE_LOCAL_FALLBACK_CANDIDATE": "local_fallback_candidate",
-}
+},
 ALL_ARMS = {"deterministic", "vertex_candidate", "local_fallback_candidate"}
 
 
@@ -195,7 +195,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "cooldown_sec": parse_int(raw.get("cooldown_sec"), DEFAULT_COOLDOWN_SEC),
         "min_winner_score": parse_float(raw.get("min_winner_score"), DEFAULT_MIN_WINNER_SCORE),
         "allow_arms": allow_arms_out,
-    }
+    },
 
 
 def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -210,7 +210,7 @@ def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "primary_arm": primary_arm if primary_arm in ALL_ARMS else "deterministic",
         "shadow_arms": [str(x) for x in shadow_arms if str(x) in ALL_ARMS],
         "last_mode_switch_ts_ms": last_switch_ts_ms,
-    }
+    },
 
 
 def evaluate_apply(
@@ -242,7 +242,7 @@ def evaluate_apply(
         "winner_arm": winner_arm,
         "winner_score": winner_score,
         "cooldown_active": 1 if cooldown_active else 0,
-    }
+    },
 
     if controller_policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
@@ -324,7 +324,7 @@ async def apply_change(r: Any, evaluation: Dict[str, Any]) -> None:
         "last_mode_switch_ts_ms": str(now_ms()),
         "last_mode_switch_source": APP_NAME,
         "last_mode_switch_reason_code": evaluation["reason_code"],
-    }
+    },
     await r.hset(EXPERIMENT_POLICY_KEY, mapping=mapping)
 
 
@@ -338,7 +338,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_governance_apply_controller_decisions (
                     ts_ms,
                     decision,
@@ -384,7 +384,7 @@ async def persist_if_configured(
             )
             if evaluation["decision"] in {"APPLY_PRIMARY_ARM_SHADOW", "APPLY_SINGLE_ARM"}:
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_governance_apply_controller_journal (
                         ts_ms,
                         decision,
@@ -482,7 +482,7 @@ async def main() -> None:  # pragma: no cover
                         "winner_score": str(evaluation["winner_score"]),
                         "cooldown_active": str(evaluation["cooldown_active"]),
                         "ts_ms": str(now_ms()),
-                    }
+                    },
                     await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await r.xadd(
                         JOURNAL_STREAM,

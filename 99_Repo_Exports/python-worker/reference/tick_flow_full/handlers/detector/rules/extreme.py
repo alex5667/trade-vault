@@ -24,12 +24,12 @@ class ExtremeRule:
         raw = max(self.min_raw, abs(z) / max(self.z_extreme, 1e-9)) * 1.25
         return [
             Candidate(
-                kind="extreme"
-                side=side
-                raw_score=float(raw)
-                level_price=None
-                level_key=None
-                reasons=["z_delta_extreme"]
-                meta={"z": float(z)}
+                kind="extreme",
+                side=side,
+                raw_score=float(raw),
+                level_price=None,
+                level_key=None,
+                reasons=["z_delta_extreme"],
+                meta={"z": float(z)},
             )
         ]

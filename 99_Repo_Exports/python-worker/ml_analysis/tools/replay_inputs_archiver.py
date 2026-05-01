@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Archive ml_replay_inputs_v1 stream to NDJSON on disk.
 
 Why (P56):
@@ -23,7 +24,6 @@ CLI examples:
   python -m ml_analysis.tools.replay_inputs_archiver --loop-s 1 --batch 2000
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

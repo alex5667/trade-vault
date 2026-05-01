@@ -31,14 +31,14 @@ def fetch_calibration_data(lookback_days: int):
     
     query = f"""
     SELECT 
-        s.signal_id
-        s.symbol
-        s.signal_family
-        s.delta_spike_z
-        s.obi_avg_20
-        s.weak_progress_ratio
-        s.conf_score as old_score
-        t.r as pnl_r
+        s.signal_id,
+        s.symbol,
+        s.signal_family,
+        s.delta_spike_z,
+        s.obi_avg_20,
+        s.weak_progress_ratio,
+        s.conf_score as old_score,
+        t.r as pnl_r,
         t.hit as is_win
     FROM signal_facts s
     JOIN trade_performance t ON s.signal_id = t.signal_id
@@ -97,9 +97,9 @@ def main():
         
         with open(output_path, "w") as f:
             json.dump({
-                "phase": 2
-                "version": "1.0.0"
-                "suggested_weights": weights
+                "phase": 2,
+                "version": "1.0.0",
+                "suggested_weights": weights,
                 "sample_size": len(df)
             }, f, indent=4)
             

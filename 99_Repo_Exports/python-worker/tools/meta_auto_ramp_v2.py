@@ -1,4 +1,5 @@
 # python-worker/tools/meta_auto_ramp_v2.py
+from __future__ import annotations
 """
 Regime-aware auto-ramp for meta-model.
 
@@ -19,7 +20,6 @@ Writes dynamic cfg keys:
 - meta_ramp_last_decision (json str)
 - meta_ramp_good_streak, meta_ramp_bad_streak (ints)
 """
-from __future__ import annotations
 
 import argparse
 import json

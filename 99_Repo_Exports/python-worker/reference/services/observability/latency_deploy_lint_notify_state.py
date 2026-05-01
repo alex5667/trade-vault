@@ -45,20 +45,20 @@ def update_notifier_state(r: Any, *, prefix: str, active_purposes: list[str], em
     silenced_csv = _csv(silenced_purposes)
     status = 'active' if effective_active_purposes else ('silenced' if raw_active_purposes else 'ok')
     mapping = {
-        'schema_version': '1'
-        'last_run_ts_ms': str(now_ms)
-        'active_purposes_csv': active_csv or 'none'
-        'active_purposes_count': str(len([x for x in effective_active_purposes if str(x).strip()]))
-        'active_hash': purposes_hash(effective_active_purposes)
-        'raw_active_purposes_csv': raw_csv or 'none'
-        'raw_active_purposes_count': str(len([x for x in raw_active_purposes if str(x).strip()]))
-        'raw_active_hash': purposes_hash(raw_active_purposes)
-        'silenced_purposes_csv': silenced_csv or 'none'
-        'silenced_purposes_count': str(len([x for x in silenced_purposes if str(x).strip()]))
-        'silenced_hash': purposes_hash(silenced_purposes)
-        'last_status': status
-        'last_event_kind': str(event_kind or 'noop')
-        'last_emit_ts_ms': str(now_ms if emitted else _i(prev.get('last_emit_ts_ms'), 0))
+        'schema_version': '1',
+        'last_run_ts_ms': str(now_ms),
+        'active_purposes_csv': active_csv or 'none',
+        'active_purposes_count': str(len([x for x in effective_active_purposes if str(x).strip()])),
+        'active_hash': purposes_hash(effective_active_purposes),
+        'raw_active_purposes_csv': raw_csv or 'none',
+        'raw_active_purposes_count': str(len([x for x in raw_active_purposes if str(x).strip()])),
+        'raw_active_hash': purposes_hash(raw_active_purposes),
+        'silenced_purposes_csv': silenced_csv or 'none',
+        'silenced_purposes_count': str(len([x for x in silenced_purposes if str(x).strip()])),
+        'silenced_hash': purposes_hash(silenced_purposes),
+        'last_status': status,
+        'last_event_kind': str(event_kind or 'noop'),
+        'last_emit_ts_ms': str(now_ms if emitted else _i(prev.get('last_emit_ts_ms'), 0)),
     }
     r.hset(skey, mapping=mapping)
     try:

@@ -21,15 +21,15 @@ class ATRFreezeTelegramSurface:
         allowed, blocked = ATRFreezeTelegramSurface._get_effect_matrix(state)
 
         lines = [
-            header
-            f"Scope:  {event.get('scope_kind')} | {event.get('scope_value')}"
-            f"State:  {state}"
-            f"Trigger: {event.get('trigger_kind')}"
-            f"Reason:  {event.get('source_reason_code')}"
-            f"Expires at: {event.get('expires_at')}"
-            f"Recovery not before: {event.get('recovery_not_before')}"
-            ""
-            "Allowed:"
+            header,
+            f"Scope:  {event.get('scope_kind')} | {event.get('scope_value')}",
+            f"State:  {state}",
+            f"Trigger: {event.get('trigger_kind')}",
+            f"Reason:  {event.get('source_reason_code')}",
+            f"Expires at: {event.get('expires_at')}",
+            f"Recovery not before: {event.get('recovery_not_before')}",
+            "",
+            "Allowed:",
         ]
         for a in allowed:
             lines.append(f"- {a}")
@@ -59,10 +59,10 @@ class ATRFreezeTelegramSurface:
             next_step = "Health checks failed during recovery window."
 
         lines = [
-            header
-            f"Freeze ID: {event.get('freeze_id')}"
-            f"Reason:  {reason_code}"
-            ""
+            header,
+            f"Freeze ID: {event.get('freeze_id')}",
+            f"Reason:  {reason_code}",
+            "",
             f"Next: {next_step}"
         ]
         return "\n".join(lines)

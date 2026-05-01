@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """ML drift monitor v1.
 
 Reads:
@@ -24,7 +25,6 @@ Environment:
 
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

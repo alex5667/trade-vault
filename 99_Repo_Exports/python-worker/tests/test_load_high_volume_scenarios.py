@@ -29,7 +29,7 @@ class TestLoadHighVolume:
             env = {
                 "sid": sid,
                 "ts_ms": base_ts + i * 1000,  # разные timestamps
-                "symbol": "BTCUSDT"
+                "symbol": "BTCUSDT",
             }
 
             msg_id = outbox.publish(

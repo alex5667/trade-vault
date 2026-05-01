@@ -37,7 +37,7 @@ class ReportingService:
     
     def __init__(
         self, 
-        redis_url: Optional[str] = None
+        redis_url: Optional[str] = None,
         telegram_config: Optional[Dict] = None
     ):
         """
@@ -148,7 +148,7 @@ class ReportingService:
         self, 
         strategy: str, 
         symbol: Optional[str] = None, 
-        tf: Optional[str] = None
+        tf: Optional[str] = None,
         include_sources: bool = True
     ) -> Dict[str, Any]:
         """
@@ -188,37 +188,37 @@ class ReportingService:
                 tfs = StatsAggregator.get_strategy_timeframes(self.redis, strategy, symbol)
 
                 combined = {
-                    "strategy": strategy
-                    "symbol": symbol
-                    "total_trades": 0
-                    "wins": 0
-                    "losses": 0
-                    "breakevens": 0
+                    "strategy": strategy,
+                    "symbol": symbol,
+                    "total_trades": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "breakevens": 0,
 
                     "total_pnl": 0.0,          # net
                     "total_pnl_gross": 0.0,    # gross
-                    "total_fees": 0.0
+                    "total_fees": 0.0,
 
-                    "gross_profit": 0.0
-                    "gross_loss": 0.0
+                    "gross_profit": 0.0,
+                    "gross_loss": 0.0,
 
-                    "sum_r": 0.0
-                    "sum_duration_ms": 0.0
+                    "sum_r": 0.0,
+                    "sum_duration_ms": 0.0,
 
-                    "missed_profit_total": 0.0
-                    "missed_profit_trades": 0
-                    "giveback_total": 0.0
+                    "missed_profit_total": 0.0,
+                    "missed_profit_trades": 0,
+                    "giveback_total": 0.0,
 
-                    "trailing_started": 0
-                    "trailing_stop_hits": 0
-                    "trailing_moves_total": 0.0
+                    "trailing_started": 0,
+                    "trailing_stop_hits": 0,
+                    "trailing_moves_total": 0.0,
 
-                    "tp1_hits": 0
-                    "tp2_hits": 0
-                    "tp3_hits": 0
-                    "tp1_then_sl": 0
-                    "tp2_then_sl": 0
-                    "tp3_then_sl": 0
+                    "tp1_hits": 0,
+                    "tp2_hits": 0,
+                    "tp3_hits": 0,
+                    "tp1_then_sl": 0,
+                    "tp2_then_sl": 0,
+                    "tp3_then_sl": 0,
 
                     "timeframes": {}
                 }
@@ -302,11 +302,11 @@ class ReportingService:
             strategies = StatsAggregator.get_all_strategies(self.redis)
             
             result = {
-                "timestamp": get_ny_time_millis()
-                "strategies": {}
-                "total_trades": 0
-                "total_wins": 0
-                "total_losses": 0
+                "timestamp": get_ny_time_millis(),
+                "strategies": {},
+                "total_trades": 0,
+                "total_wins": 0,
+                "total_losses": 0,
                 "total_pnl": 0.0
             }
             
@@ -415,9 +415,9 @@ class ReportingService:
             events = self._get_trade_events(order_id)
 
             return {
-                "order": order_data
-                "signal": signal_data
-                "closed": closed_summary
+                "order": order_data,
+                "signal": signal_data,
+                "closed": closed_summary,
                 "events": events
             }
         except Exception as e:
@@ -446,10 +446,10 @@ class ReportingService:
     # ============================================================
     
     def send_telegram_message(
-        self
-        text: str
-        parse_mode: str = "HTML"
-        tags: Optional[List[str]] = None
+        self,
+        text: str,
+        parse_mode: str = "HTML",
+        tags: Optional[List[str]] = None,
         severity: str = "info",              # info|warn|error
         dedup_key: Optional[str] = None,     # ключ дедупликации
         meta: Optional[Dict[str, Any]] = None
@@ -477,12 +477,12 @@ class ReportingService:
                 # continue if redis check fails but ping was okay previously
 
             message_data: Dict[str, str] = {
-                "type": "report"
-                "text": text
-                "parse_mode": parse_mode
-                "source": "ReportingService"
-                "severity": str(severity)
-                "timestamp": str(get_ny_time_millis())
+                "type": "report",
+                "text": text,
+                "parse_mode": parse_mode,
+                "source": "ReportingService",
+                "severity": str(severity),
+                "timestamp": str(get_ny_time_millis()),
             }
 
             if tags:
@@ -569,24 +569,24 @@ class ReportingService:
             dur_str = self._ms_to_hhmm(duration_ms)
 
             lines = [
-                f"{result_emoji} <b>Сделка закрыта</b>"
-                ""
-                f"<b>Стратегия:</b> {html.escape(str(strategy))}"
-                f"<b>Источник:</b> {html.escape(str(source))}"
-                f"<b>Инструмент:</b> {html.escape(str(symbol))} ({html.escape(str(tf))})"
-                f"<b>Направление:</b> {direction_emoji} {direction}"
-                f"<b>Причина:</b> {html.escape(str(close_reason))}"
-                f"<b>TP достигнуто:</b> {tp_count}/3"
+                f"{result_emoji} <b>Сделка закрыта</b>",
+                "",
+                f"<b>Стратегия:</b> {html.escape(str(strategy))}",
+                f"<b>Источник:</b> {html.escape(str(source))}",
+                f"<b>Инструмент:</b> {html.escape(str(symbol))} ({html.escape(str(tf))})",
+                f"<b>Направление:</b> {direction_emoji} {direction}",
+                f"<b>Причина:</b> {html.escape(str(close_reason))}",
+                f"<b>TP достигнуто:</b> {tp_count}/3",
             ]
             if order_id:
                 lines.append(f"<b>Order ID:</b> <code>{html.escape(str(order_id))}</code>")
 
             lines += [
-                ""
-                f"<b>P/L:</b> Net <b>{pnl_net:+.2f}</b> ({pnl_pct:+.2f}%)"
-                f"<b>Gross / Fees:</b> {pnl_gross:+.2f} / {fees:+.2f}"
-                f"<b>R:</b> {r:+.3f}"
-                f"<b>Duration:</b> {dur_str}"
+                "",
+                f"<b>P/L:</b> Net <b>{pnl_net:+.2f}</b> ({pnl_pct:+.2f}%)",
+                f"<b>Gross / Fees:</b> {pnl_gross:+.2f} / {fees:+.2f}",
+                f"<b>R:</b> {r:+.3f}",
+                f"<b>Duration:</b> {dur_str}",
             ]
 
             extra = []
@@ -606,21 +606,21 @@ class ReportingService:
 
             tags = ["trade", "closed", strategy, symbol, tf, source]
             meta = {
-                "strategy": strategy, "symbol": symbol, "tf": tf, "source": source
-                "direction": direction, "result": result, "close_reason": close_reason
-                "pnl_net": pnl_net, "pnl_gross": pnl_gross, "fees": fees, "r": r
-                "duration_ms": duration_ms, "mae": mae, "mfe": mfe
-                "giveback": giveback, "missed_profit": missed_profit
-                "trailing_started": trailing_started, "trailing_moves": trailing_moves
-                "trailing_stop_hit": trailing_stop_hit, "order_id": order_id
+                "strategy": strategy, "symbol": symbol, "tf": tf, "source": source,
+                "direction": direction, "result": result, "close_reason": close_reason,
+                "pnl_net": pnl_net, "pnl_gross": pnl_gross, "fees": fees, "r": r,
+                "duration_ms": duration_ms, "mae": mae, "mfe": mfe,
+                "giveback": giveback, "missed_profit": missed_profit,
+                "trailing_started": trailing_started, "trailing_moves": trailing_moves,
+                "trailing_stop_hit": trailing_stop_hit, "order_id": order_id,
             }
 
             self.send_telegram_message(
-                msg
-                tags=tags
-                severity=severity
-                dedup_key=(f"trade_closed:{order_id}" if order_id else None)
-                meta=meta
+                msg,
+                tags=tags,
+                severity=severity,
+                dedup_key=(f"trade_closed:{order_id}" if order_id else None),
+                meta=meta,
             )
 
         except Exception as e:
@@ -661,13 +661,13 @@ class ReportingService:
             today = datetime.now().strftime("%Y-%m-%d")
 
             lines = [
-                f"📅 <b>Ежедневная сводка (расширенная)</b>"
-                f"🗓️ {today}"
-                f"{'='*40}\n"
-                f"<b>📈 ОБЩИЕ</b>"
-                f"Сделок: <b>{overall.get('total_trades', 0)}</b>"
-                f"W/L/BE: <b>{overall.get('wins', 0)}/{overall.get('losses', 0)}/{overall.get('breakeven', 0)}</b>"
-                f"WinRate: <b>{self._to_float(overall.get('winrate'), 0.0):.1f}%</b>"
+                f"📅 <b>Ежедневная сводка (расширенная)</b>",
+                f"🗓️ {today}",
+                f"{'='*40}\n",
+                f"<b>📈 ОБЩИЕ</b>",
+                f"Сделок: <b>{overall.get('total_trades', 0)}</b>",
+                f"W/L/BE: <b>{overall.get('wins', 0)}/{overall.get('losses', 0)}/{overall.get('breakeven', 0)}</b>",
+                f"WinRate: <b>{self._to_float(overall.get('winrate'), 0.0):.1f}%</b>",
             ]
 
             total_pnl = self._to_float(overall.get("total_pnl"), 0.0)
@@ -675,11 +675,11 @@ class ReportingService:
             total_gross = self._to_float(overall.get("total_pnl_gross"), 0.0)
             total_fees = self._to_float(overall.get("total_fees"), 0.0)
             lines += [
-                f"Net P/L: <b>{total_pnl:+.2f}</b> | Avg: <b>{avg_pnl:+.2f}</b>"
-                f"Gross / Fees: <b>{total_gross:+.2f}</b> / <b>{total_fees:+.2f}</b>"
-                f"PF: <b>{self._to_float(overall.get('profit_factor'), 0.0):.2f}</b> | Avg R: <b>{self._to_float(overall.get('avg_r'), 0.0):+.3f}</b>"
-                f"Avg Duration: <b>{self._ms_to_hhmm(self._to_float(overall.get('avg_duration_ms'), 0.0))}</b>"
-                ""
+                f"Net P/L: <b>{total_pnl:+.2f}</b> | Avg: <b>{avg_pnl:+.2f}</b>",
+                f"Gross / Fees: <b>{total_gross:+.2f}</b> / <b>{total_fees:+.2f}</b>",
+                f"PF: <b>{self._to_float(overall.get('profit_factor'), 0.0):.2f}</b> | Avg R: <b>{self._to_float(overall.get('avg_r'), 0.0):+.3f}</b>",
+                f"Avg Duration: <b>{self._ms_to_hhmm(self._to_float(overall.get('avg_duration_ms'), 0.0))}</b>",
+                "",
             ]
 
             # per strategy
@@ -717,11 +717,11 @@ class ReportingService:
 
             text = "\n".join(lines)
             self.send_telegram_message(
-                text
-                tags=["report", "daily"]
-                severity="info"
-                dedup_key=f"daily_summary:{today}"
-                meta={"date": today, "total_trades": self._to_int(overall.get("total_trades"), 0)}
+                text,
+                tags=["report", "daily"],
+                severity="info",
+                dedup_key=f"daily_summary:{today}",
+                meta={"date": today, "total_trades": self._to_int(overall.get("total_trades"), 0)},
             )
 
             self.logger.info("📊 Ежедневная сводка отправлена")
@@ -779,26 +779,26 @@ class ReportingService:
             return (x / total * 100.0) if total > 0 else 0.0
 
         msg = [
-            f"📊 <b>Отчёт: {html.escape(str(strategy))}:{html.escape(str(symbol))}:{html.escape(str(tf))}</b>"
-            f"{'='*40}\n"
-            f"<b>📈 ОСНОВНЫЕ</b>"
-            f"Сделок: <b>{total}</b>"
-            f"W/L/BE: <b>{wins}/{losses}/{be}</b>"
-            f"WinRate: <b>{winrate:.2f}%</b>"
-            f"Net P/L: <b>{total_pnl:+.2f}</b> | Avg: <b>{avg_pnl:+.2f}</b> | Avg%: <b>{avg_pnl_pct:+.4f}</b>"
-            f"Gross / Fees: <b>{total_gross:+.2f}</b> / <b>{total_fees:+.2f}</b>"
-            f"PF: <b>{profit_factor:.2f}</b> | Avg R: <b>{avg_r:+.4f}</b> | Avg Dur: <b>{self._ms_to_hhmm(avg_duration_ms)}</b>"
-            ""
-            f"<b>🎯 TP</b>"
-            f"TP1: <b>{tp1}</b> ({rate(tp1):.1f}%) | TP2: <b>{tp2}</b> ({rate(tp2):.1f}%) | TP3: <b>{tp3}</b> ({rate(tp3):.1f}%)"
-            f"TP→SL: TP1 <b>{tp1_then_sl}</b> ({rate(tp1_then_sl):.1f}%) | TP2 <b>{tp2_then_sl}</b> ({rate(tp2_then_sl):.1f}%) | TP3 <b>{tp3_then_sl}</b> ({rate(tp3_then_sl):.1f}%)"
-            ""
-            f"<b>🧷 TRAILING</b>"
-            f"Started: <b>{trailing_started}</b> | Hits: <b>{trailing_hits}</b> | Eff: <b>{trailing_eff:.1f}%</b> | Moves avg: <b>{trailing_moves_avg:.2f}</b>"
-            ""
-            f"<b>⭐ MISSED / GIVEBACK</b>"
-            f"Missed total: <b>{missed_total:+.2f}</b> | trades: <b>{missed_n}</b> | avg: <b>{missed_avg:+.2f}</b>"
-            f"Giveback total: <b>{giveback_total:+.2f}</b> | avg/trade: <b>{giveback_avg:+.2f}</b>"
+            f"📊 <b>Отчёт: {html.escape(str(strategy))}:{html.escape(str(symbol))}:{html.escape(str(tf))}</b>",
+            f"{'='*40}\n",
+            f"<b>📈 ОСНОВНЫЕ</b>",
+            f"Сделок: <b>{total}</b>",
+            f"W/L/BE: <b>{wins}/{losses}/{be}</b>",
+            f"WinRate: <b>{winrate:.2f}%</b>",
+            f"Net P/L: <b>{total_pnl:+.2f}</b> | Avg: <b>{avg_pnl:+.2f}</b> | Avg%: <b>{avg_pnl_pct:+.4f}</b>",
+            f"Gross / Fees: <b>{total_gross:+.2f}</b> / <b>{total_fees:+.2f}</b>",
+            f"PF: <b>{profit_factor:.2f}</b> | Avg R: <b>{avg_r:+.4f}</b> | Avg Dur: <b>{self._ms_to_hhmm(avg_duration_ms)}</b>",
+            "",
+            f"<b>🎯 TP</b>",
+            f"TP1: <b>{tp1}</b> ({rate(tp1):.1f}%) | TP2: <b>{tp2}</b> ({rate(tp2):.1f}%) | TP3: <b>{tp3}</b> ({rate(tp3):.1f}%)",
+            f"TP→SL: TP1 <b>{tp1_then_sl}</b> ({rate(tp1_then_sl):.1f}%) | TP2 <b>{tp2_then_sl}</b> ({rate(tp2_then_sl):.1f}%) | TP3 <b>{tp3_then_sl}</b> ({rate(tp3_then_sl):.1f}%)",
+            "",
+            f"<b>🧷 TRAILING</b>",
+            f"Started: <b>{trailing_started}</b> | Hits: <b>{trailing_hits}</b> | Eff: <b>{trailing_eff:.1f}%</b> | Moves avg: <b>{trailing_moves_avg:.2f}</b>",
+            "",
+            f"<b>⭐ MISSED / GIVEBACK</b>",
+            f"Missed total: <b>{missed_total:+.2f}</b> | trades: <b>{missed_n}</b> | avg: <b>{missed_avg:+.2f}</b>",
+            f"Giveback total: <b>{giveback_total:+.2f}</b> | avg/trade: <b>{giveback_avg:+.2f}</b>",
         ]
 
         # По источникам (коротко)
@@ -818,18 +818,18 @@ class ReportingService:
                 msg.append(f"• <b>{html.escape(str(src))}</b>: {t} | WR {wr:.1f}% | Net {pnl_net:+.2f} | PF {pf:.2f} | AvgR {ar:+.4f}")
 
         self.send_telegram_message(
-            "\n".join(msg)
-            tags=["report", "strategy", strategy, symbol, tf]
-            severity="info"
-            dedup_key=f"strategy_report:{strategy}:{symbol}:{tf}"
-            meta={"strategy": strategy, "symbol": symbol, "tf": tf}
+            "\n".join(msg),
+            tags=["report", "strategy", strategy, symbol, tf],
+            severity="info",
+            dedup_key=f"strategy_report:{strategy}:{symbol}:{tf}",
+            meta={"strategy": strategy, "symbol": symbol, "tf": tf},
         )
     
     def notify_periodic_summary(self, stats: Dict[str, Any], period: str = "day"):
         """
         Отправляет сводку результатов за период (гибкий формат).
         
-        Может обрабатывать как статистику одной стратегии
+        Может обрабатывать как статистику одной стратегии,
         так и словарь с несколькими стратегиями.
         
         Args:
@@ -907,8 +907,8 @@ class ReportingService:
                 message = "\n".join(message_lines)
             
             self.send_telegram_message(
-                message
-                tags=["summary", period]
+                message,
+                tags=["summary", period],
                 severity="info"
             )
             self.logger.info(f"📊 Периодическая сводка за {period} отправлена")
@@ -921,15 +921,15 @@ class ReportingService:
     # ============================================================
     
     def export_trades_to_json(
-        self
-        strategy: str
-        symbol: str
-        tf: str
-        filepath: str
-        include_signal: bool = True
-        include_events: bool = True
-        include_summary: bool = True
-        events_limit: int = 2000
+        self,
+        strategy: str,
+        symbol: str,
+        tf: str,
+        filepath: str,
+        include_signal: bool = True,
+        include_events: bool = True,
+        include_summary: bool = True,
+        events_limit: int = 2000,
     ) -> bool:
         """
         Экспорт сделок в JSON файл (расширенный).
@@ -990,27 +990,27 @@ class ReportingService:
 
         # Counters
         for k in [
-            "total_trades", "wins", "losses", "breakeven"
-            "tp1_hits", "tp2_hits", "tp3_hits"
-            "tp1_then_sl", "tp2_then_sl", "tp3_then_sl"
-            "trailing_started", "trailing_stop_hits"
-            "missed_profit_trades"
+            "total_trades", "wins", "losses", "breakeven",
+            "tp1_hits", "tp2_hits", "tp3_hits",
+            "tp1_then_sl", "tp2_then_sl", "tp3_then_sl",
+            "trailing_started", "trailing_stop_hits",
+            "missed_profit_trades",
         ]:
             acc[k] = self._to_int(acc.get(k), 0) + self._to_int(s.get(k), 0)
 
         # Sums
         for k in [
-            "total_pnl"
-            "total_pnl_gross"
-            "total_fees"
-            "total_pnl_pct"
-            "sum_r"
-            "gross_profit"
-            "gross_loss"
-            "sum_duration_ms"
-            "trailing_moves_total"
-            "missed_profit_total"
-            "giveback_total"
+            "total_pnl",
+            "total_pnl_gross",
+            "total_fees",
+            "total_pnl_pct",
+            "sum_r",
+            "gross_profit",
+            "gross_loss",
+            "sum_duration_ms",
+            "trailing_moves_total",
+            "missed_profit_total",
+            "giveback_total",
         ]:
             acc[k] = self._to_float(acc.get(k), 0.0) + self._to_float(s.get(k), 0.0)
 
@@ -1070,7 +1070,7 @@ class ReportingService:
     def _build_trade_summary_from_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
         """
         Собирает нормализованную сводку сделки из order:* (или trade_summary-like dict).
-        Ожидаемые новые поля (если есть): pnl_gross, pnl_net, fees, r, duration_ms, mae, mfe
+        Ожидаемые новые поля (если есть): pnl_gross, pnl_net, fees, r, duration_ms, mae, mfe,
         giveback, missed_profit, trailing_started, trailing_moves, trailing_stop_hit.
         """
         direction = str(order.get("direction", order.get("side", "LONG"))).upper()
@@ -1129,19 +1129,19 @@ class ReportingService:
             result = "win" if pnl_net > 1e-9 else ("loss" if pnl_net < -1e-9 else "breakeven")
 
         return {
-            "pnl_gross": pnl_gross
-            "pnl_net": pnl_net
-            "fees": fees
-            "r": r
-            "duration_ms": duration_ms
-            "mae": mae
-            "mfe": mfe
-            "giveback": giveback
-            "missed_profit": missed_profit
-            "trailing_started": trailing_started
-            "trailing_moves": trailing_moves
-            "trailing_stop_hit": trailing_stop_hit
-            "result": result
+            "pnl_gross": pnl_gross,
+            "pnl_net": pnl_net,
+            "fees": fees,
+            "r": r,
+            "duration_ms": duration_ms,
+            "mae": mae,
+            "mfe": mfe,
+            "giveback": giveback,
+            "missed_profit": missed_profit,
+            "trailing_started": trailing_started,
+            "trailing_moves": trailing_moves,
+            "trailing_stop_hit": trailing_stop_hit,
+            "result": result,
         }
     
     def get_sources_summary(self) -> Dict[str, Dict[str, Any]]:
@@ -1246,38 +1246,38 @@ class ReportingService:
             trailing_eff = self._safe_div(trailing_stop_hits, trailing_started, 0.0) * 100.0
 
             return {
-                "timestamp": get_ny_time_millis()
+                "timestamp": get_ny_time_millis(),
 
-                "total_groups": len(all_stats)
-                "total_trades": total_trades
-                "wins": wins
-                "losses": losses
-                "breakevens": breakevens
-                "winrate": round(winrate, 2)
+                "total_groups": len(all_stats),
+                "total_trades": total_trades,
+                "wins": wins,
+                "losses": losses,
+                "breakevens": breakevens,
+                "winrate": round(winrate, 2),
 
-                "total_pnl": round(total_pnl, 2)
-                "avg_pnl": round(avg_pnl, 2)
+                "total_pnl": round(total_pnl, 2),
+                "avg_pnl": round(avg_pnl, 2),
 
-                "total_pnl_gross": round(total_pnl_gross, 2)
-                "total_fees": round(total_fees, 2)
+                "total_pnl_gross": round(total_pnl_gross, 2),
+                "total_fees": round(total_fees, 2),
 
-                "gross_profit": round(gross_profit, 2)
-                "gross_loss": round(gross_loss, 2)
-                "profit_factor": round(profit_factor, 3)
+                "gross_profit": round(gross_profit, 2),
+                "gross_loss": round(gross_loss, 2),
+                "profit_factor": round(profit_factor, 3),
 
-                "avg_r": round(avg_r, 4)
-                "avg_duration_ms": round(avg_duration_ms, 0)
+                "avg_r": round(avg_r, 4),
+                "avg_duration_ms": round(avg_duration_ms, 0),
 
-                "missed_profit_total": round(missed_profit_total, 2)
-                "missed_profit_trades": missed_profit_trades
-                "missed_profit_avg": round(missed_profit_avg, 2)
+                "missed_profit_total": round(missed_profit_total, 2),
+                "missed_profit_trades": missed_profit_trades,
+                "missed_profit_avg": round(missed_profit_avg, 2),
 
-                "giveback_total": round(giveback_total, 2)
+                "giveback_total": round(giveback_total, 2),
 
-                "trailing_started": trailing_started
-                "trailing_stop_hits": trailing_stop_hits
-                "trailing_effectiveness": round(trailing_eff, 2)
-                "trailing_moves_total": round(trailing_moves_total, 2)
+                "trailing_started": trailing_started,
+                "trailing_stop_hits": trailing_stop_hits,
+                "trailing_effectiveness": round(trailing_eff, 2),
+                "trailing_moves_total": round(trailing_moves_total, 2),
             }
 
         except Exception as e:

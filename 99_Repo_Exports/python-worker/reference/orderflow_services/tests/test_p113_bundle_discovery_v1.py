@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for P113: OF-gate alert rules normalization + bundle discovery fixes.
 
 Covers:
@@ -15,7 +16,6 @@ Covers:
 Component: Python (orderflow_services tests)
 """
 
-from __future__ import annotations
 
 import os
 import tempfile
@@ -74,7 +74,7 @@ class TestExcludeBasenamePrefix:
     def test_manifest_filename_matches_prefix(self):
         mod = _import_discovery()
         prefixes = mod.EXCLUDE_BASENAME_PREFIXES
-        for name in ("prometheus_rules_bundle_manifest_v1.yml"
+        for name in ("prometheus_rules_bundle_manifest_v1.yml",
                      "prometheus_rules_bundle_manifest_v2.yml"):
             assert any(name.startswith(p) for p in prefixes), (
                 f"{name} should be excluded by EXCLUDE_BASENAME_PREFIXES"
@@ -85,9 +85,9 @@ class TestExcludeBasenamePrefix:
         prefixes = mod.EXCLUDE_BASENAME_PREFIXES
         # Regular alert files must NOT match any prefix
         for name in (
-            "prometheus_alerts_of_gate_archiver_p78.yml"
-            "prometheus_alerts_of_gate_dlq_p82.yml"
-            "prometheus_alerts_of_gate_ok_rate_v1.yml"
+            "prometheus_alerts_of_gate_archiver_p78.yml",
+            "prometheus_alerts_of_gate_dlq_p82.yml",
+            "prometheus_alerts_of_gate_ok_rate_v1.yml",
         ):
             assert not any(name.startswith(p) for p in prefixes), (
                 f"{name} should NOT be excluded by EXCLUDE_BASENAME_PREFIXES"
@@ -108,8 +108,8 @@ class TestLooksLikeIncludeStub:
         mod = _import_discovery()
         stub = tmp_path / "stub.yml"
         stub.write_text(
-            "include: ../orderflow_services/prometheus_alerts_enforce_health_v82.yml\n"
-            encoding="utf-8"
+            "include: ../orderflow_services/prometheus_alerts_enforce_health_v82.yml\n",
+            encoding="utf-8",
         )
         assert mod._looks_like_include_stub(path=stub) is True, (
             "include-stub must be detected by _looks_like_include_stub"
@@ -131,8 +131,8 @@ class TestLooksLikeIncludeStub:
                           severity: warning
                         annotations:
                           summary: "Test"
-            """)
-            encoding="utf-8"
+            """),
+            encoding="utf-8",
         )
         assert mod._looks_like_include_stub(path=rule_file) is False, (
             "Real rules file must NOT be detected as include stub"
@@ -185,18 +185,18 @@ class TestDiscoveryExclusion:
         # Create a real alert file and a manifest file in the same pattern
         real = of_dir / "prometheus_alerts_of_gate_dlq_p82.yml"
         real.write_text(
-            "groups:\n  - name: test\n    rules:\n      - alert: Test\n        expr: up==0\n"
-            encoding="utf-8"
+            "groups:\n  - name: test\n    rules:\n      - alert: Test\n        expr: up==0\n",
+            encoding="utf-8",
         )
         manifest = of_dir / "prometheus_rules_bundle_manifest_v1.yml"
         manifest.write_text(
-            "rule_file_globs:\n  - orderflow_services/prometheus_alerts_*.yml\n"
-            encoding="utf-8"
+            "rule_file_globs:\n  - orderflow_services/prometheus_alerts_*.yml\n",
+            encoding="utf-8",
         )
 
         result = mod.discover_rules_bundle(
-            repo_root=tmp_path
-            manifest_ref=None
+            repo_root=tmp_path,
+            manifest_ref=None,
         )
         discovered_names = [p.name for p in result.files]
         # Manifest file must NOT appear in discovered files
@@ -216,18 +216,18 @@ class TestDiscoveryExclusion:
 
         real = of_dir / "prometheus_alerts_of_gate_ok_rate_v1.yml"
         real.write_text(
-            "groups:\n  - name: test\n    rules:\n      - alert: T\n        expr: up==0\n"
-            encoding="utf-8"
+            "groups:\n  - name: test\n    rules:\n      - alert: T\n        expr: up==0\n",
+            encoding="utf-8",
         )
         stub = of_dir / "prometheus_alerts_enforce_health_v82.yml"
         stub.write_text(
-            "include: ../orderflow_services/prometheus_alerts_enforce_health_v82.yml\n"
-            encoding="utf-8"
+            "include: ../orderflow_services/prometheus_alerts_enforce_health_v82.yml\n",
+            encoding="utf-8",
         )
 
         result = mod.discover_rules_bundle(
-            repo_root=tmp_path
-            manifest_ref=None
+            repo_root=tmp_path,
+            manifest_ref=None,
         )
         discovered_names = [p.name for p in result.files]
         assert "prometheus_alerts_enforce_health_v82.yml" not in discovered_names, (
@@ -295,10 +295,10 @@ def test_dlq_exporter_p82_yml_has_required_labels(tree: str) -> None:
 # ---------------------------------------------------------------------------
 
 _OF_GATE_ALERT_FILES = [
-    "prometheus_alerts_of_gate_archiver_p78.yml"
-    "prometheus_alerts_of_gate_dlq_p82.yml"
-    "prometheus_alerts_of_gate_dlq_exporter_p82.yml"
-    "prometheus_alerts_of_gate_ok_rate_v1.yml"
+    "prometheus_alerts_of_gate_archiver_p78.yml",
+    "prometheus_alerts_of_gate_dlq_p82.yml",
+    "prometheus_alerts_of_gate_dlq_exporter_p82.yml",
+    "prometheus_alerts_of_gate_ok_rate_v1.yml",
 ]
 
 
@@ -401,19 +401,19 @@ def test_archiver_p78_expected_alerts() -> None:
         doc = yaml.safe_load(fh)
     names = {r.get("alert") for g in doc["groups"] for r in g["rules"] if "alert" in r}
     expected = {
-        "OF_Gate_Archiver_Metrics_Stale"
-        "OF_Gate_Archiver_Quarantine_Stale"
-        "OF_Gate_RollupsRefresh_Stale"
-        "OF_Gate_Archiver_Errors"
-        "OF_Gate_QuarantineArchiver_Errors"
-        "OF_Gate_RollupsRefresh_Errors"
-        "OF_Gate_RollupsFreshnessProbe_Stale"
-        "OF_Gate_Rollups_5m_Stale"
-        "OF_Gate_Rollups_1h_Stale"
-        "OF_Gate_TimescalePolicyProbe_Stale"
-        "OF_Gate_TimescaleMissing"
-        "OF_Gate_TimescalePoliciesMissing"
-        "OF_Gate_TimescalePoliciesDisabled"
+        "OF_Gate_Archiver_Metrics_Stale",
+        "OF_Gate_Archiver_Quarantine_Stale",
+        "OF_Gate_RollupsRefresh_Stale",
+        "OF_Gate_Archiver_Errors",
+        "OF_Gate_QuarantineArchiver_Errors",
+        "OF_Gate_RollupsRefresh_Errors",
+        "OF_Gate_RollupsFreshnessProbe_Stale",
+        "OF_Gate_Rollups_5m_Stale",
+        "OF_Gate_Rollups_1h_Stale",
+        "OF_Gate_TimescalePolicyProbe_Stale",
+        "OF_Gate_TimescaleMissing",
+        "OF_Gate_TimescalePoliciesMissing",
+        "OF_Gate_TimescalePoliciesDisabled",
     }
     missing = expected - names
     assert not missing, f"[P113] Missing alerts in archiver_p78.yml: {sorted(missing)}"
@@ -428,9 +428,9 @@ def test_dlq_p82_expected_alerts() -> None:
         doc = yaml.safe_load(fh)
     names = {r.get("alert") for g in doc["groups"] for r in g["rules"] if "alert" in r}
     expected = {
-        "OF_Gate_DLQ_ExporterDown"
-        "OF_Gate_DLQ_NonZero15m"
-        "OF_Gate_DLQ_OldestAgeHigh"
+        "OF_Gate_DLQ_ExporterDown",
+        "OF_Gate_DLQ_NonZero15m",
+        "OF_Gate_DLQ_OldestAgeHigh",
     }
     missing = expected - names
     assert not missing, f"[P113] Missing alerts in dlq_p82.yml: {sorted(missing)}"
@@ -458,16 +458,16 @@ def test_ok_rate_v1_expected_alerts() -> None:
         doc = yaml.safe_load(fh)
     names = {r.get("alert") for g in doc["groups"] for r in g["rules"] if "alert" in r}
     expected = {
-        "OF_Gate_EligibleAbsent15m"
-        "OF_Gate_NoEligible15m"
-        "OF_Gate_OkRateStrictLow"
-        "OF_Gate_SoftShareHigh"
-        "OF_Gate_QuarantineShareHigh"
-        "OF_Gate_QuarantineRateHigh"
-        "OF_Gate_ContractSmokeStale2h"
-        "OF_Gate_ContractBadShareHigh"
-        "OF_Gate_ContractMissingSchemaShareHigh"
-        "OF_Gate_ContractSchemaVersionMissing"
+        "OF_Gate_EligibleAbsent15m",
+        "OF_Gate_NoEligible15m",
+        "OF_Gate_OkRateStrictLow",
+        "OF_Gate_SoftShareHigh",
+        "OF_Gate_QuarantineShareHigh",
+        "OF_Gate_QuarantineRateHigh",
+        "OF_Gate_ContractSmokeStale2h",
+        "OF_Gate_ContractBadShareHigh",
+        "OF_Gate_ContractMissingSchemaShareHigh",
+        "OF_Gate_ContractSchemaVersionMissing",
     }
     missing = expected - names
     assert not missing, f"[P113] Missing alerts in ok_rate_v1.yml: {sorted(missing)}"
@@ -478,10 +478,10 @@ def test_ok_rate_v1_expected_alerts() -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("filename, tree", [
-    ("runbook_of_gate_ok_rate_v1.md", "main")
-    ("runbook_of_gate_ok_rate_v1.md", "tff")
-    ("runbook_of_gate_exporters_smoke_p111.md", "main")
-    ("runbook_of_gate_exporters_smoke_p111.md", "tff")
+    ("runbook_of_gate_ok_rate_v1.md", "main"),
+    ("runbook_of_gate_ok_rate_v1.md", "tff"),
+    ("runbook_of_gate_exporters_smoke_p111.md", "main"),
+    ("runbook_of_gate_exporters_smoke_p111.md", "tff"),
 ])
 def test_p113_runbook_exists(filename: str, tree: str) -> None:
     """[P113] Required runbooks must exist in both trees."""

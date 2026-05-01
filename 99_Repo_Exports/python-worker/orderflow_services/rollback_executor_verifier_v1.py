@@ -105,7 +105,7 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
     conn = await asyncpg.connect(database_url)
     try:
         await conn.execute(
-            """
+            """,
             INSERT INTO llm_rollback_verifications (
                 recommendation_id, verification_ts_ms, verification_status,
                 reason_codes_json, details_json
@@ -118,7 +118,7 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
             json.dumps(payload.get("details", {})),
         )
         await conn.execute(
-            """
+            """,
             UPDATE llm_recommendations
                SET rollback_verification_status = $2,
                    rollback_verified_at_ms = $3,
@@ -165,7 +165,7 @@ async def main() -> None:
         "ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS": os.getenv("ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS", "1.5"),
         "ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA": os.getenv("ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA", "0.01"),
         "ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP": os.getenv("ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP", "0.08"),
-    }
+    },
 
     while True:
         VERIFIER_UP.set(1)
@@ -200,7 +200,7 @@ async def main() -> None:
                         "verification_status": decision.verification_status,
                         "reason_codes": json.dumps(decision.reason_codes, ensure_ascii=False),
                         "details": json.dumps(decision.details, ensure_ascii=False),
-                    }
+                    },
                     await r.xadd(stream_verify, verify_payload, maxlen=200_000, approximate=True)
                     await r.xadd(
                         stream_audit,

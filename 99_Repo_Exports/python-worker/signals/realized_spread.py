@@ -1,4 +1,5 @@
 # signals/realized_spread.py
+from __future__ import annotations
 """
 Realized Spread Tracker для микроструктурного анализа.
 
@@ -7,7 +8,6 @@ Realized Spread Tracker для микроструктурного анализа
 
 Без Redis/JSON: только арифметика + deque + EMA для максимальной производительности.
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import deque

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Drop-group ablation for E-block (Hawkes/VPIN/limit-add) + auto-denylist.
 
 Offline only (no runtime changes).
@@ -10,7 +11,6 @@ Outputs (out_dir)
   - denylist_autogen.txt
 """
 
-from __future__ import annotations
 
 import argparse
 import csv

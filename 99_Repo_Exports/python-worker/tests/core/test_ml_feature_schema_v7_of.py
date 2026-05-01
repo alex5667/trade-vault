@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for core.ml_feature_schema_v7_of.MLFeatureSchemaV7OF."""
 
-from __future__ import annotations
 import pytest
 from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
 from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF

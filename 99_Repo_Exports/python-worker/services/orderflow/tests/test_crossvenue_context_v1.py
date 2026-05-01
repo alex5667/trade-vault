@@ -1,16 +1,16 @@
 """Tests for cross-venue context snapshot reader.
 
-Covers: JSON roundtrip, bytes/str/dict parsing, missing fields → defaults
+Covers: JSON roundtrip, bytes/str/dict parsing, missing fields → defaults,
 bad JSON → None, NaN/Inf → 0.0, ctx_key format.
 """
 import json
 import pytest
 from services.orderflow.crossvenue_context import (
-    CrossVenueContextSnapshot
-    from_json
-    from_dict
-    ctx_key
-    SCHEMA_VERSION
+    CrossVenueContextSnapshot,
+    from_json,
+    from_dict,
+    ctx_key,
+    SCHEMA_VERSION,
 )
 
 
@@ -20,24 +20,24 @@ from services.orderflow.crossvenue_context import (
 
 def _sample_payload(**overrides):
     base = {
-        "schema_version": 1
-        "symbol": "BTCUSDT"
-        "ts_ms": 1760000000000
-        "primary_venue": "binance_usdm"
+        "schema_version": 1,
+        "symbol": "BTCUSDT",
+        "ts_ms": 1760000000000,
+        "primary_venue": "binance_usdm",
         "venues": {
-            "binance": {"mid": 64000.5, "bid": 64000.0, "ask": 64001.0, "ts_ms": 1760000000000, "stale": 0}
-            "coinbase": {"mid": 64004.2, "bid": 64003.9, "ask": 64004.5, "ts_ms": 1760000000000, "stale": 0}
-            "kraken": {"mid": 64002.7, "bid": 64002.2, "ask": 64003.2, "ts_ms": 1760000000000, "stale": 0}
-        }
-        "cross_venue_mid_spread_bps": 0.65
-        "binance_vs_coinbase_mid_bps": -0.58
-        "binance_vs_kraken_mid_bps": -0.34
-        "binance_vs_okx_mid_bps": 0.0
-        "cross_venue_direction_agree": 1.0
-        "cross_venue_trade_imbalance": 0.22
-        "venue_dislocation_z": 1.4
-        "venue_stale_count": 0
-        "quality_status": "OK"
+            "binance": {"mid": 64000.5, "bid": 64000.0, "ask": 64001.0, "ts_ms": 1760000000000, "stale": 0},
+            "coinbase": {"mid": 64004.2, "bid": 64003.9, "ask": 64004.5, "ts_ms": 1760000000000, "stale": 0},
+            "kraken": {"mid": 64002.7, "bid": 64002.2, "ask": 64003.2, "ts_ms": 1760000000000, "stale": 0},
+        },
+        "cross_venue_mid_spread_bps": 0.65,
+        "binance_vs_coinbase_mid_bps": -0.58,
+        "binance_vs_kraken_mid_bps": -0.34,
+        "binance_vs_okx_mid_bps": 0.0,
+        "cross_venue_direction_agree": 1.0,
+        "cross_venue_trade_imbalance": 0.22,
+        "venue_dislocation_z": 1.4,
+        "venue_stale_count": 0,
+        "quality_status": "OK",
     }
     base.update(overrides)
     return base
@@ -106,9 +106,9 @@ def test_missing_optional_fields_defaults():
 
 def test_nan_inf_fields_become_zero():
     payload = _sample_payload(
-        cross_venue_mid_spread_bps=float("nan")
-        venue_dislocation_z=float("inf")
-        cross_venue_direction_agree=float("-inf")
+        cross_venue_mid_spread_bps=float("nan"),
+        venue_dislocation_z=float("inf"),
+        cross_venue_direction_agree=float("-inf"),
     )
     snap = from_dict(payload)
     assert snap is not None

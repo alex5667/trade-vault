@@ -28,12 +28,12 @@ def is_transient_error(e: Exception) -> bool:
     # message tokens fallback (covers proxies, TLS, etc.)
     s = (str(e) or "").lower()
     tokens = (
-        "timeout", "timed out"
-        "connection", "connection refused", "connection reset"
-        "broken pipe", "reset by peer"
-        "eof", "closed", "unreachable"
-        "busy loading", "loading the dataset"
-        "try again", "temporarily unavailable"
-        "readonly", "master is down", "failover", "moved", "ask"
+        "timeout", "timed out",
+        "connection", "connection refused", "connection reset",
+        "broken pipe", "reset by peer",
+        "eof", "closed", "unreachable",
+        "busy loading", "loading the dataset",
+        "try again", "temporarily unavailable",
+        "readonly", "master is down", "failover", "moved", "ask",
     )
     return any(t in s for t in tokens)

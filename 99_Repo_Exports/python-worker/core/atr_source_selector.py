@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ATR Source Selector (ATR TF Calibrator core)
 ==========================================
@@ -24,7 +25,6 @@ ATR Source Selector (ATR TF Calibrator core)
 * Детерминизм времени: используйте now_ms из сигнала/бара, а не wall-clock.
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass, asdict

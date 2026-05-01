@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_ml_confirm_edge_stack_decide.py
 
 Test that _decide_edge_stack_v1 correctly works with dict-pack models and predict_proba.
 """
 
-from __future__ import annotations
 
 import json
 import tempfile

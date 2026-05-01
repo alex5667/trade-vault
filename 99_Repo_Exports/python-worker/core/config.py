@@ -88,7 +88,7 @@ MIN_FINAL_SCORE: float = float(os.getenv("MIN_FINAL_SCORE", "0.5"))
 SCANNER_CONSUMER_GROUP: str = os.getenv("SCANNER_CONSUMER_GROUP", "scanner-consumer-group")
 
 # Список стримов для чтения (можно переопределить через ENV)
-SCANNER_STREAMS: list = os.getenv("SCANNER_STREAMS", "stream:tick_XAUUSD,stream:book_XAUUSD").split(",")
+SCANNER_STREAMS: list = os.getenv("SCANNER_STREAMS", "stream:tick_stream:book_").split(",")
 
 # Параметры чтения из Redis streams
 SCANNER_READ_COUNT: int = int(os.getenv("SCANNER_READ_COUNT", "10"))
@@ -110,11 +110,11 @@ BINANCE_STREAMS: list = os.getenv(
 # ===== XAU/MT5 Configuration =====
 
 # XAU tick stream configuration
-XAU_TICK_STREAM: str = os.getenv("XAU_TICK_STREAM", "stream:tick_XAUUSD")
+XAU_TICK_STREAM: str = os.getenv("XAU_TICK_STREAM", "stream:tick_")
 XAU_TICK_STREAM_MAXLEN: int = int(os.getenv("XAU_TICK_STREAM_MAXLEN", "10000"))
 
 # XAU book stream configuration
-XAU_BOOK_STREAM: str = os.getenv("XAU_BOOK_STREAM", "stream:book_XAUUSD")
+XAU_BOOK_STREAM: str = os.getenv("XAU_BOOK_STREAM", "stream:book_")
 XAU_BOOK_STREAM_MAXLEN: int = int(os.getenv("XAU_BOOK_STREAM_MAXLEN", "20000"))
 
 # XAU handler enabled flag

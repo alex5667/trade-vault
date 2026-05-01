@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 services/tests/test_horizon_profile_bootstrap_service_v1.py
 ────────────────────────────────────────────────────────────
@@ -5,17 +6,16 @@ Unit tests for Phase 1 horizon_profile_bootstrap_service.
 
 Covers pure math helpers (no DB / Redis needed).
 """
-from __future__ import annotations
 
 import math
 import pytest
 
 from services.horizon_profile_bootstrap_service import (
-    HorizonProfileBootstrapService
-    HorizonStatRow
-    _bucket_by_hold_ms
-    _percentile_disc_sorted
-    _profile_conf
+    HorizonProfileBootstrapService,
+    HorizonStatRow,
+    _bucket_by_hold_ms,
+    _percentile_disc_sorted,
+    _profile_conf,
 )
 
 
@@ -116,8 +116,8 @@ def test_profile_conf_midway():
 
 def _make_svc(**kwargs) -> HorizonProfileBootstrapService:
     svc = HorizonProfileBootstrapService(
-        dsn="postgresql://x:x@localhost/x"
-        redis_url="redis://localhost:6379/0"
+        dsn="postgresql://x:x@localhost/x",
+        redis_url="redis://localhost:6379/0",
     )
     for k, v in kwargs.items():
         setattr(svc, "_" + k, v)
@@ -127,10 +127,10 @@ def _make_svc(**kwargs) -> HorizonProfileBootstrapService:
 def test_calc_profile_basic():
     svc = _make_svc(min_n=4, strong_n=10, max_signal_age_cap_ms=300_000)
     rows = [
-        HorizonStatRow("breakout", "trend_up", 300_000, 120_000)
-        HorizonStatRow("breakout", "trend_up", 360_000, 180_000)
-        HorizonStatRow("breakout", "trend_up", 420_000, 240_000)
-        HorizonStatRow("breakout", "trend_up", 600_000, 300_000)
+        HorizonStatRow("breakout", "trend_up", 300_000, 120_000),
+        HorizonStatRow("breakout", "trend_up", 360_000, 180_000),
+        HorizonStatRow("breakout", "trend_up", 420_000, 240_000),
+        HorizonStatRow("breakout", "trend_up", 600_000, 300_000),
     ]
     prof = svc._calc_profile(rows)
     assert prof is not None
@@ -204,9 +204,9 @@ def test_publish_profiles_groups_exact_scenario_default():
     svc._redis = _FakeRedis()
 
     rows = [
-        HorizonStatRow("breakout", "trend_up", 300_000, 120_000)
-        HorizonStatRow("breakout", "flat", 360_000, 180_000)
-        HorizonStatRow("pullback", "flat", 420_000, 200_000)
+        HorizonStatRow("breakout", "trend_up", 300_000, 120_000),
+        HorizonStatRow("breakout", "flat", 360_000, 180_000),
+        HorizonStatRow("pullback", "flat", 420_000, 200_000),
     ]
     n = svc._publish_profiles("CryptoOrderFlow", "BTCUSDT", rows)
     assert n > 0

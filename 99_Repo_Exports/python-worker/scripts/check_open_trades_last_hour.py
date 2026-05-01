@@ -49,13 +49,13 @@ def check_redis_open_positions(redis_url: str) -> Dict[str, Any]:
             strategy = pos_hash.get("strategy", "UNKNOWN")
             
             positions.append({
-                "id": pos_id
-                "symbol": symbol
-                "direction": direction
-                "entry_price": entry_price
-                "sl": sl
-                "strategy": strategy
-                "entry_ts_ms": entry_ts_ms
+                "id": pos_id,
+                "symbol": symbol,
+                "direction": direction,
+                "entry_price": entry_price,
+                "sl": sl,
+                "strategy": strategy,
+                "entry_ts_ms": entry_ts_ms,
                 "age_minutes": (now_ms - entry_ts_ms) // (60 * 1000)
             })
         
@@ -85,8 +85,8 @@ def check_redis_open_positions(redis_url: str) -> Dict[str, Any]:
             print(f"   {symbol:<12}: {count} позиций")
         
         return {
-            "total": len(positions)
-            "last_hour": len(last_hour_positions)
+            "total": len(positions),
+            "last_hour": len(last_hour_positions),
             "positions": last_hour_positions
         }
         
@@ -114,15 +114,15 @@ def check_postgres_closed_trades(dsn: str) -> Dict[str, Any]:
         # Запрос закрытых сделок за последний час
         query = """
             SELECT 
-                order_id
-                symbol
-                direction
-                entry_price
-                exit_price
-                pnl_net
-                close_reason
-                exit_ts_ms
-                strategy
+                order_id,
+                symbol,
+                direction,
+                entry_price,
+                exit_price,
+                pnl_net,
+                close_reason,
+                exit_ts_ms,
+                strategy,
                 (exit_ts_ms - entry_ts_ms) / 1000.0 as duration_sec
             FROM trades_closed
             WHERE exit_ts_ms >= %s
@@ -185,7 +185,7 @@ def check_postgres_closed_trades(dsn: str) -> Dict[str, Any]:
         conn.close()
         
         return {
-            "count": len(rows)
+            "count": len(rows),
             "trades": rows
         }
         

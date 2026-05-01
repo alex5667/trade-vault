@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for P66 Decision Coverage exporter (decision_coverage_exporter_v1).
 
@@ -7,7 +8,6 @@ Covers:
   - _read_state: graceful error handling
   - Compile check (no import errors when prometheus_client not installed in test env)
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time

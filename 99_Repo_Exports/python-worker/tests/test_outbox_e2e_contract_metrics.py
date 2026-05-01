@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Contract tests: outbox envelope → dispatcher parse → target delivery.
 Checks:
@@ -7,7 +8,6 @@ Checks:
   4. outbox_dedup_hit_rate инкрементируется при duplicate write.
   5. outbox_write_latency_seconds наблюдается при успешном XADD.
 """
-from __future__ import annotations
 
 import json
 import time

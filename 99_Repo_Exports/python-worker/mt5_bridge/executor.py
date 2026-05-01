@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Plan Executor - Execution Logic for MT5 Bridge
 
@@ -8,7 +9,6 @@ Plan Executor - Execution Logic for MT5 Bridge
 - Position management
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -71,7 +71,7 @@ class PlanExecutor:
         """
         Добавляет новый план для исполнения.
 
-        Если план с таким signal_id уже существует
+        Если план с таким signal_id уже существует,
         он будет обновлен (или можно игнорировать дубликаты).
 
         Args:
@@ -149,12 +149,12 @@ class PlanExecutor:
                 continue
 
             result = self.mt5.send_market_order(
-                symbol=symbol
-                is_buy=plan.is_long
-                volume_lots=vol
-                sl_price=plan.stop_price
-                tp_price=tp
-                comment=comment_base
+                symbol=symbol,
+                is_buy=plan.is_long,
+                volume_lots=vol,
+                sl_price=plan.stop_price,
+                tp_price=tp,
+                comment=comment_base,
             )
 
             # фиксируем order id из результата MT5

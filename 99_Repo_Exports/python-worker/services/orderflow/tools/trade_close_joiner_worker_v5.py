@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Trade Close Joiner Worker (v5)
 
@@ -19,7 +20,6 @@ Reliability:
   - If decision:{sid} missing at close time -> push to CLOSE_WAIT_STREAM for retry
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio
@@ -129,20 +129,20 @@ async def _write_ml_replay(r: aioredis.Redis, stream: str, payload: Dict[str, An
 
 async def _push_close_wait(r: aioredis.Redis, stream: str, close_payload: Dict[str, Any], reason: str, maxlen: int) -> None:
     doc = {
-        "ts_ms": _now_ms()
-        "reason": reason
-        "close": close_payload
+        "ts_ms": _now_ms(),
+        "reason": reason,
+        "close": close_payload,
     }
     await r.xadd(stream, {"payload": json.dumps(doc, ensure_ascii=False)}, maxlen=maxlen, approximate=True)
 
 async def _load_of_input(
-    r: aioredis.Redis
-    sid: str
-    *
-    stream: str
-    field: str
-    sid_index_prefix: str
-    scan_count: int
+    r: aioredis.Redis,
+    sid: str,
+    *,
+    stream: str,
+    field: str,
+    sid_index_prefix: str,
+    scan_count: int,
 ) -> Optional[Dict[str, Any]]:
     """Fetch the originating OF input by SID from an OF inputs stream.
 
@@ -192,22 +192,22 @@ async def _load_of_input(
     return None
 
 async def _handle_close(
-    r: aioredis.Redis
-    close_payload: Dict[str, Any]
-    *
-    decision_prefix: str
-    trades_closed_stream: str
-    trades_closed_maxlen: int
-    close_wait_stream: str
-    close_wait_maxlen: int
-    dedup_ttl_sec: int
-    ml_replay_stream: str
-    ml_replay_maxlen: int
-    write_ml_replay: bool
-    of_inputs_stream: str
-    of_inputs_field: str
-    of_inputs_sid_index_prefix: str
-    of_inputs_scan_count: int
+    r: aioredis.Redis,
+    close_payload: Dict[str, Any],
+    *,
+    decision_prefix: str,
+    trades_closed_stream: str,
+    trades_closed_maxlen: int,
+    close_wait_stream: str,
+    close_wait_maxlen: int,
+    dedup_ttl_sec: int,
+    ml_replay_stream: str,
+    ml_replay_maxlen: int,
+    write_ml_replay: bool,
+    of_inputs_stream: str,
+    of_inputs_field: str,
+    of_inputs_sid_index_prefix: str,
+    of_inputs_scan_count: int,
 ) -> Tuple[bool, str]:
     sid = _pick(close_payload, "sid", "SID", "signal_id")
     if not sid:
@@ -281,12 +281,12 @@ async def _handle_close(
         # Try to load the original OF input payload (flat feature snapshot produced at signal time).
         # This gives dataset builders the full indicator vector for train≠serve parity.
         of_input = await _load_of_input(
-            r
-            sid
-            stream=of_inputs_stream
-            field=of_inputs_field
-            sid_index_prefix=of_inputs_sid_index_prefix
-            scan_count=of_inputs_scan_count
+            r,
+            sid,
+            stream=of_inputs_stream,
+            field=of_inputs_field,
+            sid_index_prefix=of_inputs_sid_index_prefix,
+            scan_count=of_inputs_scan_count,
         )
 
         replay_payload: Dict[str, Any]
@@ -296,23 +296,23 @@ async def _handle_close(
         else:
             # Fallback: reconstruct minimal payload from decision + close (Commit 8 path).
             replay_payload = {
-                "sid": sid
-                "ts_ms": _pick(decision, "ts_ms", "decision_ts_ms") or _pick(close_payload, "ts_ms", "close_ts_ms")
-                "symbol": _pick(decision, "symbol")
-                "direction": _pick(decision, "direction")
-                "scenario_v4": _pick(decision, "scenario_v4", "scenario") or "other"
-                "indicators": {}
+                "sid": sid,
+                "ts_ms": _pick(decision, "ts_ms", "decision_ts_ms") or _pick(close_payload, "ts_ms", "close_ts_ms"),
+                "symbol": _pick(decision, "symbol"),
+                "direction": _pick(decision, "direction"),
+                "scenario_v4": _pick(decision, "scenario_v4", "scenario") or "other",
+                "indicators": {},
             }
 
         # Always stamp label, close summary, and source regardless of which path was taken.
         replay_payload["label"] = {
-            "r_mult": _pick(close_payload, "r_mult", "r")
-            "close_ts_ms": close_ts_ms
+            "r_mult": _pick(close_payload, "r_mult", "r"),
+            "close_ts_ms": close_ts_ms,
         }
         replay_payload["close"] = {
-            "pnl_usd": _pick(close_payload, "pnl_usd", "pnl")
-            "risk_usd": _pick(close_payload, "risk_usd")
-            "close_ts_ms": close_ts_ms
+            "pnl_usd": _pick(close_payload, "pnl_usd", "pnl"),
+            "risk_usd": _pick(close_payload, "risk_usd"),
+            "close_ts_ms": close_ts_ms,
         }
         replay_payload["_source"] = "trade_close_joiner_worker_v5"
 
@@ -353,9 +353,9 @@ async def main() -> None:
     r = aioredis.Redis.from_url(redis_url, decode_responses=True)
 
     helper = AsyncRedisStreamHelper(
-        client=r
-        group=group
-        consumer=consumer
+        client=r,
+        group=group,
+        consumer=consumer,
     )
 
     # Ensure group exists
@@ -366,9 +366,9 @@ async def main() -> None:
             # AsyncRedisStreamHelper.read returns raw structure: [[stream, messages], ...]
             # messages is [(msg_id, fields), ...]
             res = await helper.read(
-                streams={trade_events_stream: ">"}
-                count=batch
-                block=block_ms
+                streams={trade_events_stream: ">"},
+                count=batch,
+                block=block_ms,
             )
             
             if not res:
@@ -393,21 +393,21 @@ async def main() -> None:
                     continue
 
                 ok, reason = await _handle_close(
-                    r
-                    payload
-                    decision_prefix=decision_prefix
-                    trades_closed_stream=trades_closed_stream
-                    trades_closed_maxlen=trades_closed_maxlen
-                    close_wait_stream=close_wait_stream
-                    close_wait_maxlen=close_wait_maxlen
-                    dedup_ttl_sec=dedup_ttl_sec
-                    ml_replay_stream=ml_replay_stream
-                    ml_replay_maxlen=ml_replay_maxlen
-                    write_ml_replay=write_ml_replay
-                    of_inputs_stream=of_inputs_stream
-                    of_inputs_field=of_inputs_field
-                    of_inputs_sid_index_prefix=of_inputs_sid_index_prefix
-                    of_inputs_scan_count=of_inputs_scan_count
+                    r,
+                    payload,
+                    decision_prefix=decision_prefix,
+                    trades_closed_stream=trades_closed_stream,
+                    trades_closed_maxlen=trades_closed_maxlen,
+                    close_wait_stream=close_wait_stream,
+                    close_wait_maxlen=close_wait_maxlen,
+                    dedup_ttl_sec=dedup_ttl_sec,
+                    ml_replay_stream=ml_replay_stream,
+                    ml_replay_maxlen=ml_replay_maxlen,
+                    write_ml_replay=write_ml_replay,
+                    of_inputs_stream=of_inputs_stream,
+                    of_inputs_field=of_inputs_field,
+                    of_inputs_sid_index_prefix=of_inputs_sid_index_prefix,
+                    of_inputs_scan_count=of_inputs_scan_count,
                 )
                 await helper.ack(trade_events_stream, msg_id)
                 _join_events_total.labels(type="POSITION_CLOSED", result=reason).inc()

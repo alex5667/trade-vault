@@ -185,19 +185,19 @@ class EntryPolicyRollbackGuardV1:
             return
 
         rb_payload = {
-            "ts_ms": _now_ms()
-            "symbol": _sym(sym)
-            "regime": _rg(rg)
-            "group": _grp(grp)
-            "applied_sid": str(last_applied.get("sid") or "")
-            "winner": winner
-            "rollback_to": prev
-            "reason": dec.reason
-            "post_n": dec.n
-            "post_mean_r": dec.mean_r
-            "post_lcb_r": dec.lcb_r
-            "baseline": last_applied.get("baseline") or {}
-            "mode": self.mode
+            "ts_ms": _now_ms(),
+            "symbol": _sym(sym),
+            "regime": _rg(rg),
+            "group": _grp(grp),
+            "applied_sid": str(last_applied.get("sid") or ""),
+            "winner": winner,
+            "rollback_to": prev,
+            "reason": dec.reason,
+            "post_n": dec.n,
+            "post_mean_r": dec.mean_r,
+            "post_lcb_r": dec.lcb_r,
+            "baseline": last_applied.get("baseline") or {},
+            "mode": self.mode,
         }
 
         if self.mode == "shadow":

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tradeable-payload fingerprinting.
 
 Why this exists:
@@ -12,7 +13,6 @@ Contract:
 - Be deterministic across dict ordering.
 """
 
-from __future__ import annotations
 
 import hashlib
 import json

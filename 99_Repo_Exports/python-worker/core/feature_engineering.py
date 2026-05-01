@@ -157,7 +157,7 @@ class RobustScalerPack:
                     p = self.params[feature_name]
                     center = float(p.get("center", 0.0))
                     scale = float(p.get("scale", 1.0))
-                    X_out[:, i] = apply_robust_scale(X_arr[:, i], center=center, scale=scale)
+                    X_out[: i] = apply_robust_scale(X_arr[: i], center=center, scale=scale)
         
         return X_out
 
@@ -189,7 +189,7 @@ class RobustScalerPack:
         MAD_CONST = 1.4826
         
         for i in range(n_features):
-            col = X_arr[:, i]
+            col = X_arr[: i]
             # Remove NaN/Inf
             col_clean = col[np.isfinite(col)]
             if len(col_clean) == 0:

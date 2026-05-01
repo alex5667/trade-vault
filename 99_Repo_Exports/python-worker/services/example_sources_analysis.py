@@ -25,7 +25,7 @@ def compare_sources():
     
     # Получаем список всех источников
     strategy = "orderflow"
-    symbol = "XAUUSD"
+    symbol = ""
     tf = "tick"
     
     sources = StatsAggregator.get_strategy_sources(redis_client, strategy, symbol, tf)
@@ -168,7 +168,7 @@ def export_sources_comparison():
     detailed_report = {
         "timestamp": int(__import__('time').time() * 1000),
         "strategy": "orderflow",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "tf": "tick",
         "sources": sources_summary,
         "summary": {
@@ -276,7 +276,7 @@ def monitor_source_performance():
     try:
         while True:
             sources = StatsAggregator.get_strategy_sources(
-                redis_client, "orderflow", "XAUUSD", "tick"
+                redis_client, "orderflow", "tick"
             )
             
             print(f"\n[{time.strftime('%H:%M:%S')}]")
@@ -285,7 +285,7 @@ def monitor_source_performance():
             
             for source in sources:
                 stats = StatsAggregator.get_stats_by_source(
-                    redis_client, "orderflow", "XAUUSD", "tick", source
+                    redis_client, "orderflow", "tick", source
                 )
                 
                 if stats:
@@ -310,7 +310,7 @@ def detailed_source_report(source_name: str):
     redis_client = get_redis()
     
     stats = StatsAggregator.get_stats_by_source(
-        redis_client, "orderflow", "XAUUSD", "tick", source_name
+        redis_client, "orderflow", "tick", source_name
     )
     
     if not stats:

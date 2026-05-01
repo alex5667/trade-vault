@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for `_normalize_schema_version` + `ACCEPTED_SCHEMA_VERSIONS`
 introduced in Phase 3.2 for dual-typed schema_version support.
 
@@ -5,7 +6,6 @@ Scope: pure parsing semantics; dispatcher integration is covered by the
 existing chaos/integration suites in this directory.
 """
 
-from __future__ import annotations
 
 import importlib
 import os
@@ -18,30 +18,30 @@ from services.signal_outbox_dispatcher import _normalize_schema_version
 
 class TestNormalizeSchemaVersion:
     @pytest.mark.parametrize("raw, expected", [
-        (1, 1)
-        (2, 2)
-        ("1", 1)
-        ("  1  ", 1)
-        ("1.0", 1)
-        (1.0, 1)
-        (0, 0)
+        (1, 1),
+        (2, 2),
+        ("1", 1),
+        ("  1  ", 1),
+        ("1.0", 1),
+        (1.0, 1),
+        (0, 0),
     ])
     def test_accepts(self, raw, expected):
         assert _normalize_schema_version(raw) == expected
 
     @pytest.mark.parametrize("raw", [
-        None
-        ""
-        "   "
-        "abc"
+        None,
+        "",
+        "   ",
+        "abc",
         "1.5",        # non-integer float string
-        1.5
+        1.5,
         True,         # bool is rejected (subclass of int but semantically distinct)
-        False
-        float("nan")
-        float("inf")
-        float("-inf")
-        object()
+        False,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        object(),
     ])
     def test_rejects(self, raw):
         assert _normalize_schema_version(raw) is None

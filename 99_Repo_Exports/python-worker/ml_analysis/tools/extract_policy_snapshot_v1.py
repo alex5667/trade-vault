@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Extract policy snapshot + feature manifest from decision records (NDJSON).
 
 Usage:
@@ -8,7 +9,6 @@ It enables an "ironclad" Train==Serve contract by persisting the runtime policy 
 used to create the training dataset.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

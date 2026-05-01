@@ -1,5 +1,5 @@
-"""Tests for latency_contract_exporter_v1._parse_key."""
 from __future__ import annotations
+"""Tests for latency_contract_exporter_v1._parse_key."""
 
 import sys, os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))

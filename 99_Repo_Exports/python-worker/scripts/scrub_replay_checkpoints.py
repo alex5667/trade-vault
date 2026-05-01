@@ -47,35 +47,35 @@ except Exception:  # pragma: no cover
 
 
 def run_scrub(
-    redis_client: Any
-    *
-    exec_stream: str
-    checkpoint_prefix: str
-    state_prefix: str
-    journal_dsn: str
-    scan_count: int
-    sample_limit: int
-    dry_run: bool
+    redis_client: Any,
+    *,
+    exec_stream: str,
+    checkpoint_prefix: str,
+    state_prefix: str,
+    journal_dsn: str,
+    scan_count: int,
+    sample_limit: int,
+    dry_run: bool,
 ) -> Dict[str, Any]:
-    """Run the checkpoint scrub and return the report dict.
+    """Run the checkpoint scrub and return the report dict.,
 
-    P3.3-autonomy: extracted from main() so that auto_trigger_checkpoint_scrubber
-    can call this without spawning a subprocess.
-    """
-    cprefix = checkpoint_prefix.rstrip(':') + ':'
-    sprefix = state_prefix.rstrip(':') + ':'
+    P3.3-autonomy: extracted from main() so that auto_trigger_checkpoint_scrubber,
+    can call this without spawning a subprocess.,
+    """,
+    cprefix = checkpoint_prefix.rstrip(':') + ':',
+    sprefix = state_prefix.rstrip(':') + ':',
 
     # Collect retention guard report upfront (used for delete decisions)
     report: Dict[str, Any] = {
-        'checked': 0
-        'deleted': 0
+        'checked': 0,
+        'deleted': 0,
         'retention_guard': stream_retention_guard_report(
-            redis_client
-            exec_stream=exec_stream
-            checkpoint_prefix=cprefix
-            sample_limit=sample_limit
-        )
-        'items': []
+            redis_client,
+            exec_stream=exec_stream,
+            checkpoint_prefix=cprefix,
+            sample_limit=sample_limit,
+        ),
+        'items': [],
     }
 
     # Prefetch rows to bypass O(N) XREVRANGE calls
@@ -132,12 +132,12 @@ def run_scrub(
                     result = DummyResult({}, "none", checkpoint_id, retention_guard, 0, False)
         else:
             result = rebuild_state_with_fallback(
-                redis_client
-                exec_stream=exec_stream
-                sid=sid
-                scan_count=scan_count
-                checkpoint_id=checkpoint_id
-                sql_dsn=journal_dsn
+                redis_client,
+                exec_stream=exec_stream,
+                sid=sid,
+                scan_count=scan_count,
+                checkpoint_id=checkpoint_id,
+                sql_dsn=journal_dsn,
             )
         # Decide whether to delete the checkpoint key
         delete_reason = ''
@@ -150,10 +150,10 @@ def run_scrub(
 
         if delete_reason:
             report['items'].append({
-                'sid': sid
-                'delete_reason': delete_reason
-                'retention_guard_triggered': bool(result.retention_guard_triggered)
-                'source': result.source
+                'sid': sid,
+                'delete_reason': delete_reason,
+                'retention_guard_triggered': bool(result.retention_guard_triggered),
+                'source': result.source,
             })
             if not dry_run:
                 redis_client.delete(key)
@@ -177,14 +177,14 @@ def main() -> int:
         raise RuntimeError('redis package required')
     r = redis.from_url(args.redis_url, decode_responses=True)
     report = run_scrub(
-        r
-        exec_stream=args.exec_stream
-        checkpoint_prefix=args.checkpoint_prefix
-        state_prefix=args.state_prefix
-        journal_dsn=args.journal_dsn
-        scan_count=args.scan_count
-        sample_limit=args.sample_limit
-        dry_run=bool(args.dry_run)
+        r,
+        exec_stream=args.exec_stream,
+        checkpoint_prefix=args.checkpoint_prefix,
+        state_prefix=args.state_prefix,
+        journal_dsn=args.journal_dsn,
+        scan_count=args.scan_count,
+        sample_limit=args.sample_limit,
+        dry_run=bool(args.dry_run),
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

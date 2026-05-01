@@ -97,7 +97,7 @@ class L3QueueEventsProxy:
         "_last_added_ask_qty",
         "_last_exec_overflow_bid",
         "_last_exec_overflow_ask",
-    )
+    ),
 
     def __init__(self, *, bucket_ms: int, alpha: float = 0.12, eps: float = 1e-9) -> None:
         self.bucket_ms = max(50, int(bucket_ms))
@@ -233,7 +233,7 @@ class L3QueueEventsProxy:
             limit_add_imb=float(add_imb),
             vpin_tox_ema=float(self._vpin_tox_ema),
             vpin_tox_z=float(self._vpin_tox_z),
-        )
+        ),
 
         # reset for new bucket
         self._bucket_buy = 0.0

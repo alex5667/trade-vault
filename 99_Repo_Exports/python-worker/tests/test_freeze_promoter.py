@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Unit tests for FreezePromotionService.
 
 All tests are pure-function (no Redis). AsyncMock is used for Redis-bound tests.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time

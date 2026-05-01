@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Regression pack для SignalOrchestrator (prod-pipeline).
 
@@ -8,7 +9,6 @@ notional cap, veto metrics, DLQ xadd, edge-gate events.
 которые не покрывали ни sizing gate, ни полный gate-sequence,
 ни multi-candidate батч, ни payload-schema.
 """
-from __future__ import annotations
 
 import os
 import time
@@ -135,7 +135,7 @@ class _DummyEmitter:
         *,
         signal_id: str = "",
         kind: str = "",
-        symbol: str = "",
+        symbol="",
         side: str | None = None,
         ts_event_ms: int = 0,
         ingest_time_ms: int = 0,

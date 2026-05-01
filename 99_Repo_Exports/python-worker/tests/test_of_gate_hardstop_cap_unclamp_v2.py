@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for of_gate_hardstop_cap_unclamp_v2.py
 
 Tests staged auto-unclamp v2 functionality:
@@ -8,7 +9,6 @@ Tests staged auto-unclamp v2 functionality:
 - Pending proposal lifecycle
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -249,7 +249,7 @@ class TestBuildRelaxOps:
         relax_caps = {
             "meta_enforce_share_trend": 0.25,
             "meta_enforce_share_range": 0.15,
-        }
+        },
         
         ops = build_relax_ops_from_clamp_audit(clamp_audit, relax_caps)
         
@@ -282,7 +282,7 @@ class TestBuildRelaxOps:
         relax_caps = {
             "meta_enforce_share_trend": 0.25,
             "meta_enforce_share_news": 0.00,
-        }
+        },
         
         ops = build_relax_ops_from_clamp_audit(clamp_audit, relax_caps)
         

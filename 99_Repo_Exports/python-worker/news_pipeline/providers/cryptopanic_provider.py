@@ -31,7 +31,7 @@ def fetch_cryptopanic(cfg: Dict[str, Any]) -> List[NewsRawItem]:
 
     # типовые параметры (если API изменится — вы поправите тут)
     params: Dict[str, Any] = {
-        "auth_token": token
+        "auth_token": token,
     }
 
     # user config
@@ -84,14 +84,14 @@ def fetch_cryptopanic(cfg: Dict[str, Any]) -> List[NewsRawItem]:
 
         out.append(
             NewsRawItem(
-                uid=f"cp:{uid}"
-                ts_ms=int(ts_ms)
-                source="cryptopanic"
-                title=title[:280]
-                url=url[:700]
-                summary=str(it.get("domain") or it.get("source", {}).get("title") or "")[:600]
-                symbols=syms
-                importance=0.0
+                uid=f"cp:{uid}",
+                ts_ms=int(ts_ms),
+                source="cryptopanic",
+                title=title[:280],
+                url=url[:700],
+                summary=str(it.get("domain") or it.get("source", {}).get("title") or "")[:600],
+                symbols=syms,
+                importance=0.0,
                 payload=it,  # тяжёлое — дальше уйдёт в analysis:<uid>
             )
         )

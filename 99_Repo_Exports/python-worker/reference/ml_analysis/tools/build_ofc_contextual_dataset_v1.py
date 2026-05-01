@@ -94,19 +94,19 @@ def _build_exec_cost_row(decision: Dict[str, Any], outcome: Dict[str, Any]) -> D
     realized_slippage_bps = _to_float(_coalesce(outcome.get('realized_slippage_bps'), outcome.get('slippage_bps'), outcome.get('realized_slip_worse_bps')))
     exec_risk_ref_bps = _to_float(_coalesce(decision.get('ctx_exec_risk_ref_bps'), decision.get('exec_risk_ref_bps'), ev.get('ctx_exec_risk_ref_bps')))
     return {
-        'sid': str(_coalesce(decision.get('sid'), outcome.get('sid'), default=''))
-        'decision_ts_ms': _to_int(_coalesce(decision.get('decision_ts_ms'), decision.get('ts_ms'), decision.get('ts')))
-        'symbol': str(_coalesce(decision.get('symbol'), outcome.get('symbol'), default=''))
-        'direction': str(_coalesce(decision.get('direction'), outcome.get('direction'), default=''))
-        'ctx_key': ctx_key
-        'session': str(_coalesce(decision.get('ctx_session'), decision.get('session'), default=''))
-        'scenario_v4': str(_coalesce(decision.get('scenario_v4'), ind.get('scenario_v4'), default=''))
-        'spread_bps': spread_bps
-        'expected_slippage_bps': expected_slippage_bps
-        'exec_risk_ref_bps': exec_risk_ref_bps
-        'realized_slippage_bps': realized_slippage_bps
-        'fill_delay_ms': _to_int(_coalesce(outcome.get('fill_delay_ms'), default=0))
-        'book_staleness_ms': _to_int(_coalesce(decision.get('book_staleness_ms'), ind.get('book_staleness_ms'), default=0))
+        'sid': str(_coalesce(decision.get('sid'), outcome.get('sid'), default='')),
+        'decision_ts_ms': _to_int(_coalesce(decision.get('decision_ts_ms'), decision.get('ts_ms'), decision.get('ts'))),
+        'symbol': str(_coalesce(decision.get('symbol'), outcome.get('symbol'), default='')),
+        'direction': str(_coalesce(decision.get('direction'), outcome.get('direction'), default='')),
+        'ctx_key': ctx_key,
+        'session': str(_coalesce(decision.get('ctx_session'), decision.get('session'), default='')),
+        'scenario_v4': str(_coalesce(decision.get('scenario_v4'), ind.get('scenario_v4'), default='')),
+        'spread_bps': spread_bps,
+        'expected_slippage_bps': expected_slippage_bps,
+        'exec_risk_ref_bps': exec_risk_ref_bps,
+        'realized_slippage_bps': realized_slippage_bps,
+        'fill_delay_ms': _to_int(_coalesce(outcome.get('fill_delay_ms'), default=0)),
+        'book_staleness_ms': _to_int(_coalesce(decision.get('book_staleness_ms'), ind.get('book_staleness_ms'), default=0)),
     }
 
 
@@ -118,19 +118,19 @@ def _build_rule_success_row(decision: Dict[str, Any], outcome: Dict[str, Any], s
     ctx_key = _extract_ctx_key(decision)
     raw_score = _to_float(_coalesce(decision.get('of_score_final'), decision.get('raw_score'), ofc.get('score')))
     return {
-        'sid': str(_coalesce(decision.get('sid'), outcome.get('sid'), default=''))
-        'decision_ts_ms': _to_int(_coalesce(decision.get('decision_ts_ms'), decision.get('ts_ms'), decision.get('ts')))
-        'symbol': str(_coalesce(decision.get('symbol'), outcome.get('symbol'), default=''))
-        'direction': str(_coalesce(decision.get('direction'), outcome.get('direction'), default=''))
-        'ctx_key': ctx_key
-        'session': str(_coalesce(decision.get('ctx_session'), decision.get('session'), default=''))
-        'scenario_v4': str(_coalesce(decision.get('scenario_v4'), ind.get('scenario_v4'), default=''))
-        'raw_score': raw_score
-        'pnl_bps_net': pnl_bps_net
-        'tp_bps': _to_float(_coalesce(decision.get('tp_bps'), decision.get('liqmap_gate_reward_bps'), ind.get('liqmap_gate_reward_bps')))
-        'sl_bps': _to_float(_coalesce(decision.get('sl_bps'), decision.get('liqmap_gate_risk_bps'), ind.get('liqmap_gate_risk_bps')))
-        'label_rule_success': label_rule_success
-        'label_edge_positive': 1 if pnl_bps_net > 0.0 else 0
+        'sid': str(_coalesce(decision.get('sid'), outcome.get('sid'), default='')),
+        'decision_ts_ms': _to_int(_coalesce(decision.get('decision_ts_ms'), decision.get('ts_ms'), decision.get('ts'))),
+        'symbol': str(_coalesce(decision.get('symbol'), outcome.get('symbol'), default='')),
+        'direction': str(_coalesce(decision.get('direction'), outcome.get('direction'), default='')),
+        'ctx_key': ctx_key,
+        'session': str(_coalesce(decision.get('ctx_session'), decision.get('session'), default='')),
+        'scenario_v4': str(_coalesce(decision.get('scenario_v4'), ind.get('scenario_v4'), default='')),
+        'raw_score': raw_score,
+        'pnl_bps_net': pnl_bps_net,
+        'tp_bps': _to_float(_coalesce(decision.get('tp_bps'), decision.get('liqmap_gate_reward_bps'), ind.get('liqmap_gate_reward_bps'))),
+        'sl_bps': _to_float(_coalesce(decision.get('sl_bps'), decision.get('liqmap_gate_risk_bps'), ind.get('liqmap_gate_risk_bps'))),
+        'label_rule_success': label_rule_success,
+        'label_edge_positive': 1 if pnl_bps_net > 0.0 else 0,
     }
 
 
@@ -164,16 +164,16 @@ def build_dataset(*, decisions_jsonl: str, outcomes_jsonl: str, out_exec_cost_js
     n_exec = _write_jsonl(out_exec_cost_jsonl, exec_rows)
     n_rule = _write_jsonl(out_rule_success_jsonl, rule_rows)
     report = {
-        'ts_ms': _now_ms()
-        'decisions_total': int(len(decisions_by_sid))
-        'outcomes_total': int(outcomes_total)
-        'joined': int(joined)
-        'exec_rows': int(n_exec)
-        'rule_rows': int(n_rule)
-        'pos_rate': float(pos / joined) if joined > 0 else 0.0
-        'success_bps': float(success_bps)
-        'out_exec_cost_jsonl': str(out_exec_cost_jsonl)
-        'out_rule_success_jsonl': str(out_rule_success_jsonl)
+        'ts_ms': _now_ms(),
+        'decisions_total': int(len(decisions_by_sid)),
+        'outcomes_total': int(outcomes_total),
+        'joined': int(joined),
+        'exec_rows': int(n_exec),
+        'rule_rows': int(n_rule),
+        'pos_rate': float(pos / joined) if joined > 0 else 0.0,
+        'success_bps': float(success_bps),
+        'out_exec_cost_jsonl': str(out_exec_cost_jsonl),
+        'out_rule_success_jsonl': str(out_rule_success_jsonl),
     }
     _write_json_atomic(out_report_json, report)
     return report
@@ -189,12 +189,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument('--success_bps', type=float, default=0.0)
     args = ap.parse_args(argv)
     build_dataset(
-        decisions_jsonl=str(args.decisions_jsonl)
-        outcomes_jsonl=str(args.outcomes_jsonl)
-        out_exec_cost_jsonl=str(args.out_exec_cost_jsonl)
-        out_rule_success_jsonl=str(args.out_rule_success_jsonl)
-        out_report_json=str(args.out_report_json)
-        success_bps=float(args.success_bps)
+        decisions_jsonl=str(args.decisions_jsonl),
+        outcomes_jsonl=str(args.outcomes_jsonl),
+        out_exec_cost_jsonl=str(args.out_exec_cost_jsonl),
+        out_rule_success_jsonl=str(args.out_rule_success_jsonl),
+        out_report_json=str(args.out_report_json),
+        success_bps=float(args.success_bps),
     )
     return 0
 

@@ -1,5 +1,5 @@
-"""P5.7 compose wiring tests: verify that docker-compose-timers.yml contains the audit services."""
 from __future__ import annotations
+"""P5.7 compose wiring tests: verify that docker-compose-timers.yml contains the audit services."""
 
 from pathlib import Path
 

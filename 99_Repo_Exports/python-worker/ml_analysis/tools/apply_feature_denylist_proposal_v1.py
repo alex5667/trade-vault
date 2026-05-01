@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Apply an *approved* feature denylist proposal to the active denylist json.
 
 Safety properties:
@@ -8,7 +9,6 @@ Safety properties:
  - Updates manifest.status -> 'applied'
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """GPU Stack Smoke Test
 
 Verifies that all GPU-accelerated components work correctly:
@@ -16,7 +17,6 @@ Usage:
   # In container:
   docker exec scanner-python-worker python3 /app/scripts/smoke_test_gpu.py
 """
-from __future__ import annotations
 
 import os
 import sys

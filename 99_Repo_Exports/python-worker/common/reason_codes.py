@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Structured veto/emission reason codes.
 
@@ -11,7 +12,6 @@ IMPORTANT:
   - Add new codes only at the end. Do not renumber existing values.
 """
 
-from __future__ import annotations
 
 from enum import Enum
 from typing import Dict, Tuple

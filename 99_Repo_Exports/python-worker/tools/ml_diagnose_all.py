@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Комплексная диагностика ML: запускает все проверки.
 
@@ -7,7 +8,6 @@
 4. Список pending предложений guard
 """
 
-from __future__ import annotations
 
 import argparse
 import os

@@ -52,13 +52,13 @@ class StreamIntegrityDecision:
 
 class StreamIntegrityGate:
     def __init__(
-        self
-        *
-        enabled: bool
-        mode: str
-        max_gap_rate_ema: float
-        max_gap_window: int
-        veto_on_schema_change: bool
+        self,
+        *,
+        enabled: bool,
+        mode: str,
+        max_gap_rate_ema: float,
+        max_gap_window: int,
+        veto_on_schema_change: bool,
     ) -> None:
         self.enabled = bool(enabled)
         self.mode = str(mode or "auto").strip().lower()
@@ -71,11 +71,11 @@ class StreamIntegrityGate:
         enabled = bool(int(os.getenv("STREAM_INTEGRITY_GATE_ENABLED", "1") or 1))
         mode = os.getenv("STREAM_INTEGRITY_MODE", "auto")
         return StreamIntegrityGate(
-            enabled=enabled
-            mode=str(mode)
-            max_gap_rate_ema=_f(os.getenv("DATA_MAX_SEQ_GAP_RATE_EMA", "0"), 0.0)
-            max_gap_window=_i(os.getenv("DATA_MAX_SEQ_GAP_WINDOW", "0"), 0)
-            veto_on_schema_change=bool(int(os.getenv("DATA_VETO_ON_SCHEMA_CHANGE", "0") or 0))
+            enabled=enabled,
+            mode=str(mode),
+            max_gap_rate_ema=_f(os.getenv("DATA_MAX_SEQ_GAP_RATE_EMA", "0"), 0.0),
+            max_gap_window=_i(os.getenv("DATA_MAX_SEQ_GAP_WINDOW", "0"), 0),
+            veto_on_schema_change=bool(int(os.getenv("DATA_VETO_ON_SCHEMA_CHANGE", "0") or 0)),
         )
 
     def _effective_mode(self) -> str:

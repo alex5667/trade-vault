@@ -82,12 +82,12 @@ class Cfg:
 def load_cfg() -> Cfg:
     prefix = _env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last')
     return Cfg(
-        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0')
-        port=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT', '9834'), 9834)
-        interval_s=float(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S', '15') or 15)
-        state_prefix=prefix
-        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence')
-        summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last')
+        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+        port=_i(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_PORT', '9834'), 9834),
+        interval_s=float(_env('LATENCY_CONTRACT_DEPLOY_LINT_EXPORTER_INTERVAL_S', '15') or 15),
+        state_prefix=prefix,
+        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+        summary_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_SUMMARY_KEY', 'metrics:latency_contract:deploy_lint:summary:last'),
     )
 
 

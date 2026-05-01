@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Approve a denylist proposal after replay/AB evidence.
 
 This tool is intentionally non-invasive:
@@ -12,7 +13,6 @@ Hard gate (P106): approval is blocked unless:
 
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 EntryPolicy ApplyRunner (v2)
 
@@ -12,7 +13,6 @@ This patch adds:
  - scenario-aware active_arm keys (already in your _apply_one signature)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

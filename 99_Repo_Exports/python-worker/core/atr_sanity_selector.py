@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ATR Sanity Selector
 ==================
@@ -13,7 +14,6 @@ Design goals:
   - explainable: returns selection reason and cost components
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple

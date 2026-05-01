@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """enforce_bucket_state_exporter_v1.py
 
 Prometheus exporter for:
@@ -101,7 +102,6 @@ Outputs:
 
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

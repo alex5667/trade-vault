@@ -38,8 +38,8 @@ for i, line in enumerate(lines):
                     kind = 'init_failure'
                 
                 uninstrumented.append({
-                    'line': i
-                    'kind': kind
+                    'line': i,
+                    'kind': kind,
                     'context': context[:60]
                 })
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 news_pipeline/news_agent_timer.py — P6 timer service for news agent.
 
@@ -19,7 +20,6 @@ ENV vars consumed:
   NEWS_LLM_BUDGET_DAILY_USD   10.0
   NEWS_BUDGET_CLEANUP_DAYS    3  (delete stale budget keys older than N days)
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio
@@ -32,8 +32,8 @@ from typing import Dict, List
 
 log = logging.getLogger("news_agent_timer")
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO")
-    format="%(asctime)s %(levelname)s [timer] %(message)s"
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s [timer] %(message)s",
 )
 
 try:
@@ -62,16 +62,16 @@ BUDGET_USD_LIMIT = float(_env("NEWS_LLM_BUDGET_DAILY_USD", "10.0"))
 
 # Streams to monitor for XLEN lag (format: news:raw as used in this project)
 STREAMS: List[str] = [
-    _env("NEWS_STREAM_RAW",     "news:raw")
-    _env("NEWS_STREAM_ANALYSIS","news:analysis")
-    _env("NEWS_STREAM_DLQ",     "news:raw:dlq")
+    _env("NEWS_STREAM_RAW",     "news:raw"),
+    _env("NEWS_STREAM_ANALYSIS","news:analysis"),
+    _env("NEWS_STREAM_DLQ",     "news:raw:dlq"),
 ]
 
 # Parse NEWS_STREAM_GROUPS: "stream=group1,group2;stream2=group"
 # Example: "news:raw=news-analyzer;news:analysis=news-feature-store"
 STREAM_GROUPS_RAW = _env(
-    "NEWS_STREAM_GROUPS"
-    "news:raw=news-analyzer;news:analysis=news-feature-store"
+    "NEWS_STREAM_GROUPS",
+    "news:raw=news-analyzer;news:analysis=news-feature-store",
 )
 
 
@@ -100,27 +100,27 @@ try:
     from prometheus_client import Counter, Gauge, start_http_server  # type: ignore
 
     stream_lag_ms = Gauge(
-        "news_stream_lag_ms"
-        "Approximate stream lag (ms): last-entry-id minus now_ms"
-        ["stream", "group"]
+        "news_stream_lag_ms",
+        "Approximate stream lag (ms): last-entry-id minus now_ms",
+        ["stream", "group"],
     )
     stream_pending_n = Gauge(
-        "news_stream_pending_n"
-        "Pending entries per consumer group (XINFO GROUPS pending)"
-        ["stream", "group"]
+        "news_stream_pending_n",
+        "Pending entries per consumer group (XINFO GROUPS pending)",
+        ["stream", "group"],
     )
     budget_calls_used = Gauge("news_budget_calls_used", "LLM calls used today", [])
     budget_calls_limit = Gauge("news_budget_calls_limit", "LLM calls/day limit", [])
     budget_usd_used = Gauge("news_budget_usd_used", "LLM USD used today", [])
     budget_usd_limit = Gauge("news_budget_usd_limit", "LLM USD/day limit", [])
     budget_keys_deleted = Counter(
-        "news_timer_budget_keys_deleted_total"
-        "Stale budget keys deleted by cleanup loop"
+        "news_timer_budget_keys_deleted_total",
+        "Stale budget keys deleted by cleanup loop",
     )
     stream_lag_errors = Counter(
-        "news_timer_stream_lag_errors_total"
-        "Errors reading stream lag"
-        ["stream"]
+        "news_timer_stream_lag_errors_total",
+        "Errors reading stream lag",
+        ["stream"],
     )
     _PROM_OK = True
 except ImportError:
@@ -219,9 +219,9 @@ async def _budget_cleanup_loop(r: "aioredis.Redis") -> None:  # type: ignore
                 cursor = 0
                 while True:
                     cursor, keys = await r.scan(
-                        cursor=cursor
-                        match=pat
-                        count=10000
+                        cursor=cursor,
+                        match=pat,
+                        count=10000,
                     )
                     for key in keys:
                         if isinstance(key, bytes):
@@ -261,16 +261,16 @@ async def main() -> None:
         log.info("Prometheus metrics server started on port %d", PORT)
 
     log.info(
-        "news_agent_timer started: interval=%ds, streams=%s, groups=%s"
-        INTERVAL_S, STREAMS, STREAM_GROUPS
+        "news_agent_timer started: interval=%ds, streams=%s, groups=%s",
+        INTERVAL_S, STREAMS, STREAM_GROUPS,
     )
 
     r = aioredis.from_url(REDIS_URL, decode_responses=True)
     try:
         await asyncio.gather(
-            _stream_lag_loop(r)
-            _budget_gauge_loop(r)
-            _budget_cleanup_loop(r)
+            _stream_lag_loop(r),
+            _budget_gauge_loop(r),
+            _budget_cleanup_loop(r),
         )
     finally:
         await r.aclose()

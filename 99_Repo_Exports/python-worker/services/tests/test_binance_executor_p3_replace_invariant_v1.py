@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P3 — Strict modify/resize protection-replace invariant tests.
 
 Tests:
@@ -6,7 +7,6 @@ Tests:
 3. handle_modify uses state-saved sl/tp when payload omits them
 4. handle_resize returns {"status": "flat"} when position resolves to zero after resize
 """
-from __future__ import annotations
 
 import importlib.util
 import json
@@ -67,12 +67,12 @@ class FakeClient:
     """
 
     def __init__(
-        self
-        *
-        position_amt: float = 0.01
-        inspect_complete: bool = True
-        inspect_missing: Optional[List[str]] = None
-        inspect_mismatched: Optional[List[str]] = None
+        self,
+        *,
+        position_amt: float = 0.01,
+        inspect_complete: bool = True,
+        inspect_missing: Optional[List[str]] = None,
+        inspect_mismatched: Optional[List[str]] = None,
     ):
         self._position_amt = position_amt
         self._inspect_complete = inspect_complete
@@ -110,25 +110,25 @@ class FakeClient:
         return 100_000.0
 
     def inspect_protection_set(
-        self
-        symbol: str
-        sid: str
-        expected_sl: bool = True
-        expected_tps: Optional[List[float]] = None
-        trail_expected: bool = False
-        expected_sl_price: Optional[float] = None
-        expected_tp_prices: Optional[List[float]] = None
-        **kwargs
+        self,
+        symbol: str,
+        sid: str,
+        expected_sl: bool = True,
+        expected_tps: Optional[List[float]] = None,
+        trail_expected: bool = False,
+        expected_sl_price: Optional[float] = None,
+        expected_tp_prices: Optional[List[float]] = None,
+        **kwargs,
     ) -> Dict[str, Any]:
         self.calls.append(("inspect_protection_set", symbol, sid))
         return {
-            "is_complete": self._inspect_complete
-            "missing": list(self._inspect_missing)
-            "mismatched": list(self._inspect_mismatched)
-            "sl": {"algoId": 1} if self._inspect_complete else None
-            "tp_by_index": {1: {"algoId": 2}} if self._inspect_complete else {}
-            "trail": None
-            "by_client_algo_id": {}
+            "is_complete": self._inspect_complete,
+            "missing": list(self._inspect_missing),
+            "mismatched": list(self._inspect_mismatched),
+            "sl": {"algoId": 1} if self._inspect_complete else None,
+            "tp_by_index": {1: {"algoId": 2}} if self._inspect_complete else {},
+            "trail": None,
+            "by_client_algo_id": {},
         }
 
 
@@ -209,18 +209,18 @@ def test_replace_position_protection_transitions_protected():
     ex = _mk_executor(inspect_complete=True)
 
     result = ex._replace_position_protection(
-        sid="sid-pp-1"
-        symbol="BTCUSDT"
-        action="modify"
-        logical_side="LONG"
-        live_qty=0.001
-        sl=98000.0
-        tps=[102000.0]
-        payload={"trail_after_tp1_requested": False}
-        policy=ex._resolve_execution_policy({})
-        client=ex._fake_client
-        filters=MagicMock()
-        ref_price=100_000.0
+        sid="sid-pp-1",
+        symbol="BTCUSDT",
+        action="modify",
+        logical_side="LONG",
+        live_qty=0.001,
+        sl=98000.0,
+        tps=[102000.0],
+        payload={"trail_after_tp1_requested": False},
+        policy=ex._resolve_execution_policy({}),
+        client=ex._fake_client,
+        filters=MagicMock(),
+        ref_price=100_000.0,
     )
 
     assert result.get("status") == "ok", f"Expected ok, got: {result}"
@@ -241,18 +241,18 @@ def test_replace_position_protection_emergency_on_verify_fail():
     ex._inspect_missing = ["sl"]
 
     result = ex._replace_position_protection(
-        sid="sid-pp-2"
-        symbol="BTCUSDT"
-        action="modify"
-        logical_side="LONG"
-        live_qty=0.001
-        sl=98000.0
-        tps=[102000.0]
-        payload={"trail_after_tp1_requested": False}
-        policy=ex._resolve_execution_policy({})
-        client=ex._fake_client
-        filters=MagicMock()
-        ref_price=100_000.0
+        sid="sid-pp-2",
+        symbol="BTCUSDT",
+        action="modify",
+        logical_side="LONG",
+        live_qty=0.001,
+        sl=98000.0,
+        tps=[102000.0],
+        payload={"trail_after_tp1_requested": False},
+        policy=ex._resolve_execution_policy({}),
+        client=ex._fake_client,
+        filters=MagicMock(),
+        ref_price=100_000.0,
     )
 
     assert result.get("status") == "emergency_flattened", f"Expected emergency_flattened, got: {result}"
@@ -265,20 +265,20 @@ def test_replace_position_protection_emergency_on_verify_fail():
 # =============================================================================
 
 def test_handle_modify_uses_state_protection_when_payload_omits_levels():
-    """When payload has no sl/tp but state has sl_requested + tp_levels_requested
+    """When payload has no sl/tp but state has sl_requested + tp_levels_requested,
     _replace_position_protection is called with the state-saved values.
     """
     ex = _mk_executor(position_amt=0.001, inspect_complete=True)
 
     # Seed state with a previous open contract
     ex._state_cache["sid-modify-1"] = {
-        "symbol": "BTCUSDT"
-        "fsm_state": mod.FSM_PROTECTED
-        "side": "LONG"
-        "qty": 0.001
-        "sl_requested": 98000.0
-        "tp_levels_requested": [103000.0]
-        "trail_after_tp1_requested": False
+        "symbol": "BTCUSDT",
+        "fsm_state": mod.FSM_PROTECTED,
+        "side": "LONG",
+        "qty": 0.001,
+        "sl_requested": 98000.0,
+        "tp_levels_requested": [103000.0],
+        "trail_after_tp1_requested": False,
     }
 
     called_with: Dict[str, Any] = {}
@@ -292,8 +292,8 @@ def test_handle_modify_uses_state_protection_when_payload_omits_levels():
     ex._replace_position_protection = mock_replace
 
     result = ex.handle_modify({
-        "sid": "sid-modify-1"
-        "symbol": "BTCUSDT"
+        "sid": "sid-modify-1",
+        "symbol": "BTCUSDT",
         # Note: no sl or tp_levels in payload
     })
 
@@ -308,19 +308,19 @@ def test_handle_modify_uses_state_protection_when_payload_omits_levels():
 # =============================================================================
 
 def test_handle_resize_returns_flat_when_position_closed():
-    """When read_live_position post-resize returns is_open=False (reduce-to-zero)
+    """When read_live_position post-resize returns is_open=False (reduce-to-zero),
     handle_resize must return status=flat without calling _replace_position_protection.
     """
     ex = _mk_executor(position_amt=0.001, inspect_complete=True)
 
     # Seed state
     ex._state_cache["sid-resize-1"] = {
-        "symbol": "BTCUSDT"
-        "fsm_state": mod.FSM_PROTECTED
-        "side": "LONG"
-        "qty": 0.001
-        "sl_requested": 98000.0
-        "tp_levels_requested": [103000.0]
+        "symbol": "BTCUSDT",
+        "fsm_state": mod.FSM_PROTECTED,
+        "side": "LONG",
+        "qty": 0.001,
+        "sl_requested": 98000.0,
+        "tp_levels_requested": [103000.0],
     }
 
     # Mock _read_live_position: pre-resize open, post-resize flat
@@ -347,9 +347,9 @@ def test_handle_resize_returns_flat_when_position_closed():
     ex._replace_position_protection = mock_replace
 
     result = ex.handle_resize({
-        "sid": "sid-resize-1"
-        "symbol": "BTCUSDT"
-        "resize_mode": "delta_qty"
+        "sid": "sid-resize-1",
+        "symbol": "BTCUSDT",
+        "resize_mode": "delta_qty",
         "delta_qty": -0.001,  # full reduce
     })
 

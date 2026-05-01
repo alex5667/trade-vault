@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OFInputs DLQ fixed replay (P97).
 
 Goal:
@@ -34,7 +35,6 @@ Usage:
   python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

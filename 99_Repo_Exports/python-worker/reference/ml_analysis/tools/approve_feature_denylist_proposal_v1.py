@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Approve a denylist proposal after replay/AB evidence.
 
 This tool is intentionally non-invasive:
@@ -12,7 +13,6 @@ Hard gate (P106): approval is blocked unless:
 
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -30,10 +30,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True, help="Path to denylist_proposal_*.manifest.json")
     ap.add_argument(
-        "--ab-report-json"
-        required=False
-        default=""
-        help="Optional. If omitted, will use manifest['ab']['report_json']."
+        "--ab-report-json",
+        required=False,
+        default="",
+        help="Optional. If omitted, will use manifest['ab']['report_json'].",
     )
     ap.add_argument("--approve", type=int, default=0, help="1 = write approval record and set status=approved")
 
@@ -104,12 +104,12 @@ def main() -> int:
     mp.write_text(json.dumps(m, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     approval = {
-        "kind": "feature_denylist_approval"
-        "approved_utc": _utc_now()
-        "proposal_hash": m.get("proposal_hash")
-        "manifest": str(mp)
-        "ab_report_json": str(rp)
-        "approved_gate_pass": 1
+        "kind": "feature_denylist_approval",
+        "approved_utc": _utc_now(),
+        "proposal_hash": m.get("proposal_hash"),
+        "manifest": str(mp),
+        "ab_report_json": str(rp),
+        "approved_gate_pass": 1,
     }
     apath = mp.with_suffix(".approval.json")
     apath.write_text(json.dumps(approval, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

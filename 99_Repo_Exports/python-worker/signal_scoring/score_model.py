@@ -27,12 +27,12 @@ class ScoreModel:
         self.calibrator = calibrator
 
     def compute_conf_factor(
-        self
-        *
-        ctx: Any
-        kind: Any
-        side: int
-        quality_flags: Dict[str, Any]
+        self,
+        *,
+        ctx: Any,
+        kind: Any,
+        side: int,
+        quality_flags: Dict[str, Any],
     ) -> Tuple[float, Dict[str, Any]]:
         # Base factor
         f = 1.0
@@ -127,13 +127,13 @@ class ScoreModel:
         return pct, parts
 
     def score(
-        self
-        *
-        ctx: Any
-        kind: Any
-        side: int
-        raw_score: float
-        quality_flags: Dict[str, Any]
+        self,
+        *,
+        ctx: Any,
+        kind: Any,
+        side: int,
+        raw_score: float,
+        quality_flags: Dict[str, Any],
     ) -> ScoreOutput:
         raw_score = _safe_float(raw_score, 0.0)
         conf_factor, conf_parts = self.compute_conf_factor(ctx=ctx, kind=kind, side=side, quality_flags=quality_flags)

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Unit tests for core/v13_of_features.py
 
@@ -6,7 +7,6 @@ Tests: all compute groups (NA–NX), inject_v13_of_features master function,
        toxicity composite (NC), z-score (NF), schema key validation.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import math

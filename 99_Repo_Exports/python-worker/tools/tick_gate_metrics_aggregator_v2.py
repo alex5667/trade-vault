@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tick Gate Metrics Aggregator (v2)
 
 Consumes Redis Stream entries produced by the tick-quality gate wrapper (Step 19)
@@ -26,7 +27,6 @@ Env:
   TICK_GATE_REASON_ALLOWLIST: comma-separated (default: see compose)
 """
 
-from __future__ import annotations
 
 import os
 import time

@@ -1,14 +1,14 @@
-"""P4.10 deploy env example files contain dual-control variables."""
 from __future__ import annotations
+"""P4.10 deploy env example files contain dual-control variables."""
 
 import os
 
 _DIR = os.path.join(os.path.dirname(__file__), '..', 'deploy', 'env')
 
 _P410_VARS = (
-    'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX'
-    'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S'
-    'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES'
+    'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_PREFIX',
+    'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_APPROVAL_TTL_S',
+    'LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_DUAL_CONTROL_MINUTES',
 )
 
 

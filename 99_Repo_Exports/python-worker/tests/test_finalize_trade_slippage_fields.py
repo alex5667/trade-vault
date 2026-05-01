@@ -20,7 +20,7 @@ def test_finalize_trade_adds_realized_slippage_spread_and_adverse(monkeypatch):
 
     class FakeSpec:
         contract_size = 1.0
-        def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol: str = "") -> float:
+        def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
             sign = 1.0 if str(direction).upper() == "LONG" else -1.0
             return (float(price) - float(entry_price)) * sign * float(lot)
 

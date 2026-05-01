@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P82: Staleness gates for enforce-bucket automation.
 
 Goal:
@@ -27,7 +28,6 @@ Return shape:
   }
 """
 
-from __future__ import annotations
 
 import os
 import time

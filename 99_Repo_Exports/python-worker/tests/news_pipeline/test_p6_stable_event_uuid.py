@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/news_pipeline/test_p6_stable_event_uuid.py
 
@@ -11,7 +12,6 @@ Verifies:
   U5. Provider change does NOT change UUID (intentional design)
   U6. Output is a valid UUID string format
 """
-from __future__ import annotations
 
 import uuid
 

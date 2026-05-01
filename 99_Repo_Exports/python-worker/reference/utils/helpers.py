@@ -1,9 +1,9 @@
+from __future__ import annotations
 """utils.helpers — Shared low-level type-coercion helpers.
 
 These tiny helpers are intentionally fail-open (return default on any error)
 so upstream callers never crash due to bad Redis values.
 """
-from __future__ import annotations
 
 from typing import Any
 

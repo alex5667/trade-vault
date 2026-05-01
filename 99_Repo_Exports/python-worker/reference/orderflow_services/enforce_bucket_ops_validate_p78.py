@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """enforce_bucket_ops_validate_p78.py
 
 P78: Preflight checks for Enforce-Bucket system (slippage QA + bucket-aware enforcement).
@@ -27,7 +28,6 @@ Notes:
   - Designed to be fast and fail-open for non-critical optional fields.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -49,9 +49,9 @@ except Exception:
 
 
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    datefmt="%Y-%m-%d %H:%M:%S"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("EnforceBucketPreflight")
 
@@ -209,10 +209,10 @@ def main() -> int:
     min_rows = _env_int("ENFORCE_PREFLIGHT_MIN_DB_SAMPLES", "100")
 
     out: Dict[str, Any] = {
-        "ts_ms": _now_ms()
-        "ok": False
-        "redis": {"ok": False}
-        "db": {"ok": False}
+        "ts_ms": _now_ms(),
+        "ok": False,
+        "redis": {"ok": False},
+        "db": {"ok": False},
     }
 
     # Redis check

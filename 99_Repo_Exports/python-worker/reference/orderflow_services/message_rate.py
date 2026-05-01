@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Phase E / P4: Message Rate Tracker (OTR / Quote Stuffing proxy)
 
@@ -18,7 +19,6 @@ Design:
   - Fail-open: any exception → silent pass, values unchanged.
 """
 
-from __future__ import annotations
 
 import os
 import time
@@ -165,11 +165,11 @@ class MessageRateTracker:
     def snapshot(self) -> dict:
         """Return lightweight dict for strategy / indicators consumption."""
         return {
-            "book_update_rate_hz": float(self.book_update_rate_hz)
-            "book_update_rate_z": float(self.book_update_rate_z)
-            "trade_msg_rate_hz": float(self.trade_msg_rate_hz)
-            "trade_msg_rate_z": float(self.trade_msg_rate_z)
-            "cancel_rate_z": float(self.cancel_rate_z)
-            "otr": float(self.otr)
-            "otr_z": float(self.otr_z)
+            "book_update_rate_hz": float(self.book_update_rate_hz),
+            "book_update_rate_z": float(self.book_update_rate_z),
+            "trade_msg_rate_hz": float(self.trade_msg_rate_hz),
+            "trade_msg_rate_z": float(self.trade_msg_rate_z),
+            "cancel_rate_z": float(self.cancel_rate_z),
+            "otr": float(self.otr),
+            "otr_z": float(self.otr_z),
         }

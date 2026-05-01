@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """P94 — Feature Registry contract smoke-check (v1)
 
 Goal
@@ -47,7 +48,6 @@ Optional:
   --seed-pin 1   (one-time: writes current hashes into cfg hash)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

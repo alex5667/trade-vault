@@ -93,9 +93,9 @@ def _extract_loaded_rule_files(resp: Dict[str, Any]) -> Set[str]:
 
 
 def _compute_loaded_expected(
-    *
-    expected_rel: List[str]
-    loaded_files: Set[str]
+    *,
+    expected_rel: List[str],
+    loaded_files: Set[str],
 ) -> Tuple[int, List[str]]:
     loaded_n = 0
     missing: List[str] = []
@@ -181,15 +181,15 @@ def main(argv: list[str] | None = None) -> int:
         ok = (missing_n == 0)
 
         payload: Dict[str, Any] = {
-            "last_ok": 1 if ok else 0
-            "last_run_ts_ms": now
-            "last_ok_ts_ms": now if ok else 0
-            "files_expected": len(expected_rel)
-            "files_loaded": int(loaded_n)
-            "missing_n": int(missing_n)
-            "missing_head": (missing[0] if missing else None)
-            "missing_json": json.dumps(missing[:200], ensure_ascii=False, separators=(",", ":")) if missing else None
-            "error_head": None
+            "last_ok": 1 if ok else 0,
+            "last_run_ts_ms": now,
+            "last_ok_ts_ms": now if ok else 0,
+            "files_expected": len(expected_rel),
+            "files_loaded": int(loaded_n),
+            "missing_n": int(missing_n),
+            "missing_head": (missing[0] if missing else None),
+            "missing_json": json.dumps(missing[:200], ensure_ascii=False, separators=(",", ":")) if missing else None,
+            "error_head": None,
         }
 
         _write_state(redis_url, prefix, payload)
@@ -203,14 +203,14 @@ def main(argv: list[str] | None = None) -> int:
 
     except Exception as e:
         payload = {
-            "last_ok": 0
-            "last_run_ts_ms": now
-            "files_expected": 0
-            "files_loaded": 0
-            "missing_n": 0
-            "missing_head": None
-            "missing_json": None
-            "error_head": f"{type(e).__name__}: {e}"
+            "last_ok": 0,
+            "last_run_ts_ms": now,
+            "files_expected": 0,
+            "files_loaded": 0,
+            "missing_n": 0,
+            "missing_head": None,
+            "missing_json": None,
+            "error_head": f"{type(e).__name__}: {e}",
         }
         try:
             _write_state(redis_url, prefix, payload)

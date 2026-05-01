@@ -62,36 +62,36 @@ class AlertCfg:
     @staticmethod
     def from_env() -> "AlertCfg":
         return AlertCfg(
-            duration_sec=int(os.getenv("EP_CAPTURE_DURATION_SEC", "900"))
-            stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate")
-            snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:")
-            bundle_prefix=os.getenv("SMT_BUNDLE_PREFIX", "smt:bundle:v1:")
-            start_id=os.getenv("EP_CAPTURE_START_ID", "$")
-            block_ms=int(os.getenv("EP_CAPTURE_BLOCK_MS", "1000"))
-            count=int(os.getenv("EP_CAPTURE_COUNT", "200"))
-            out_dir=os.getenv("EP_REPORT_DIR", "/var/log/trade")
-            keep_days=int(os.getenv("EP_REPORT_KEEP_DAYS", "14"))
-            min_total=int(os.getenv("EP_ALERT_MIN_TOTAL", "5"))
-            min_allow_rate=float(os.getenv("EP_ALERT_MIN_ALLOW_RATE", "0.3"))
-            max_allow_rate=float(os.getenv("EP_ALERT_MAX_ALLOW_RATE", "50.0"))
-            max_delta_allow_pp=float(os.getenv("EP_ALERT_MAX_DELTA_ALLOW_PP", "7.0"))
-            alerts_stream=os.getenv("EP_ALERTS_STREAM", "stream:trade:alerts")
-            run_at_hour=int(os.getenv("EP_RUN_AT_HOUR", "3"))
-            run_at_minute=int(os.getenv("EP_RUN_AT_MINUTE", "10"))
-            enable_direct_notify=bool(int(os.getenv("EP_ENABLE_DIRECT_NOTIFY", "1")))
+            duration_sec=int(os.getenv("EP_CAPTURE_DURATION_SEC", "900")),
+            stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
+            snap_prefix=os.getenv("SMT_SNAP_PREFIX", "smt:snap:"),
+            bundle_prefix=os.getenv("SMT_BUNDLE_PREFIX", "smt:bundle:v1:"),
+            start_id=os.getenv("EP_CAPTURE_START_ID", "$"),
+            block_ms=int(os.getenv("EP_CAPTURE_BLOCK_MS", "1000")),
+            count=int(os.getenv("EP_CAPTURE_COUNT", "200")),
+            out_dir=os.getenv("EP_REPORT_DIR", "/var/log/trade"),
+            keep_days=int(os.getenv("EP_REPORT_KEEP_DAYS", "14")),
+            min_total=int(os.getenv("EP_ALERT_MIN_TOTAL", "5")),
+            min_allow_rate=float(os.getenv("EP_ALERT_MIN_ALLOW_RATE", "0.3")),
+            max_allow_rate=float(os.getenv("EP_ALERT_MAX_ALLOW_RATE", "50.0")),
+            max_delta_allow_pp=float(os.getenv("EP_ALERT_MAX_DELTA_ALLOW_PP", "7.0")),
+            alerts_stream=os.getenv("EP_ALERTS_STREAM", "stream:trade:alerts"),
+            run_at_hour=int(os.getenv("EP_RUN_AT_HOUR", "3")),
+            run_at_minute=int(os.getenv("EP_RUN_AT_MINUTE", "10")),
+            enable_direct_notify=bool(int(os.getenv("EP_ENABLE_DIRECT_NOTIFY", "1"))),
         )
 
 
 def _core_cfg_from_env() -> EntryPolicyCfg:
     return EntryPolicyCfg(
-        coh_thr=float(os.getenv("SMT_COH_THRESHOLD", "0.65"))
-        leader_conf_min=float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65"))
-        min_of_score=float(os.getenv("SMT_ENTRY_MIN_OF_SCORE", "1.0"))
-        max_zone_bp=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP", "15"))
-        max_zone_bp_thin=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP_THIN", "10"))
-        obi_min_sec=float(os.getenv("SMT_ENTRY_OBI_MIN_SEC", "1.5"))
-        dedup_ms=int(os.getenv("SMT_ENTRY_DEDUP_MS", "60000"))
-        allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0")))
+        coh_thr=float(os.getenv("SMT_COH_THRESHOLD", "0.65")),
+        leader_conf_min=float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65")),
+        min_of_score=float(os.getenv("SMT_ENTRY_MIN_OF_SCORE", "1.0")),
+        max_zone_bp=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP", "15")),
+        max_zone_bp_thin=float(os.getenv("SMT_ENTRY_MAX_ZONE_BP_THIN", "10")),
+        obi_min_sec=float(os.getenv("SMT_ENTRY_OBI_MIN_SEC", "1.5")),
+        dedup_ms=int(os.getenv("SMT_ENTRY_DEDUP_MS", "60000")),
+        allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0"))),
     )
 
 
@@ -118,14 +118,14 @@ def compute_summary(recs: List[Dict[str, Any]]) -> Dict[str, Any]:
     top_zone_src = by_zone_src.most_common(10)
 
     return {
-        "total": total
-        "allow": allow
-        "deny": deny
-        "allow_rate": allow_rate
-        "top_reason": top_reason
-        "top_regime": top_regime
-        "top_symbol": top_symbol
-        "top_zone_src": top_zone_src
+        "total": total,
+        "allow": allow,
+        "deny": deny,
+        "allow_rate": allow_rate,
+        "top_reason": top_reason,
+        "top_regime": top_regime,
+        "top_symbol": top_symbol,
+        "top_zone_src": top_zone_src,
     }
 
 
@@ -224,35 +224,35 @@ async def capture_and_replay(*, r: aioredis.Redis, cfg: AlertCfg, core_cfg: Entr
                         continue
 
                     dec = evaluate_entry_policy(
-                        now_ms=now_ms
-                        cand=fields
-                        snap=snap
-                        bundle=bundle
-                        cfg=core_cfg
-                        dedup_state=dedup_state
+                        now_ms=now_ms,
+                        cand=fields,
+                        snap=snap,
+                        bundle=bundle,
+                        cfg=core_cfg,
+                        dedup_state=dedup_state,
                     )
 
                     out.append(
                         {
-                            "msg_id": msg_id
-                            "ts_ms": now_ms
-                            "symbol": sym
-                            "bundle": bundle_id
-                            "ok": 1 if dec.ok else 0
-                            "reason_code": dec.reason_code
-                            "notes": dec.notes
-                            "regime": str(snap.get("regime", "na") or "na")
-                            "zone_id": str(snap.get("zone_id", "") or "")
-                            "zone_src": str(snap.get("zone_src", "na") or "na")
-                            "zone_side": str(snap.get("zone_side", "NA") or "NA")
-                            "zone_dist_bp": float(snap.get("zone_dist_bp", 0.0) or 0.0)
-                            "obi_stable_sec": float(snap.get("obi_stable_sec", 0.0) or 0.0)
-                            "iceberg_strict": int(snap.get("iceberg_strict", 0) or 0)
-                            "of_confirm_score": float(snap.get("of_confirm_score", 0.0) or 0.0)
-                            "coh": float(bundle.get("coh", 0.0) or 0.0)
-                            "leader_conf_score": float(bundle.get("leader_conf_score", 0.0) or 0.0)
-                            "decision": str(bundle.get("decision", "") or "")
-                            "pick": str(bundle.get("pick", "") or "")
+                            "msg_id": msg_id,
+                            "ts_ms": now_ms,
+                            "symbol": sym,
+                            "bundle": bundle_id,
+                            "ok": 1 if dec.ok else 0,
+                            "reason_code": dec.reason_code,
+                            "notes": dec.notes,
+                            "regime": str(snap.get("regime", "na") or "na"),
+                            "zone_id": str(snap.get("zone_id", "") or ""),
+                            "zone_src": str(snap.get("zone_src", "na") or "na"),
+                            "zone_side": str(snap.get("zone_side", "NA") or "NA"),
+                            "zone_dist_bp": float(snap.get("zone_dist_bp", 0.0) or 0.0),
+                            "obi_stable_sec": float(snap.get("obi_stable_sec", 0.0) or 0.0),
+                            "iceberg_strict": int(snap.get("iceberg_strict", 0) or 0),
+                            "of_confirm_score": float(snap.get("of_confirm_score", 0.0) or 0.0),
+                            "coh": float(bundle.get("coh", 0.0) or 0.0),
+                            "leader_conf_score": float(bundle.get("leader_conf_score", 0.0) or 0.0),
+                            "decision": str(bundle.get("decision", "") or ""),
+                            "pick": str(bundle.get("pick", "") or ""),
                         }
                     )
                 except Exception:
@@ -293,16 +293,16 @@ def render_telegram_html(day: str, summary: Dict[str, Any], alert: Tuple[bool, s
     
     emoji = "⚠️" if alert[0] else "✅"
     lines = [
-        f"{emoji} <b>Entry Policy Regression Check</b>"
-        f"📅 {html.escape(str(day))}"
-        ""
-        f"<b>Status:</b> {html.escape(str(alert[1]))}"
-        ""
-        f"<b>Stats:</b>"
-        f"• Total: {total}"
-        f"• Allow: {allow} ({ar:.2f}%)"
-        f"• Deny: {deny}"
-        ""
+        f"{emoji} <b>Entry Policy Regression Check</b>",
+        f"📅 {html.escape(str(day))}",
+        "",
+        f"<b>Status:</b> {html.escape(str(alert[1]))}",
+        "",
+        f"<b>Stats:</b>",
+        f"• Total: {total}",
+        f"• Allow: {allow} ({ar:.2f}%)",
+        f"• Deny: {deny}",
+        "",
         "<b>Top Reasons:</b>"
     ]
     
@@ -315,17 +315,17 @@ def render_telegram_html(day: str, summary: Dict[str, Any], alert: Tuple[bool, s
 async def publish_alert(*, r: aioredis.Redis, cfg: AlertCfg, day: str, summary: Dict[str, Any], reason: str) -> None:
     # 1. Publish to internal alert stream (structured)
     payload = {
-        "day": day
-        "reason": reason
-        "summary": summary
+        "day": day,
+        "reason": reason,
+        "summary": summary,
     }
     msg = {
-        "type": "entry_policy_regression"
-        "ts_ms": str(_now_ms())
-        "day": str(day)
-        "reason": str(reason)
-        "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        "hash": _sha1(json.dumps({"day": day, "reason": reason}, separators=(",", ":")))
+        "type": "entry_policy_regression",
+        "ts_ms": str(_now_ms()),
+        "day": str(day),
+        "reason": str(reason),
+        "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        "hash": _sha1(json.dumps({"day": day, "reason": reason}, separators=(",", ":"))),
     }
     try:
         await r.xadd(cfg.alerts_stream, msg, maxlen=20000, approximate=True)
@@ -337,11 +337,11 @@ async def publish_alert(*, r: aioredis.Redis, cfg: AlertCfg, day: str, summary: 
     if cfg.enable_direct_notify and should_alert(summary, {}, cfg)[0]:
         tg_text = render_telegram_html(day, summary, (True, reason))
         notify_msg = {
-            "type": "report"
-            "text": tg_text
-            "parse_mode": "HTML"
-            "source": "EntryPolicyRegressionService"
-            "severity": "warn"
+            "type": "report",
+            "text": tg_text,
+            "parse_mode": "HTML",
+            "source": "EntryPolicyRegressionService",
+            "severity": "warn",
             "timestamp": str(_now_ms())
         }
         try:
@@ -408,11 +408,11 @@ class EntryPolicyRegressionService:
             
             # feed current effective config to tuner, so "from/to" are correct even with overrides
             cur_env = {
-                "SMT_COH_THRESHOLD": float(self.core_cfg.coh_thr)
-                "SMT_LEADER_CONF_MIN_SCORE": float(self.core_cfg.leader_conf_min)
-                "SMT_ENTRY_MAX_ZONE_BP": float(self.core_cfg.max_zone_bp)
-                "SMT_ENTRY_MAX_ZONE_BP_THIN": float(self.core_cfg.max_zone_bp_thin)
-                "SMT_ENTRY_OBI_MIN_SEC": float(self.core_cfg.obi_min_sec)
+                "SMT_COH_THRESHOLD": float(self.core_cfg.coh_thr),
+                "SMT_LEADER_CONF_MIN_SCORE": float(self.core_cfg.leader_conf_min),
+                "SMT_ENTRY_MAX_ZONE_BP": float(self.core_cfg.max_zone_bp),
+                "SMT_ENTRY_MAX_ZONE_BP_THIN": float(self.core_cfg.max_zone_bp_thin),
+                "SMT_ENTRY_OBI_MIN_SEC": float(self.core_cfg.obi_min_sec),
             }
             sugg = suggest_from_records(records=recs, tuner=tcfg, current_env=cur_env)
             
@@ -426,11 +426,11 @@ class EntryPolicyRegressionService:
             if int(sugg.get("safe_to_apply", 0) or 0) == 1 and bool(int(os.getenv("EP_TUNER_PUBLISH", "1"))):
                 payload = {"day": day, "suggestions": sugg}
                 msg = {
-                    "type": "entry_policy_suggestions"
-                    "ts_ms": str(_now_ms())
-                    "day": str(day)
-                    "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-                    "hash": _sha1(json.dumps({"day": day, "kind": "suggestions"}, separators=(",", ":")))
+                    "type": "entry_policy_suggestions",
+                    "ts_ms": str(_now_ms()),
+                    "day": str(day),
+                    "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                    "hash": _sha1(json.dumps({"day": day, "kind": "suggestions"}, separators=(",", ":"))),
                 }
                 try:
                     await self.r.xadd(self.acfg.alerts_stream, msg, maxlen=20000, approximate=True)

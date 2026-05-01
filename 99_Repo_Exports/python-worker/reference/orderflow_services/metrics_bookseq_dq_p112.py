@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Prometheus metrics for Book missing-seq + DQ policy (P112).
 
 Why a separate module?
@@ -16,7 +17,6 @@ DoD constraints:
   - Buckets are finite and sanitized.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Optional, Sequence, Type, TypeVar
@@ -37,10 +37,10 @@ TCollector = TypeVar("TCollector", bound="Collector")
 
 
 def _get_or_create(
-    name: str
-    ctor: Type[TCollector]
-    documentation: str
-    labelnames: Sequence[str] = ()
+    name: str,
+    ctor: Type[TCollector],
+    documentation: str,
+    labelnames: Sequence[str] = (),
 ):
     """Return an existing collector from the default registry, or create one.
 
@@ -64,10 +64,10 @@ def _get_or_create(
             type_mismatch = False
         if type_mismatch:
             logger.error(
-                "Metric name collision: %s exists as %s, expected %s"
-                name
-                type(existing).__name__
-                getattr(ctor, "__name__", repr(ctor))
+                "Metric name collision: %s exists as %s, expected %s",
+                name,
+                type(existing).__name__,
+                getattr(ctor, "__name__", repr(ctor)),
             )
         return existing
 
@@ -84,18 +84,18 @@ def _get_or_create(
 
 # Gauge: bounded EMA in [0..1]
 book_missing_seq_ema_gauge = _get_or_create(
-    "book_missing_seq_ema_gauge"
-    Gauge
-    "EMA of book missing-seq events (bounded telemetry for DQ gate)"
-    labelnames=("symbol",)
+    "book_missing_seq_ema_gauge",
+    Gauge,
+    "EMA of book missing-seq events (bounded telemetry for DQ gate)",
+    labelnames=("symbol",),
 )
 
 # Optional gauge: last gap size (updates count) for runbook/diagnostics.
 book_seq_last_gap_gauge = _get_or_create(
-    "book_seq_last_gap_gauge"
-    Gauge
-    "Last detected book missing update gap (count of missing updateIds)"
-    labelnames=("symbol",)
+    "book_seq_last_gap_gauge",
+    Gauge,
+    "Last detected book missing update gap (count of missing updateIds)",
+    labelnames=("symbol",),
 )
 
 # Counter book_missing_seq_events_total is defined in services.orderflow.metrics.
@@ -107,18 +107,18 @@ book_seq_last_gap_gauge = _get_or_create(
 # -----------------------------
 
 dq_level_gauge = _get_or_create(
-    "dq_level_gauge"
-    Gauge
-    "DQ gate level (0=ok, 1=warn/soft, 2=hard)"
-    labelnames=("symbol",)
+    "dq_level_gauge",
+    Gauge,
+    "DQ gate level (0=ok, 1=warn/soft, 2=hard)",
+    labelnames=("symbol",),
 )
 
 _DQ_BUCKET_ALLOWED = {
-    "book_seq"
-    "tick_seq"
-    "gap_p95"
-    "data_health"
-    "other"
+    "book_seq",
+    "tick_seq",
+    "gap_p95",
+    "data_health",
+    "other",
 }
 
 
@@ -142,10 +142,10 @@ def sanitize_dq_bucket(bucket: Optional[str]) -> str:
 
 
 dq_veto_total = _get_or_create(
-    "dq_veto_total"
-    Counter
-    "Total count of DQ hard veto events"
-    labelnames=("symbol", "bucket")
+    "dq_veto_total",
+    Counter,
+    "Total count of DQ hard veto events",
+    labelnames=("symbol", "bucket"),
 )
 
 

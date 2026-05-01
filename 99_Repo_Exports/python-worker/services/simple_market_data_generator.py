@@ -9,7 +9,7 @@ Simple Market Data Generator - генерирует тики и ATR для Hub P
 
 ENV:
     REDIS_URL - URL Redis (default: redis://localhost:6379/0)
-    SYMBOL - символ (default: XAUUSD)
+    SYMBOL - символ (default: )
     BASE_PRICE - базовая цена (default: 2650.0)
     VOLATILITY - волатильность (default: 1.0)
     UPDATE_INTERVAL_MS - интервал обновления в мс (default: 500)
@@ -25,7 +25,7 @@ from typing import Optional
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-SYMBOL = os.getenv("SYMBOL", "XAUUSD")
+SYMBOL = os.getenv("SYMBOL")
 BASE_PRICE = float(os.getenv("BASE_PRICE", "2650.0"))
 VOLATILITY = float(os.getenv("VOLATILITY", "1.0"))
 UPDATE_INTERVAL_MS = int(os.getenv("UPDATE_INTERVAL_MS", "500"))
@@ -106,12 +106,12 @@ class MarketDataGenerator:
         ts = get_ny_time_millis()
         
         return {
-            "bid": bid
-            "ask": ask
-            "last": last
-            "high": high
-            "low": low
-            "ts": ts
+            "bid": bid,
+            "ask": ask,
+            "last": last,
+            "high": high,
+            "low": low,
+            "ts": ts,
             "atr": atr if atr else 5.0  # Фолбэк значение
         }
     
@@ -121,9 +121,9 @@ class MarketDataGenerator:
             # Сохраняем тик
             tick_key = f"tick:{self.symbol}"
             self.r.hset(tick_key, mapping={
-                "bid": str(tick["bid"])
-                "ask": str(tick["ask"])
-                "last": str(tick["last"])
+                "bid": str(tick["bid"]),
+                "ask": str(tick["ask"]),
+                "last": str(tick["last"]),
                 "ts": str(tick["ts"])
             })
             
@@ -133,7 +133,7 @@ class MarketDataGenerator:
             
             # Также сохраняем в простой ключ для Hub Pro
             # (Hub Pro ожидает именно такой формат)
-            self.r.set(f"atr:XAUUSD", str(round(tick["atr"], 4)))
+            self.r.set(f"atr:", str(round(tick["atr"], 4)))
             
         except Exception as e:
             print(f"❌ Ошибка публикации: {e}")

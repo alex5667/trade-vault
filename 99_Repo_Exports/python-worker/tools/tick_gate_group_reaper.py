@@ -1,3 +1,4 @@
+from __future__ import annotations
 """tick_gate_group_reaper
 
 Purpose
@@ -22,7 +23,6 @@ TICK_GATE_REAPER_ACK_ONLY (default: 1)  # 1=claim+ack, 0=claim-only
 TICK_GATE_REAPER_METRICS_PORT (default: 9113)
 """
 
-from __future__ import annotations
 
 import os
 import time

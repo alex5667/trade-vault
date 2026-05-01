@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Redis-based distributed GPU lock for Ollama.
 
 Only one consumer (AIOps Agent, Local Fallback Plane, etc.)
@@ -17,7 +18,6 @@ Usage (async):
         # call Ollama here
         ...
 """
-from __future__ import annotations
 
 import os
 import time

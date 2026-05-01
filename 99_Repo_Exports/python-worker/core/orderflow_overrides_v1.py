@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 OrderflowOverridesV1
 Strict schema + validation + deterministic selection.
@@ -9,7 +10,6 @@ Goals:
   - Deterministic application (same inputs => same result).
 """
 
-from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 

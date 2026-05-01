@@ -228,13 +228,13 @@ def main():
     redis_url = os.getenv("METRICS_REDIS_URL") or os.getenv("REPORTS_REDIS_URL") or os.getenv("REDIS_URL") or "redis://localhost:6379/0"
     max_connections = int(os.getenv("METRICS_REDIS_MAX_CONNECTIONS", "10"))
     r = redis.Redis.from_url(
-        redis_url
-        decode_responses=False
-        max_connections=max_connections
-        socket_connect_timeout=5
-        socket_timeout=15
-        socket_keepalive=True
-        health_check_interval=30
+        redis_url,
+        decode_responses=False,
+        max_connections=max_connections,
+        socket_connect_timeout=5,
+        socket_timeout=15,
+        socket_keepalive=True,
+        health_check_interval=30,
     )
     bind = os.getenv("METRICS_BIND", "0.0.0.0")
     port = int(os.getenv("METRICS_PORT", "9109"))

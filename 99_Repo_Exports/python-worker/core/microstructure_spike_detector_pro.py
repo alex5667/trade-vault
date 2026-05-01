@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 MicrostructureSpikeDetectorPro - True bid/ask delta detector using real trade prints.
 
@@ -9,7 +10,6 @@ MicrostructureSpikeDetectorPro - True bid/ask delta detector using real trade pr
 - SVBP (Stacked Volume by Price) analysis
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple

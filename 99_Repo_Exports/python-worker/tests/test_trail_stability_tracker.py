@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 Tests for TrailStabilityTracker — callback CV + confidence trend.
 
 These tests use mock data and do NOT require Redis.
 """
-from __future__ import annotations
 
 import pytest
 

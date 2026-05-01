@@ -34,8 +34,8 @@ r = redis.from_url(REDIS_URL, decode_responses=True)
 
 # Create FastAPI app
 app = FastAPI(
-    title="Orders HTTP Bridge"
-    description="REST API для MT5 OrderExecutor"
+    title="Orders HTTP Bridge",
+    description="REST API для MT5 OrderExecutor",
     version="6.0.0"
 )
 
@@ -48,7 +48,7 @@ def health():
         return {"ok": True, "redis": "connected"}
     except Exception as e:
         return JSONResponse(
-            {"ok": False, "error": str(e)}
+            {"ok": False, "error": str(e)},
             status_code=503
         )
 
@@ -67,7 +67,7 @@ def queue_order(payload: Dict):
     sid = str(payload.get("sid") or "").strip()
     if not sid:
         return JSONResponse(
-            {"error": "sid_required"}
+            {"error": "sid_required"},
             status_code=400
         )
 
@@ -78,7 +78,7 @@ def queue_order(payload: Dict):
         return {"queued": True, "payload": payload}
     except Exception as e:
         return JSONResponse(
-            {"error": str(e)}
+            {"error": str(e)},
             status_code=500
         )
 
@@ -106,7 +106,7 @@ def poll_orders(symbol: Optional[str] = Query(None)):
         payload = json.loads(item)
     except json.JSONDecodeError:
         return JSONResponse(
-            {"error": "bad_json", "raw": item}
+            {"error": "bad_json", "raw": item},
             status_code=400
         )
     
@@ -137,7 +137,7 @@ def confirm_execution(exec_report: Dict):
         return {"ok": True, "recorded": True}
     except Exception as e:
         return JSONResponse(
-            {"error": str(e)}
+            {"error": str(e)},
             status_code=500
         )
 
@@ -150,12 +150,12 @@ def get_stats():
         exec_len = r.xlen(EXEC_STREAM)
         
         return {
-            "queue_length": queue_len
+            "queue_length": queue_len,
             "executions_total": exec_len
         }
     except Exception as e:
         return JSONResponse(
-            {"error": str(e)}
+            {"error": str(e)},
             status_code=500
         )
 

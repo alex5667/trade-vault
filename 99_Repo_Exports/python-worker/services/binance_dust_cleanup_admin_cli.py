@@ -41,10 +41,10 @@ for _p in (REPO_ROOT,):
 
 from services.binance_dust_cleanup_admin import BinanceDustCleanupAdmin
 from services.binance_dust_cleanup_admin_ack import (
-    ack_reminder
-    renew_reminder_ack
-    revoke_reminder_ack
-    ack_dashboard
+    ack_reminder,
+    renew_reminder_ack,
+    revoke_reminder_ack,
+    ack_dashboard,
 )
 
 
@@ -77,19 +77,19 @@ def main() -> int:
     ap.add_argument('--ticket', default='')
 
     # ── P14: ACK workflow commands ─────────────────────────────────────────
-    ap.add_argument('--show-ack-dashboard', action='store_true'
+    ap.add_argument('--show-ack-dashboard', action='store_true',
                     help='Show all active reminder ACKs from Redis')
-    ap.add_argument('--ack-kind', default=''
+    ap.add_argument('--ack-kind', default='',
                     help='ACK kind, e.g. old_denylist or cooldown_loop')
-    ap.add_argument('--ack-symbol', default=''
+    ap.add_argument('--ack-symbol', default='',
                     help='Symbol to ACK/renew/revoke (e.g. APTUSDT)')
-    ap.add_argument('--ack-reminder', action='store_true'
+    ap.add_argument('--ack-reminder', action='store_true',
                     help='Create or overwrite a reminder ACK')
-    ap.add_argument('--renew-ack', action='store_true'
+    ap.add_argument('--renew-ack', action='store_true',
                     help='Extend TTL of an existing reminder ACK')
-    ap.add_argument('--revoke-ack', action='store_true'
+    ap.add_argument('--revoke-ack', action='store_true',
                     help='Delete an existing reminder ACK (re-enables notifications)')
-    ap.add_argument('--fingerprint', default=''
+    ap.add_argument('--fingerprint', default='',
                     help='Optional fingerprint for ACK mismatch detection')
 
     ns = ap.parse_args()
@@ -107,62 +107,62 @@ def main() -> int:
         _dump(admin.symbol_state(ns.show_symbol), ns.pretty)
         return 0
     if ns.show_audit:
-        _dump(admin.recent_audit(symbol=ns.audit_symbol, limit=ns.limit), ns.pretty)
-        return 0
+        _dump(admin.recent_audit(symbol=ns.audit_symbol, limit=ns.limit), ns.pretty),
+        return 0,
     if ns.add_denylist_symbol:
-        _dump(admin.add_denylist_symbol(ns.add_denylist_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket, ttl_sec=ns.ttl_sec), ns.pretty)
-        return 0
+        _dump(admin.add_denylist_symbol(ns.add_denylist_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket, ttl_sec=ns.ttl_sec), ns.pretty),
+        return 0,
     if ns.remove_denylist_symbol:
-        _dump(admin.remove_denylist_symbol(ns.remove_denylist_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket), ns.pretty)
-        return 0
+        _dump(admin.remove_denylist_symbol(ns.remove_denylist_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket), ns.pretty),
+        return 0,
     if ns.clear_cooldown_symbol:
-        _dump(admin.clear_cooldown(ns.clear_cooldown_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket), ns.pretty)
-        return 0
+        _dump(admin.clear_cooldown(ns.clear_cooldown_symbol, operator=ns.operator, reason=ns.reason, ticket=ns.ticket), ns.pretty),
+        return 0,
 
     # ── P14: ACK workflow commands ─────────────────────────────────────────
     if ns.show_ack_dashboard:
-        _dump(ack_dashboard(redis_client, limit=max(ns.limit, 50)), ns.pretty)
-        return 0
+        _dump(ack_dashboard(redis_client, limit=max(ns.limit, 50)), ns.pretty),
+        return 0,
     if ns.ack_reminder:
         _dump(
             ack_reminder(
-                redis_client
-                kind=ns.ack_kind
-                symbol=ns.ack_symbol
-                operator=ns.operator
-                reason=ns.reason
-                ticket=ns.ticket
-                ttl_sec=ns.ttl_sec if ns.ttl_sec else 1800
-                fingerprint=ns.fingerprint
-            )
-            ns.pretty
+                redis_client,
+                kind=ns.ack_kind,
+                symbol=ns.ack_symbol,
+                operator=ns.operator,
+                reason=ns.reason,
+                ticket=ns.ticket,
+                ttl_sec=ns.ttl_sec if ns.ttl_sec else 1800,
+                fingerprint=ns.fingerprint,
+            ),
+            ns.pretty,
         )
         return 0
     if ns.renew_ack:
         _dump(
             renew_reminder_ack(
-                redis_client
-                kind=ns.ack_kind
-                symbol=ns.ack_symbol
-                operator=ns.operator
-                reason=ns.reason
-                ticket=ns.ticket
-                ttl_sec=ns.ttl_sec if ns.ttl_sec else 1800
-            )
-            ns.pretty
+                redis_client,
+                kind=ns.ack_kind,
+                symbol=ns.ack_symbol,
+                operator=ns.operator,
+                reason=ns.reason,
+                ticket=ns.ticket,
+                ttl_sec=ns.ttl_sec if ns.ttl_sec else 1800,
+            ),
+            ns.pretty,
         )
         return 0
     if ns.revoke_ack:
         _dump(
             revoke_reminder_ack(
-                redis_client
-                kind=ns.ack_kind
-                symbol=ns.ack_symbol
-                operator=ns.operator
-                reason=ns.reason
-                ticket=ns.ticket
-            )
-            ns.pretty
+                redis_client,
+                kind=ns.ack_kind,
+                symbol=ns.ack_symbol,
+                operator=ns.operator,
+                reason=ns.reason,
+                ticket=ns.ticket,
+            ),
+            ns.pretty,
         )
         return 0
 

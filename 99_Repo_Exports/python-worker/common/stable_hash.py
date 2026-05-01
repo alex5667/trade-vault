@@ -1,4 +1,5 @@
 # python-worker/common/stable_hash.py
+from __future__ import annotations
 """
 Deterministic, cross-process stable hash utilities.
 
@@ -8,7 +9,6 @@ Why:
 
 We use FNV-1a 64-bit (fast, simple, stable across languages if needed).
 """
-from __future__ import annotations
 
 from typing import Any
 

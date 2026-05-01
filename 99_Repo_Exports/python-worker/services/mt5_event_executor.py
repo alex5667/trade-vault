@@ -305,7 +305,7 @@ def receive_mt5_event(event: MT5Event):
         "deal": event.deal,
         "position": event.position,
         "volume": event.volume or 0.0,
-        "reason": reason
+        "reason": reason,
     }
     
     state["events"].append(state_event)
@@ -331,7 +331,7 @@ def receive_mt5_event(event: MT5Event):
                 price=event.price,
                 position_id=str(event.position),
                 lot=event.volume,
-                source="mt5"
+                source="mt5",
             )
     
     elif event_type == "TP2_HIT":
@@ -347,7 +347,7 @@ def receive_mt5_event(event: MT5Event):
                 price=event.price,
                 position_id=str(event.position),
                 lot=event.volume,
-                source="mt5"
+                source="mt5",
             )
     
     elif event_type == "TP3_HIT":
@@ -363,7 +363,7 @@ def receive_mt5_event(event: MT5Event):
                 price=event.price,
                 position_id=str(event.position),
                 lot=event.volume,
-                source="mt5"
+                source="mt5",
             )
     
     elif event_type == "SL_HIT":

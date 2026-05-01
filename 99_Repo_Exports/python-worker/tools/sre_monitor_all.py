@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 sre_monitor_all.py
 
@@ -9,7 +10,6 @@ One entrypoint for SRE checks:
 
 This avoids modifying existing scripts.
 """
-from __future__ import annotations
 import os
 import subprocess
 import sys

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """services/liquidation_map_service.py
 
 Фаза B: Python сервис построения "карты ликвидаций" (liquidation heatmap).
@@ -46,7 +47,6 @@ NOTE:
 - Сервис intentionally "fail-soft": плохие сообщения уходят в DLQ, чтобы не стопорить группу.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -69,7 +69,7 @@ def _bootstrap_paths() -> None:  # pragma: no cover
         os.path.abspath(os.path.join(here, '..')),
         os.path.abspath(os.path.join(here, '..', '..')),
         os.path.abspath(os.path.join(here, '..', '..', '..')),
-    ]
+    ],
     for root in candidates:
         if os.path.isfile(os.path.join(root, 'services', '__init__.py')) and os.path.isdir(os.path.join(root, 'tick_flow_full', 'core')):
             if root not in sys.path:

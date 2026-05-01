@@ -11,15 +11,15 @@ Proxy module — Single Source of Truth.
 # (например, services/binance_executor.py) продолжали работать без изменений.
 from core.instrument_config import *  # noqa: F401, F403
 from core.instrument_config import (
-    OrderFlowConfig
-    SymbolSpecs
-    get_config
-    get_specs
-    INSTRUMENT_CONFIGS
-    INSTRUMENT_SPECS
-    symbol_env_prefix
-    normalize_symbol
-    get_default_dist_bp_threshold
-    get_default_delta_tiers
-    get_liquidity_class
+    OrderFlowConfig,
+    SymbolSpecs,
+    get_config,
+    get_specs,
+    INSTRUMENT_CONFIGS,
+    INSTRUMENT_SPECS,
+    symbol_env_prefix,
+    normalize_symbol,
+    get_default_dist_bp_threshold,
+    get_default_delta_tiers,
+    get_liquidity_class,
 )

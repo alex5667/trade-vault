@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 TrailingSizeRecommender
 
@@ -16,7 +17,6 @@ TrailingSizeRecommender
 - entry_tag (опционально).
 """
 
-from __future__ import annotations
 
 import statistics as stats
 from dataclasses import dataclass

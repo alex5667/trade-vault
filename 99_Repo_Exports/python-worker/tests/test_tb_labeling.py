@@ -1,5 +1,5 @@
-"""Unit tests for triple-barrier labeling core logic."""
 from __future__ import annotations
+"""Unit tests for triple-barrier labeling core logic."""
 
 from core.tb_labeling import infer_tp_sl_bps, barrier_stats, Barriers, exec_cost_r
 

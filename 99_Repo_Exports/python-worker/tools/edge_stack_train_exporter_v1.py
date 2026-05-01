@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P59: Prometheus exporter for edge_stack_v1 training status.
 
 Reads Redis hash: metrics:edge_stack_train:last
@@ -17,7 +18,6 @@ Exports:
   - edge_stack_train_champion_cmp_no_champion
 """
 
-from __future__ import annotations
 
 import os
 import time

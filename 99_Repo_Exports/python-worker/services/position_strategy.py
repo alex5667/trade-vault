@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Position Strategy resolver — single ENV enum controls the system mode.
 
 Strategies:
@@ -15,7 +16,6 @@ Kill-switch override:
     EXEC_ROUTER_SCALE_IN_ENABLE=0 overrides POSITION_STRATEGY=scale_in → disables
     scale-in redirect without changing the strategy config.  Emergency rollback.
 """
-from __future__ import annotations
 
 import os
 from dataclasses import dataclass
@@ -23,40 +23,40 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PositionStrategy:
-    """Resolved position strategy flags."""
-    name: str                   # "independent" | "single" | "scale_in"
-    single_active: bool         # enforce one position per symbol
-    router_enable: bool         # execution router active
-    scale_in_enable: bool       # open→resize redirect active
+    """Resolved position strategy flags.""",
+    name: str                   # "independent" | "single" | "scale_in",
+    single_active: bool         # enforce one position per symbol,
+    router_enable: bool         # execution router active,
+    scale_in_enable: bool       # open→resize redirect active,
 
     def __repr__(self) -> str:
         return (
-            f"PositionStrategy(name={self.name!r}, "
-            f"single_active={self.single_active}, "
-            f"router_enable={self.router_enable}, "
-            f"scale_in_enable={self.scale_in_enable})"
-        )
+            f"PositionStrategy(name={self.name!r}, ",
+            f"single_active={self.single_active}, ",
+            f"router_enable={self.router_enable}, ",
+            f"scale_in_enable={self.scale_in_enable})",
+        ),
 
 
 # Canonical strategy definitions
 _STRATEGIES = {
     "independent": PositionStrategy(
-        name="independent"
-        single_active=False
+        name="independent",
+        single_active=False,
         router_enable=True,       # passthrough — no redirect
-        scale_in_enable=False
-    )
+        scale_in_enable=False,
+    ),
     "single": PositionStrategy(
-        name="single"
-        single_active=True
+        name="single",
+        single_active=True,
         router_enable=True,       # passthrough — new opens rejected by executor
-        scale_in_enable=False
-    )
+        scale_in_enable=False,
+    ),
     "scale_in": PositionStrategy(
-        name="scale_in"
+        name="scale_in",
         single_active=True,       # required — scale-in needs single owner
-        router_enable=True
-        scale_in_enable=True
+        router_enable=True,
+        scale_in_enable=True,
     )
 }
 
@@ -95,10 +95,10 @@ def resolve_strategy() -> PositionStrategy:
         if strategy.scale_in_enable:
             # Downgrade scale_in → single (keep single_active, disable redirect)
             strategy = PositionStrategy(
-                name=f"{strategy.name}(kill_switch→single)"
-                single_active=strategy.single_active
-                router_enable=strategy.router_enable
-                scale_in_enable=False
+                name=f"{strategy.name}(kill_switch→single)",
+                single_active=strategy.single_active,
+                router_enable=strategy.router_enable,
+                scale_in_enable=False,
             )
 
     return strategy

@@ -2,35 +2,35 @@
 import json
 import pytest
 from services.orderflow.defillama_context import (
-    DefiLlamaContextSnapshot
-    from_json
-    from_dict
-    ctx_key
-    SCHEMA_VERSION
+    DefiLlamaContextSnapshot,
+    from_json,
+    from_dict,
+    ctx_key,
+    SCHEMA_VERSION,
 )
 
 
 def _sample_payload(**overrides):
     base = {
-        "schema_version": 1
-        "symbol": "SOLUSDT"
-        "chain": "Solana"
-        "ts_ms": 1700000000000
-        "stablecoin_mcap_total": 130_000_000_000.0
-        "stablecoin_mcap_delta_1d": 100_000_000.0
-        "stablecoin_mcap_delta_7d": 500_000_000.0
-        "stablecoin_risk_regime": "neutral"
-        "chain_tvl_usd": 5_000_000_000.0
-        "chain_tvl_delta_1d_pct": 0.3
-        "dex_volume_24h_usd": 2_000_000_000.0
-        "dex_volume_delta_1d_pct": 5.0
-        "dex_volume_spike_z": 1.5
-        "fees_24h_usd": 50_000_000.0
-        "revenue_24h_usd": 20_000_000.0
-        "fees_revenue_momentum": 0.1
-        "defillama_perps_oi_usd": 1_000_000_000.0
-        "defillama_perps_oi_delta_1d_pct": 2.5
-        "quality_status": "OK"
+        "schema_version": 1,
+        "symbol": "SOLUSDT",
+        "chain": "Solana",
+        "ts_ms": 1700000000000,
+        "stablecoin_mcap_total": 130_000_000_000.0,
+        "stablecoin_mcap_delta_1d": 100_000_000.0,
+        "stablecoin_mcap_delta_7d": 500_000_000.0,
+        "stablecoin_risk_regime": "neutral",
+        "chain_tvl_usd": 5_000_000_000.0,
+        "chain_tvl_delta_1d_pct": 0.3,
+        "dex_volume_24h_usd": 2_000_000_000.0,
+        "dex_volume_delta_1d_pct": 5.0,
+        "dex_volume_spike_z": 1.5,
+        "fees_24h_usd": 50_000_000.0,
+        "revenue_24h_usd": 20_000_000.0,
+        "fees_revenue_momentum": 0.1,
+        "defillama_perps_oi_usd": 1_000_000_000.0,
+        "defillama_perps_oi_delta_1d_pct": 2.5,
+        "quality_status": "OK",
     }
     base.update(overrides)
     return base
@@ -90,8 +90,8 @@ def test_ctx_key():
 
 def test_nan_inf_fields_default():
     payload = _sample_payload(
-        stablecoin_mcap_total=float("nan")
-        dex_volume_spike_z=float("inf")
+        stablecoin_mcap_total=float("nan"),
+        dex_volume_spike_z=float("inf"),
     )
     snap = from_dict(payload)
     assert snap is not None

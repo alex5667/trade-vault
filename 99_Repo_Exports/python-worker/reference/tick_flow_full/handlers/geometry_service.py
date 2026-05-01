@@ -1,9 +1,9 @@
 # geometry_service.py
+from __future__ import annotations
 """
 Geometry and liquidity analysis functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 
 from typing import Optional, List, Literal, TYPE_CHECKING, Any, Tuple
 import math
@@ -24,11 +24,11 @@ class GeometryLiquidityService:
         self.config = config
 
     def _find_near_liquidity_wall(
-        self
-        l2: SimpleL2Snapshot
-        max_levels: int = 10
-        max_dist_bps: float = 15.0
-        size_z_thr: float = 1.5
+        self,
+        l2: SimpleL2Snapshot,
+        max_levels: int = 10,
+        max_dist_bps: float = 15.0,
+        size_z_thr: float = 1.5,
     ) -> Tuple[Optional[str], Optional[L2Level], Optional[float], Optional[float]]:
         """
         Find nearest significant liquidity wall.
@@ -89,10 +89,10 @@ class GeometryLiquidityService:
         return None, None, None, None
 
     def _build_liquidity_context(
-        self
-        *
-        l2_snapshot: "SimpleL2Snapshot"
-        cluster_vol: Optional[Any] = None
+        self,
+        *,
+        l2_snapshot: "SimpleL2Snapshot",
+        cluster_vol: Optional[Any] = None,
     ) -> LiquidityContext:
         """Build liquidity context from L2 snapshot and cluster volume."""
 
@@ -131,35 +131,35 @@ class GeometryLiquidityService:
 
         # Detect pattern
         pattern = self._detect_liquidity_pattern(
-            aggr_buy_at_wall=aggr_buy_at_wall
-            aggr_sell_at_wall=aggr_sell_at_wall
-            aggr_to_rest_ratio=aggr_to_rest_ratio
-        )
+            aggr_buy_at_wall=aggr_buy_at_wall,
+            aggr_sell_at_wall=aggr_sell_at_wall,
+            aggr_to_rest_ratio=aggr_to_rest_ratio,
+        ),
 
         return LiquidityContext(
-            aggr_buy_at_wall=aggr_buy_at_wall
-            aggr_sell_at_wall=aggr_sell_at_wall
-            aggr_to_rest_ratio=aggr_to_rest_ratio
-            pattern=pattern
-            cluster=cluster_vol
+            aggr_buy_at_wall=aggr_buy_at_wall,
+            aggr_sell_at_wall=aggr_sell_at_wall,
+            aggr_to_rest_ratio=aggr_to_rest_ratio,
+            pattern=pattern,
+            cluster=cluster_vol,
             # Legacy fields for compatibility
-            near_wall_side=wall_side
-            near_wall_price=wall_level.price if wall_level else None
-            near_wall_size=wall_level.size if wall_level else None
-            near_wall_size_z=wall_size_z
+            near_wall_side=wall_side,
+            near_wall_price=wall_level.price if wall_level else None,
+            near_wall_size=wall_level.size if wall_level else None,
+            near_wall_size_z=wall_size_z,
             depth_5_vol=float(
                 (getattr(l2_snapshot, "depth_bid_5", 0.0) or 0.0)
                 + (getattr(l2_snapshot, "depth_ask_5", 0.0) or 0.0)
-            )
-            aggr_vol_at_wall=float(wall_volume)
+            ),
+            aggr_vol_at_wall=float(wall_volume),
         )
 
     def _detect_liquidity_pattern(
-        self
-        *
-        aggr_buy_at_wall: float
-        aggr_sell_at_wall: float
-        aggr_to_rest_ratio: float
+        self,
+        *,
+        aggr_buy_at_wall: float,
+        aggr_sell_at_wall: float,
+        aggr_to_rest_ratio: float,
     ) -> str:
         """Detect liquidity pattern."""
         from contexts import LiquidityPattern
@@ -222,9 +222,9 @@ class GeometryLiquidityService:
         return None
 
     def _build_geo_zone_hits(
-        self
-        ctx: OrderflowSignalContext
-        htf_levels: Any
+        self,
+        ctx: OrderflowSignalContext,
+        htf_levels: Any,
     ) -> list[GeoZoneHit]:
         """Build geometry zone hits."""
         hits = []
@@ -243,12 +243,12 @@ class GeometryLiquidityService:
 
             if dist_rel_atr <= far_mult:
                 hits.append(GeoZoneHit(
-                    zone_type=zone_type
-                    zone_price=level_price
-                    dist_bps=dist_bps
-                    atr_htf_bps=atr_htf
-                    dist_rel_atr=dist_rel_atr
-                    strength=strength
+                    zone_type=zone_type,
+                    zone_price=level_price,
+                    dist_bps=dist_bps,
+                    atr_htf_bps=atr_htf,
+                    dist_rel_atr=dist_rel_atr,
+                    strength=strength,
                 ))
 
         # Add HTF levels
@@ -256,11 +256,11 @@ class GeometryLiquidityService:
             for level_name, level_price in htf_levels.items():
                 if isinstance(level_price, (int, float)):
                     zone_type_map = {
-                        'h1_pivot': 'HTF_OB'
-                        'h4_pivot': 'HTF_OB'
-                        'd1_pivot': 'HTF_OB'
-                        'resistance': 'HTF_FVG'
-                        'support': 'HTF_FVG'
+                        'h1_pivot': 'HTF_OB',
+                        'h4_pivot': 'HTF_OB',
+                        'd1_pivot': 'HTF_OB',
+                        'resistance': 'HTF_FVG',
+                        'support': 'HTF_FVG',
                     }
                     # Use ZoneType literals with fallback
                     zone_type = zone_type_map.get(level_name, 'HTF_OB')  # type: ignore
@@ -289,9 +289,9 @@ class GeometryLiquidityService:
         # Note: geometry_score and htf_level_dist_bps might be computed elsewhere or be legacy fields
 
     def _build_liquidity_context_from_ctx(
-        self
-        ctx: OrderflowSignalContext
-        cluster_vol: Optional[Any] = None
+        self,
+        ctx: OrderflowSignalContext,
+        cluster_vol: Optional[Any] = None,
     ) -> LiquidityContext:
         """Build liquidity context from existing signal context (preferred method)."""
 
@@ -333,29 +333,29 @@ class GeometryLiquidityService:
 
         # Detect pattern
         pattern = self._detect_liquidity_pattern(
-            aggr_buy_at_wall=aggr_buy_at_wall
-            aggr_sell_at_wall=aggr_sell_at_wall
-            aggr_to_rest_ratio=aggr_to_rest_ratio
+            aggr_buy_at_wall=aggr_buy_at_wall,
+            aggr_sell_at_wall=aggr_sell_at_wall,
+            aggr_to_rest_ratio=aggr_to_rest_ratio,
         )
 
         return LiquidityContext(
-            aggr_buy_at_wall=aggr_buy_at_wall
-            aggr_sell_at_wall=aggr_sell_at_wall
-            aggr_to_rest_ratio=aggr_to_rest_ratio
-            pattern=pattern
-            cluster=cluster_vol
+            aggr_buy_at_wall=aggr_buy_at_wall,
+            aggr_sell_at_wall=aggr_sell_at_wall,
+            aggr_to_rest_ratio=aggr_to_rest_ratio,
+            pattern=pattern,
+            cluster=cluster_vol,
             # Legacy fields for compatibility
-            near_wall_side=wall_side
+            near_wall_side=wall_side,
             near_wall_price=None,  # Not available from ctx
             near_wall_size=None,   # Not available from ctx
-            depth_5_vol=total_near_price_volume
+            depth_5_vol=total_near_price_volume,
         )
 
     def _attach_liquidity_context(
-        self
-        ctx: OrderflowSignalContext
-        l2: SimpleL2Snapshot | None = None
-        cluster_vol: Optional[Any] = None
+        self,
+        ctx: OrderflowSignalContext,
+        l2: SimpleL2Snapshot | None = None,
+        cluster_vol: Optional[Any] = None,
     ) -> None:
         """Attach liquidity context to signal context."""
         # Prefer building from existing context data (more accurate and consistent)
@@ -364,8 +364,8 @@ class GeometryLiquidityService:
         elif l2:
             # Fallback to L2-based calculation
             liquidity_ctx = self._build_liquidity_context(
-                l2_snapshot=l2
-                cluster_vol=cluster_vol
+                l2_snapshot=l2,
+                cluster_vol=cluster_vol,
             )
         else:
             return  # No data available
@@ -377,10 +377,10 @@ class GeometryLiquidityService:
             ctx.liquidity_context.liquidity_context_score = score
 
     def _update_geometry_liquidity_context(
-        self
-        ctx: OrderflowSignalContext
-        price: float
-        ts: float
+        self,
+        ctx: OrderflowSignalContext,
+        price: float,
+        ts: float,
     ) -> None:
         """Update geometry and liquidity context."""
         # This would be called from the main handler

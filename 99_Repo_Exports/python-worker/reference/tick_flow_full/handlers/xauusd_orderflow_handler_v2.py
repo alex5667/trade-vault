@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Специализированный обработчик Order Flow для XAUUSD (Gold).
 
@@ -6,7 +7,6 @@
 
 REFACTORED VERSION - использует унифицированную архитектуру.
 """
-from __future__ import annotations
 
 from typing import Dict, Optional
 from .base_orderflow_handler import BaseOrderFlowHandler, OrderflowSignalContext

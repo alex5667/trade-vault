@@ -95,7 +95,7 @@ class ATRGraphReconciliationService:
     @staticmethod
     def project_graph_to_legacy(scope_kind: str, scope_value: str) -> bool:
         """
-        Read the canonical state from the Graph using EffectiveStateResolver's graph logic
+        Read the canonical state from the Graph using EffectiveStateResolver's graph logic,
         and update the legacy tables and Redis keys if there are discrepancies.
         This provides a one-way sync Graph -> Legacy.
         """
@@ -121,7 +121,7 @@ class ATRGraphReconciliationService:
                     if graph_freeze != leg_states.get("freeze_state", "none"):
                         drift_found = True
                         ATRGraphReconciliationService.mark_reconciliation_drift(
-                            scope_value, "legacy_out_of_band_freeze_write", "error", "drift_freeze_state"
+                            scope_value, "legacy_out_of_band_freeze_write", "error", "drift_freeze_state",
                             {"graph": graph_freeze, "legacy": leg_states.get("freeze_state", "none")}
                         )
                         # Project down to legacy active freezes
@@ -143,7 +143,7 @@ class ATRGraphReconciliationService:
                     if graph_override != leg_states.get("override_state", "none"):
                         drift_found = True
                         ATRGraphReconciliationService.mark_reconciliation_drift(
-                            scope_value, "legacy_out_of_band_override_write", "warning", "drift_override_state"
+                            scope_value, "legacy_out_of_band_override_write", "warning", "drift_override_state",
                             {"graph": graph_override, "legacy": leg_states.get("override_state", "none")}
                         )
                 
@@ -152,7 +152,7 @@ class ATRGraphReconciliationService:
                     if graph_release != leg_states.get("release_state", "allowed"):
                         drift_found = True
                         ATRGraphReconciliationService.mark_reconciliation_drift(
-                            scope_value, "legacy_out_of_band_release_write", "error", "drift_release_state"
+                            scope_value, "legacy_out_of_band_release_write", "error", "drift_release_state",
                             {"graph": graph_release, "legacy": leg_states.get("release_state", "allowed")}
                         )
 

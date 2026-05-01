@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """cont_ctx_window_calibrator_v1.py
 
 Production-safe post-analysis calibrator for continuation context window
@@ -25,7 +26,6 @@ Design goals
 - no hidden policy coupling: calibrates only one knob (`cont_ctx_valid_ms`)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hashlib

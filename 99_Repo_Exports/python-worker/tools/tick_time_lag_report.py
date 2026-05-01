@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Offline report for tick time distributions from Redis stream.
 
 The stream is written by OrderFlowStrategy when `TICK_TIME_STREAM_ENABLE=1`.
@@ -14,7 +15,6 @@ Outputs:
     TICK_TIME_MAX_PAST_MS (from age_ms) as guidance.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

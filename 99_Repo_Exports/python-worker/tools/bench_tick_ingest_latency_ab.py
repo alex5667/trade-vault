@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Step 17: AB-ish benchmark for tick ingest latency histograms.
 
@@ -11,7 +12,6 @@ Usage:
   python -m tools.bench_tick_ingest_latency_ab --url http://localhost:8000/metrics --interval 30 --symbol BTCUSDT
 """
 
-from __future__ import annotations
 
 import argparse
 import json

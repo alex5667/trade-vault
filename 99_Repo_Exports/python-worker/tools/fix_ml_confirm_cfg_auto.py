@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Автоматическое исправление конфигурации ML Confirm Gate.
 
 Находит модель, проверяет её валидность и создает конфигурацию в Redis.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

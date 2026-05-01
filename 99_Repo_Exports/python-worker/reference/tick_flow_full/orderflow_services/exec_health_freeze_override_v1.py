@@ -58,14 +58,14 @@ except Exception:  # pragma: no cover
 from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
 from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
 from services.orderflow.exec_health_freeze_control import (
-    ACK_SIGNING_SECRET_ENV
-    build_dual_control_commit_thaw_update
-    build_manual_freeze_update
-    build_thaw_approve_update
-    build_thaw_prepare_update
-    parse_exec_health_freeze_control
-    sign_dual_control_commit
-    stringify_mapping
+    ACK_SIGNING_SECRET_ENV,
+    build_dual_control_commit_thaw_update,
+    build_manual_freeze_update,
+    build_thaw_approve_update,
+    build_thaw_prepare_update,
+    parse_exec_health_freeze_control,
+    sign_dual_control_commit,
+    stringify_mapping,
 )
 
 
@@ -126,18 +126,18 @@ class OverrideController:
         except Exception:
             raw = None
         return {
-            "control_key": self.control_key
-            "state_key": self.state_key
-            "freeze_key": self.freeze_key
+            "control_key": self.control_key,
+            "state_key": self.state_key,
+            "freeze_key": self.freeze_key,
             # P8: expose pending nonce so operator knows what to pass to --nonce
-            "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce
+            "pending_ack_nonce": ctl.expected_ack_nonce or st.expected_ack_nonce,
             # P9: expose active thaw request info
-            "active_thaw_request_id": ctl.active_thaw_request_id or st.active_thaw_request_id
-            "thaw_request_status": ctl.thaw_request_status or st.thaw_request_status
-            "last_trigger_ts_ms": int(ctl.raw_payload.get("last_trigger_ts_ms") or st.raw_payload.get("last_trigger_ts_ms") or 0)
-            "control": dict(getattr(ctl, "raw_payload", {}) or {})
-            "state_fallback": dict(getattr(st, "raw_payload", {}) or {})
-            "raw_freeze": json.loads(raw) if raw else {}
+            "active_thaw_request_id": ctl.active_thaw_request_id or st.active_thaw_request_id,
+            "thaw_request_status": ctl.thaw_request_status or st.thaw_request_status,
+            "last_trigger_ts_ms": int(ctl.raw_payload.get("last_trigger_ts_ms") or st.raw_payload.get("last_trigger_ts_ms") or 0),
+            "control": dict(getattr(ctl, "raw_payload", {}) or {}),
+            "state_fallback": dict(getattr(st, "raw_payload", {}) or {}),
+            "raw_freeze": json.loads(raw) if raw else {},
         }
 
     def _load_pair(self):
@@ -169,26 +169,26 @@ class OverrideController:
             raise ValueError(f"active thaw request already exists: {ctl.active_thaw_request_id}")
         request_id = f"thr-{now}-{secrets.token_hex(4)}"
         event_payload = {
-            "ts_ms": now
-            "kind": "manual_ack_thaw_prepare"
-            "request_id": request_id
-            "operator": operator
-            "reason": reason
-            "ticket": ticket
-            "ack_nonce": str(nonce)
-            "trigger_ts_ms": trigger_ts_ms
-            "source": "exec_health_freeze_override_v1"
-            "control_key": self.control_key
+            "ts_ms": now,
+            "kind": "manual_ack_thaw_prepare",
+            "request_id": request_id,
+            "operator": operator,
+            "reason": reason,
+            "ticket": ticket,
+            "ack_nonce": str(nonce),
+            "trigger_ts_ms": trigger_ts_ms,
+            "source": "exec_health_freeze_override_v1",
+            "control_key": self.control_key,
         }
         event_id = self._emit_event(event_payload)
         upd = build_thaw_prepare_update(
-            prev=prev_ctl
-            now_ms=now
-            request_id=request_id
-            operator=operator
-            reason=reason
-            ticket=ticket
-            provided_ack_nonce=str(nonce)
+            prev=prev_ctl,
+            now_ms=now,
+            request_id=request_id,
+            operator=operator,
+            reason=reason,
+            ticket=ticket,
+            provided_ack_nonce=str(nonce),
         )
         upd["thaw_prepare_event_id"] = str(event_id or "")
         self._write_hash(self.control_key, upd)
@@ -217,15 +217,15 @@ class OverrideController:
         if operator == ctl.thaw_prepared_by:
             raise ValueError("second approver must be different from preparer")
         event_payload = {
-            "ts_ms": now
-            "kind": "manual_ack_thaw_approve"
-            "request_id": str(request_id)
-            "operator": operator
-            "prepared_by": ctl.thaw_prepared_by
-            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce
-            "trigger_ts_ms": int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
-            "source": "exec_health_freeze_override_v1"
-            "control_key": self.control_key
+            "ts_ms": now,
+            "kind": "manual_ack_thaw_approve",
+            "request_id": str(request_id),
+            "operator": operator,
+            "prepared_by": ctl.thaw_prepared_by,
+            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce,
+            "trigger_ts_ms": int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0),
+            "source": "exec_health_freeze_override_v1",
+            "control_key": self.control_key,
         }
         event_id = self._emit_event(event_payload)
         upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator)
@@ -262,44 +262,44 @@ class OverrideController:
             raise ValueError("commit must be executed by the approved second operator")
         trigger_ts_ms = int(prev_ctl.get("last_trigger_ts_ms") or prev_state.get("last_trigger_ts_ms") or 0)
         sig = sign_dual_control_commit(
-            secret=secret
-            request_id=str(request_id)
-            ack_nonce=ctl.thaw_request_nonce or ctl.expected_ack_nonce
-            prepared_by=ctl.thaw_prepared_by
-            approved_by=ctl.thaw_approved_by
-            commit_by=operator
-            reason=ctl.thaw_request_reason
-            ticket=ctl.thaw_request_ticket
-            trigger_ts_ms=trigger_ts_ms
-            prepared_ts_ms=ctl.thaw_prepare_ts_ms
-            approved_ts_ms=ctl.thaw_approve_ts_ms
-            commit_ts_ms=now
+            secret=secret,
+            request_id=str(request_id),
+            ack_nonce=ctl.thaw_request_nonce or ctl.expected_ack_nonce,
+            prepared_by=ctl.thaw_prepared_by,
+            approved_by=ctl.thaw_approved_by,
+            commit_by=operator,
+            reason=ctl.thaw_request_reason,
+            ticket=ctl.thaw_request_ticket,
+            trigger_ts_ms=trigger_ts_ms,
+            prepared_ts_ms=ctl.thaw_prepare_ts_ms,
+            approved_ts_ms=ctl.thaw_approve_ts_ms,
+            commit_ts_ms=now,
         )
         event_payload = {
-            "ts_ms": now
-            "kind": "manual_ack_thaw_commit"
-            "request_id": str(request_id)
-            "operator": operator
-            "prepared_by": ctl.thaw_prepared_by
-            "approved_by": ctl.thaw_approved_by
-            "reason": ctl.thaw_request_reason
-            "ticket": ctl.thaw_request_ticket
-            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce
-            "trigger_ts_ms": int(trigger_ts_ms)
-            "prepared_ts_ms": int(ctl.thaw_prepare_ts_ms)
-            "approved_ts_ms": int(ctl.thaw_approve_ts_ms)
-            "commit_sig": sig
-            "source": "exec_health_freeze_override_v1"
-            "control_key": self.control_key
+            "ts_ms": now,
+            "kind": "manual_ack_thaw_commit",
+            "request_id": str(request_id),
+            "operator": operator,
+            "prepared_by": ctl.thaw_prepared_by,
+            "approved_by": ctl.thaw_approved_by,
+            "reason": ctl.thaw_request_reason,
+            "ticket": ctl.thaw_request_ticket,
+            "ack_nonce": ctl.thaw_request_nonce or ctl.expected_ack_nonce,
+            "trigger_ts_ms": int(trigger_ts_ms),
+            "prepared_ts_ms": int(ctl.thaw_prepare_ts_ms),
+            "approved_ts_ms": int(ctl.thaw_approve_ts_ms),
+            "commit_sig": sig,
+            "source": "exec_health_freeze_override_v1",
+            "control_key": self.control_key,
         }
         event_id = self._emit_event(event_payload)
         upd = build_dual_control_commit_thaw_update(
-            prev=prev_ctl
-            now_ms=now
-            request_id=str(request_id)
-            commit_by=operator
-            commit_sig=sig
-            commit_event_id=event_id
+            prev=prev_ctl,
+            now_ms=now,
+            request_id=str(request_id),
+            commit_by=operator,
+            commit_sig=sig,
+            commit_event_id=event_id,
         )
         self._write_hash(self.control_key, upd)
         state_upd = dict(prev_state)
@@ -334,25 +334,25 @@ class OverrideController:
 
         # Write legacy raw TTL key for P5/P6 backward-compat
         raw = {
-            "schema_name": "exec_health_auto_freeze"
-            "schema_version": 1
-            "ts_ms": now
-            "freeze_active": 1
-            "freeze_reason": f"manual_override:{reason}"
-            "freeze_until_ts_ms": until
+            "schema_name": "exec_health_auto_freeze",
+            "schema_version": 1,
+            "ts_ms": now,
+            "freeze_active": 1,
+            "freeze_reason": f"manual_override:{reason}",
+            "freeze_until_ts_ms": until,
         }
         self.r.set(self.freeze_key, json.dumps(raw, separators=(",", ":")))
         self.r.pexpire(self.freeze_key, mins * 60 * 1000)
 
         ev = {
-            "ts_ms": now
-            "kind": "manual_override_freeze"
-            "operator": operator
-            "reason": reason
-            "ticket": ticket
-            "minutes": mins
-            "freeze_until_ts_ms": until
-            "control_key": self.control_key
+            "ts_ms": now,
+            "kind": "manual_override_freeze",
+            "operator": operator,
+            "reason": reason,
+            "ticket": ticket,
+            "minutes": mins,
+            "freeze_until_ts_ms": until,
+            "control_key": self.control_key,
         }
         self._emit_event(ev)
         return {"ok": True, "action": "freeze", **ev, "effective_freeze_active": 1}
@@ -367,9 +367,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--nonce", default=os.getenv("ACK_NONCE", ""), help="P8/P9: pending ack nonce (from status command)")
     ap.add_argument("--request-id", default=os.getenv("REQUEST_ID", ""), help="P9: thaw request_id (from prepare-thaw output)")
     ap.add_argument(
-        "--minutes"
-        type=int
-        default=int(os.getenv("EXEC_HEALTH_MANUAL_FREEZE_MINUTES", "30") or 30)
+        "--minutes",
+        type=int,
+        default=int(os.getenv("EXEC_HEALTH_MANUAL_FREEZE_MINUTES", "30") or 30),
     )
     return ap
 

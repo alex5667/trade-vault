@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: is_virtual flag propagation + periodic_reporter classification (merge-blocker).
 
@@ -11,7 +12,6 @@ Tests:
 Run:
     cd python-worker && python -m pytest tests/test_is_virtual_propagation.py -v
 """
-from __future__ import annotations
 
 import pytest
 

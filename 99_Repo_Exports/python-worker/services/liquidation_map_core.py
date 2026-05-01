@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """services/liquidation_map_core.py
 
 Фаза B (Python): построение "карты ликвидаций" (Liquidation Heatmap / Map).
@@ -11,7 +12,6 @@ Design goals (под ваш стиль trade проекта):
 Этот файл содержит чистое ядро (без Redis) для удобных unit-тестов.
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass
@@ -170,7 +170,7 @@ class Bucketizer:
       - abs: price_bucket_str
       - log_*: integer bucket_index as string
 
-    NOTE: Для лог-сетки price отображается как float (для UI),
+    NOTE: Для лог-сетки price отображается как float (для UI)
     но суммирование notional остаётся Decimal.
     """
 

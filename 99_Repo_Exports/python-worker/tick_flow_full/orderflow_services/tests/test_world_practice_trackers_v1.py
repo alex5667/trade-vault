@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 test_world_practice_trackers_v1.py
 ===================================
@@ -14,7 +15,6 @@ helpers _as_float / _call_update / _call_snapshot tolerate minor signature
 drifts without requiring edits to core tracker files.
 """
 
-from __future__ import annotations
 
 import asyncio
 import os

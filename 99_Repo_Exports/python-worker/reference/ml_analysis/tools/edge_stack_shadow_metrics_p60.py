@@ -103,8 +103,8 @@ def calculate_shadow_metrics(
     return metrics
 
 def check_promotion_guard(
-    champion_metrics: Dict[str, float]
-    candidate_metrics: Dict[str, float]
+    champion_metrics: Dict[str, float],
+    candidate_metrics: Dict[str, float],
     max_brier_rel: float = 1.02, # Candidate BS <= Champion BS * 1.02 (allow 2% degradation? usually want < 1.0)
     # Actually, for Brier, lower is better. So we want candidate <= champion. 
     # But usually "guard" means "ok to promote if not MUCH worse".
@@ -129,7 +129,7 @@ def check_promotion_guard(
     
     #   Let's implement a 'should_promote' function.
     
-    max_ece_abs_diff: float = 0.005
+    max_ece_abs_diff: float = 0.005,
     min_prec_delta: float = 0.0
 ) -> Tuple[bool, List[str]]:
     """

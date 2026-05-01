@@ -16,20 +16,20 @@ from typing import Dict, List
 
 
 def evaluate_provider_context(
-    *
-    profile: str
-    side: str
-    provider_quality: str
-    mcap_disagreement_bps: float
-    volume_disagreement_bps: float
-    btc_dom_disagreement_bps: float
-    provider_btc_dominance: float
-    provider_rel_strength_24h: float
-    provider_top_gainer: int
-    provider_top_loser: int
-    max_disagreement_bps: float = 100.0
-    tighten_mult: float = 1.0
-    tighten_cap_bps: float = 4.0
+    *,
+    profile: str,
+    side: str,
+    provider_quality: str,
+    mcap_disagreement_bps: float,
+    volume_disagreement_bps: float,
+    btc_dom_disagreement_bps: float,
+    provider_btc_dominance: float,
+    provider_rel_strength_24h: float,
+    provider_top_gainer: int,
+    provider_top_loser: int,
+    max_disagreement_bps: float = 100.0,
+    tighten_mult: float = 1.0,
+    tighten_cap_bps: float = 4.0,
 ) -> Dict:
     """Evaluate provider context and return a decision dict.
 
@@ -81,8 +81,8 @@ def evaluate_provider_context(
 
     # Provider fallback NEVER hard-veto
     return {
-        "flags": flags
-        "tighten_add_bps": round(tighten, 4)
-        "veto": False
-        "veto_reason": ""
+        "flags": flags,
+        "tighten_add_bps": round(tighten, 4),
+        "veto": False,
+        "veto_reason": "",
     }

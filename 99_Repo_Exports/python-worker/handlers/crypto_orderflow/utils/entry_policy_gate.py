@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 EntryPolicyGate: spread shock / burst flip / cancel-to-trade + feature drift alarm.
 
@@ -24,7 +25,6 @@ BookTradeConsistency integration:
 """
 
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -222,14 +222,14 @@ class EntryPolicyGate:
         burst_flip = _safe_float(
             getattr(ctx, "burst_flip_ratio", None)
             or getattr(ctx, "burst_flip", None)
-            or getattr(ctx, "flip_ratio", None)
-            0.0
+            or getattr(ctx, "flip_ratio", None),
+            0.0,
         )
         c2t = _safe_float(
             getattr(ctx, "cancel_to_trade", None)
             or getattr(ctx, "cancel_to_trade_ratio", None)
-            or getattr(ctx, "c2t_ratio", None)
-            0.0
+            or getattr(ctx, "c2t_ratio", None),
+            0.0,
         )
 
         soft_flags = []
@@ -311,19 +311,19 @@ class EntryPolicyGate:
                 redis_client = getattr(ctx, "redis", None)
                 if redis_client is not None and (soft_flags or drift_hit):
                     ev = {
-                        "ts_ms": get_ny_time_millis()
-                        "symbol": str(symbol)
-                        "kind": str(kind)
-                        "session": str(sess)
-                        "spread_bps": float(spread_bps)
-                        "burst_flip_ratio": float(burst_flip)
-                        "cancel_to_trade": float(c2t)
-                        "soft_flags": soft_flags
-                        "drift": int(drift_hit)
-                        "drift_notes": drift_notes[:256]
-                        "profile": profile
-                        "btc_stale_ms": float(btc_stale_ms)
-                        "btc_cross_bps": float(btc_cross_bps)
+                        "ts_ms": get_ny_time_millis(),
+                        "symbol": str(symbol),
+                        "kind": str(kind),
+                        "session": str(sess),
+                        "spread_bps": float(spread_bps),
+                        "burst_flip_ratio": float(burst_flip),
+                        "cancel_to_trade": float(c2t),
+                        "soft_flags": soft_flags,
+                        "drift": int(drift_hit),
+                        "drift_notes": drift_notes[:256],
+                        "profile": profile,
+                        "btc_stale_ms": float(btc_stale_ms),
+                        "btc_cross_bps": float(btc_cross_bps),
                     }
                     redis_client.xadd(self.diag_stream, {"data": json.dumps(ev, ensure_ascii=False)}, maxlen=50000)
             except Exception:
@@ -343,13 +343,13 @@ class EntryPolicyGate:
             # BookTradeConsistency hard veto checks (only in hard profile).
             if btc_stale_ms > 0 and self.book_stale_hard_ms > 0 and btc_stale_ms >= self.book_stale_hard_ms:
                 return GateDecision(
-                    True, True, "VETO_BOOK_STALE"
-                    f"book_stale_ms={btc_stale_ms:.0f} >= hard={self.book_stale_hard_ms:.0f}"
+                    True, True, "VETO_BOOK_STALE",
+                    f"book_stale_ms={btc_stale_ms:.0f} >= hard={self.book_stale_hard_ms:.0f}",
                 )
             if btc_cross_bps > 0 and self.adverse_cross_hard_bps > 0 and btc_cross_bps >= self.adverse_cross_hard_bps:
                 return GateDecision(
-                    True, True, "VETO_TRADE_ADVERSE_CROSS"
-                    f"cross_bps={btc_cross_bps:.3f} >= hard={self.adverse_cross_hard_bps:.3f}"
+                    True, True, "VETO_TRADE_ADVERSE_CROSS",
+                    f"cross_bps={btc_cross_bps:.3f} >= hard={self.adverse_cross_hard_bps:.3f}",
                 )
             if soft_flags:
                 return GateDecision(True, True, "VETO_ENTRY_POLICY", ";".join(soft_flags)[:256])

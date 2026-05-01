@@ -86,16 +86,16 @@ class TouchLevelTracker:
     """
 
     def __init__(
-        self
-        window_ms: int = 500
-        tau_refill_ms: int = 250
-        recover_frac: float = 0.90
-        rho_refill_min: float = 1.5
-        rho_depletion_max: float = 1.5
-        *
-        tick_size: float = 0.0
-        max_touch_ticks: int = 1
-        book_fresh_ms: int = 250
+        self,
+        window_ms: int = 500,
+        tau_refill_ms: int = 250,
+        recover_frac: float = 0.90,
+        rho_refill_min: float = 1.5,
+        rho_depletion_max: float = 1.5,
+        *,
+        tick_size: float = 0.0,
+        max_touch_ticks: int = 1,
+        book_fresh_ms: int = 250,
     ):
         self.window_ms = max(1, int(window_ms))
         self.tau_refill_ms = max(0, int(tau_refill_ms))
@@ -255,20 +255,20 @@ class TouchLevelTracker:
             is_stale = (ts - min(self.bid.last_ts, self.ask.last_ts)) > self.book_fresh_ms
 
         return TouchSnapshot(
-            ts=ts
-            bid_tag=bid_tag
-            ask_tag=ask_tag
-            bid_rho=float(bid_rho)
-            ask_rho=float(ask_rho)
-            bid_traded_w=float(bid_T)
-            ask_traded_w=float(ask_T)
-            bid_drop_w=float(bid_D)
-            ask_drop_w=float(ask_D)
-            bid_refill_lag_ms=int(self.bid.refill_lag_ms or 0)
-            ask_refill_lag_ms=int(self.ask.refill_lag_ms or 0)
-            bid_best_price=float(self.bid.best_price)
-            ask_best_price=float(self.ask.best_price)
-            bid_best_qty=float(self.bid.best_qty)
-            ask_best_qty=float(self.ask.best_qty)
-            is_stale=bool(is_stale)
+            ts=ts,
+            bid_tag=bid_tag,
+            ask_tag=ask_tag,
+            bid_rho=float(bid_rho),
+            ask_rho=float(ask_rho),
+            bid_traded_w=float(bid_T),
+            ask_traded_w=float(ask_T),
+            bid_drop_w=float(bid_D),
+            ask_drop_w=float(ask_D),
+            bid_refill_lag_ms=int(self.bid.refill_lag_ms or 0),
+            ask_refill_lag_ms=int(self.ask.refill_lag_ms or 0),
+            bid_best_price=float(self.bid.best_price),
+            ask_best_price=float(self.ask.best_price),
+            bid_best_qty=float(self.bid.best_qty),
+            ask_best_qty=float(self.ask.best_qty),
+            is_stale=bool(is_stale),
         )

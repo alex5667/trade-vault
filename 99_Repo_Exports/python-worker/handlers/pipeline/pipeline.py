@@ -23,8 +23,8 @@ from handlers.confirmations.l2_confirm_absorption import L2ConfirmAbsorption
 class SignalPipeline:
     def __init__(self) -> None:
         self._conf = ConfirmationsEngine(
-            breakout_validator=L2ConfirmBreakout()
-            absorption_validator=L2ConfirmAbsorption()
+            breakout_validator=L2ConfirmBreakout(),
+            absorption_validator=L2ConfirmAbsorption(),
         )
         self._bo = BreakoutValidator()
         self._ab = AbsorptionValidator()
@@ -52,14 +52,14 @@ class SignalPipeline:
             
         try:
             trace_gate(
-                ctx
-                stage="gates"
-                name="confirmations_engine"
-                passed=bool(not v.veto)
-                veto=bool(v.veto)
-                reason_code=str(getattr(v, "reason_code", "") or ("VETO" if v.veto else "OK"))
-                metrics=dict(getattr(v, "parts", {}) or {})
-                duration_ms=sp_val.ms
+                ctx,
+                stage="gates",
+                name="confirmations_engine",
+                passed=bool(not v.veto),
+                veto=bool(v.veto),
+                reason_code=str(getattr(v, "reason_code", "") or ("VETO" if v.veto else "OK")),
+                metrics=dict(getattr(v, "parts", {}) or {}),
+                duration_ms=sp_val.ms,
             )
         except Exception:
             pass
@@ -99,22 +99,22 @@ class SignalPipeline:
         # 3) Score Model
         with Span() as sp_score:
             out = self._score.score(
-                raw_score=float(cand.raw_score)
-                conf_factor01=conf01
-                kind=cand.kind
-                ctx=ctx
-                parts_in=parts_dict
+                raw_score=float(cand.raw_score),
+                conf_factor01=conf01,
+                kind=cand.kind,
+                ctx=ctx,
+                parts_in=parts_dict,
             )
         try:
             trace_gate(
-                ctx
-                stage="scoring"
-                name="score_model"
-                passed=True
-                veto=False
-                reason_code="OK"
-                metrics=dict(getattr(out, "parts", {}) or {})
-                duration_ms=sp_score.ms
+                ctx,
+                stage="scoring",
+                name="score_model",
+                passed=True,
+                veto=False,
+                reason_code="OK",
+                metrics=dict(getattr(out, "parts", {}) or {}),
+                duration_ms=sp_score.ms,
             )
         except Exception:
             pass

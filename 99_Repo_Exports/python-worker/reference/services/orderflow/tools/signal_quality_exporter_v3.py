@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Signal Quality Exporter (v3)
 
@@ -9,7 +10,6 @@ Exports:
 Does NOT export reason breakdown to Prometheus (cardinality).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

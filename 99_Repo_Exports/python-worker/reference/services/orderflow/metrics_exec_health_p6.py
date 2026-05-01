@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Prometheus metrics for P6 ExecutionHealthGate.
 
 Cardinality policy:
@@ -5,7 +6,6 @@ Cardinality policy:
 - Reason label is a finite set.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Sequence, Type, TypeVar
@@ -24,11 +24,11 @@ TCollector = TypeVar("TCollector", bound="Collector")
 
 
 def _get_or_create(
-    name: str
-    ctor: Type[TCollector]
-    documentation: str
-    labelnames: Sequence[str] = ()
-    **kwargs
+    name: str,
+    ctor: Type[TCollector],
+    documentation: str,
+    labelnames: Sequence[str] = (),
+    **kwargs,
 ):
     if REGISTRY is None:  # pragma: no cover
         return None
@@ -43,23 +43,23 @@ def _get_or_create(
 
 
 exec_health_apply_total = _get_or_create(
-    "exec_health_apply_total"
-    Counter
-    "ExecutionHealthGate applied (monitor/tighten/veto)"
-    labelnames=("symbol", "mode")
+    "exec_health_apply_total",
+    Counter,
+    "ExecutionHealthGate applied (monitor/tighten/veto)",
+    labelnames=("symbol", "mode"),
 )
 
 exec_health_veto_total = _get_or_create(
-    "exec_health_veto_total"
-    Counter
-    "ExecutionHealthGate veto count"
-    labelnames=("symbol", "reason")
+    "exec_health_veto_total",
+    Counter,
+    "ExecutionHealthGate veto count",
+    labelnames=("symbol", "reason"),
 )
 
 exec_health_tighten_add_bps = _get_or_create(
-    "exec_health_tighten_add_bps"
-    Histogram
-    "Added slippage (bps) due to execution health tighten"
-    labelnames=("symbol",)
-    buckets=(0.5, 1, 2, 3, 4, 6, 8, 10, 15)
+    "exec_health_tighten_add_bps",
+    Histogram,
+    "Added slippage (bps) due to execution health tighten",
+    labelnames=("symbol",),
+    buckets=(0.5, 1, 2, 3, 4, 6, 8, 10, 15),
 )

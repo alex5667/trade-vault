@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Unit tests for tools/liq_pressure_gate_calibrator.py
 """
-from __future__ import annotations
 
 import pytest
 from tools.liq_pressure_gate_calibrator import (

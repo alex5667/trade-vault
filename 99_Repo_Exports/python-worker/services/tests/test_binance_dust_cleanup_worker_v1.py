@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for binance_dust_cleanup_worker (sequential patch v1).
 
 Covers:
@@ -6,7 +7,6 @@ Covers:
   3. skip non-dust      — positions above dust thresholds are never touched.
   4. error path         — cleanup errors surface as 'error' status in acted list.
 """
-from __future__ import annotations
 
 from services.binance_dust_cleanup_worker import BinanceDustCleanupWorker
 
@@ -72,36 +72,33 @@ class FakeRedis:
     def sadd(self, key, *values):
         bucket = self.sets.setdefault(str(key), set())
         for v in values:
-            bucket.add(str(v))
-        return len(values)
+            bucket.add(str(v)),
+        return len(values),
 
     def sismember(self, key, value):
-        return str(value) in self.sets.get(str(key), set())
+        return str(value) in self.sets.get(str(key), set()),
 
 
 class FakeClient:
-    """Stub exchange client that plays back per-symbol position sequences.
+    """Stub exchange client that plays back per-symbol position sequences.,
 
-    APTUSDT: starts as 0.1 qty / 0.10 notional (dust) → becomes flat after first close.
-    BTCUSDT: 0.005 qty / 350 notional (NOT dust) — should never be touched.
-    """
+    APTUSDT: starts as 0.1 qty / 0.10 notional (dust) → becomes flat after first close.,
+    BTCUSDT: 0.005 qty / 350 notional (NOT dust) — should never be touched.,
+    """,
     def __init__(self):
         # Each symbol maps to an ordered list of positionRisk rows.
         # current_idx tracks how many times post_plain_order advanced the row index.
         self.position_rows = {
             'APTUSDT': [
                 # row 0 — dust tail
-                {'symbol': 'APTUSDT', 'positionAmt': '0.1', 'notional': '0.10', 'isolatedMargin': '0.00'}
+                {'symbol': 'APTUSDT', 'positionAmt': '0.1', 'notional': '0.10', 'isolatedMargin': '0.00'},
                 # row 1 — flat (after close order fills)
-                {'symbol': 'APTUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}
-            ]
+                {'symbol': 'APTUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}],
             'BTCUSDT': [
-                {'symbol': 'BTCUSDT', 'positionAmt': '0.005', 'notional': '350.0', 'isolatedMargin': '18.0'}
-            ]
+                {'symbol': 'BTCUSDT', 'positionAmt': '0.005', 'notional': '350.0', 'isolatedMargin': '18.0'}],
             'SUIUSDT': [
-                {'symbol': 'SUIUSDT', 'positionAmt': '0.1', 'notional': '0.11', 'isolatedMargin': '0.01'}
-                {'symbol': 'SUIUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}
-            ]
+                {'symbol': 'SUIUSDT', 'positionAmt': '0.1', 'notional': '0.11', 'isolatedMargin': '0.01'},
+                {'symbol': 'SUIUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}]
         }
         self.current_idx = {'APTUSDT': 0, 'BTCUSDT': 0, 'SUIUSDT': 0}
         # Mutable order books (reset to [] after cancel_all_orders)
@@ -114,16 +111,16 @@ class FakeClient:
         return {
             'symbols': [
                 {
-                    'symbol': 'APTUSDT'
+                    'symbol': 'APTUSDT',
                     'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.1', 'minQty': '0.1'}]
-                }
+                },
                 {
-                    'symbol': 'BTCUSDT'
-                    'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.001', 'minQty': '0.001'}]
-                }
+                    'symbol': 'BTCUSDT',
+                    'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.001', 'minQty': '0.001'}],
+                },
                 {
-                    'symbol': 'SUIUSDT'
-                    'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.1', 'minQty': '0.1'}]
+                    'symbol': 'SUIUSDT',
+                    'filters': [{'filterType': 'LOT_SIZE', 'stepSize': '0.1', 'minQty': '0.1'}],
                 }
             ]
         }
@@ -167,8 +164,8 @@ class FakeClient:
         symbol = str(params['symbol']).upper()
         # Advance position row to simulate fill
         self.current_idx[symbol] = min(
-            self.current_idx.get(symbol, 0) + 1
-            len(self.position_rows[symbol]) - 1
+            self.current_idx.get(symbol, 0) + 1,
+            len(self.position_rows[symbol]) - 1,
         )
         return {'orderId': 999, 'status': 'FILLED'}
 
@@ -183,13 +180,13 @@ def test_dust_worker_confirms_then_cleans_up_exact_qty():
     fake_client = FakeClient()
     fake_redis = FakeRedis()
     worker = BinanceDustCleanupWorker(
-        client=fake_client
-        redis_client=fake_redis
+        client=fake_client,
+        redis_client=fake_redis,
         confirm_passes=2,          # requires 2 consecutive dust observations
-        close_retries=2
-        verify_timeout_ms=50
-        verify_poll_ms=10
-        allowlist={'APTUSDT', 'BTCUSDT'}
+        close_retries=2,
+        verify_timeout_ms=50,
+        verify_poll_ms=10,
+        allowlist={'APTUSDT', 'BTCUSDT'},
         cooldown_sec=0,  # disable cooldown so second sweep acts immediately
     )
 
@@ -226,9 +223,9 @@ def test_dust_worker_skips_non_dust_position():
     The worker must not touch it even with confirm_passes=1."""
     fake_client = FakeClient()
     worker = BinanceDustCleanupWorker(
-        client=fake_client
-        redis_client=FakeRedis()
-        confirm_passes=1
+        client=fake_client,
+        redis_client=FakeRedis(),
+        confirm_passes=1,
         allowlist={'BTCUSDT'},  # only BTCUSDT in scope
         cooldown_sec=0,  # cooldown irrelevant for non-dust; clear for test clarity
     )
@@ -251,13 +248,13 @@ def test_dust_worker_reports_error_when_cleanup_fails():
     fake_client = ErrorClient()
     fake_redis = FakeRedis()
     worker = BinanceDustCleanupWorker(
-        client=fake_client
-        redis_client=fake_redis
+        client=fake_client,
+        redis_client=fake_redis,
         confirm_passes=1,   # act immediately on first pass
-        close_retries=1
-        verify_timeout_ms=50
-        verify_poll_ms=10
-        allowlist={'APTUSDT'}
+        close_retries=1,
+        verify_timeout_ms=50,
+        verify_poll_ms=10,
+        allowlist={'APTUSDT'},
         error_cooldown_sec=0,  # disable error cooldown so it doesn't interfere
     )
     res = worker.sweep_once()
@@ -290,10 +287,10 @@ def test_dust_worker_already_flat_skips_close():
         """get_symbol_position_risk always returns a flat row for any symbol."""
         def get_symbol_position_risk(self, symbol, position_side=None):
             return {
-                'symbol': str(symbol).upper()
-                'positionAmt': '0.0'
-                'notional': '0.0'
-                'isolatedMargin': '0.0'
+                'symbol': str(symbol).upper(),
+                'positionAmt': '0.0',
+                'notional': '0.0',
+                'isolatedMargin': '0.0',
             }
 
     flat_client = AlreadyFlatClient()
@@ -301,10 +298,10 @@ def test_dust_worker_already_flat_skips_close():
     flat_client.plain_orders['APTUSDT'] = []
     flat_client.algo_orders['APTUSDT'] = []
     worker = BinanceDustCleanupWorker(
-        client=flat_client
-        redis_client=FakeRedis()
-        confirm_passes=1
-        allowlist={'APTUSDT'}
+        client=flat_client,
+        redis_client=FakeRedis(),
+        confirm_passes=1,
+        allowlist={'APTUSDT'},
     )
     res = worker.sweep_once()
     # The position self-healed: cleanup detects flat on first live re-fetch in the loop
@@ -325,14 +322,13 @@ def test_cleanup_symbol_already_flat_via_direct_call():
     fake_client.algo_orders['APTUSDT'] = []
     # Override so every live read also returns flat
     fake_client.position_rows['APTUSDT'] = [
-        {'symbol': 'APTUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}
-    ]
+        {'symbol': 'APTUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}]
     fake_client.current_idx['APTUSDT'] = 0
     worker = BinanceDustCleanupWorker(
-        client=fake_client
-        redis_client=FakeRedis()
-        confirm_passes=1
-        allowlist={'APTUSDT'}
+        client=fake_client,
+        redis_client=FakeRedis(),
+        confirm_passes=1,
+        allowlist={'APTUSDT'},
     )
     # Call _cleanup_symbol directly with a flat row — should short-circuit immediately
     flat_row = {'symbol': 'APTUSDT', 'positionAmt': '0.0', 'notional': '0.0', 'isolatedMargin': '0.0'}
@@ -356,12 +352,12 @@ def test_dust_worker_respects_static_and_dynamic_denylist():
     # Seed SUIUSDT into the dynamic Redis denylist set.
     fake_redis.sadd('orders:dust_cleanup:denylist', 'SUIUSDT')
     worker = BinanceDustCleanupWorker(
-        client=fake_client
-        redis_client=fake_redis
-        confirm_passes=1
-        allowlist={'APTUSDT', 'SUIUSDT'}
+        client=fake_client,
+        redis_client=fake_redis,
+        confirm_passes=1,
+        allowlist={'APTUSDT', 'SUIUSDT'},
         denylist={'APTUSDT'},  # static denylist
-        cooldown_sec=0
+        cooldown_sec=0,
     )
     res = worker.sweep_once()
     assert sorted(res['candidates']) == ['APTUSDT', 'SUIUSDT']
@@ -382,13 +378,13 @@ def test_dust_worker_applies_cleanup_cooldown_per_symbol():
     fake_client = FakeClient()
     fake_redis = FakeRedis()
     worker = BinanceDustCleanupWorker(
-        client=fake_client
-        redis_client=fake_redis
-        confirm_passes=1
-        allowlist={'APTUSDT'}
+        client=fake_client,
+        redis_client=fake_redis,
+        confirm_passes=1,
+        allowlist={'APTUSDT'},
         cooldown_sec=60,  # 60-second cooldown after each cleanup
-        verify_timeout_ms=50
-        verify_poll_ms=10
+        verify_timeout_ms=50,
+        verify_poll_ms=10,
     )
     # First sweep: APTUSDT is dust — should be cleaned up successfully.
     first = worker.sweep_once()

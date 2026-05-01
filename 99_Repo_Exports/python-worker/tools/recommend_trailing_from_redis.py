@@ -397,7 +397,7 @@ def _get_symbol_class(symbol: str) -> str:
     """
     symbol_upper = symbol.upper()
     majors = {"BTCUSDT", "ETHUSDT"}
-    large_alts = {"SOLUSDT", "XRPUSDT", "BNBUSDT", "SUIUSDT", "DOGEUSDT", "APTUSDT", "ARBUSDT", "XAUUSDT"}
+    large_alts = {"SOLUSDT", "XRPUSDT", "BNBUSDT", "SUIUSDT", "DOGEUSDT", "APTUSDT", "XAUUSDT"}
     
     if symbol_upper in majors:
         return "major"
@@ -507,7 +507,7 @@ def _choose_final_for_autowrite(
     *,
     propose_threshold: float | None = None,
     auto_apply_threshold: float | None = None,
-    symbol: str = "",
+    symbol="",
     min_trades_for_apply: int = 0,
     r: redis.Redis | None = None,
     hold_down_hours: float = 0.0,

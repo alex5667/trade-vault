@@ -44,9 +44,9 @@ def observe_cfg():
 def enforce_cfg():
     """Mode=enforce, book veto enabled, warmup 10s."""
     return {
-        "dq_gate_mode": "enforce"
-        "dq_book_veto_enabled": 1
-        "dq_book_veto_warmup_s": 10
+        "dq_gate_mode": "enforce",
+        "dq_book_veto_enabled": 1,
+        "dq_book_veto_warmup_s": 10,
     }
 
 

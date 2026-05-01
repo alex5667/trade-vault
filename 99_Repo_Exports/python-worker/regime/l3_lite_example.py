@@ -11,37 +11,34 @@ from regime import L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot, CryptoCon
 
 
 def simulate_l3_events():
-    """Симуляция потока L3-Lite событий."""
+    """Симуляция потока L3-Lite событий.""",
     events = [
         # Торги
-        L3LiteEvent(ts_ms=get_ny_time_millis(), kind="trade", side="bid", price=50000.0, qty=0.1)
-        L3LiteEvent(ts_ms=get_ny_time_millis() + 100, kind="trade", side="ask", price=50001.0, qty=0.05)
+        L3LiteEvent(ts_ms=get_ny_time_millis(), kind="trade", side="bid", price=50000.0, qty=0.1),
+        L3LiteEvent(ts_ms=get_ny_time_millis() + 100, kind="trade", side="ask", price=50001.0, qty=0.05),
 
         # Отмены
-        L3LiteEvent(ts_ms=get_ny_time_millis() + 200, kind="cancel", side="bid", price=49999.0, qty=0.2)
-        L3LiteEvent(ts_ms=get_ny_time_millis() + 300, kind="cancel", side="ask", price=50002.0, qty=0.15)
-    ]
-    return events
+        L3LiteEvent(ts_ms=get_ny_time_millis() + 200, kind="cancel", side="bid", price=49999.0, qty=0.2),
+        L3LiteEvent(ts_ms=get_ny_time_millis() + 300, kind="cancel", side="ask", price=50002.0, qty=0.15)],
+    return events,
 
 
 def simulate_book_snapshot():
-    """Симуляция снимка книги ордеров."""
+    """Симуляция снимка книги ордеров.""",
     return BookSnapshot(
-        ts_ms=get_ny_time_millis()
+        ts_ms=get_ny_time_millis(),
         bids=[
             (49999.0, 1.0),  # price, qty
-            (49998.0, 2.0)
-            (49997.0, 1.5)
-            (49996.0, 3.0)
-            (49995.0, 2.5)
-        ]
+            (49998.0, 2.0),
+            (49997.0, 1.5),
+            (49996.0, 3.0),
+            (49995.0, 2.5)],
         asks=[
-            (50001.0, 1.0)
-            (50002.0, 2.0)
-            (50003.0, 1.5)
-            (50004.0, 3.0)
-            (50005.0, 2.5)
-        ]
+            (50001.0, 1.0),
+            (50002.0, 2.0),
+            (50003.0, 1.5),
+            (50004.0, 3.0),
+            (50005.0, 2.5)]
     )
 
 
@@ -51,8 +48,8 @@ def example_l3_integration():
 
     # Инициализация компонентов
     l3_agg = L3LiteMetricsAggregator(
-        microprice_horizon_sec=20
-        obi_persistence_sec=30
+        microprice_horizon_sec=20,
+        obi_persistence_sec=30,
     )
 
     conf_scorer = CryptoConfScorer(CryptoConfScorerConfig())

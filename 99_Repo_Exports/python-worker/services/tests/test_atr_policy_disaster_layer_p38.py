@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for ATR Policy Phase 3.8 — Disaster Layer.
 
 Tests:
@@ -9,7 +10,6 @@ Tests:
   - callback_watchdog.check_once
   - chaos_drill_runner.run_once (DRY_RUN only — never EXECUTE in tests)
 """
-from __future__ import annotations
 
 import json
 import time
@@ -21,20 +21,20 @@ from unittest.mock import MagicMock, patch
 # ──────────────────────────────────────────────────────────────────────────────
 
 COHORT = {
-    "source": "CryptoOrderFlow"
-    "symbol": "BTCUSDT"
-    "scenario": "breakout"
-    "regime": "trend_up"
-    "risk_horizon_bucket": "short"
+    "source": "CryptoOrderFlow",
+    "symbol": "BTCUSDT",
+    "scenario": "breakout",
+    "regime": "trend_up",
+    "risk_horizon_bucket": "short",
 }
 
 VALID_POLICY = {
-    **COHORT
-    "stop_ttl_mode": "canary"
-    "trailing_mode": "canary"
-    "reason_code": "TEST_POLICY"
-    "policy_ver": 1
-    "updated_at_ms": int(time.time() * 1000)
+    **COHORT,
+    "stop_ttl_mode": "canary",
+    "trailing_mode": "canary",
+    "reason_code": "TEST_POLICY",
+    "policy_ver": 1,
+    "updated_at_ms": int(time.time() * 1000),
 }
 
 ACTIVE_KEY = (
@@ -212,8 +212,8 @@ class TestMirrorService(unittest.TestCase):
     def test_kill_switch_blocks_mirror(self):
         ks = json.dumps({"enabled": True})
         result = self._call(
-            {"verified_ok": True, "reason_code": "ACTIVE_POLICY_VERIFIED"}
-            {KILL_SWITCH_KEY: ks}
+            {"verified_ok": True, "reason_code": "ACTIVE_POLICY_VERIFIED"},
+            {KILL_SWITCH_KEY: ks},
         )
         self.assertFalse(result)
 
@@ -241,11 +241,11 @@ class TestResolverHardening(unittest.TestCase):
     def _resolve(self, redis_data: dict) -> dict:
         resolver = self._resolver(redis_data)
         return resolver.resolve(
-            source=COHORT["source"]
-            symbol=COHORT["symbol"]
-            scenario=COHORT["scenario"]
-            regime=COHORT["regime"]
-            risk_horizon_bucket=COHORT["risk_horizon_bucket"]
+            source=COHORT["source"],
+            symbol=COHORT["symbol"],
+            scenario=COHORT["scenario"],
+            regime=COHORT["regime"],
+            risk_horizon_bucket=COHORT["risk_horizon_bucket"],
         )
 
     def test_valid_active_key(self):
@@ -258,8 +258,8 @@ class TestResolverHardening(unittest.TestCase):
     def test_kill_switch_returns_canary(self):
         ks = json.dumps({"enabled": True})
         result = self._resolve({
-            ACTIVE_KEY: json.dumps(VALID_POLICY)
-            KILL_SWITCH_KEY: ks
+            ACTIVE_KEY: json.dumps(VALID_POLICY),
+            KILL_SWITCH_KEY: ks,
         })
         self.assertFalse(result["hit"])
         self.assertEqual(result["reason_code"], "KILL_SWITCH_ACTIVE")
@@ -267,8 +267,8 @@ class TestResolverHardening(unittest.TestCase):
 
     def test_corrupted_active_falls_back_to_last_good(self):
         result = self._resolve({
-            ACTIVE_KEY: '{"broken":'
-            LAST_GOOD_KEY: json.dumps(VALID_POLICY)
+            ACTIVE_KEY: '{"broken":',
+            LAST_GOOD_KEY: json.dumps(VALID_POLICY),
         })
         self.assertTrue(result["hit"])
         self.assertTrue(result["last_good_used"])
@@ -283,8 +283,8 @@ class TestResolverHardening(unittest.TestCase):
     def test_invalid_mode_active_falls_back_to_last_good(self):
         bad_policy = {**VALID_POLICY, "stop_ttl_mode": "invalid_mode"}
         result = self._resolve({
-            ACTIVE_KEY: json.dumps(bad_policy)
-            LAST_GOOD_KEY: json.dumps(VALID_POLICY)
+            ACTIVE_KEY: json.dumps(bad_policy),
+            LAST_GOOD_KEY: json.dumps(VALID_POLICY),
         })
         self.assertTrue(result["hit"])
         self.assertTrue(result["last_good_used"])
@@ -326,13 +326,13 @@ class TestCallbackWatchdog(unittest.TestCase):
         now_ms = int(time.time() * 1000)
         pid = "abc123"
         proposal = json.dumps({
-            "proposal_id": pid
-            "status": "SUBMITTED"
-            "created_at_ms": now_ms - 60_000
+            "proposal_id": pid,
+            "status": "SUBMITTED",
+            "created_at_ms": now_ms - 60_000,
         })
         result = self._call({
-            "__pending_ids__": {pid}
-            f"cfg:proposals:atr_policy:{pid}": proposal
+            "__pending_ids__": {pid},
+            f"cfg:proposals:atr_policy:{pid}": proposal,
             "atr_policy:telegram:last_callback_ts_ms": str(now_ms - 1_000),  # 1s ago
         })
         self.assertEqual(result["severity"], "OK")
@@ -343,9 +343,9 @@ class TestCallbackWatchdog(unittest.TestCase):
         proposal = json.dumps({"proposal_id": pid, "status": "SUBMITTED", "created_at_ms": now_ms})
         # last callback was 400s ago (> 300 warn threshold)
         result = self._call({
-            "__pending_ids__": {pid}
-            f"cfg:proposals:atr_policy:{pid}": proposal
-            "atr_policy:telegram:last_callback_ts_ms": str(now_ms - 400_000)
+            "__pending_ids__": {pid},
+            f"cfg:proposals:atr_policy:{pid}": proposal,
+            "atr_policy:telegram:last_callback_ts_ms": str(now_ms - 400_000),
         })
         self.assertEqual(result["severity"], "WARN")
 
@@ -354,9 +354,9 @@ class TestCallbackWatchdog(unittest.TestCase):
         pid = "abc125"
         proposal = json.dumps({"proposal_id": pid, "status": "SUBMITTED", "created_at_ms": now_ms})
         result = self._call({
-            "__pending_ids__": {pid}
-            f"cfg:proposals:atr_policy:{pid}": proposal
-            "atr_policy:telegram:last_callback_ts_ms": str(now_ms - 700_000)
+            "__pending_ids__": {pid},
+            f"cfg:proposals:atr_policy:{pid}": proposal,
+            "atr_policy:telegram:last_callback_ts_ms": str(now_ms - 700_000),
         })
         self.assertEqual(result["severity"], "CRITICAL")
 
@@ -397,11 +397,11 @@ class TestChaosDrillRunnerDryRun(unittest.TestCase):
     def test_dry_run_does_not_mutate(self):
         """DRY_RUN must never call r.set() or r.delete()."""
         for scenario in [
-            "TELEGRAM_CALLBACK_BLACKHOLE"
-            "RECONCILE_STUCK"
-            "ACTIVE_KEY_CORRUPT"
-            "ACTIVE_KEY_DELETE"
-            "REDIS_PARTIAL_LOSS_SIM"
+            "TELEGRAM_CALLBACK_BLACKHOLE",
+            "RECONCILE_STUCK",
+            "ACTIVE_KEY_CORRUPT",
+            "ACTIVE_KEY_DELETE",
+            "REDIS_PARTIAL_LOSS_SIM",
         ]:
             with self.subTest(scenario=scenario):
                 import os

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P0-2 regression: terminal deny (invariant / runtime-policy) must NOT be retried.
 
@@ -7,7 +8,6 @@ Coverage:
   - xadd_json() does NOT enqueue to stream:publisher:retry on terminal deny
   - transient Redis failures (retryable=True) ARE enqueued
 """
-from __future__ import annotations
 
 import asyncio
 import unittest

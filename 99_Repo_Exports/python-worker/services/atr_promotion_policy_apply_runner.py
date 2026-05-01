@@ -21,7 +21,7 @@ def _dsn():
 def _audit(conn, proposal: dict, decision: dict, applied: bool, previous_active_json: str = "") -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             INSERT INTO atr_promotion_policy_audit (
               source, symbol, scenario, regime, risk_horizon_bucket,
               stop_ttl_mode, trailing_mode, reason_code,

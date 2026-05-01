@@ -109,9 +109,9 @@ class HTFAggregator:
                 try:
                     # Читаем свечи из стрима
                     messages = stream_helper.read(
-                        {CANDLES_STREAM: '>'}
-                        count=100
-                        block=1000
+                        {CANDLES_STREAM: '>'},
+                        count=100,
+                        block=1000,
                     )
 
                     if not messages:
@@ -159,9 +159,9 @@ class HTFAggregator:
 
         Формат fields:
         {
-            'symbol': 'BTCUSDT'
-            'tf': '1d'
-            'ts': '1760546759999'
+            'symbol': 'BTCUSDT',
+            'tf': '1d',
+            'ts': '1760546759999',
             'payload': '{"openTime":..., "closeTime":..., "open":"...", ...}'
         }
         """
@@ -179,11 +179,11 @@ class HTFAggregator:
 
             # Извлекаем OHLC данные
             bar = {
-                'timestamp': int(payload.get('closeTime', 0))
-                'open': float(payload.get('open', 0))
-                'high': float(payload.get('high', 0))
-                'low': float(payload.get('low', 0))
-                'close': float(payload.get('close', 0))
+                'timestamp': int(payload.get('closeTime', 0)),
+                'open': float(payload.get('open', 0)),
+                'high': float(payload.get('high', 0)),
+                'low': float(payload.get('low', 0)),
+                'close': float(payload.get('close', 0)),
                 'volume': float(payload.get('volume', 0))
             }
 
@@ -248,16 +248,16 @@ class HTFAggregator:
             fvg_zones = []
 
             return {
-                "pdh": pdh
-                "pdl": pdl
-                "pdm": pdm
-                "week_hi": week_hi
-                "week_lo": week_lo
-                "asia_open": asia_open
-                "europe_open": europe_open
-                "us_open": us_open
-                "ob_zones": ob_zones
-                "fvg_zones": fvg_zones
+                "pdh": pdh,
+                "pdl": pdl,
+                "pdm": pdm,
+                "week_hi": week_hi,
+                "week_lo": week_lo,
+                "asia_open": asia_open,
+                "europe_open": europe_open,
+                "us_open": us_open,
+                "ob_zones": ob_zones,
+                "fvg_zones": fvg_zones,
                 "updated_at": get_ny_time_millis()
             }
 

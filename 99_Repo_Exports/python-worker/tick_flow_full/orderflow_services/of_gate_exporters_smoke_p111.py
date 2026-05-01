@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P111 — OF-Gate exporters smoke-check.
 
 Purpose:
@@ -14,7 +15,6 @@ Exit codes:
   - 1: internal error (unexpected exception)
 """
 
-from __future__ import annotations
 
 import json
 import os

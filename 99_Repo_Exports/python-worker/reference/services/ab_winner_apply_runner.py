@@ -119,17 +119,17 @@ class ABWinnerApplyRunner:
             if self.m_considered_total:
                 self.m_considered_total.inc()
             res = await apply_sid_if_ready(
-                r=self.r
-                sid=sid_s
-                meta_prefix=self.meta_prefix
-                approvals_prefix=self.approvals_prefix
-                applied_prefix=self.applied_prefix
-                approvals_required=self.approvals_required
-                lock_sec=self.lock_sec
-                active_ttl_sec=self.active_ttl_sec
-                applied_ttl_sec=self.applied_ttl_sec
-                audit_stream=self.audit_stream
-                by="apply_runner"
+                r=self.r,
+                sid=sid_s,
+                meta_prefix=self.meta_prefix,
+                approvals_prefix=self.approvals_prefix,
+                applied_prefix=self.applied_prefix,
+                approvals_required=self.approvals_required,
+                lock_sec=self.lock_sec,
+                active_ttl_sec=self.active_ttl_sec,
+                applied_ttl_sec=self.applied_ttl_sec,
+                audit_stream=self.audit_stream,
+                by="apply_runner",
             )
             if res.applied:
                 applied += 1
@@ -156,16 +156,16 @@ class ABWinnerApplyRunner:
         """
         try:
             msg = {
-                "type": "ab_apply_attempt"
-                "ts_ms": str(get_ny_time_millis())
-                "ok": "1" if ok else "0"
-                "reason": str(res.reason)
-                "sid": str(res.sid)
-                "symbol": str(res.symbol)
-                "regime": str(res.regime)
-                "group": str(res.group)
-                "winner": str(res.winner)
-                "approvals_n": str(int(getattr(res, "approvals_n", 0) or 0))
+                "type": "ab_apply_attempt",
+                "ts_ms": str(get_ny_time_millis()),
+                "ok": "1" if ok else "0",
+                "reason": str(res.reason),
+                "sid": str(res.sid),
+                "symbol": str(res.symbol),
+                "regime": str(res.regime),
+                "group": str(res.group),
+                "winner": str(res.winner),
+                "approvals_n": str(int(getattr(res, "approvals_n", 0) or 0)),
             }
             await self.r.xadd(self.audit_stream, msg, maxlen=50000, approximate=True)
         except Exception:
@@ -187,13 +187,13 @@ class ABWinnerApplyRunner:
         self._last_lock_alert_ts_ms[k] = now
         try:
             msg = {
-                "type": "ops_alert"
-                "ts_ms": str(now)
-                "severity": "warn"
-                "component": "ab_apply_runner"
-                "reason": "LOCKED_BLOCKING_AUTO_APPLY"
-                "key": k
-                "sid": str(res.sid)
+                "type": "ops_alert",
+                "ts_ms": str(now),
+                "severity": "warn",
+                "component": "ab_apply_runner",
+                "reason": "LOCKED_BLOCKING_AUTO_APPLY",
+                "key": k,
+                "sid": str(res.sid),
             }
             await self.r.xadd(self.ops_alert_stream, msg, maxlen=20000, approximate=True)
         except Exception:

@@ -26,12 +26,12 @@ except Exception:  # pragma: no cover
     redis = None
 
 from services.orderflow.exec_health_freeze_reconnect_healing import (
-    get_heal_state_key
-    heal_service_identity_sync
+    get_heal_state_key,
+    heal_service_identity_sync,
 )
 from services.orderflow.exec_health_freeze_service_identity import (
-    ensure_service_identity_sync
-    get_expected_service
+    ensure_service_identity_sync,
+    get_expected_service,
 )
 
 
@@ -102,15 +102,15 @@ class ChaosHarness:
         state = self._read_heal_state()
         after_entry = self._current_entry()
         return {
-            'ok': bool(out.get('ok'))
-            'recovered': bool(out.get('recovered'))
-            'repair_attempted': bool(out.get('repair_attempted'))
-            'event_id': _s(out.get('event_id'))
-            'before_client_id': before_client_id
-            'after_reconnect_client_id': after_reconnect_client_id
-            'before_entry': before_entry
-            'after_entry': after_entry
-            'state': state
+            'ok': bool(out.get('ok')),
+            'recovered': bool(out.get('recovered')),
+            'repair_attempted': bool(out.get('repair_attempted')),
+            'event_id': _s(out.get('event_id')),
+            'before_client_id': before_client_id,
+            'after_reconnect_client_id': after_reconnect_client_id,
+            'before_entry': before_entry,
+            'after_entry': after_entry,
+            'state': state,
         }
 
     def run_wrong_user(self) -> Dict[str, Any]:
@@ -125,10 +125,10 @@ class ChaosHarness:
             except Exception:
                 state = {}
             return {
-                'ok': False
-                'unexpected_success': False
-                'error': str(exc)
-                'state': state
+                'ok': False,
+                'unexpected_success': False,
+                'error': str(exc),
+                'state': state,
             }
 
 

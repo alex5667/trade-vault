@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tools/build_v12_of_dataset.py
 ==============================
@@ -20,7 +21,6 @@ Required: signals:of:inputs (feature snapshots) + trades:closed (labels).
 Optional: archive_dir for data beyond Redis retention window.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

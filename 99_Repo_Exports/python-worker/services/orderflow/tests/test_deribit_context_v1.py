@@ -7,10 +7,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from services.orderflow.deribit_context import (
-    DeribitContextSnapshot
-    aread_deribit_context
-    _f
-    _i
+    DeribitContextSnapshot,
+    aread_deribit_context,
+    _f,
+    _i,
 )
 
 
@@ -51,35 +51,35 @@ def _make_redis(raw: str):
 
 def _btcusdt_payload():
     return {
-        "schema_version": 1
-        "symbol": "BTCUSDT"
-        "currency": "BTC"
-        "ts_ms": 1760000000000
-        "btc_options_oi_proxy": 12_500_000_000
-        "eth_options_oi_proxy": 7_200_000_000
-        "deribit_iv_proxy": 54.2
-        "deribit_iv_z": 1.8
-        "deribit_funding_8h": 0.00012
-        "deribit_perp_basis_bps": 3.4
-        "btc_eth_vol_regime": "vol_expansion"
-        "quality_status": "OK"
+        "schema_version": 1,
+        "symbol": "BTCUSDT",
+        "currency": "BTC",
+        "ts_ms": 1760000000000,
+        "btc_options_oi_proxy": 12_500_000_000,
+        "eth_options_oi_proxy": 7_200_000_000,
+        "deribit_iv_proxy": 54.2,
+        "deribit_iv_z": 1.8,
+        "deribit_funding_8h": 0.00012,
+        "deribit_perp_basis_bps": 3.4,
+        "btc_eth_vol_regime": "vol_expansion",
+        "quality_status": "OK",
     }
 
 
 def _global_payload():
     return {
-        "schema_version": 1
-        "ts_ms": 1760000000000
-        "btc_options_oi_proxy": 12_500_000_000.0
-        "eth_options_oi_proxy": 7_200_000_000.0
-        "btc_deribit_iv_proxy": 54.2
-        "eth_deribit_iv_proxy": 61.4
-        "btc_deribit_iv_z": 1.8
-        "eth_deribit_iv_z": 2.2
-        "btc_deribit_funding_8h": 0.00012
-        "eth_deribit_funding_8h": 0.00018
-        "btc_eth_vol_regime": "vol_expansion"
-        "quality_status": "OK"
+        "schema_version": 1,
+        "ts_ms": 1760000000000,
+        "btc_options_oi_proxy": 12_500_000_000.0,
+        "eth_options_oi_proxy": 7_200_000_000.0,
+        "btc_deribit_iv_proxy": 54.2,
+        "eth_deribit_iv_proxy": 61.4,
+        "btc_deribit_iv_z": 1.8,
+        "eth_deribit_iv_z": 2.2,
+        "btc_deribit_funding_8h": 0.00012,
+        "eth_deribit_funding_8h": 0.00018,
+        "btc_eth_vol_regime": "vol_expansion",
+        "quality_status": "OK",
     }
 
 
@@ -97,9 +97,9 @@ async def test_btcusdt_reads_symbol_key():
 
 @pytest.mark.asyncio
 async def test_ethusdt_reads_symbol_key():
-    payload = {"schema_version": 1, "symbol": "ETHUSDT", "currency": "ETH"
-               "ts_ms": 1760000000000, "btc_options_oi_proxy": 0, "eth_options_oi_proxy": 0
-               "deribit_iv_proxy": 61.4, "deribit_iv_z": 2.2, "deribit_funding_8h": 0.00018
+    payload = {"schema_version": 1, "symbol": "ETHUSDT", "currency": "ETH",
+               "ts_ms": 1760000000000, "btc_options_oi_proxy": 0, "eth_options_oi_proxy": 0,
+               "deribit_iv_proxy": 61.4, "deribit_iv_z": 2.2, "deribit_funding_8h": 0.00018,
                "deribit_perp_basis_bps": 2.1, "btc_eth_vol_regime": "normal", "quality_status": "OK"}
     redis = _make_redis(json.dumps(payload))
     snap = await aread_deribit_context(redis, symbol="ETHUSDT")

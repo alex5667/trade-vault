@@ -1,9 +1,9 @@
+from __future__ import annotations
 """P3.3-ops-complete test: asset files existence verification.
 
 Tests that all new file system assets added by the ops-complete patch exist
 in the expected locations.
 """
-from __future__ import annotations
 
 from pathlib import Path
 

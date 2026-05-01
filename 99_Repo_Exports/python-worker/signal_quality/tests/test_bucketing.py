@@ -45,46 +45,46 @@ class TestBin:
 class TestMakeFeatureBucket:
     def test_normal_values(self):
         bucket = make_feature_bucket(
-            delta_spike_z=2.1
-            obi=1.5
-            weak_progress=0.1
-            atr_quantile=0.8
+            delta_spike_z=2.1,
+            obi=1.5,
+            weak_progress=0.1,
+            atr_quantile=0.8,
         )
         assert bucket == "dz:<3.0|obi:<2.0|wp:<0.15|atr:<0.9"
 
     def test_edge_values(self):
         bucket = make_feature_bucket(
-            delta_spike_z=-0.1
-            obi=0.2
-            weak_progress=0.8
-            atr_quantile=0.1
+            delta_spike_z=-0.1,
+            obi=0.2,
+            weak_progress=0.8,
+            atr_quantile=0.1,
         )
         assert bucket == "dz:<0.5|obi:<0.5|wp:>=0.5|atr:<0.3"
 
     def test_all_none(self):
         bucket = make_feature_bucket(
-            delta_spike_z=None
-            obi=None
-            weak_progress=None
-            atr_quantile=None
+            delta_spike_z=None,
+            obi=None,
+            weak_progress=None,
+            atr_quantile=None,
         )
         assert bucket == "dz:na|obi:na|wp:na|atr:na"
 
     def test_partial_none(self):
         bucket = make_feature_bucket(
-            delta_spike_z=None
-            obi=1.0
-            weak_progress=None
-            atr_quantile=0.5
+            delta_spike_z=None,
+            obi=1.0,
+            weak_progress=None,
+            atr_quantile=0.5,
         )
         assert bucket == "dz:na|obi:<1.5|wp:na|atr:<0.7"
 
     def test_format_is_pipe_separated(self):
         bucket = make_feature_bucket(
-            delta_spike_z=1.0
-            obi=1.0
-            weak_progress=0.2
-            atr_quantile=0.5
+            delta_spike_z=1.0,
+            obi=1.0,
+            weak_progress=0.2,
+            atr_quantile=0.5,
         )
         parts = bucket.split("|")
         assert len(parts) == 4
@@ -93,10 +93,10 @@ class TestMakeFeatureBucket:
 
     def test_high_values_above_all_edges(self):
         bucket = make_feature_bucket(
-            delta_spike_z=10.0
-            obi=5.0
-            weak_progress=1.0
-            atr_quantile=1.0
+            delta_spike_z=10.0,
+            obi=5.0,
+            weak_progress=1.0,
+            atr_quantile=1.0,
         )
         assert bucket == "dz:>=3.0|obi:>=2.0|wp:>=0.5|atr:>=0.9"
 
@@ -108,10 +108,10 @@ class TestMakeFeatureBucket:
 
     def test_zero_values(self):
         bucket = make_feature_bucket(
-            delta_spike_z=0.0
-            obi=0.0
-            weak_progress=0.0
-            atr_quantile=0.0
+            delta_spike_z=0.0,
+            obi=0.0,
+            weak_progress=0.0,
+            atr_quantile=0.0,
         )
         # All zeros fall below all edges
         assert bucket == "dz:<0.5|obi:<0.5|wp:<0.15|atr:<0.3"

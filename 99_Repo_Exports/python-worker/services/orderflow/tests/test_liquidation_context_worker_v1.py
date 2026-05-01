@@ -7,14 +7,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.orderflow.liquidation_context_worker import (
-    LiqEvent
-    LiqContextSnapshot
-    LiquidationContextWorker
-    _SymbolWindow
-    _parse_liq_event
-    _robust_z
-    aread_liq_context
-    read_liq_context_sync
+    LiqEvent,
+    LiqContextSnapshot,
+    LiquidationContextWorker,
+    _SymbolWindow,
+    _parse_liq_event,
+    _robust_z,
+    aread_liq_context,
+    read_liq_context_sync,
 )
 
 
@@ -47,10 +47,10 @@ def test_robust_z_negative_cap():
 
 def _make_raw(**overrides) -> dict:
     base = {
-        b"symbol": b"BTCUSDT"
-        b"order_side": b"SELL"
-        b"notional_usd": b"250000.0"
-        b"ts_ms": b"1760000000000"
+        b"symbol": b"BTCUSDT",
+        b"order_side": b"SELL",
+        b"notional_usd": b"250000.0",
+        b"ts_ms": b"1760000000000",
     }
     base.update({k.encode() if isinstance(k, str) else k: v.encode() if isinstance(v, str) else v
                  for k, v in overrides.items()})
@@ -92,11 +92,11 @@ def test_parse_liq_event_zero_notional():
 def test_parse_liq_event_qty_price_fallback():
     """Quantity × price fallback when notional_usd is absent."""
     raw = {
-        b"symbol": b"ETHUSDT"
-        b"order_side": b"BUY"
-        b"quantity": b"10.0"
-        b"price": b"3500.0"
-        b"ts_ms": b"1760000000000"
+        b"symbol": b"ETHUSDT",
+        b"order_side": b"BUY",
+        b"quantity": b"10.0",
+        b"price": b"3500.0",
+        b"ts_ms": b"1760000000000",
     }
     evt = _parse_liq_event(raw)
     assert evt is not None
@@ -106,10 +106,10 @@ def test_parse_liq_event_qty_price_fallback():
 def test_parse_liq_event_nested_json_payload():
     """Supports Go controller publishNormalized pattern with 'payload' field."""
     payload = json.dumps({
-        "symbol": "SOLUSDT"
-        "S": "SELL"
-        "notional_usd": "50000.0"
-        "ts_ms": 1760000000001
+        "symbol": "SOLUSDT",
+        "S": "SELL",
+        "notional_usd": "50000.0",
+        "ts_ms": 1760000000001,
     })
     raw = {b"payload": payload.encode()}
     evt = _parse_liq_event(raw)
@@ -190,9 +190,9 @@ def test_symbol_window_schema():
     win = _SymbolWindow(window_ms=60_000, history_max=200, stress_z_thr=3.0)
     snap = win.build_snapshot("BTCUSDT", _now_ms())
     d = json.loads(snap.to_json())
-    for key in ["schema_version", "symbol", "ts_ms", "window_ms"
-                "liq_buy_notional_1m", "liq_sell_notional_1m", "liq_imbalance_z"
-                "liq_event_count_1m", "largest_liq_notional_1m"
+    for key in ["schema_version", "symbol", "ts_ms", "window_ms",
+                "liq_buy_notional_1m", "liq_sell_notional_1m", "liq_imbalance_z",
+                "liq_event_count_1m", "largest_liq_notional_1m",
                 "liq_stress_flag", "quality_status"]:
         assert key in d, f"Missing key: {key}"
 
@@ -201,17 +201,17 @@ def test_symbol_window_schema():
 
 def test_liq_context_snapshot_to_json():
     snap = LiqContextSnapshot(
-        schema_version=1
-        symbol="BTCUSDT"
-        ts_ms=1760000000000
-        window_ms=60_000
-        liq_buy_notional_1m=100_000.0
-        liq_sell_notional_1m=250_000.0
-        liq_imbalance_z=1.8
-        liq_event_count_1m=5
-        largest_liq_notional_1m=200_000.0
-        liq_stress_flag=0
-        quality_status="OK"
+        schema_version=1,
+        symbol="BTCUSDT",
+        ts_ms=1760000000000,
+        window_ms=60_000,
+        liq_buy_notional_1m=100_000.0,
+        liq_sell_notional_1m=250_000.0,
+        liq_imbalance_z=1.8,
+        liq_event_count_1m=5,
+        largest_liq_notional_1m=200_000.0,
+        liq_stress_flag=0,
+        quality_status="OK",
     )
     d = json.loads(snap.to_json())
     assert d["symbol"] == "BTCUSDT"
@@ -230,10 +230,10 @@ def test_read_liq_context_sync_none_on_missing():
 
 def test_read_liq_context_sync_returns_dict():
     snap = LiqContextSnapshot(
-        schema_version=1, symbol="BTCUSDT", ts_ms=1760000000000
-        window_ms=60_000, liq_buy_notional_1m=0.0, liq_sell_notional_1m=0.0
-        liq_imbalance_z=0.0, liq_event_count_1m=0, largest_liq_notional_1m=0.0
-        liq_stress_flag=0, quality_status="OK"
+        schema_version=1, symbol="BTCUSDT", ts_ms=1760000000000,
+        window_ms=60_000, liq_buy_notional_1m=0.0, liq_sell_notional_1m=0.0,
+        liq_imbalance_z=0.0, liq_event_count_1m=0, largest_liq_notional_1m=0.0,
+        liq_stress_flag=0, quality_status="OK",
     )
     redis = MagicMock()
     redis.get.return_value = snap.to_json().encode()
@@ -253,10 +253,10 @@ async def test_aread_liq_context_none_on_missing():
 @pytest.mark.asyncio
 async def test_aread_liq_context_returns_dict():
     snap = LiqContextSnapshot(
-        schema_version=1, symbol="ETHUSDT", ts_ms=1760000000000
-        window_ms=60_000, liq_buy_notional_1m=500_000.0, liq_sell_notional_1m=300_000.0
-        liq_imbalance_z=-1.2, liq_event_count_1m=8, largest_liq_notional_1m=200_000.0
-        liq_stress_flag=0, quality_status="OK"
+        schema_version=1, symbol="ETHUSDT", ts_ms=1760000000000,
+        window_ms=60_000, liq_buy_notional_1m=500_000.0, liq_sell_notional_1m=300_000.0,
+        liq_imbalance_z=-1.2, liq_event_count_1m=8, largest_liq_notional_1m=200_000.0,
+        liq_stress_flag=0, quality_status="OK",
     )
     redis = AsyncMock()
     redis.get.return_value = snap.to_json().encode()

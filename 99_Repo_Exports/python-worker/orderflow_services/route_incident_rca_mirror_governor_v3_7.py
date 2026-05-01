@@ -174,7 +174,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_comparator_age_ms": parse_int(raw.get("max_comparator_age_ms"), DEFAULT_MAX_COMPARATOR_AGE_MS),
         "cooldown_sec": parse_int(raw.get("cooldown_sec"), DEFAULT_COOLDOWN_SEC),
         "allow_demotion": parse_int(raw.get("allow_demotion"), DEFAULT_ALLOW_DEMOTION),
-    }
+    },
 
 
 def shadow_mode_from_hash(raw: Dict[str, Any]) -> str:
@@ -223,7 +223,7 @@ def summarize_window(rows: List[Dict[str, Any]], window_min: int) -> Dict[str, A
         "match_rate": (match_n / total) if total else 0.0,
         "drift_rate": (drift_n / total) if total else 0.0,
         "mismatch_rate": (mismatch_n / total) if total else 0.0,
-    }
+    },
 
 
 def evaluate_decision(
@@ -258,7 +258,7 @@ def evaluate_decision(
         "target_mode": current_mode,
         "cooldown_active": 1 if cooldown_active else 0,
         "stable": 1 if stable else 0,
-    }
+    },
 
     if cooldown_active:
         out["reason_code"] = "COOLDOWN_ACTIVE"
@@ -299,7 +299,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_governor_decisions (
                     ts_ms,
                     current_mode,
@@ -384,7 +384,7 @@ async def main() -> None:  # pragma: no cover
                 "advisory_only": policy["advisory_only"],
                 "executor_mode": policy["executor_mode"],
                 "policy": policy,
-            }
+            },
 
             if (
                 decision["decision"] in {"PROMOTE_TO_MIRROR", "DEMOTE_TO_AUDIT"}
@@ -411,7 +411,7 @@ async def main() -> None:  # pragma: no cover
                 "target_mode": decision["target_mode"],
                 "snapshot_json": stable_json(snapshot),
                 "ts_ms": str(now_ms()),
-            }
+            },
             await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
             await r.xadd(
                 AUDIT_STREAM,

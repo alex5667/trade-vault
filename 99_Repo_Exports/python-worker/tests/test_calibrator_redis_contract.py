@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: Calibrator Redis Contracts
 
 Ensures that the dynamic config keys and Redis streams used by the
 calibrators perfectly match the expected standard names.
 """
-from __future__ import annotations
 
 import json
 from dataclasses import asdict

@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 import pytest
 from ml_analysis.psr_dsr import (
-    mean, sample_std, skewness, kurtosis, sharpe_ratio
-    probabilistic_sharpe_ratio, deflated_sharpe_ratio, expected_max_sharpe_benchmark
+    mean, sample_std, skewness, kurtosis, sharpe_ratio,
+    probabilistic_sharpe_ratio, deflated_sharpe_ratio, expected_max_sharpe_benchmark,
 )
 
 

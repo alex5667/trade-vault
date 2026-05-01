@@ -1,9 +1,9 @@
 # volatility_service.py
+from __future__ import annotations
 """
 Volatility and ATR calculation functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Optional, Dict, Any, Tuple
@@ -21,12 +21,12 @@ class VolatilityService:
     """
 
     def __init__(
-        self
-        redis_client: Any
-        symbol: str
-        *
-        atr_cache_ttl_ms: int = 2000
-        atr_estimate_ratio: float = 0.0003
+        self,
+        redis_client: Any,
+        symbol: str,
+        *,
+        atr_cache_ttl_ms: int = 2000,
+        atr_estimate_ratio: float = 0.0003,
     ):
         self.redis = redis_client
         self.symbol = symbol
@@ -78,12 +78,12 @@ class VolatilityService:
         tf = self._normalize_timeframe(tf)
 
         multipliers = {
-            '1m': 60 * 1000
-            '5m': 5 * 60 * 1000
-            '15m': 15 * 60 * 1000
-            '1h': 60 * 60 * 1000
-            '4h': 4 * 60 * 60 * 1000
-            '1d': 24 * 60 * 60 * 1000
+            '1m': 60 * 1000,
+            '5m': 5 * 60 * 1000,
+            '15m': 15 * 60 * 1000,
+            '1h': 60 * 60 * 1000,
+            '4h': 4 * 60 * 60 * 1000,
+            '1d': 24 * 60 * 60 * 1000,
         }
 
         return multipliers.get(tf, 60 * 1000)  # Default to 1m
@@ -93,10 +93,10 @@ class VolatilityService:
         return {
             "1m": 1500,   # 1-2 sec
             "5m": 4000,   # 2-5 sec
-            "15m": 8000
+            "15m": 8000,
             "1h": 20000,  # 10-30 sec
-            "4h": 30000
-            "1d": 60000
+            "4h": 30000,
+            "1d": 60000,
         }.get(tf, 2000)
 
     def _max_stale_ms(self, tf: str) -> int:
@@ -104,10 +104,10 @@ class VolatilityService:
         return {
             "1m": 5 * 60_000,     # 5 minutes
             "5m": 30 * 60_000,    # 30 minutes
-            "15m": 90 * 60_000
+            "15m": 90 * 60_000,
             "1h": 6 * 3600_000,   # 6 hours
-            "4h": 24 * 3600_000
-            "1d": 7 * 24 * 3600_000
+            "4h": 24 * 3600_000,
+            "1d": 7 * 24 * 3600_000,
         }.get(tf, 30 * 60_000)
 
     def _load_atr_hash(self, tf: str) -> Optional[float]:
@@ -208,9 +208,9 @@ class VolatilityService:
                 return None
             # Try different legacy keys
             keys = [
-                f"atr:{self.symbol}:5m"
-                f"atr:{self.symbol}:1m"
-                f"atr:{self.symbol}"
+                f"atr:{self.symbol}:5m",
+                f"atr:{self.symbol}:1m",
+                f"atr:{self.symbol}",
             ]
 
             for key in keys:

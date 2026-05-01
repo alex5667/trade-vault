@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Autogen actionable output for feature-selection loop.
 
 Creates a candidate unified diff that moves noisy v5 extras into denylist,
@@ -18,7 +19,6 @@ Output:
 
 """
 
-from __future__ import annotations
 
 import argparse
 import csv

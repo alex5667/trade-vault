@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P1-3 regression: AsyncBatchWriter writes to durable DLQ after all retries exhausted.
 
@@ -7,7 +8,6 @@ Coverage:
   - Metric db_batch_writer_rows_dropped_total is incremented
   - DLQ payload contains table, columns, rows, error, ts_ms
 """
-from __future__ import annotations
 
 import json
 import os

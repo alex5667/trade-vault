@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Fit ConfidenceScorer confirmation bonus weights from closed trades.
 
 Goal:
@@ -18,7 +19,6 @@ Notes:
 - It does not train the ML model; Phase-3 ML uses ml_p_cal fusion in the scorer.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -15,12 +15,12 @@ import os
 import re
 
 COMMON_RUNTIME_ENV = (
-    'TRADE_REPO_ROOT'
-    'TRADE_ORDERFLOW_IMAGE'
-    'REDIS_URL'
-    'LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY'
-    'LATENCY_CONTRACT_ROLLOUT_GATE_KEY'
-)
+    'TRADE_REPO_ROOT',
+    'TRADE_ORDERFLOW_IMAGE',
+    'REDIS_URL',
+    'LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY',
+    'LATENCY_CONTRACT_ROLLOUT_GATE_KEY',
+),
 
 
 @dataclass(frozen=True)
@@ -37,64 +37,64 @@ class SensitiveJobContract:
 
 CONTRACTS: dict[str, SensitiveJobContract] = {
     'conf_score_guardrails_apply': SensitiveJobContract(
-        purpose='conf_score_guardrails_apply'
-        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml'
-        service_name='conf-score-guardrails-apply'
-        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh'
-        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service'
-        timer_rel=None
-        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging'
+        purpose='conf_score_guardrails_apply',
+        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-apply-v1.yml',
+        service_name='conf-score-guardrails-apply',
+        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_apply_v1.sh',
+        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-apply.service',
+        timer_rel=None,
+        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
         required_runtime_env=(
-            'CONF_SCORE_GUARD_BUNDLE_DIR'
-            'CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER'
-            'CONF_SCORE_GUARD_LOCK_PATH'
-            'CONF_SCORE_GUARD_DRIFT_REPORT_PATH'
-            'CONF_SCORE_GUARD_APPLY'
-            'CONF_SCORE_GUARD_STAGE'
-        )
-    )
+            'CONF_SCORE_GUARD_BUNDLE_DIR',
+            'CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER',
+            'CONF_SCORE_GUARD_LOCK_PATH',
+            'CONF_SCORE_GUARD_DRIFT_REPORT_PATH',
+            'CONF_SCORE_GUARD_APPLY',
+            'CONF_SCORE_GUARD_STAGE',
+        ),
+    ),
     'conf_score_guardrails_promote': SensitiveJobContract(
-        purpose='conf_score_guardrails_promote'
-        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml'
-        service_name='conf-score-guardrails-promote'
-        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh'
-        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service'
-        timer_rel=None
-        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging'
+        purpose='conf_score_guardrails_promote',
+        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-promote-v1.yml',
+        service_name='conf-score-guardrails-promote',
+        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_promote_v1.sh',
+        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-promote.service',
+        timer_rel=None,
+        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
         required_runtime_env=(
-            'CONF_SCORE_GUARD_BUNDLE_DIR'
-            'CONF_SCORE_GUARD_HEALTH_STATE_PATH'
-        )
-    )
+            'CONF_SCORE_GUARD_BUNDLE_DIR',
+            'CONF_SCORE_GUARD_HEALTH_STATE_PATH',
+        ),
+    ),
     'meta_cov_rollout_controller': SensitiveJobContract(
-        purpose='meta_cov_rollout_controller'
-        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml'
-        service_name='meta-cov-rollout-controller'
-        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh'
-        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service'
-        timer_rel='python-worker/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer'
-        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging'
+        purpose='meta_cov_rollout_controller',
+        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.meta-cov-rollout-controller-v1.yml',
+        service_name='meta-cov-rollout-controller',
+        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_meta_cov_rollout_controller_v1.sh',
+        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.service',
+        timer_rel='python-worker/orderflow_services/deploy/systemd/trade-meta-cov-rollout-controller.timer',
+        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
         required_runtime_env=(
-            'META_COV_ROLLOUT_LOOKBACK_MIN'
-            'META_COV_ROLLOUT_MIN_HOLD_SEC'
-        )
-    )
+            'META_COV_ROLLOUT_LOOKBACK_MIN',
+            'META_COV_ROLLOUT_MIN_HOLD_SEC',
+        ),
+    ),
     'conf_score_guardrails_autopromo_controller': SensitiveJobContract(
-        purpose='conf_score_guardrails_autopromo_controller'
-        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml'
-        service_name='conf-score-guardrails-autopromo-controller'
-        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh'
-        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service'
-        timer_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer'
-        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging'
+        purpose='conf_score_guardrails_autopromo_controller',
+        compose_rel='python-worker/orderflow_services/deploy/compose/docker-compose.conf-score-guardrails-autopromo-controller-v1.yml',
+        service_name='conf-score-guardrails-autopromo-controller',
+        wrapper_rel='python-worker/orderflow_services/deploy/systemd/run_trade_conf_score_guardrails_autopromo_controller_v1.sh',
+        unit_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.service',
+        timer_rel='python-worker/orderflow_services/deploy/systemd/trade-conf-score-guardrails-autopromo-controller.timer',
+        expected_env_file='/etc/default/trade-latency-sensitive-jobs-staging',
         required_runtime_env=(
-            'CONF_SCORE_GUARD_BUNDLE_DIR'
-            'CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER'
-            'CONF_SCORE_GUARD_HEALTH_STATE_PATH'
-            'CONF_SCORE_GUARD_LOCK_PATH'
-            'CONF_SCORE_GUARD_AUTOPROMO_APPLY'
-        )
-    )
+            'CONF_SCORE_GUARD_BUNDLE_DIR',
+            'CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER',
+            'CONF_SCORE_GUARD_HEALTH_STATE_PATH',
+            'CONF_SCORE_GUARD_LOCK_PATH',
+            'CONF_SCORE_GUARD_AUTOPROMO_APPLY',
+        ),
+    ),
 }
 
 
@@ -131,14 +131,14 @@ def _contains_environmentfile(text: str) -> list[str]:
 
 
 def lint_deploy_contract(
-    *
-    repo_root: str | Path
-    purpose: str
-    env: dict[str, str] | None = None
-    compose_file: str | Path | None = None
-    wrapper_file: str | Path | None = None
-    unit_file: str | Path | None = None
-    env_file: str | Path | None = None
+    *,
+    repo_root: str | Path,
+    purpose: str,
+    env: dict[str, str] | None = None,
+    compose_file: str | Path | None = None,
+    wrapper_file: str | Path | None = None,
+    unit_file: str | Path | None = None,
+    env_file: str | Path | None = None,
 ) -> dict[str, Any]:
     repo_root = Path(repo_root)
     contract = contract_for_purpose(purpose)
@@ -152,12 +152,12 @@ def lint_deploy_contract(
     errors: list[str] = []
     warnings: list[str] = []
     checks: dict[str, Any] = {
-        'purpose': purpose
-        'compose_file': str(compose_path)
-        'wrapper_file': str(wrapper_path)
-        'unit_file': str(unit_path)
-        'timer_file': str(timer_path) if timer_path else ''
-        'env_file': str(env_file) if env_file else ''
+        'purpose': purpose,
+        'compose_file': str(compose_path),
+        'wrapper_file': str(wrapper_path),
+        'unit_file': str(unit_path),
+        'timer_file': str(timer_path) if timer_path else '',
+        'env_file': str(env_file) if env_file else '',
     }
 
     # Compose file
@@ -241,19 +241,19 @@ def lint_deploy_contract(
 
     ok = not errors
     return {
-        'ok': ok
-        'purpose': purpose
-        'errors': errors
-        'warnings': warnings
-        'checks': checks
+        'ok': ok,
+        'purpose': purpose,
+        'errors': errors,
+        'warnings': warnings,
+        'checks': checks,
         'contract': {
-            'compose_rel': contract.compose_rel
-            'service_name': contract.service_name
-            'wrapper_rel': contract.wrapper_rel
-            'unit_rel': contract.unit_rel
-            'timer_rel': contract.timer_rel or ''
-            'expected_env_file': contract.expected_env_file
-            'required_runtime_env': list(required_env)
+            'compose_rel': contract.compose_rel,
+            'service_name': contract.service_name,
+            'wrapper_rel': contract.wrapper_rel,
+            'unit_rel': contract.unit_rel,
+            'timer_rel': contract.timer_rel or '',
+            'expected_env_file': contract.expected_env_file,
+            'required_runtime_env': list(required_env),
         }
     }
 

@@ -12,8 +12,8 @@ from prometheus_client import start_http_server, Counter, Histogram, Gauge
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("TelegramNotifierWorkerV2")
@@ -50,7 +50,7 @@ NOTIFY_LAST_ERR_TS = Gauge("notify_last_err_ts_seconds", "Timestamp of last fail
 # Constants
 STREAM_KEYS = {
     # "notify:telegram": "notify_telegram_group",  # Handled by notify-worker (v1) with buttons
-    "notify:telegram:crit": "notify_telegram_crit_group"
+    "notify:telegram:crit": "notify_telegram_crit_group",
     "notify:telegram:page": "notify_telegram_page_group"
 }
 
@@ -81,9 +81,9 @@ def send_telegram_message(latched_chat_id, text):
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": latched_chat_id
-        "text": text
-        "parse_mode": TELEGRAM_PARSE_MODE
+        "chat_id": latched_chat_id,
+        "text": text,
+        "parse_mode": TELEGRAM_PARSE_MODE,
     }
     
     data = json.dumps(payload).encode("utf-8")
@@ -276,10 +276,10 @@ def main():
             for stream, group in STREAM_KEYS.items():
                 try:
                     items = r.xreadgroup(
-                        group
-                        CONSUMER_NAME
-                        {stream: ">"}
-                        count=5
+                        group,
+                        CONSUMER_NAME,
+                        {stream: ">"},
+                        count=5,
                         block=100
                     )
                 except redis.exceptions.ResponseError as e:

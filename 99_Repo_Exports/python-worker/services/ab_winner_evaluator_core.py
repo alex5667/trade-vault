@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 AB Winner Evaluator (core, unit-testable)
 ========================================
@@ -14,7 +15,6 @@ AB Winner Evaluator (core, unit-testable)
   - Robustness: winsorize R (ограничение хвостов), защитные проверки n/NaN.
 """
 
-from __future__ import annotations
 
 import hashlib
 import json

@@ -27,11 +27,11 @@ from typing import Any, Dict, Optional, Tuple
 from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_thaw_release_signature
 from services.orderflow.exec_health_freeze_sealed_state import verify_sealed_hash
 from services.orderflow.metrics_exec_health_p6 import (
-    exec_health_freeze_hook_active
-    exec_health_freeze_hook_block_total
-    exec_health_freeze_hook_freeze_until_ts_ms
-    exec_health_freeze_hook_reader_errors_total
-    exec_health_freeze_hook_state_age_seconds
+    exec_health_freeze_hook_active,
+    exec_health_freeze_hook_block_total,
+    exec_health_freeze_hook_freeze_until_ts_ms,
+    exec_health_freeze_hook_reader_errors_total,
+    exec_health_freeze_hook_state_age_seconds,
 )
 
 
@@ -73,12 +73,12 @@ def _state_from_control(scope: str, ctl: Any) -> ExecHealthFreezeState:
     payload = dict(getattr(ctl, "raw_payload", {}) or {})
     payload["control_source"] = str(getattr(ctl, "control_source", "") or payload.get("control_source") or "")
     return ExecHealthFreezeState(
-        active=bool(getattr(ctl, "effective_freeze_active", False))
-        freeze_reason=str(getattr(ctl, "freeze_reason", "") or getattr(ctl, "control_source", "") or "")
-        freeze_until_ts_ms=until_ts
-        source_ts_ms=src_ts
-        schema_version=int(getattr(ctl, "schema_version", 0) or 0)
-        raw_payload=payload
+        active=bool(getattr(ctl, "effective_freeze_active", False)),
+        freeze_reason=str(getattr(ctl, "freeze_reason", "") or getattr(ctl, "control_source", "") or ""),
+        freeze_until_ts_ms=until_ts,
+        source_ts_ms=src_ts,
+        schema_version=int(getattr(ctl, "schema_version", 0) or 0),
+        raw_payload=payload,
     )
 
 
@@ -145,20 +145,20 @@ def parse_exec_health_auto_freeze(raw: Any, *, now_ms: Optional[int] = None) -> 
     # Active only if explicitly flagged AND not expired
     active = bool(explicit_active and until_ts_ms > now)
     return ExecHealthFreezeState(
-        active=active
-        freeze_reason=_s(obj.get("freeze_reason"), "")
-        freeze_until_ts_ms=until_ts_ms
-        source_ts_ms=source_ts_ms
-        schema_version=_i(obj.get("schema_version"), 0)
-        raw_payload=obj
+        active=active,
+        freeze_reason=_s(obj.get("freeze_reason"), ""),
+        freeze_until_ts_ms=until_ts_ms,
+        source_ts_ms=source_ts_ms,
+        schema_version=_i(obj.get("schema_version"), 0),
+        raw_payload=obj,
     )
 
 
 def record_exec_health_freeze_reader_error(*, scope: str, where: str) -> None:
     """Increment the reader error counter (fail-silently itself)."""
     _safe_inc(
-        exec_health_freeze_hook_reader_errors_total
-        labels={"scope": str(scope or "unknown"), "where": str(where or "unknown")}
+        exec_health_freeze_hook_reader_errors_total,
+        labels={"scope": str(scope or "unknown"), "where": str(where or "unknown")},
     )
 
 
@@ -174,19 +174,19 @@ def record_exec_health_freeze_state(*, scope: str, state: ExecHealthFreezeState,
     _safe_set(exec_health_freeze_hook_state_age_seconds, labels={"scope": sc}, value=age_s)
     if blocked:
         _safe_inc(
-            exec_health_freeze_hook_block_total
-            labels={"scope": sc, "reason": str(state.freeze_reason or "exec_health_auto_freeze")}
+            exec_health_freeze_hook_block_total,
+            labels={"scope": sc, "reason": str(state.freeze_reason or "exec_health_auto_freeze")},
         )
 
 
 async def aread_exec_health_auto_freeze(
-    *
-    redis: Any
-    scope: str
-    now_ms: Optional[int] = None
-    force: bool = False
-    cache_ttl_ms: Optional[int] = None
-    key: Optional[str] = None
+    *,
+    redis: Any,
+    scope: str,
+    now_ms: Optional[int] = None,
+    force: bool = False,
+    cache_ttl_ms: Optional[int] = None,
+    key: Optional[str] = None,
 ) -> ExecHealthFreezeState:
     """Async read with in-process TTL cache to avoid one Redis GET per signal.
 
@@ -256,7 +256,7 @@ async def aread_exec_health_auto_freeze(
         record_exec_health_freeze_reader_error(scope=str(scope), where="read_control")
 
     # 2) P5 autoguard state hash fallback.
-    # Covers the window when autoguard has set state but not yet written the control hash
+    # Covers the window when autoguard has set state but not yet written the control hash,
     # and also ensures a simple raw key delete can't bypass the latch if manual_ack is pending.
     try:
         st_raw = await redis.hgetall(autoguard_state_key) if hasattr(redis, "hgetall") else {}
@@ -297,11 +297,11 @@ async def aread_exec_health_auto_freeze(
 
 
 def build_exec_health_auto_freeze_decision(
-    *
-    scope: str
-    state: ExecHealthFreezeState
-    reason_code: str = "VETO_EXEC_HEALTH_AUTO_FREEZE"
-    gate: str = "ExecHealthAutoFreezeGate"
+    *,
+    scope: str,
+    state: ExecHealthFreezeState,
+    reason_code: str = "VETO_EXEC_HEALTH_AUTO_FREEZE",
+    gate: str = "ExecHealthAutoFreezeGate",
 ) -> ExecHealthFreezeDecision:
     """Build a structured freeze decision for veto/deny path annotations.
 
@@ -313,9 +313,9 @@ def build_exec_health_auto_freeze_decision(
         f"freeze_until_ts_ms={int(state.freeze_until_ts_ms or 0)} source_ts_ms={int(state.source_ts_ms or 0)}"
     )
     return ExecHealthFreezeDecision(
-        block=bool(state.active)
-        gate=str(gate)
-        reason_code=str(reason_code)
-        notes=notes
-        state=state
+        block=bool(state.active),
+        gate=str(gate),
+        reason_code=str(reason_code),
+        notes=notes,
+        state=state,
     )

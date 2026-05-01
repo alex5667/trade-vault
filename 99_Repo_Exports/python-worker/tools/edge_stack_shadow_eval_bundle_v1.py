@@ -91,7 +91,7 @@ def main():
         r.hset(METRICS_KEY, mapping={
             "status": "error",
             "error": str(e),
-            "updated_ts_ms": get_ny_time_millis()
+            "updated_ts_ms": get_ny_time_millis(),
         })
         sys.exit(1)
 
@@ -100,7 +100,7 @@ def main():
         r.hset(METRICS_KEY, mapping={
             "status": "skipped",
             "reason": "empty_dataset",
-            "updated_ts_ms": get_ny_time_millis()
+            "updated_ts_ms": get_ny_time_millis(),
         })
         sys.exit(0)
         

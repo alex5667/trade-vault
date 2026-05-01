@@ -37,7 +37,7 @@ def test_monitor_trade_lifecycle_cleanup_on_zero_position():
     
     # Seq: 1.0 -> 0.0
     client.get_position_risk.side_effect = [
-        [{"symbol": "BTCUSDT", "positionAmt": "1.0"}]
+        [{"symbol": "BTCUSDT", "positionAmt": "1.0"}],
         [{"symbol": "BTCUSDT", "positionAmt": "0.0"}]
     ]
     
@@ -47,9 +47,9 @@ def test_monitor_trade_lifecycle_cleanup_on_zero_position():
         # Mock time.time to avoid infinite loop if logic fails
         with patch("time.time", side_effect=[100, 101, 102, 103]):
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-test"
-                symbol="BTCUSDT"
-                logical_side="LONG"
+                sid="sid-test",
+                symbol="BTCUSDT",
+                logical_side="LONG",
                 client=client
             )
             
@@ -74,9 +74,9 @@ def test_monitor_trade_lifecycle_cleanup_on_reversal():
     with patch("time.sleep"):
         with patch("time.time", side_effect=[100, 101, 102, 103]):
             ex._monitor_trade_lifecycle_thread(
-                sid="sid-rev"
-                symbol="BTCUSDT"
-                logical_side="LONG"
+                sid="sid-rev",
+                symbol="BTCUSDT",
+                logical_side="LONG",
                 client=client
             )
             

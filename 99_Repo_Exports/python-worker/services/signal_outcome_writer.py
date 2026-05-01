@@ -1,4 +1,5 @@
 # services/signal_outcome_writer.py
+from __future__ import annotations
 """
 SignalOutcomeWriter — двойная персистенция signal outcomes.
 
@@ -9,7 +10,6 @@ SignalOutcomeWriter — двойная персистенция signal outcomes.
 Fail-open: ни один вызов emit/persist не должен роняться — только WARNING.
 Вызывается из trade_monitor через _db_executor.submit() (background thread).
 """
-from __future__ import annotations
 
 import json
 import logging
@@ -51,8 +51,8 @@ class SignalOutcomeWriter:
         """Lazy DSN — берём из analytics_db (тот же DSN что trades_closed)."""
         if not self._dsn:
             self._dsn = os.getenv(
-                "TRADES_DB_DSN"
-                "postgresql://postgres:postgres@localhost:5432/scanner_analytics"
+                "TRADES_DB_DSN",
+                "postgresql://postgres:postgres@localhost:5432/scanner_analytics",
             )
         return self._dsn
 
@@ -76,10 +76,10 @@ class SignalOutcomeWriter:
 
             data = outcome.to_dict()
             r.xadd(
-                _REDIS_STREAM_KEY
-                data
-                maxlen=_REDIS_STREAM_MAXLEN
-                approximate=True
+                _REDIS_STREAM_KEY,
+                data,
+                maxlen=_REDIS_STREAM_MAXLEN,
+                approximate=True,
             )
             return True
         except Exception as e:
@@ -135,22 +135,22 @@ class SignalOutcomeWriter:
 
         sql = """
             INSERT INTO signal_outcomes (
-                ts, sid, order_id, symbol, strategy, source, tf, direction
-                entry_price, entry_ts_ms, sl, tp1_price, atr, entry_tag, regime, scenario
-                exit_price, exit_ts_ms, pnl_net, pnl_gross, fees
-                r_multiple, one_r_money, risk_usd
-                close_reason
-                tp1_hit, tp2_hit, tp3_hit
-                trailing_started, trailing_active, trailing_moves, duration_ms
-                mfe_pnl, mae_pnl, giveback, missed_profit
+                ts, sid, order_id, symbol, strategy, source, tf, direction,
+                entry_price, entry_ts_ms, sl, tp1_price, atr, entry_tag, regime, scenario,
+                exit_price, exit_ts_ms, pnl_net, pnl_gross, fees,
+                r_multiple, one_r_money, risk_usd,
+                close_reason,
+                tp1_hit, tp2_hit, tp3_hit,
+                trailing_started, trailing_active, trailing_moves, duration_ms,
+                mfe_pnl, mae_pnl, giveback, missed_profit,
                 is_virtual, meta_enforce_cov_bucket, trace_id, event_id
             ) VALUES (
-                to_timestamp(%s / 1000.0), %s, %s, %s, %s, %s, %s, %s
-                %s, %s, %s, %s, %s, %s, %s, %s
-                %s, %s, %s, %s, %s
-                %s, %s, %s
-                %s
-                %s, %s, %s
+                to_timestamp(%s / 1000.0), %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s,
+                %s, %s, %s,
                 %s, %s, %s, %s
                 %s, %s, %s, %s
                 %s, %s, %s, %s
@@ -159,21 +159,21 @@ class SignalOutcomeWriter:
         """
 
         params = (
-            outcome.exit_ts_ms, outcome.sid, outcome.order_id, outcome.symbol
-            outcome.strategy, outcome.source, outcome.tf, outcome.direction
-            outcome.entry_price, outcome.entry_ts_ms
-            outcome.sl, outcome.tp1_price, outcome.atr
-            outcome.entry_tag, outcome.regime, outcome.scenario
-            outcome.exit_price, outcome.exit_ts_ms
-            outcome.pnl_net, outcome.pnl_gross, outcome.fees
-            outcome.r_multiple, outcome.one_r_money, outcome.risk_usd
-            outcome.close_reason
-            outcome.tp1_hit, outcome.tp2_hit, outcome.tp3_hit
-            outcome.trailing_started, outcome.trailing_active
-            outcome.trailing_moves, outcome.duration_ms
-            outcome.mfe_pnl, outcome.mae_pnl
-            outcome.giveback, outcome.missed_profit
-            outcome.is_virtual, outcome.meta_enforce_cov_bucket
+            outcome.exit_ts_ms, outcome.sid, outcome.order_id, outcome.symbol,
+            outcome.strategy, outcome.source, outcome.tf, outcome.direction,
+            outcome.entry_price, outcome.entry_ts_ms,
+            outcome.sl, outcome.tp1_price, outcome.atr,
+            outcome.entry_tag, outcome.regime, outcome.scenario,
+            outcome.exit_price, outcome.exit_ts_ms,
+            outcome.pnl_net, outcome.pnl_gross, outcome.fees,
+            outcome.r_multiple, outcome.one_r_money, outcome.risk_usd,
+            outcome.close_reason,
+            outcome.tp1_hit, outcome.tp2_hit, outcome.tp3_hit,
+            outcome.trailing_started, outcome.trailing_active,
+            outcome.trailing_moves, outcome.duration_ms,
+            outcome.mfe_pnl, outcome.mae_pnl,
+            outcome.giveback, outcome.missed_profit,
+            outcome.is_virtual, outcome.meta_enforce_cov_bucket,
             getattr(outcome, "trace_id", ""), getattr(outcome, "event_id", "")
         )
 
@@ -201,8 +201,8 @@ class SignalOutcomeWriter:
             redis_ok = self.emit_to_redis(outcome)
             if redis_ok:
                 log.debug(
-                    "✅ signal_outcome emitted to Redis | sid=%s r_mult=%.2f is_win=%s"
-                    outcome.sid, outcome.r_multiple, outcome.is_win
+                    "✅ signal_outcome emitted to Redis | sid=%s r_mult=%.2f is_win=%s",
+                    outcome.sid, outcome.r_multiple, outcome.is_win,
                 )
         except Exception as e:
             log.warning("⚠️ signal_outcome Redis emit unexpected error: %s", e)
@@ -211,8 +211,8 @@ class SignalOutcomeWriter:
             db_ok = self.persist_to_db(outcome)
             if db_ok:
                 log.debug(
-                    "✅ signal_outcome persisted to DB | sid=%s order_id=%s"
-                    outcome.sid, outcome.order_id
+                    "✅ signal_outcome persisted to DB | sid=%s order_id=%s",
+                    outcome.sid, outcome.order_id,
                 )
         except Exception as e:
             log.warning("⚠️ signal_outcome DB persist unexpected error: %s", e)
@@ -226,7 +226,7 @@ def get_signal_outcome_writer() -> SignalOutcomeWriter:
             if _instance is None:
                 _instance = SignalOutcomeWriter()
                 log.info(
-                    "✅ SignalOutcomeWriter initialized | stream=%s maxlen=%d db_enabled=%s"
-                    _REDIS_STREAM_KEY, _REDIS_STREAM_MAXLEN, _DB_ENABLED
+                    "✅ SignalOutcomeWriter initialized | stream=%s maxlen=%d db_enabled=%s",
+                    _REDIS_STREAM_KEY, _REDIS_STREAM_MAXLEN, _DB_ENABLED,
                 )
     return _instance

@@ -171,7 +171,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "allow_severities": {str(x).lower() for x in allow_severities},
         "max_bundle_bytes": parse_int(raw.get("max_bundle_bytes"), DEFAULT_MAX_BUNDLE_BYTES),
         "max_prompt_chars": parse_int(raw.get("max_prompt_chars"), DEFAULT_MAX_PROMPT_CHARS),
-    }
+    },
 
 
 def vertex_degraded_from_hash(raw: Dict[str, Any]) -> bool:
@@ -216,7 +216,7 @@ def evaluate_route(bundle: Dict[str, Any], policy: Dict[str, Any], vertex_degrad
         "reason_code": "REJECTED",
         "route": "reject",
         "severity": severity,
-    }
+    },
 
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
@@ -274,7 +274,7 @@ def build_vertex_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "prompt": build_vertex_prompt(bundle),
         "bundle_json": stable_json(bundle),
         "ts_ms": str(now_ms()),
-    }
+    },
 
 
 def build_local_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -290,7 +290,7 @@ def build_local_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "prompt": build_local_prompt(bundle),
         "input_json": stable_json(bundle),
         "ts_ms": str(now_ms()),
-    }
+    },
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -316,7 +316,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_governance_rca_bridge_decisions (
                     bundle_id,
                     ts_ms,
@@ -383,7 +383,7 @@ async def main() -> None:  # pragma: no cover
                             "bundle_id": row.get("bundle_id", ""),
                             "trigger_type": row.get("trigger_type", ""),
                             "trigger_severity": row.get("trigger_severity", ""),
-                        }
+                        },
                     policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
                     try:
                         exec_kill = await r.get('trade:exec_kill_switch')
@@ -426,7 +426,7 @@ async def main() -> None:  # pragma: no cover
                         "destination_stream": destination_stream,
                         "vertex_degraded": "1" if vertex_degraded else "0",
                         "ts_ms": str(now_ms()),
-                    }
+                    },
                     await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await r.xadd(
                         AUDIT_STREAM,

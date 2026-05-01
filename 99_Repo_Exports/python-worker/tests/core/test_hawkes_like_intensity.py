@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for core.hawkes_like_intensity.update_hawkes_like."""
 
-from __future__ import annotations
 
 import math
 import pytest

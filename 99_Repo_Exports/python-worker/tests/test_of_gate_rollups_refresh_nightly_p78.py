@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for P78 Nightly OF-Gate Rollups Refresh timer.
 
 Covers:
@@ -6,7 +7,6 @@ Covers:
   - run_of_gate_rollups_refresh_nightly: disabled (noop), outside window (noop),
     inside window (calls run_tool), timeout/days env vars, bad env graceful fallback.
 """
-from __future__ import annotations
 
 import importlib
 from datetime import datetime

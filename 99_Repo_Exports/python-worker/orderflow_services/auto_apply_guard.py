@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Auto-apply block guard.
 
 Intended usage inside any ApplyRunner / auto-apply entrypoint:
@@ -15,7 +16,6 @@ Default reasons (AUTO_APPLY_BLOCK_REASONS):
   tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

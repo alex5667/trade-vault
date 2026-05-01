@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """OFInputs DLQ DB drilldown (P99).
 
 Reads from Timescale/Postgres table `of_inputs_dlq_events` (P98) and prints:
@@ -23,7 +24,6 @@ ENV (notify):
   TELEGRAM_NOTIFY_STREAM / NOTIFY_TELEGRAM_STREAM
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -88,14 +88,14 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> List[Tup
             sql = """
             WITH parsed AS (
               SELECT
-                ts
+                ts,
                 CASE
                   WHEN stream LIKE 'stream:dlq:%' THEN 'dlq'
                   WHEN stream LIKE 'quarantine:%' THEN 'quarantine'
                   ELSE 'other'
-                END AS kind
+                END AS kind,
                 COALESCE(
-                  NULLIF(dq_code,'')
+                  NULLIF(dq_code,''),
                   NULLIF(substring(COALESCE(err,'') from '^([^\\s:]+)'),'') 
                   'unknown'
                 ) AS reason
@@ -152,22 +152,22 @@ def _query_samples(conn, reason: str, kind: str, limit: int) -> List[Dict[str, A
             sql = """
             WITH parsed AS (
               SELECT
-                ts
-                stream
-                dlq_id
-                err
-                dq_code
-                attempt_version
-                published_version
-                missing_fields
-                COALESCE(NULLIF(payload_json->>'symbol',''), NULLIF(payload_json->>'sym',''), NULLIF(payload_json->>'s','')) AS symbol
+                ts,
+                stream,
+                dlq_id,
+                err,
+                dq_code,
+                attempt_version,
+                published_version,
+                missing_fields,
+                COALESCE(NULLIF(payload_json->>'symbol',''), NULLIF(payload_json->>'sym',''), NULLIF(payload_json->>'s','')) AS symbol,
                 CASE
                   WHEN stream LIKE 'stream:dlq:%' THEN 'dlq'
                   WHEN stream LIKE 'quarantine:%' THEN 'quarantine'
                   ELSE 'other'
-                END AS kind
+                END AS kind,
                 COALESCE(
-                  NULLIF(dq_code,'')
+                  NULLIF(dq_code,''),
                   NULLIF(substring(COALESCE(err,'') from '^([^\\s:]+)'),'') 
                   'unknown'
                 ) AS reason
@@ -204,15 +204,15 @@ def _notify(text: str, severity: str = "crit") -> None:
             or ("notify:telegram:crit" if severity == "crit" else "notify:telegram")
         )
         r.xadd(
-            stream
+            stream,
             {
-                "message": text
-                "source": "of_inputs_dlq_db_drilldown_p99"
-                "ts_ms": str(get_ny_time_millis())
-                "severity": severity
-            }
-            maxlen=10000
-            approximate=True
+                "message": text,
+                "source": "of_inputs_dlq_db_drilldown_p99",
+                "ts_ms": str(get_ny_time_millis()),
+                "severity": severity,
+            },
+            maxlen=10000,
+            approximate=True,
         )
     except Exception:
         # fail-open

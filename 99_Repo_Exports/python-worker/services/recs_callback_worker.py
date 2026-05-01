@@ -41,11 +41,11 @@ from common.log import setup_logger
 from common.redis_errors import is_redis_stream_error
 from core.recs_contract import sign_bundle_id, verify_sig, RecBundle
 from services.recs_store import (
-    get_bundle as store_get_bundle
-    get_status as store_get_status
-    set_status as store_set_status
-    append_audit as store_append_audit
-    AUDIT_KEY
+    get_bundle as store_get_bundle,
+    get_status as store_get_status,
+    set_status as store_set_status,
+    append_audit as store_append_audit,
+    AUDIT_KEY,
 )
 from core.redis_keys import RedisStreams as RS
 
@@ -281,8 +281,8 @@ def _preview_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
 
     sig = _sign(bundle_id)
     buttons = [[
-        {"text": "✅✅ Confirm apply", "callback": f"recs:confirm:{bundle_id}:{sig}"}
-        {"text": "❌ Cancel",         "callback": f"recs:cancel:{bundle_id}:{sig}"}
+        {"text": "✅✅ Confirm apply", "callback": f"recs:confirm:{bundle_id}:{sig}"},
+        {"text": "❌ Cancel",         "callback": f"recs:cancel:{bundle_id}:{sig}"},
     ]]
     _notify(r, text, buttons=buttons)
     return "previewed"
@@ -298,9 +298,9 @@ def _notify(r: redis.Redis, text: str, buttons: Optional[list] = None) -> None:
         buttons: Optional list of buttons (2D array of {text, callback})
     """
     fields = {
-        "type": "report"
-        "text": text
-        "ts": str(_now_ms())
+        "type": "report",
+        "text": text,
+        "ts": str(_now_ms()),
     }
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
@@ -450,15 +450,15 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
 
                     oldv = prev.get((key, field), "")
                     rec = {
-                        "cell": f"{sym}|{bucket}"
-                        "symbol": sym
-                        "bucket": bucket
-                        "applied_ms": ts_ms
-                        "freeze_to": freeze_to
-                        "prev_share": oldv
-                        "field": field
-                        "cfg_key": key
-                        "bundle_id": bundle_id
+                        "cell": f"{sym}|{bucket}",
+                        "symbol": sym,
+                        "bucket": bucket,
+                        "applied_ms": ts_ms,
+                        "freeze_to": freeze_to,
+                        "prev_share": oldv,
+                        "field": field,
+                        "cfg_key": key,
+                        "bundle_id": bundle_id,
                     }
                     r.hset(hkey, f"{sym}|{bucket}", json.dumps(rec, ensure_ascii=False, separators=(",", ":")))
                 r.expire(hkey, RECS_TTL_SEC)
@@ -497,17 +497,17 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                     field = f"meta_enforce_share_{bucket}"
 
                     rec = {
-                        "cell": f"{sym}|{bucket}"
-                        "symbol": sym
-                        "bucket": bucket
-                        "stage": stage
-                        "applied_ms": ts_ms
-                        "target_share": str(restore_map.get(ck, ""))
-                        "restore_final": str(restore_final.get(ck, ""))
-                        "prev_share": prev.get((cfg_key, field), "")
-                        "field": field
-                        "cfg_key": cfg_key
-                        "bundle_id": bundle_id
+                        "cell": f"{sym}|{bucket}",
+                        "symbol": sym,
+                        "bucket": bucket,
+                        "stage": stage,
+                        "applied_ms": ts_ms,
+                        "target_share": str(restore_map.get(ck, "")),
+                        "restore_final": str(restore_final.get(ck, "")),
+                        "prev_share": prev.get((cfg_key, field), ""),
+                        "field": field,
+                        "cfg_key": cfg_key,
+                        "bundle_id": bundle_id,
                     }
 
                     # stage1: mark as unfreeze-in-progress, remove from freeze registry
@@ -727,12 +727,12 @@ def _rich_ml_scorer_action(bundle_id: str, action: str, res: str) -> str:
     return None
 
 def _rich_of_gate_action(
-    r: redis.Redis
-    bundle_id: str
-    action: str
-    res: str
-    meta: dict
-    bundle
+    r: redis.Redis,
+    bundle_id: str,
+    action: str,
+    res: str,
+    meta: dict,
+    bundle,
 ) -> Optional[str]:
     """Rich notification for OF Gate config recommendation actions."""
     mode = meta.get("mode", "?")
@@ -808,7 +808,7 @@ def main() -> None:
     """
     Main worker loop.
     
-    Reads events from Redis stream bot:callbacks via consumer group
+    Reads events from Redis stream bot:callbacks via consumer group,
     processes two-phase approve for bundle recommendations.
     
     Two-phase process:
@@ -830,12 +830,12 @@ def main() -> None:
     _ensure_group(r)
 
     logger.info(
-        "Starting recommendations callback worker: stream=%s, group=%s, consumer=%s"
+        "Starting recommendations callback worker: stream=%s, group=%s, consumer=%s",
         BOT_CALLBACKS_STREAM, BOT_CALLBACKS_GROUP, BOT_CALLBACKS_CONSUMER
     )
     if RECS_ALLOWED_USER_IDS or RECS_ALLOWED_CHAT_IDS:
         logger.info(
-            "Security: allowlist enabled (users=%s, chats=%s)"
+            "Security: allowlist enabled (users=%s, chats=%s)",
             RECS_ALLOWED_USER_IDS, RECS_ALLOWED_CHAT_IDS
         )
 
@@ -845,11 +845,11 @@ def main() -> None:
             resp = None
             try:
                 resp = r.xreadgroup(
-                    BOT_CALLBACKS_GROUP
-                    BOT_CALLBACKS_CONSUMER
-                    {BOT_CALLBACKS_STREAM: ">"}
-                    count=50
-                    block=5000
+                    BOT_CALLBACKS_GROUP,
+                    BOT_CALLBACKS_CONSUMER,
+                    {BOT_CALLBACKS_STREAM: ">"},
+                    count=50,
+                    block=5000,
                 )
             except redis.exceptions.ResponseError as e:
                 # Handle NOGROUP errors by recreating consumer group
@@ -861,11 +861,11 @@ def main() -> None:
                         time.sleep(0.5)  # Brief pause before retrying
                         # Retry the read after recreating group
                         resp = r.xreadgroup(
-                            BOT_CALLBACKS_GROUP
-                            BOT_CALLBACKS_CONSUMER
-                            {BOT_CALLBACKS_STREAM: ">"}
-                            count=50
-                            block=5000
+                            BOT_CALLBACKS_GROUP,
+                            BOT_CALLBACKS_CONSUMER,
+                            {BOT_CALLBACKS_STREAM: ">"},
+                            count=50,
+                            block=5000,
                         )
                     except Exception as group_err:
                         logger.error("Failed to recreate consumer group: %s", group_err)

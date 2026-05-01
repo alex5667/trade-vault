@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for Feature Registry ↔ train_edge_stack_v1_oof integration.
 
 Покрывает:
@@ -16,7 +17,6 @@
         python-worker/ml_analysis/tests/test_train_registry_integration_v1.py -v
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -68,15 +68,15 @@ def _make_minimal_jsonl(n: int = 200, td: str = None) -> str:
     rows = []
     for i in range(n):
         rows.append({
-            "ts_ms": 1_700_000_000_000 + i * 60_000
-            "y": 1 if i % 3 == 0 else 0
-            "direction": "BUY"
-            "scenario": "trend"
+            "ts_ms": 1_700_000_000_000 + i * 60_000,
+            "y": 1 if i % 3 == 0 else 0,
+            "direction": "BUY",
+            "scenario": "trend",
             "indicators": {
-                "delta_z": round(random.uniform(-3, 3), 4)
-                "ofi_z": round(random.uniform(-2, 2), 4)
-                "spread_bps": round(random.uniform(0.5, 5.0), 4)
-                "obi": round(random.uniform(-1, 1), 4)
+                "delta_z": round(random.uniform(-3, 3), 4),
+                "ofi_z": round(random.uniform(-2, 2), 4),
+                "spread_bps": round(random.uniform(0.5, 5.0), 4),
+                "obi": round(random.uniform(-1, 1), 4),
             }
         })
     path = os.path.join(td, "edge_train.jsonl")
@@ -168,20 +168,20 @@ class TestGetEdgeStackFeatureSpecExtended:
         # scenario_v4_* возникают при scenario_prefix != "bucket:"
         with pytest.raises(ValueError, match="forbidden_feature_cols"):
             reg.get_edge_stack_feature_spec(
-                schema_ver="v3"
-                scenario_prefix="scenario_v4_"
-                strict_feature_cols=True
-                forbid_scenario_v4_onehot=True
+                schema_ver="v3",
+                scenario_prefix="scenario_v4_",
+                strict_feature_cols=True,
+                forbid_scenario_v4_onehot=True,
             )
 
     def test_strict_without_forbid_no_raise(self):
         """strict_feature_cols=True но forbid=False → нет ValueError."""
         reg = _import_registry()
         spec = reg.get_edge_stack_feature_spec(
-            schema_ver="v3"
-            scenario_prefix="scenario_v4_"
-            strict_feature_cols=True
-            forbid_scenario_v4_onehot=False
+            schema_ver="v3",
+            scenario_prefix="scenario_v4_",
+            strict_feature_cols=True,
+            forbid_scenario_v4_onehot=False,
         )
         assert spec is not None
 
@@ -226,17 +226,17 @@ class TestTrainOofRegistrySmoke:
             out_model = os.path.join(td, "out.joblib")
 
             rc = mod.main([
-                "--data_jsonl", data_path
-                "--out_model", out_model
-                "--feature_schema_ver", "v3"
-                "--scenario_prefix", "bucket:"
-                "--include_time_onehot", "1"
-                "--require_feature_registry", "0"
-                "--n_splits", "2"
-                "--min_train", "50"
-                "--purge_ms", "0"
-                "--embargo_ms", "0"
-                "--calibrate", "0"
+                "--data_jsonl", data_path,
+                "--out_model", out_model,
+                "--feature_schema_ver", "v3",
+                "--scenario_prefix", "bucket:",
+                "--include_time_onehot", "1",
+                "--require_feature_registry", "0",
+                "--n_splits", "2",
+                "--min_train", "50",
+                "--purge_ms", "0",
+                "--embargo_ms", "0",
+                "--calibrate", "0",
             ])
             assert rc == 0, "ожидаем rc=0"
             assert os.path.exists(out_model), "модель должна быть записана"
@@ -255,15 +255,15 @@ class TestTrainOofRegistrySmoke:
             out_model = os.path.join(td, "out2.joblib")
 
             rc = mod.main([
-                "--data_jsonl", data_path
-                "--out_model", out_model
-                "--feature_schema_ver", "v3"
-                "--require_feature_registry", "0"
-                "--n_splits", "2"
-                "--min_train", "50"
-                "--purge_ms", "0"
-                "--embargo_ms", "0"
-                "--calibrate", "0"
+                "--data_jsonl", data_path,
+                "--out_model", out_model,
+                "--feature_schema_ver", "v3",
+                "--require_feature_registry", "0",
+                "--n_splits", "2",
+                "--min_train", "50",
+                "--purge_ms", "0",
+                "--embargo_ms", "0",
+                "--calibrate", "0",
             ])
             assert rc == 0
 
@@ -299,15 +299,15 @@ class TestTrainOofHashMismatch:
 
             with pytest.raises(SystemExit, match="feature_cols_hash_mismatch"):
                 mod.main([
-                    "--data_jsonl", data_path
-                    "--out_model", out_model
-                    "--feature_schema_ver", "v3"
-                    "--dataset_report_json", report_path
-                    "--require_feature_registry", "0"
-                    "--n_splits", "2"
-                    "--min_train", "50"
-                    "--purge_ms", "0"
-                    "--embargo_ms", "0"
+                    "--data_jsonl", data_path,
+                    "--out_model", out_model,
+                    "--feature_schema_ver", "v3",
+                    "--dataset_report_json", report_path,
+                    "--require_feature_registry", "0",
+                    "--n_splits", "2",
+                    "--min_train", "50",
+                    "--purge_ms", "0",
+                    "--embargo_ms", "0",
                 ])
 
     def test_missing_registry_section_require_hard(self):
@@ -328,15 +328,15 @@ class TestTrainOofHashMismatch:
 
             with pytest.raises(SystemExit, match="dataset_report_missing_feature_registry"):
                 mod.main([
-                    "--data_jsonl", data_path
-                    "--out_model", out_model
-                    "--feature_schema_ver", "v3"
-                    "--dataset_report_json", report_path
-                    "--require_feature_registry", "1"
-                    "--n_splits", "2"
-                    "--min_train", "50"
-                    "--purge_ms", "0"
-                    "--embargo_ms", "0"
+                    "--data_jsonl", data_path,
+                    "--out_model", out_model,
+                    "--feature_schema_ver", "v3",
+                    "--dataset_report_json", report_path,
+                    "--require_feature_registry", "1",
+                    "--n_splits", "2",
+                    "--min_train", "50",
+                    "--purge_ms", "0",
+                    "--embargo_ms", "0",
                 ])
 
 
@@ -354,8 +354,8 @@ class TestTimerSchemaVerAware:
         """Если dataset не существует — возвращаем False."""
         func = self._get_func()
         with patch.dict(os.environ, {
-            "ML_EDGE_STACK_OOF_DATASET_PATH": "/nonexistent/edge_train.jsonl"
-            "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER": "v3"
+            "ML_EDGE_STACK_OOF_DATASET_PATH": "/nonexistent/edge_train.jsonl",
+            "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER": "v3",
         }, clear=False):
             result = func()
         assert result is False
@@ -368,11 +368,11 @@ class TestTimerSchemaVerAware:
             with open(dataset, "w") as f:
                 f.write("{}\n")
             with patch.dict(os.environ, {
-                "ML_EDGE_STACK_OOF_DATASET_PATH": dataset
-                "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER": ""
-                "ML_FEATURE_SCHEMA_VER": ""
-                "FEATURE_SCHEMA_VER": ""
-                "ML_EDGE_STACK_OOF_FEATURE_COLS_JSON": "/nonexistent/feature_cols.json"
+                "ML_EDGE_STACK_OOF_DATASET_PATH": dataset,
+                "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER": "",
+                "ML_FEATURE_SCHEMA_VER": "",
+                "FEATURE_SCHEMA_VER": "",
+                "ML_EDGE_STACK_OOF_FEATURE_COLS_JSON": "/nonexistent/feature_cols.json",
             }, clear=False):
                 result = func()
         assert result is False, "без feature_cols.json должен вернуть False в legacy-режиме"
@@ -388,12 +388,12 @@ class TestTimerSchemaVerAware:
             # run_tool мокируем, чтобы не запускать реальное обучение
             with patch("services.of_timers_worker.run_tool", return_value=True) as mock_run:
                 with patch.dict(os.environ, {
-                    "ML_EDGE_STACK_OOF_DATASET_PATH": dataset
-                    "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER": "v3"
-                    "ML_EDGE_STACK_OOF_FEATURE_COLS_JSON": "/nonexistent/feature_cols.json"
-                    "ML_EDGE_STACK_OOF_REQUIRE_REGISTRY": "0"
+                    "ML_EDGE_STACK_OOF_DATASET_PATH": dataset,
+                    "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER": "v3",
+                    "ML_EDGE_STACK_OOF_FEATURE_COLS_JSON": "/nonexistent/feature_cols.json",
+                    "ML_EDGE_STACK_OOF_REQUIRE_REGISTRY": "0",
                     # Disable P59 bundle to allow OOF train function to proceed
-                    "EDGE_STACK_BUNDLE_ENABLED": "0"
+                    "EDGE_STACK_BUNDLE_ENABLED": "0",
                 }, clear=False):
                     result = func()
 
@@ -423,7 +423,7 @@ class TestBuildDatasetChoices:
             # argparse throws SystemExit for --help; we need another way.
             # Inspect the choices from the parser directly via patching argv.
             # We'll just validate via the source choices constant.
-            # Since this is hard to do without running the full parser
+            # Since this is hard to do without running the full parser,
             # we just verify v4 is in the spec choices string in the file.
             import ml_analysis.tools.build_edge_stack_dataset_from_redis as _mod
             source = Path(_mod.__file__).read_text(encoding="utf-8")

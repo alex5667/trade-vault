@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Staged auto-unclamp v5: outcome-gate per bucket (trend/range), selective per-cell RELAX/RESTORE.
 
 This is v5: outcome gates are evaluated separately per bucket (trend vs range).
@@ -42,7 +43,6 @@ Environment Variables:
   - Config: CFG_HASH_PREFIX
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

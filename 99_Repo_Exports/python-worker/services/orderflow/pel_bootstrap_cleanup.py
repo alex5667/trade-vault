@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 pel_bootstrap_cleanup.py — Automatic zombie consumer cleanup on worker startup.
 
@@ -23,7 +24,6 @@ ENV:
   PEL_CLEANUP_PERIODIC_ENABLE  = "1" (default) — enable periodic background cleanup
   PEL_CLEANUP_PERIODIC_SEC     = "300" (default) — periodic cleanup interval
 """
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -38,19 +38,19 @@ try:
     from services.orderflow.metrics import _get_or_create_prom_counter, _get_or_create_prom_gauge
 
     pel_zombie_cleaned_total = _get_or_create_prom_counter(
-        "pel_zombie_cleaned_total"
-        "Total zombie consumers removed during PEL cleanup"
-        ["symbol", "kind", "phase"]
+        "pel_zombie_cleaned_total",
+        "Total zombie consumers removed during PEL cleanup",
+        ["symbol", "kind", "phase"],
     )
     pel_pending_acked_total = _get_or_create_prom_counter(
-        "pel_pending_acked_total"
-        "Total pending entries ACKed during PEL cleanup"
-        ["symbol", "kind", "phase"]
+        "pel_pending_acked_total",
+        "Total pending entries ACKed during PEL cleanup",
+        ["symbol", "kind", "phase"],
     )
     pel_consumer_count_gauge = _get_or_create_prom_gauge(
-        "pel_consumer_count"
-        "Number of consumers in stream consumer group after cleanup"
-        ["symbol", "kind"]
+        "pel_consumer_count",
+        "Number of consumers in stream consumer group after cleanup",
+        ["symbol", "kind"],
     )
 except Exception:
     pel_zombie_cleaned_total = None
@@ -59,16 +59,16 @@ except Exception:
 
 
 async def cleanup_zombie_consumers(
-    redis_client: Any
-    symbols: List[str]
-    *
-    current_consumer_id: str
-    idle_threshold_ms: int = 60_000
-    phase: str = "startup"
-    stream_prefix: str = "stream:tick_"
-    group_prefix: str = "crypto-of:"
-    book_stream_prefix: str = "stream:book_"
-    book_group_prefix: str = "crypto-of-book:"
+    redis_client: Any,
+    symbols: List[str],
+    *,
+    current_consumer_id: str,
+    idle_threshold_ms: int = 60_000,
+    phase: str = "startup",
+    stream_prefix: str = "stream:tick_",
+    group_prefix: str = "crypto-of:",
+    book_stream_prefix: str = "stream:book_",
+    book_group_prefix: str = "crypto-of-book:",
 ) -> Dict[str, int]:
     """Remove zombie consumers and ACK their pending entries.
 
@@ -128,9 +128,9 @@ async def cleanup_zombie_consumers(
                 try:
                     if int(consumer_pending) > 0:
                         acked = await _ack_consumer_pending(
-                            redis_client, stream, group, str(consumer_name)
-                            current_consumer=current_consumer_id
-                            batch_size=200
+                            redis_client, stream, group, str(consumer_name),
+                            current_consumer=current_consumer_id,
+                            batch_size=200,
                         )
                         pending_cleaned += acked
                 except Exception as exc:
@@ -149,8 +149,8 @@ async def cleanup_zombie_consumers(
             # Update metrics
             if zombies_found > 0 or pending_cleaned > 0:
                 logger.info(
-                    "🧹 PEL cleanup [%s] %s/%s: removed %d zombies, ACKed %d pending"
-                    phase, stream, group, zombies_found, pending_cleaned
+                    "🧹 PEL cleanup [%s] %s/%s: removed %d zombies, ACKed %d pending",
+                    phase, stream, group, zombies_found, pending_cleaned,
                 )
 
             try:
@@ -170,27 +170,27 @@ async def cleanup_zombie_consumers(
 
     if total_zombies > 0 or total_acked > 0:
         logger.info(
-            "✅ PEL cleanup [%s] complete: %d zombies removed, %d pending ACKed across %d streams"
-            phase, total_zombies, total_acked, len(stream_configs)
+            "✅ PEL cleanup [%s] complete: %d zombies removed, %d pending ACKed across %d streams",
+            phase, total_zombies, total_acked, len(stream_configs),
         )
     else:
         logger.info("✅ PEL cleanup [%s]: no zombies found across %d streams", phase, len(stream_configs))
 
     return {
-        "zombies_removed": total_zombies
-        "pending_acked": total_acked
-        "symbols_processed": len(symbols)
+        "zombies_removed": total_zombies,
+        "pending_acked": total_acked,
+        "symbols_processed": len(symbols),
     }
 
 
 async def _ack_consumer_pending(
-    redis_client: Any
-    stream: str
-    group: str
-    consumer: str
-    *
-    current_consumer: str = ""
-    batch_size: int = 200
+    redis_client: Any,
+    stream: str,
+    group: str,
+    consumer: str,
+    *,
+    current_consumer: str = "",
+    batch_size: int = 200,
 ) -> int:
     """XCLAIM and ACK all pending entries for a specific consumer. Returns count ACKed."""
     total_acked = 0
@@ -261,13 +261,13 @@ def _get_pending_field(info: Any, field: str, default: Any = "") -> Any:
 
 
 async def periodic_pel_cleanup_loop(
-    redis_client_fn
-    symbols_fn
-    current_consumer_id: str
-    *
-    is_shutdown_fn
-    interval_sec: float = 300.0
-    idle_threshold_ms: int = 60_000
+    redis_client_fn,
+    symbols_fn,
+    current_consumer_id: str,
+    *,
+    is_shutdown_fn,
+    interval_sec: float = 300.0,
+    idle_threshold_ms: int = 60_000,
 ) -> None:
     """Background loop that periodically cleans zombie consumers.
 
@@ -280,8 +280,8 @@ async def periodic_pel_cleanup_loop(
         idle_threshold_ms: Idle threshold for zombie detection.
     """
     logger.info(
-        "🧹 PEL periodic cleanup loop started (interval=%ds, idle_threshold=%dms)"
-        int(interval_sec), idle_threshold_ms
+        "🧹 PEL periodic cleanup loop started (interval=%ds, idle_threshold=%dms)",
+        int(interval_sec), idle_threshold_ms,
     )
 
     # Stagger first run by 30s to avoid contention with other startup tasks
@@ -294,11 +294,11 @@ async def periodic_pel_cleanup_loop(
 
             if redis_client and symbols:
                 await cleanup_zombie_consumers(
-                    redis_client
-                    symbols
-                    current_consumer_id=current_consumer_id
-                    idle_threshold_ms=idle_threshold_ms
-                    phase="periodic"
+                    redis_client,
+                    symbols,
+                    current_consumer_id=current_consumer_id,
+                    idle_threshold_ms=idle_threshold_ms,
+                    phase="periodic",
                 )
         except asyncio.CancelledError:
             break

@@ -53,27 +53,27 @@ class DummyClient:
         return {'orderId': 991, 'clientOrderId': params.get('newClientOrderId')}
 
     def cancel_algo_order(self, symbol, algo_id=None, client_algo_id=None):
-        self.cancel_algo_calls.append((symbol, algo_id, client_algo_id))
-        return {'ok': True}
+        self.cancel_algo_calls.append((symbol, algo_id, client_algo_id)),
+        return {'ok': True},
 
 
 class DummyTelegram:
     def __init__(self):
-        self.msgs = []
+        self.msgs = [],
 
     def send_text(self, text):
-        self.msgs.append(text)
+        self.msgs.append(text),
 
 
 def test_scan_once_detects_naked_position_and_orphan_algos(monkeypatch):
-    monkeypatch.setenv('BINANCE_PROTECTION_AUDITOR_MODE', 'alert')
+    monkeypatch.setenv('BINANCE_PROTECTION_AUDITOR_MODE', 'alert'),
     auditor = mod.BinanceProtectionAuditor(
-        redis_client=FakeRedis()
+        redis_client=FakeRedis(),
         prod_client=DummyClient(
-            positions=[{'symbol': 'BTCUSDT', 'positionAmt': '0.5'}]
-            algos=[{'symbol': 'ETHUSDT', 'algoId': 10, 'clientAlgoId': 'sig-abcd1234-tp1', 'type': 'TAKE_PROFIT_MARKET'}]
-        )
-        telegram_client=DummyTelegram()
+            positions=[{'symbol': 'BTCUSDT', 'positionAmt': '0.5'}],
+            algos=[{'symbol': 'ETHUSDT', 'algoId': 10, 'clientAlgoId': 'sig-abcd1234-tp1', 'type': 'TAKE_PROFIT_MARKET'}],
+        ),
+        telegram_client=DummyTelegram(),
     )
     findings = auditor.scan_once()
     names = {(f['symbol'], f['finding']) for f in findings}

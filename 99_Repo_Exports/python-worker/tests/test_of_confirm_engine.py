@@ -21,7 +21,7 @@ def test_of_confirm_reversal_ok_2of3():
         "reclaim_signal_valid_ms": 120000,
         "of_score_min": 0.0,  # disable score threshold for test
         "w_z": 0.3, "w_wp": 0.15, "w_reclaim": 0.2, "w_obi": 0.15, "w_ice": 0.15, "w_abs": 0.05,
-        "score_z_ref": 3.0
+        "score_z_ref": 3.0,
     }
     # runtime stubs
     runtime = SimpleNamespace(
@@ -58,7 +58,7 @@ def test_of_confirm_stale_obi_ignored():
         "obi_event_ttl_ms": 1000, 
         "require_strong_confirmation": False,
         "w_z": 0.3, "w_wp": 0.15, "w_reclaim": 0.2, "w_obi": 0.15, "w_ice": 0.15, "w_abs": 0.05,
-        "score_z_ref": 3.0
+        "score_z_ref": 3.0,
     }
     runtime = SimpleNamespace(
         symbol="BTCUSDT",

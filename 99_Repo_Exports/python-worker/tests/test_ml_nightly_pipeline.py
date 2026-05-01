@@ -1,9 +1,9 @@
+from __future__ import annotations
 \
 """
 Tests for ML nightly pipeline components.
 """
 
-from __future__ import annotations
 
 import json
 import tempfile

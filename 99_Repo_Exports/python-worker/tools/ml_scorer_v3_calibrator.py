@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 ML Scorer V3 Calibrator.
 
@@ -12,7 +13,6 @@ If all thresholds are met → proposes ML_SCORER_MODE=shadow→enforce
 via interactive Telegram (✅/❌).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

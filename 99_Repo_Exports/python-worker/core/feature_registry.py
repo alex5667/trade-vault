@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Feature Registry — единый источник правды для набора и порядка ML-фич.
 
 Цель: исключить «column drift» между датасетами, обучением и продом.
@@ -18,7 +19,6 @@
 
 """
 
-from __future__ import annotations
 
 import hashlib
 import json

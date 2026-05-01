@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 Модуль для корректного расчета P&L с учетом спецификаций символов.
 
 Устраняет хардкод *100 и другие несоответствия в расчетах P&L.
 Поддерживает как линейную модель (contract_size), так и тиковую модель (tick_size/tick_value).
 """
-from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
@@ -129,12 +129,12 @@ class SymbolSpec:
         return abs(r)
     
     def calculate_fees(
-        self
-        entry_price: float
-        exit_price: float
-        lot: float
-        side: str
-        duration_ms: int
+        self,
+        entry_price: float,
+        exit_price: float,
+        lot: float,
+        side: str,
+        duration_ms: int,
     ) -> float:
         """
         Расчет комиссий для позиции.
@@ -189,15 +189,15 @@ class SymbolSpec:
         return total_fees
     
     def calculate_risk_lot(
-        self
-        entry_price: float
-        sl_price: float
-        side: str
-        deposit: float
-        risk_percent: float
-        leverage: float = 1.0
-        lot_step: float = 0.01
-        max_lot: float = 10.0
+        self,
+        entry_price: float,
+        sl_price: float,
+        side: str,
+        deposit: float,
+        risk_percent: float,
+        leverage: float = 1.0,
+        lot_step: float = 0.01,
+        max_lot: float = 10.0,
     ) -> float:
         """
         Рассчитывает размер позиции на основе риска (универсально для всех инструментов).
@@ -254,15 +254,15 @@ class SymbolSpec:
 
 
 def calculate_position_size(
-    symbol: str
-    entry_price: float
-    sl_price: float
-    side: str = "LONG"
-    deposit: float = None
-    risk_percent: float = None
-    leverage: float = None
-    lot_step: float = 0.01
-    max_lot: float = 10.0
+    symbol: str,
+    entry_price: float,
+    sl_price: float,
+    side: str = "LONG",
+    deposit: float = None,
+    risk_percent: float = None,
+    leverage: float = None,
+    lot_step: float = 0.01,
+    max_lot: float = 10.0,
     redis_client = None
 ) -> tuple[float, float, float, float]:
     """
@@ -358,14 +358,14 @@ def calculate_position_size(
     
     # Для остальных инструментов (XAUUSD, Forex)
     lot = spec.calculate_risk_lot(
-        entry_price=entry_price
-        sl_price=sl_price
-        side=side
-        deposit=deposit
-        risk_percent=risk_percent
-        leverage=leverage
-        lot_step=lot_step
-        max_lot=max_lot
+        entry_price=entry_price,
+        sl_price=sl_price,
+        side=side,
+        deposit=deposit,
+        risk_percent=risk_percent,
+        leverage=leverage,
+        lot_step=lot_step,
+        max_lot=max_lot,
     )
     
     # position_size_usd для не-крипты = lot * entry_price * contract_size
@@ -485,22 +485,22 @@ def spec_from_symbol_info(info: Mapping[str, Any]) -> SymbolSpec:
         tick_size, tick_value = None, None
 
     return SymbolSpec(
-        contract_size=contract_size or 1.0
-        tick_size=tick_size
-        tick_value=tick_value
-        point_size=point_size
-        legacy_multiplier=legacy_multiplier
-        commission_rate=commission_rate
-        commission_per_lot=commission_per_lot
-        swap_long=swap_long
-        swap_short=swap_short
-        trailing_enabled=trailing_enabled
-        trailing_after_tp1_enabled=trailing_after_tp1_enabled
-        trailing_tp1_offset_atr=trailing_tp1_offset_atr
-        trailing_profile_default=trailing_profile_default
-        trailing_min_lock_r=trailing_min_lock_r
-        stop_atr_mult=stop_atr_mult
-        rr_levels=rr_levels
+        contract_size=contract_size or 1.0,
+        tick_size=tick_size,
+        tick_value=tick_value,
+        point_size=point_size,
+        legacy_multiplier=legacy_multiplier,
+        commission_rate=commission_rate,
+        commission_per_lot=commission_per_lot,
+        swap_long=swap_long,
+        swap_short=swap_short,
+        trailing_enabled=trailing_enabled,
+        trailing_after_tp1_enabled=trailing_after_tp1_enabled,
+        trailing_tp1_offset_atr=trailing_tp1_offset_atr,
+        trailing_profile_default=trailing_profile_default,
+        trailing_min_lock_r=trailing_min_lock_r,
+        stop_atr_mult=stop_atr_mult,
+        rr_levels=rr_levels,
     )
 
 
@@ -608,16 +608,16 @@ def _get_default_symbol_info(symbol: str) -> dict:
     # XAUUSD (золото)
     if symbol_upper == "XAUUSD" or symbol_upper.startswith("XAU"):
         return {
-            "point": 0.01
+            "point": 0.01,
             "tick_value_per_lot": 1.0,  # $1 за 0.01 на 1 lot
-            "contract_size": 100.0
-            "tick_size": 0.01
-            "tick_value": 1.0
+            "contract_size": 100.0,
+            "tick_size": 0.01,
+            "tick_value": 1.0,
             # ✅ Комиссии (ENV или defaults)
-            "commission_per_lot": _env_float("FOREX_COMMISSION_PER_LOT", 7.0)
-            "commission_rate": _env_float("FOREX_COMMISSION_RATE")
-            "swap_long": _env_float("FOREX_SWAP_LONG", -0.0001)
-            "swap_short": _env_float("FOREX_SWAP_SHORT", 0.00005)
+            "commission_per_lot": _env_float("FOREX_COMMISSION_PER_LOT", 7.0),
+            "commission_rate": _env_float("FOREX_COMMISSION_RATE"),
+            "swap_long": _env_float("FOREX_SWAP_LONG", -0.0001),
+            "swap_short": _env_float("FOREX_SWAP_SHORT", 0.00005),
         }
     
     # Криптовалюты (BTCUSDT, ETHUSDT и т.д.)
@@ -626,37 +626,37 @@ def _get_default_symbol_info(symbol: str) -> dict:
         lot_step = 0.001 if "BTC" in symbol_upper else 0.01
 
         return {
-            "point": 1e-8
+            "point": 1e-8,
             "tick_value_per_lot": 1.0,  # Для крипты обычно 1:1 (если лот = монеты)
-            "contract_size": 1.0
-            "tick_size": 1e-8
-            "tick_value": 1.0
-            "lot_step": lot_step
+            "contract_size": 1.0,
+            "tick_size": 1e-8,
+            "tick_value": 1.0,
+            "lot_step": lot_step,
             # ✅ Комиссии (ENV или defaults)
             # Binance Futures taker ~0.04% (0.0004), maker ~0.02%. 
             # We use 0.0005 (0.05%) as the global baseline.
-            "commission_rate": _env_float("CRYPTO_COMMISSION_RATE", 0.0005)
-            "commission_per_lot": _env_float("CRYPTO_COMMISSION_PER_LOT")
-            "swap_long": _env_float("CRYPTO_SWAP_LONG", 0.0)
-            "swap_short": _env_float("CRYPTO_SWAP_SHORT", 0.0)
+            "commission_rate": _env_float("CRYPTO_COMMISSION_RATE", 0.0005),
+            "commission_per_lot": _env_float("CRYPTO_COMMISSION_PER_LOT"),
+            "swap_long": _env_float("CRYPTO_SWAP_LONG", 0.0),
+            "swap_short": _env_float("CRYPTO_SWAP_SHORT", 0.0),
             # ✅ Rocket v1: дефолтные настройки трейлинга для крипты
-            "trailing_profile_default": "rocket_v1"
-            "trailing_after_tp1_enabled": True
-            "trailing_tp1_offset_atr": 0.6
-            "trailing_min_lock_r": 0.25
+            "trailing_profile_default": "rocket_v1",
+            "trailing_after_tp1_enabled": True,
+            "trailing_tp1_offset_atr": 0.6,
+            "trailing_min_lock_r": 0.25,
         }
     
     # Общие defaults
     return {
-        "point": 0.01
-        "tick_value_per_lot": 1.0
-        "contract_size": 1.0
-        "tick_size": 0.01
-        "tick_value": 1.0
+        "point": 0.01,
+        "tick_value_per_lot": 1.0,
+        "contract_size": 1.0,
+        "tick_size": 0.01,
+        "tick_value": 1.0,
         # ✅ Комиссии (ENV или defaults)
         "commission_rate": _env_float("DEFAULT_COMMISSION_RATE", 0.0005),  # 0.05%
-        "commission_per_lot": _env_float("DEFAULT_COMMISSION_PER_LOT")
-        "swap_long": _env_float("DEFAULT_SWAP_LONG", 0.0)
-        "swap_short": _env_float("DEFAULT_SWAP_SHORT", 0.0)
+        "commission_per_lot": _env_float("DEFAULT_COMMISSION_PER_LOT"),
+        "swap_long": _env_float("DEFAULT_SWAP_LONG", 0.0),
+        "swap_short": _env_float("DEFAULT_SWAP_SHORT", 0.0),
     }
 

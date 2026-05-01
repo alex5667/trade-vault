@@ -109,13 +109,13 @@ class TrailingProfilesRegistry:
             comment="Range regime specific protective profile: BE + fees"
         )
 
-        # Ракетный — для сильных ходов по XAUUSD и крипте
+        # Ракетный — для сильных ходов по  и крипте
         self._profiles["rocket_v1"] = TrailingProfile(
             name="rocket_v1",
             mode="ATR",
             atr_mult=1.2,       # SL = entry ± 1.2*ATR (для трейлинга после TP1)
             hard_min_lock=0.0,
-            comment="ATR 1.2 trailing, TP1=1.2 ATR (default for crypto and XAUUSD)"
+            comment="ATR 1.2 trailing, TP1=1.2 ATR (default for crypto and )"
         )
 
         # Профиль для экстремальной волатильности (expansion regime)

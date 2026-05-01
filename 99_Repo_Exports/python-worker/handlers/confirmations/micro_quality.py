@@ -66,11 +66,11 @@ class MicroQualityValidator:
     def _get_cancel_to_trade(self, ctx: Any) -> float:
         # берём максимум доступных метрик (5s/20s, bid/ask)
         vals = [
-            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0)
-            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0)
-            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0)
-            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0)
-            _f(getattr(ctx, "l3_cancel_to_trade", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0),
+            _f(getattr(ctx, "l3_cancel_to_trade", None), 0.0),
         ]
         return float(max(vals) if vals else 0.0)
 

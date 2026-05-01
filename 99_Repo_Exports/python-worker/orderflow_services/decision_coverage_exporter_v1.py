@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Prometheus exporter for decision coverage KPIs (P66).
 
@@ -11,7 +12,6 @@ and exposes:
   - decision_last_age_seconds     — seconds since last decision (freshness probe)
 """
 
-from __future__ import annotations
 
 import os
 import time

@@ -163,7 +163,7 @@ class TestStreamsHealthReporting:
         """Test streams report with legacy and majors streams."""
         mock_redis.xlen.side_effect = lambda key: {
             "events:microbar_closed": 1000,
-            "events:microbar_closed:majors": 500
+            "events:microbar_closed:majors": 500,
         }.get(key, 0)
         mock_redis.scard.return_value = 10
         mock_redis.sscan.return_value = (0, [])

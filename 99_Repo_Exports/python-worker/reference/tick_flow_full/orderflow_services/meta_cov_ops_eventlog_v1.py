@@ -24,16 +24,16 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 def write_event(
-    r: "redis.Redis"
-    stream_key: str
-    run_id: str
-    event_type: str
-    payload: Dict[str, Any]
+    r: "redis.Redis",
+    stream_key: str,
+    run_id: str,
+    event_type: str,
+    payload: Dict[str, Any],
     maxlen: int = 10000
 ) -> Optional[str]:
     """
     Writes an event to Redis Stream.
-    payload should be a flat dict of strings/numbers mostly
+    payload should be a flat dict of strings/numbers mostly,
     but we can auto-serialize complex types to json string if needed.
     """
     if not r:
@@ -43,9 +43,9 @@ def write_event(
     try:
         # Prepare fields
         fields = {
-            "ts_ms": now_ms()
-            "event": event_type
-            "run_id": run_id
+            "ts_ms": now_ms(),
+            "event": event_type,
+            "run_id": run_id,
         }
         
         # Merge payload, ensuring values are strings or numbers
@@ -63,8 +63,8 @@ def write_event(
         return None
 
 def write_cfg2_snapshot(
-    r: "redis.Redis"
-    cfg_key: str
+    r: "redis.Redis",
+    cfg_key: str,
     snapshot_data: Dict[str, Any]
 ) -> None:
     """

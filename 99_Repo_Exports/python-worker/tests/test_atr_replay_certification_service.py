@@ -28,7 +28,7 @@ def test_select_required_datasets(mock_get_db):
 
 def test_decide_replay_cert_status():
     checks_pass = [
-        {"check_name": "S1", "status": "passed", "severity": "critical"}
+        {"check_name": "S1", "status": "passed", "severity": "critical"},
     ]
     status, msg = ATRReplayCertificationService.decide_replay_cert_status(checks_pass)
     assert status == "passed"

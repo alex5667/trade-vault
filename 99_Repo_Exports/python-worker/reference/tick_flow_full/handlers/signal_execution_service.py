@@ -1,9 +1,9 @@
 # signal_execution_service.py
+from __future__ import annotations
 """
 Signal execution functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 
 from typing import Optional, Dict, Any
 import time
@@ -33,7 +33,7 @@ class SignalExecutionService:
         self._signal_bus = None
         self._performance_tracker = None
 
-    def set_execution_components(self, execution_planner: Any = None, signal_repo: Any = None
+    def set_execution_components(self, execution_planner: Any = None, signal_repo: Any = None,
                                 signal_bus: Any = None, performance_tracker: Any = None) -> None:
         """Set execution components for signal handling."""
         self._execution_planner = execution_planner
@@ -99,8 +99,8 @@ class SignalExecutionService:
             self.logger.warning(f"Failed to get execution stats: {e}")
 
         return {
-            'total_signals': 0
-            'executed_signals': 0
-            'success_rate': 0.0
-            'avg_execution_time_ms': 0.0
+            'total_signals': 0,
+            'executed_signals': 0,
+            'success_rate': 0.0,
+            'avg_execution_time_ms': 0.0,
         }

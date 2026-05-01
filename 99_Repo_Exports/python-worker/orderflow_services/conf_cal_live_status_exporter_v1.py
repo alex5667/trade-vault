@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """conf_cal_live_status_exporter_v1.py
 
 Prometheus exporter for confidence calibration live-health status.
@@ -19,7 +20,6 @@ Requested gauges:
   live_ece_raw, live_ece_cal, live_brier_raw, live_brier_cal, bad_streak, rollback_total
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

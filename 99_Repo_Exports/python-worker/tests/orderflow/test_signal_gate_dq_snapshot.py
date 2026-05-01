@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P0-1 regression: SignalGate._build_dq_snapshot reads correct runtime fields.
 
@@ -6,7 +7,6 @@ Coverage:
   - outbox_backlog reads _retry_queue.qsize(), not _q
   - stale snapshot triggers DQ hard veto
 """
-from __future__ import annotations
 
 import types
 import unittest

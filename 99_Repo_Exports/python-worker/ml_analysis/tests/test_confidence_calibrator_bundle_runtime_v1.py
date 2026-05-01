@@ -28,7 +28,7 @@ class TestConfidenceCalibratorBundleRuntime(unittest.TestCase):
             "schema_version": 2,
             "meta": {"bucket_by": "none"},
             "buckets": {
-                "global": {"method": "identity"}
+                "global": {"method": "identity"},
             }
         }
         self._write_bundle(data1)

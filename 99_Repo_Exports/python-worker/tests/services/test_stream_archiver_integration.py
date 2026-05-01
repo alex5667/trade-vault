@@ -60,8 +60,8 @@ async def test_entry_audit_full_cycle(redis_client, pg_writer):
     stream = "test:entry_audit"
     test_payload = {
         "ts": 1706380000000,
-        "sid": "XAUUSD:test:v1",
-        "symbol": "XAUUSD",
+        "sid": ":test:v1",
+        "symbol": "",
         "decision": "ALLOW",
         "arm": "B",
         "ab_group": "test_group",
@@ -113,7 +113,7 @@ async def test_entry_audit_full_cycle(redis_client, pg_writer):
             )
             result = cur.fetchone()
             assert result is not None
-            assert result[0] == "XAUUSD"
+            assert result[0] == ""
             assert result[1] == "ALLOW"
             assert result[2] == "B"
     
@@ -195,7 +195,7 @@ async def test_idempotency(redis_client, pg_writer):
     stream = "test:idempotency"
     test_payload = {
         "ts": 1706380000000,
-        "symbol": "XAUUSD",
+        "symbol": "",
         "decision": "ALLOW",
     }
 

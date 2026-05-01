@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Benchmark ML confirm inference latency (p50/p95/p99).
 
 This is part of Step 6 (SRE/latency budgets).
 """
 
-from __future__ import annotations
 
 import argparse
 import json

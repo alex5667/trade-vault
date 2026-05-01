@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Promote edge_stack_v1 champion → cfg:ml_confirm:champion with CANARY mode.
 
@@ -18,7 +19,6 @@ Usage:
 Rollback:
   python3 tools/promote_edge_stack_to_canary.py --rollback
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

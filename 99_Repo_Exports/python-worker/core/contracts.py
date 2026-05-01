@@ -1,15 +1,15 @@
 # core/contracts.py
+from __future__ import annotations
 """
 Strict data contracts using msgspec for Redis -> Python validation.
 """
-from __future__ import annotations
 
 import msgspec
 from typing import Optional
 
 class SymbolSpecs(msgspec.Struct):
     """Спецификации торгового инструмента."""
-    symbol: str = "XAUUSD"
+    symbol=""
     point: float = 1e-8                 # Default to high precision
     tick_value_per_lot: float = 1.0     # $ за 1 point на 1.0 lot
     lot_step: float = 0.01

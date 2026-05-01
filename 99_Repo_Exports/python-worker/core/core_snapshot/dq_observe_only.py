@@ -1,3 +1,4 @@
+from __future__ import annotations
 """tick_flow_full.core.dq_observe_only
 
 Observe-only rollout guard for DQ hard-veto on BOOK sequence degradation.
@@ -27,7 +28,6 @@ Because the full code for dq_gate_v1.py was not present in the uploaded archive,
 we keep integration as a small, well-documented insertion.
 """
 
-from __future__ import annotations
 
 import os
 from dataclasses import dataclass

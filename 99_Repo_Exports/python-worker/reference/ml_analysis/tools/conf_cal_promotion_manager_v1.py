@@ -35,8 +35,8 @@ from psycopg2.extras import RealDictCursor
 
 # Setup Logging
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("conf_cal_promoter")
 
@@ -120,14 +120,14 @@ def fetch_recent_signals(dsn: str, hours: int = 24) -> List[Dict[str, Any]]:
 
             # Context for bucketing
             context = {
-                "session_bucket": indicators.get("session_bucket") or indicators.get("session") or indicators.get("sessionBucket")
-                "regime_bucket": indicators.get("regime_bucket") or indicators.get("regime") or indicators.get("regimeBucket")
-                "symbol": (raw_ctx.get("symbol") or indicators.get("symbol") or indicators.get("sym"))
+                "session_bucket": indicators.get("session_bucket") or indicators.get("session") or indicators.get("sessionBucket"),
+                "regime_bucket": indicators.get("regime_bucket") or indicators.get("regime") or indicators.get("regimeBucket"),
+                "symbol": (raw_ctx.get("symbol") or indicators.get("symbol") or indicators.get("sym")),
             }
 
             signals_data.append({
-                "raw_conf": raw_conf
-                "label": label
+                "raw_conf": raw_conf,
+                "label": label,
                 "context": context
             })
             
@@ -243,10 +243,10 @@ def compute_metrics(y_true: List[int], y_prob: List[float]) -> Dict[str, float]:
     prec_top5p = hits / top_n
     
     return {
-        "ece": ece
-        "brier": brier
-        "precision_top5p": prec_top5p
-        "n": n
+        "ece": ece,
+        "brier": brier,
+        "precision_top5p": prec_top5p,
+        "n": n,
     }
 
 def _as_str(x: Any) -> str:
@@ -262,12 +262,12 @@ def _cohort_key(ctx: Dict[str, Any]) -> str:
     return f"{sym}|{session}|{regime}"
 
 def compute_cohort_deltas(
-    data: List[Dict[str, Any]]
-    *
-    champ_probs: List[float]
-    cand_probs: List[float]
-    min_n_cohort: int
-    top_k: int
+    data: List[Dict[str, Any]],
+    *,
+    champ_probs: List[float],
+    cand_probs: List[float],
+    min_n_cohort: int,
+    top_k: int,
 ) -> Dict[str, Any]:
     """Matched-cohort evaluation (world practice).
 
@@ -310,11 +310,11 @@ def compute_cohort_deltas(
         d_brier = float(m_ca["brier"]) - float(m_ch["brier"])
 
         items.append({
-            "key": k
-            "n": int(nn)
-            "champ": m_ch
-            "cand": m_ca
-            "delta": {"ece_cal": d_ece, "brier_cal": d_brier}
+            "key": k,
+            "n": int(nn),
+            "champ": m_ch,
+            "cand": m_ca,
+            "delta": {"ece_cal": d_ece, "brier_cal": d_brier},
         })
 
         if nn >= int(min_n_cohort):
@@ -334,9 +334,9 @@ def compute_cohort_deltas(
         items = items[: int(top_k)]
 
     agg: Dict[str, Any] = {
-        "cohort_n": sum(1 for r in items if int(r.get("n", 0)) >= int(min_n_cohort))
-        "n": n
-        "min_n_cohort": int(min_n_cohort)
+        "cohort_n": sum(1 for r in items if int(r.get("n", 0)) >= int(min_n_cohort)),
+        "n": n,
+        "min_n_cohort": int(min_n_cohort),
     }
     if w_sum > 0.0:
         agg["delta_ece_cal_wmean"] = float(w_ece / w_sum)
@@ -345,10 +345,10 @@ def compute_cohort_deltas(
     worst: Dict[str, Any] = {}
     if worst_key is not None:
         worst = {
-            "key": str(worst_key)
-            "n": int(worst_n)
-            "delta_ece_cal_max": float(worst_ece) if worst_ece is not None else None
-            "delta_brier_cal_max": float(worst_brier) if worst_brier is not None else None
+            "key": str(worst_key),
+            "n": int(worst_n),
+            "delta_ece_cal_max": float(worst_ece) if worst_ece is not None else None,
+            "delta_brier_cal_max": float(worst_brier) if worst_brier is not None else None,
         }
 
     return {"items": items, "agg": agg, "worst": worst}
@@ -422,11 +422,11 @@ def main():
 
     # 5. Check Thresholds
     thresholds = {
-        "min_n": float(os.getenv("CONF_CAL_PROOF_MIN_N_24H", DEFAULT_MIN_N_24H))
-        "max_ece": float(os.getenv("CONF_CAL_PROOF_MAX_ECE_24H", DEFAULT_MAX_ECE))
-        "max_brier": float(os.getenv("CONF_CAL_PROOF_MAX_BRIER_24H", DEFAULT_MAX_BRIER))
-        "min_prec": float(os.getenv("CONF_CAL_PROOF_MIN_PREC_TOP5P_24H", DEFAULT_MIN_PREC_TOP5P))
-        "min_delta_ece": float(os.getenv("CONF_CAL_PROMO_MIN_DELTA_ECE", DEFAULT_MIN_DELTA_ECE))
+        "min_n": float(os.getenv("CONF_CAL_PROOF_MIN_N_24H", DEFAULT_MIN_N_24H)),
+        "max_ece": float(os.getenv("CONF_CAL_PROOF_MAX_ECE_24H", DEFAULT_MAX_ECE)),
+        "max_brier": float(os.getenv("CONF_CAL_PROOF_MAX_BRIER_24H", DEFAULT_MAX_BRIER)),
+        "min_prec": float(os.getenv("CONF_CAL_PROOF_MIN_PREC_TOP5P_24H", DEFAULT_MIN_PREC_TOP5P)),
+        "min_delta_ece": float(os.getenv("CONF_CAL_PROMO_MIN_DELTA_ECE", DEFAULT_MIN_DELTA_ECE)),
     }
 
     # Validation (Proof) of Candidate
@@ -500,18 +500,18 @@ def main():
     min_n_cohort = int(os.getenv("CONF_CAL_COHORT_MIN_N", "200"))
     top_k = int(os.getenv("CONF_CAL_COHORT_TOP_K", "20"))
     cohort_report = compute_cohort_deltas(
-        data
-        champ_probs=champ_probs
-        cand_probs=cand_probs
-        min_n_cohort=min_n_cohort
-        top_k=top_k
+        data,
+        champ_probs=champ_probs,
+        cand_probs=cand_probs,
+        min_n_cohort=min_n_cohort,
+        top_k=top_k,
     )
 
     arm_delta = {
-        "ece_cal": float(cand_metrics["ece"]) - float(champ_metrics["ece"])
-        "brier_cal": float(cand_metrics["brier"]) - float(champ_metrics["brier"])
-        "precision_top5p": float(cand_metrics["precision_top5p"]) - float(champ_metrics["precision_top5p"])
-        "n": int(min(cand_metrics["n"], champ_metrics["n"]))
+        "ece_cal": float(cand_metrics["ece"]) - float(champ_metrics["ece"]),
+        "brier_cal": float(cand_metrics["brier"]) - float(champ_metrics["brier"]),
+        "precision_top5p": float(cand_metrics["precision_top5p"]) - float(champ_metrics["precision_top5p"]),
+        "n": int(min(cand_metrics["n"], champ_metrics["n"])),
     }
 
     now_ms = get_ny_time_millis()
@@ -520,48 +520,48 @@ def main():
     proof_reasons = reasons
 
     proof_data = {
-        "ts_ms": now_ms
-        "generated_at": datetime.now(timezone.utc).isoformat()
-        "degrade": 0 if proof_valid else 1
+        "ts_ms": now_ms,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "degrade": 0 if proof_valid else 1,
         "status": {
-            "degrade": 0 if proof_valid else 1
-            "valid": bool(proof_valid)
-            "reasons": proof_reasons if not proof_valid else []
-            "promoted_just_now": bool(promoted)
-            "promotion_reason": promo_reason
-        }
-        "ece_cal": float(active_metrics["ece"])
-        "brier_cal": float(active_metrics["brier"])
-        "precision_top5p": float(active_metrics["precision_top5p"])
-        "n": int(active_metrics["n"])
-        "bundle_version": cand_bundle.get("version") if promoted else (champ_bundle.get("version") if champ_bundle else "none")
-        "champion_version": champ_bundle.get("version") if champ_bundle else "none"
-        "candidate_version": cand_bundle.get("version") if cand_bundle else "none"
+            "degrade": 0 if proof_valid else 1,
+            "valid": bool(proof_valid),
+            "reasons": proof_reasons if not proof_valid else [],
+            "promoted_just_now": bool(promoted),
+            "promotion_reason": promo_reason,
+        },
+        "ece_cal": float(active_metrics["ece"]),
+        "brier_cal": float(active_metrics["brier"]),
+        "precision_top5p": float(active_metrics["precision_top5p"]),
+        "n": int(active_metrics["n"]),
+        "bundle_version": cand_bundle.get("version") if promoted else (champ_bundle.get("version") if champ_bundle else "none"),
+        "champion_version": champ_bundle.get("version") if champ_bundle else "none",
+        "candidate_version": cand_bundle.get("version") if cand_bundle else "none",
         "GLOBAL": {
-            "ts_ms": now_ms
-            "n": int(active_metrics["n"])
-            "ece_cal": float(active_metrics["ece"])
-            "brier_cal": float(active_metrics["brier"])
-            "precision_top5p": float(active_metrics["precision_top5p"])
+            "ts_ms": now_ms,
+            "n": int(active_metrics["n"]),
+            "ece_cal": float(active_metrics["ece"]),
+            "brier_cal": float(active_metrics["brier"]),
+            "precision_top5p": float(active_metrics["precision_top5p"]),
             "champion": {
-                "ece_cal": float(champ_metrics["ece"])
-                "brier_cal": float(champ_metrics["brier"])
-                "precision_top5p": float(champ_metrics["precision_top5p"])
-                "n": int(champ_metrics["n"])
-            }
+                "ece_cal": float(champ_metrics["ece"]),
+                "brier_cal": float(champ_metrics["brier"]),
+                "precision_top5p": float(champ_metrics["precision_top5p"]),
+                "n": int(champ_metrics["n"]),
+            },
             "challenger": {
-                "ece_cal": float(cand_metrics["ece"])
-                "brier_cal": float(cand_metrics["brier"])
-                "precision_top5p": float(cand_metrics["precision_top5p"])
-                "n": int(cand_metrics["n"])
-            }
-            "delta": arm_delta
-            "cohorts": {"agg": cohort_report.get("agg") or {}, "worst": cohort_report.get("worst") or {}}
-        }
-        "arms": {"champion": proof_data_champion_placeholder, "challenger": proof_data_challenger_placeholder, "delta": arm_delta}
-        "cohorts": cohort_report
+                "ece_cal": float(cand_metrics["ece"]),
+                "brier_cal": float(cand_metrics["brier"]),
+                "precision_top5p": float(cand_metrics["precision_top5p"]),
+                "n": int(cand_metrics["n"]),
+            },
+            "delta": arm_delta,
+            "cohorts": {"agg": cohort_report.get("agg") or {}, "worst": cohort_report.get("worst") or {}},
+        },
+        "arms": {"champion": proof_data_champion_placeholder, "challenger": proof_data_challenger_placeholder, "delta": arm_delta},
+        "cohorts": cohort_report,
         "metrics": active_metrics,  # legacy
-        "valid": bool(proof_valid)
+        "valid": bool(proof_valid),
     }
 
     # Fix the arms referencing itself
@@ -578,10 +578,10 @@ def main():
 
     # 8. Write Status (for Ops)
     status_data = {
-        "last_run": int(time.time())
-        "promoted": promoted
-        "reason": promo_reason
-        "candidate_metrics": cand_metrics
+        "last_run": int(time.time()),
+        "promoted": promoted,
+        "reason": promo_reason,
+        "candidate_metrics": cand_metrics,
         "champion_metrics": champ_metrics
     }
     try:

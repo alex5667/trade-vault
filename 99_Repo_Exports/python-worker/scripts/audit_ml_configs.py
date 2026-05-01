@@ -49,8 +49,8 @@ def audit_configs():
             except ValidationError as ve:
                 print(f"[VIOLATION] {key}")
                 violations.append({
-                    "key": key
-                    "error": str(ve)
+                    "key": key,
+                    "error": str(ve),
                     "config": cfg
                 })
         except Exception as e:

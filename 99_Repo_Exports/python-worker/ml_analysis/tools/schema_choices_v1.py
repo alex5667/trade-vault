@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Shared schema-version choices for ML analysis tools.
 
 Why this exists
@@ -12,7 +13,6 @@ Notes
   - We keep the allowlist explicit (argparse choices) to fail fast on typos.
 """
 
-from __future__ import annotations
 
 from typing import List
 

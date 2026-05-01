@@ -91,11 +91,11 @@ def is_crossed(best_bid: Optional[float], best_ask: Optional[float]) -> bool:
 
 
 def wall_distance_bps(
-    *
-    ref_price: float
-    levels: list[L2Level]
-    min_wall_notional: float
-    max_scan: int
+    *,
+    ref_price: float,
+    levels: list[L2Level],
+    min_wall_notional: float,
+    max_scan: int,
 ) -> Optional[float]:
     """
     Ищем ближайшую "стену" (level.notional >= min_wall_notional) и возвращаем min |p-ref| в bps.
@@ -144,10 +144,10 @@ class WallInfo:
 
 
 def find_near_wall(
-    levels: list[L2Level]
-    target_price: float
-    within_bps: float
-    top_n_for_baseline: int = 10
+    levels: list[L2Level],
+    target_price: float,
+    within_bps: float,
+    top_n_for_baseline: int = 10,
 ) -> WallInfo:
     """
     Ищем уровень (wall) в пределах within_bps от target_price.

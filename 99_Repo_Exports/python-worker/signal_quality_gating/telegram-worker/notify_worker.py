@@ -1074,13 +1074,13 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
             _attach_outbox_meta(redis_client=redis, entry=entry, parsed=parsed, raw=raw)
 
         elif "text" in entry and "side" in entry and "price" in entry:
-            # XAUUSD Format
+            #  Format
             text = entry.get("text", "")
             side = entry.get("side", "")
             price = entry.get("price", "")
             
             symbol_match = re.search(r'(XAU\w*|BTC\w*|ETH\w*|[A-Z]{3,})', text)
-            symbol = symbol_match.group(1) if symbol_match else "XAUUSD"
+            symbol = symbol_match.group(1) if symbol_match else ""
             
             risk_json = entry.get("risk")
             stop = None
@@ -1099,15 +1099,15 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
                 "confidence": None,
                 "timeframe": None,
                 "exchange": "MT5",
-                "source": "XAUUSD OrderFlow",
+                "source": " OrderFlow",
                 "orderType": entry.get("note", "Market"),
                 "profitPct": None,
                 "raw_text": text,
                 "is_xauusd": True,
             }
-            # Special raw construction for XAUUSD to bypass formatting
+            # Special raw construction for  to bypass formatting
             raw = {
-                "chat_title": "XAUUSD OrderFlow Analysis",
+                "chat_title": " OrderFlow Analysis",
                 "username": "scanner-python-worker",
                 "text": text,
                 "is_xauusd": True

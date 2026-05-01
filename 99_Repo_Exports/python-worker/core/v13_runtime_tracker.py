@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 core/v13_runtime_tracker.py
 ===========================
@@ -18,7 +19,6 @@ Design:
   - No external IO — uses only in-memory buffers.
 """
 
-from __future__ import annotations
 
 import math
 import time

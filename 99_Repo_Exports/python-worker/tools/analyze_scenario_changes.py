@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Analyze scenario determination logic changes in of_confirm_engine.py.
 
 Compares recent commits to understand what changed in scenario determination logic.
@@ -8,7 +9,6 @@ Usage:
   python -m tools.analyze_scenario_changes --commit-range HEAD~20..HEAD --file python-worker/core/of_confirm_engine.py
 """
 
-from __future__ import annotations
 
 import argparse
 import subprocess

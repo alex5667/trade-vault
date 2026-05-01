@@ -1,7 +1,7 @@
 from utils.time_utils import get_ny_time_millis
 # -*- coding: utf-8 -*-
 """
-XAUUSD Signal Formatter - Единый формат сообщений по XAUUSD для всех генерирующих сервисов.
+ Signal Formatter - Единый формат сообщений по  для всех генерирующих сервисов.
 
 Senior Go/Python Developer + Senior Trading Systems Analyst
 40 лет совместного опыта
@@ -16,9 +16,9 @@ import html
 
 @dataclass
 class XAUUSDSignal:
-    """Стандартная структура сигнала XAUUSD"""
+    """Стандартная структура сигнала """
     sid: str                    # Signal ID
-    symbol: str                 # Символ (XAUUSD)
+    symbol: str                 # Символ ()
     side: str                   # Направление (LONG/SHORT)
     entry: float                # Цена входа
     sl: float                   # Stop Loss
@@ -37,7 +37,7 @@ class XAUUSDSignal:
 
 class XAUUSDSignalFormatter:
     """
-    Единый форматировщик сигналов XAUUSD.
+    Единый форматировщик сигналов .
     
     Обеспечивает консистентность сообщений по всем сервисам:
     - python-worker/handlers/xau_orderflow_handler.py
@@ -94,7 +94,7 @@ class XAUUSDSignalFormatter:
         
         # Формируем основное сообщение
         message_parts = [
-            f"{source_emoji} {direction_emoji} XAUUSD {signal.side} @ {signal.entry:.2f}, Volume {signal.lot:.2f} lot",
+            f"{source_emoji} {direction_emoji}  {signal.side} @ {signal.entry:.2f}, Volume {signal.lot:.2f} lot",
         ]
         
         # Добавляем причину/контекст если есть
@@ -254,7 +254,7 @@ if __name__ == "__main__":
     # Создаём тестовый сигнал
     test_signal = XAUUSDSignal(
         sid="1730000000000:SHORT:400718",
-        symbol="XAUUSD",
+        symbol="",
         side="SHORT",
         entry=4007.18,
         sl=4007.78,

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 train_edge_stack_v1.py
 
@@ -25,7 +26,6 @@ OOF rule:
   meta обучается только на OOF предиктах base моделей.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

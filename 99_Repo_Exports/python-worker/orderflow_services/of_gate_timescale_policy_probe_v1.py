@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_timescale_policy_probe_v1.py
 
 Probe TimescaleDB policy/job health for OF-gate rollups.
@@ -27,9 +28,8 @@ ENV:
 Exit:
   0: ok
   2: missing/disabled policies (when expect_timescale=1) OR db error
-"""
+""",
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import datetime as dt
@@ -97,7 +97,7 @@ def _bool(v: Any) -> Optional[bool]:
 def _cols(conn, schema: str, table: str) -> List[str]:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             SELECT column_name
             FROM information_schema.columns
             WHERE table_schema=%s AND table_name=%s

@@ -236,7 +236,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "cooldown_sec": parse_int(raw.get("cooldown_sec"), DEFAULT_COOLDOWN_SEC),
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
-    }
+    },
 
 
 def current_bridge_mode(raw: Dict[str, Any]) -> str:
@@ -297,7 +297,7 @@ def join_feedback_with_results(feedback_rows: List[Dict[str, Any]], result_rows:
                 "accepted": parse_int(fb.get("accepted"), 0),
                 "reason_code": str(fb.get("reason_code") or ""),
                 "ts_ms": ts_ms,
-            }
+            },
         )
     return joined
 
@@ -313,7 +313,7 @@ def provider_rollup(joined: List[Dict[str, Any]], provider_mode: str) -> Dict[st
             "avg_usefulness": 0.0,
             "accepted_rate": 0.0,
             "low_usefulness_rate": 0.0,
-        }
+        },
     q = [r["quality_score"] for r in rows]
     u = [r["usefulness_score"] for r in rows]
     a = [r["accepted"] for r in rows]
@@ -325,7 +325,7 @@ def provider_rollup(joined: List[Dict[str, Any]], provider_mode: str) -> Dict[st
         "avg_usefulness": round(sum(u) / n, 6),
         "accepted_rate": round(sum(a) / n, 6),
         "low_usefulness_rate": round(sum(low_u) / n, 6),
-    }
+    },
 
 
 def evaluate_usefulness(vertex: Dict[str, Any], local: Dict[str, Any], bridge_mode: str, policy: Dict[str, Any], cooldown_active: bool) -> Dict[str, Any]:
@@ -335,7 +335,7 @@ def evaluate_usefulness(vertex: Dict[str, Any], local: Dict[str, Any], bridge_mo
         "target_bridge_mode": bridge_mode,
         "current_bridge_mode": bridge_mode,
         "cooldown_active": 1 if cooldown_active else 0,
-    }
+    },
 
     if bridge_mode != "LOCAL_ONLY":
         poor_vertex = (
@@ -387,7 +387,7 @@ async def persist_if_configured(db_url: str, vertex: Dict[str, Any], local: Dict
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_rollups (
                     ts_ms, window_min,
                     vertex_n, vertex_avg_quality, vertex_avg_usefulness, vertex_accepted_rate, vertex_low_usefulness_rate,
@@ -417,7 +417,7 @@ async def persist_if_configured(db_url: str, vertex: Dict[str, Any], local: Dict
                 },
             )
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_decisions (
                     ts_ms, current_bridge_mode, target_bridge_mode, decision, reason_code, decision_json
                 ) VALUES (

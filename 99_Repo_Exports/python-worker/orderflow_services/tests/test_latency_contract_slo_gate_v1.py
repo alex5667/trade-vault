@@ -1,5 +1,5 @@
-"""Tests for latency_contract_slo_gate_v1.evaluate_once()."""
 from __future__ import annotations
+"""Tests for latency_contract_slo_gate_v1.evaluate_once()."""
 
 import sys
 import os

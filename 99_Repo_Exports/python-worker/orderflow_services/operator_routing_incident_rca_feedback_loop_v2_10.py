@@ -94,7 +94,7 @@ def score_usefulness(usefulness: str) -> float:
         "USEFUL": 0.75,
         "MIXED": 0.50,
         "NOT_USEFUL": 0.0,
-    }
+    },
     return mapping.get(usefulness.upper(), 0.0)
 
 
@@ -113,7 +113,7 @@ async def persist_feedback(db_url: str, output_hash: str, row: Dict[str, Any]) -
         with psycopg.connect(db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_operator_routing_incident_rca_feedback (
                         output_hash,
                         operator_id,
@@ -140,7 +140,7 @@ async def persist_feedback(db_url: str, output_hash: str, row: Dict[str, Any]) -
                     },
                 )
                 cur.execute(
-                    """
+                    """,
                     UPDATE llm_operator_routing_incident_rca_results
                     SET usefulness_score = %(score)s
                     WHERE output_hash = %(output_hash)s

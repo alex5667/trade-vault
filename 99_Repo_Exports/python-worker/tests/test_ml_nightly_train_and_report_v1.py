@@ -1,5 +1,5 @@
-"""Tests for ML nightly train and report v1."""
 from __future__ import annotations
+"""Tests for ML nightly train and report v1."""
 
 import json
 import os

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 G12 · BURST MODE (Peak Pressure Aggregator) — comprehensive test suite.
 
@@ -12,7 +13,6 @@ Tests cover:
   8. Metrics: burst_active_gauge, burst_window_ms_gauge set correctly
 """
 
-from __future__ import annotations
 
 import asyncio
 import os

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Switch Budget System - Third Layer of Stabilization
 
@@ -16,7 +17,6 @@ Expert review:
   - DevOps/SRE: Redis-based state, TTL cleanup, fail-safe defaults
   - Professor Statistics: Min-gap prevents autocorrelation in threshold changes
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from dataclasses import dataclass

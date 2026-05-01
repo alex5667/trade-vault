@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Проверка наличия всех необходимых индикаторов в OF inputs для legs.
 
 Проверяет:
@@ -7,7 +8,6 @@
 - Конфигурация (of_score_min)
 """
 
-from __future__ import annotations
 
 import argparse
 import json

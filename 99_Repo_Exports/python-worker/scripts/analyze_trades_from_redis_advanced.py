@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 analyze_trades_from_redis_advanced.py
 
@@ -18,7 +19,6 @@ analyze_trades_from_redis_advanced.py
 - entry_tag
 """
 
-from __future__ import annotations
 
 import argparse
 import math
@@ -358,11 +358,11 @@ class TagStats:
 # ----------------------------
 
 def load_trades_from_redis(
-    redis_url: str
-    stream_key: str
-    count: int
-    source_filter: Optional[str] = None
-    symbol_filter: Optional[str] = None
+    redis_url: str,
+    stream_key: str,
+    count: int,
+    source_filter: Optional[str] = None,
+    symbol_filter: Optional[str] = None,
 ) -> List[Trade]:
     r = redis.from_url(redis_url, decode_responses=True)
     entries = r.xrevrange(stream_key, max="+", min="-", count=count)
@@ -379,22 +379,22 @@ def load_trades_from_redis(
             continue
 
         trade = Trade(
-            source=source
-            symbol=symbol
-            exit_ts_ms=_to_int(fields.get("exit_ts_ms") or fields.get("exit_ts") or fields.get("ts"))
-            pnl_net=_to_float(fields.get("pnl_net") or fields.get("pnl"))
-            pnl_if_fixed_exit=_to_float(fields.get("pnl_if_fixed_exit") or fields.get("pnl_fixed"))
-            one_r_money=_to_float(fields.get("one_r_money") or fields.get("one_r"))
-            giveback=_to_float(fields.get("giveback"))
-            missed_profit=_to_float(fields.get("missed_profit"))
-            mfe_pnl=_to_float(fields.get("mfe_pnl"))
-            mae_pnl=_to_float(fields.get("mae_pnl"))
-            trailing_started=_to_bool(fields.get("trailing_started"))
-            trailing_active=_to_bool(fields.get("trailing_active"))
-            close_reason=fields.get("close_reason") or ""
-            close_reason_raw=fields.get("close_reason_raw") or ""
-            close_reason_detail=fields.get("close_reason_detail") or ""
-            entry_tag=fields.get("entry_tag") or ""
+            source=source,
+            symbol=symbol,
+            exit_ts_ms=_to_int(fields.get("exit_ts_ms") or fields.get("exit_ts") or fields.get("ts")),
+            pnl_net=_to_float(fields.get("pnl_net") or fields.get("pnl")),
+            pnl_if_fixed_exit=_to_float(fields.get("pnl_if_fixed_exit") or fields.get("pnl_fixed")),
+            one_r_money=_to_float(fields.get("one_r_money") or fields.get("one_r")),
+            giveback=_to_float(fields.get("giveback")),
+            missed_profit=_to_float(fields.get("missed_profit")),
+            mfe_pnl=_to_float(fields.get("mfe_pnl")),
+            mae_pnl=_to_float(fields.get("mae_pnl")),
+            trailing_started=_to_bool(fields.get("trailing_started")),
+            trailing_active=_to_bool(fields.get("trailing_active")),
+            close_reason=fields.get("close_reason") or "",
+            close_reason_raw=fields.get("close_reason_raw") or "",
+            close_reason_detail=fields.get("close_reason_detail") or "",
+            entry_tag=fields.get("entry_tag") or "",
         )
         trades.append(trade)
 
@@ -505,11 +505,11 @@ def main() -> None:
     args = parser.parse_args()
 
     trades = load_trades_from_redis(
-        redis_url=args.redis_url
-        stream_key=args.stream
-        count=args.count
-        source_filter=args.source
-        symbol_filter=args.symbol
+        redis_url=args.redis_url,
+        stream_key=args.stream,
+        count=args.count,
+        source_filter=args.source,
+        symbol_filter=args.symbol,
     )
 
     if not trades:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """export_position_closed_ndjson_v1.py
 
 Phase2 helper: export POSITION_CLOSED events from Postgres/Timescale into NDJSON.
@@ -22,7 +23,6 @@ Env fallback for DSN:
   - TRADES_DB_DSN | DATABASE_URL | PG_DSN
 """
 
-from __future__ import annotations
 
 import argparse
 import json

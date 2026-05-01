@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly runner for feature-denylist proposals (AB gate).
 
 Scans proposals dir for manifests with status=pending_ab and runs
@@ -21,7 +22,6 @@ FEATURE_DENYLIST_AB_METRICS_KEY (default metrics:feature_denylist_ab:last)
 
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -110,20 +110,20 @@ def _run_replay_ab(manifest: Path, out_dir: Optional[Path] = None) -> Tuple[int,
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--proposals-dir"
-        default=os.getenv("FEATURE_DENYLIST_PROPOSALS_DIR", "proposals")
-        help="Directory with denylist_proposal_*.manifest.json"
+        "--proposals-dir",
+        default=os.getenv("FEATURE_DENYLIST_PROPOSALS_DIR", "proposals"),
+        help="Directory with denylist_proposal_*.manifest.json",
     )
     ap.add_argument(
-        "--max-pending"
-        type=int
-        default=int(os.getenv("FEATURE_DENYLIST_AB_MAX_PENDING", "1"))
-        help="How many pending manifests to process per run"
+        "--max-pending",
+        type=int,
+        default=int(os.getenv("FEATURE_DENYLIST_AB_MAX_PENDING", "1")),
+        help="How many pending manifests to process per run",
     )
     ap.add_argument(
-        "--out-dir"
-        default=""
-        help="Where AB runs are written (default: <proposals-dir>/ab_runs)"
+        "--out-dir",
+        default="",
+        help="Where AB runs are written (default: <proposals-dir>/ab_runs)",
     )
     ap.add_argument("--dry-run", type=int, default=0)
     args = ap.parse_args()
@@ -141,10 +141,10 @@ def main() -> int:
     if int(args.dry_run) == 1:
         _write_metrics(
             {
-                "ts_utc": _utc_iso()
-                "pending_n": len(pending)
-                "oldest_pending_age_s": oldest_age_s
-                "dry_run": 1
+                "ts_utc": _utc_iso(),
+                "pending_n": len(pending),
+                "oldest_pending_age_s": oldest_age_s,
+                "dry_run": 1,
             }
         )
         print(json.dumps({"pending_n": len(pending), "oldest_pending_age_s": oldest_age_s}, ensure_ascii=False))
@@ -157,10 +157,10 @@ def main() -> int:
     for mp in pending[: max(0, int(args.max_pending))]:
         rc, out, err = _run_replay_ab(mp, out_dir=out_dir)
         item = {
-            "manifest": str(mp)
-            "rc": rc
-            "stdout_tail": "\n".join((out or "").splitlines()[-10:])
-            "stderr_tail": "\n".join((err or "").splitlines()[-10:])
+            "manifest": str(mp),
+            "rc": rc,
+            "stdout_tail": "\n".join((out or "").splitlines()[-10:]),
+            "stderr_tail": "\n".join((err or "").splitlines()[-10:]),
         }
         processed.append(item)
         if rc == 0:
@@ -169,12 +169,12 @@ def main() -> int:
             fail_n += 1
 
     payload = {
-        "ts_utc": _utc_iso()
-        "pending_n": len(pending)
-        "processed_n": len(processed)
-        "ok_n": ok_n
-        "fail_n": fail_n
-        "oldest_pending_age_s": oldest_age_s
+        "ts_utc": _utc_iso(),
+        "pending_n": len(pending),
+        "processed_n": len(processed),
+        "ok_n": ok_n,
+        "fail_n": fail_n,
+        "oldest_pending_age_s": oldest_age_s,
         "processed": processed[:3],  # small
     }
     _write_metrics(payload)

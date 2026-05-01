@@ -13,8 +13,8 @@ import sys
 from typing import Any, Dict
 
 from orderflow_services.strategy_research_stats_gate_v1 import (
-    evaluate_strategy_research_stats_gate
-    gate_check_message
+    evaluate_strategy_research_stats_gate,
+    gate_check_message,
 )
 
 
@@ -35,28 +35,28 @@ def _env_int(name: str, default: int) -> int:
 
 
 def evaluate_rollout_preflight(
-    *
-    purpose: str
-    client: Any | None = None
+    *,
+    purpose: str,
+    client: Any | None = None,
 ) -> Dict[str, Any]:
     if _env_int('ENABLE_STRATEGY_RESEARCH_STATS_HARD_GATE', 1) != 1:
         return {
-            'status': 'ok'
-            'reason': 'hard_gate_disabled'
-            'allowed': True
-            'exit_code': 0
-            'purpose': purpose
+            'status': 'ok',
+            'reason': 'hard_gate_disabled',
+            'allowed': True,
+            'exit_code': 0,
+            'purpose': purpose,
         }
 
     fail_closed_missing = _env_int('STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING', 0)
     configured_gate_mode = _env('STRATEGY_RESEARCH_STATS_GATE_MODE', '').strip().lower()
     state = evaluate_strategy_research_stats_gate(
-        _env('REDIS_URL', 'redis://redis-worker-1:6379/0')
-        _env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1')
-        _env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last')
-        max_age_sec=float(_env('STRATEGY_RESEARCH_STATS_MAX_AGE_SEC', '129600') or 129600)
-        fail_closed_missing=fail_closed_missing
-        client=client
+        _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+        _env('STRATEGY_RESEARCH_STATS_BLOCKER_KEY', 'cfg:strategy_research_stats:blocker:v1'),
+        _env('STRATEGY_RESEARCH_STATS_SUMMARY_KEY', 'metrics:strategy_research_stats:last'),
+        max_age_sec=float(_env('STRATEGY_RESEARCH_STATS_MAX_AGE_SEC', '129600') or 129600),
+        fail_closed_missing=fail_closed_missing,
+        client=client,
     )
     if str(state.get('reason') or '') == 'state_missing_allowed' and fail_closed_missing == 1 and configured_gate_mode in ('soft', 'hard'):
         state = dict(state)

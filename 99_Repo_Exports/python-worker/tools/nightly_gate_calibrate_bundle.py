@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly orchestrator: export inputs → engine replay → export trades → build dataset → calibrate → create bundle + Telegram preview.
 
 Why:
@@ -8,7 +9,6 @@ Usage:
   python -m tools.nightly_gate_calibrate_bundle --since-hours 24 --canary-symbols BTCUSDT,ETHUSDT
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 import argparse
 import json

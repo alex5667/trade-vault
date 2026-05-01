@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Initialize cfg:ml_confirm with v5 fields (per-symbol shares, bucket-aware config)."""
 
-from __future__ import annotations
 
 import os
 import sys

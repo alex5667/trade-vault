@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OF-Gate DLQ drilldown tool (P83).
 
 Purpose
@@ -31,7 +32,6 @@ Examples
     --ids 1700000000000-0,1700000000001-0 --yes
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Универсальный сервис ордерфлоу для крипто‑фьючерсов Binance USDT-M.
 
@@ -11,7 +12,6 @@
 Сервис асинхронный, построен на redis.asyncio.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -782,7 +782,7 @@ class OrderFlowStrategy:
                 runtime.symbol,
                 runtime.tick_count,
                 float(tick.get("price") or 0.0),
-                runtime.delta_triggers
+                runtime.delta_triggers,
             )
             runtime.heartbeat_counter = 0
         
@@ -1207,7 +1207,7 @@ class OrderFlowStrategy:
                 "direction_norm": direction, # internal standardized
                 "side_int": direction_norm.to_side_int(),  # P0: Numeric side
                 "delta": float(delta_event.get("delta", 0.0)),
-                "delta_z": float(delta_event.get("z", 0.0))
+                "delta_z": float(delta_event.get("z", 0.0)),
             }
             # Optional: if we already have features from runtime
             # Optional: if we already have features from runtime
@@ -1255,7 +1255,7 @@ class OrderFlowStrategy:
                     "events:delta_spike",
                     {"payload": json.dumps(spike_out, ensure_ascii=False)},
                     maxlen=20000,
-                    approximate=True
+                    approximate=True,
                 )
             )
         except Exception as e:
@@ -3046,7 +3046,7 @@ class OrderFlowStrategy:
                 cal_ctx = {
                     "session": indicators.get("session"),
                     "regime": indicators.get("regime", "neutral"),
-                    "symbol": runtime.symbol
+                    "symbol": runtime.symbol,
                 }
                 # Using get_calibrated_confidence from Compatibility Layer or Runtime
                 cal_res = self.conf_cal_runtime.get_calibrated_confidence(
@@ -3728,7 +3728,7 @@ class OrderFlowStrategy:
                 ctx_bucket = {
                     "session": indicators.get("session"),
                     "regime": indicators.get("liq_regime"),
-                    "symbol": runtime.symbol
+                    "symbol": runtime.symbol,
                 }
                 # Fallback regime
                 if not ctx_bucket["regime"]:

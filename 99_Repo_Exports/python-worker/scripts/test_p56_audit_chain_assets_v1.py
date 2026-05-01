@@ -1,5 +1,5 @@
-"""P5.6 asset integrity tests: Prometheus rules and Grafana dashboard must be valid and contain expected keys."""
 from __future__ import annotations
+"""P5.6 asset integrity tests: Prometheus rules and Grafana dashboard must be valid and contain expected keys."""
 
 import json
 from pathlib import Path

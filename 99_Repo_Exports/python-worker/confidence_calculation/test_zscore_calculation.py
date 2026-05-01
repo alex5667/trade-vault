@@ -160,10 +160,10 @@ def main():
     print("=" * 60)
     
     tests = [
-        test_zscore_basic
-        test_zscore_bias
-        test_zscore_market_scenario
-        test_zscore_low_variance
+        test_zscore_basic,
+        test_zscore_bias,
+        test_zscore_market_scenario,
+        test_zscore_low_variance,
     ]
     
     results = []

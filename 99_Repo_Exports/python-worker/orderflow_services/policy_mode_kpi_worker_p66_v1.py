@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 P66: Policy mode KPI worker
 
@@ -21,7 +22,6 @@ Architecture:
   - On idle: claims stale PEL messages (autoclaim) to avoid processing gaps
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

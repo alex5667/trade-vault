@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Liq Pressure Gate Calibrator (LiqPressureGate — P2d).
 
@@ -28,7 +29,6 @@ ENV:
   RECS_HMAC_SECRET               for bundle signing
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -134,7 +134,7 @@ def query_decisions_from_stream(
         liq_boost, liq_pen, liq_veto, liq_reason,
         liq_q_align, liq_ofi_align,
         gate_mode, symbol, direction, ts_ms
-    }
+    },
 
     Only includes records where liq_pressure indicators are present
     (i.e. liq_pressure_gate_mode was not "off" at the time of the decision).
@@ -205,7 +205,7 @@ def query_decisions_from_stream(
                 "symbol":      symbol,
                 "direction":   str(rec.get("direction") or "").upper(),
                 "ts_ms":       _safe_int(rec.get("ts_ms"), 0),
-            }
+            },
 
     logger.info(f"Decisions with active LiqPressureGate found: {len(decisions)}")
     return decisions
@@ -256,7 +256,7 @@ def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
                             "r_mult":    _safe_float(t.get("r_mult"), 0.0),
                             "symbol":    str(t.get("symbol") or "").upper(),
                             "direction": str(t.get("direction") or t.get("side") or "").upper(),
-                        }
+                        },
                 except Exception:
                     pass
     finally:
@@ -312,7 +312,7 @@ def compute_stats(
                 "boost_count": 0, "boost_r": [],
                 "pass_count":  0, "pass_r":  [],
                 "veto_count":  0, "veto_r":  [],
-            }
+            },
         s = by_symbol[sym]
 
         if dec["liq_veto"] == 1:
@@ -339,7 +339,7 @@ def compute_stats(
             "pass_r_mean":  round(_mean(s["pass_r"]), 3),
             "veto_count":   s["veto_count"],
             "veto_r_mean":  round(_mean(s["veto_r"]), 3),
-        }
+        },
 
     return {
         "total_decisions": len(decisions),
@@ -356,7 +356,7 @@ def compute_stats(
         "veto_r_median":   round(_median(veto_r),  3),
         "reasons":         dict(reasons.most_common()),
         "by_symbol":       by_sym_flat,
-    }
+    },
 
 
 def _should_propose(
@@ -467,7 +467,7 @@ def create_and_send_proposal(
             "key":   cfg_key,
             "field": "liq_pressure_gate_mode",
             "value": next_mode,
-        }
+        },
     ]
 
     meta = {
@@ -482,14 +482,14 @@ def create_and_send_proposal(
             "delta_r_mean":  round(stats["boost_r_mean"] - stats["pass_r_mean"], 3),
             "veto_hits":     stats["veto_hits"],
         },
-    }
+    },
 
     bundle = {
         "id":         bundle_id,
         "created_ms": get_ny_time_millis(),
         "ops":        ops,
         "meta":       meta,
-    }
+    },
 
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle))
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=86400)

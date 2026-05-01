@@ -5,9 +5,9 @@ import yaml
 
 def test_adverse_rd_alerts_yaml_parses():
     path = os.path.join(
-        os.path.dirname(__file__)
-        ".."
-        "prometheus_alerts_world_practice_adverse_rd_v1.yml"
+        os.path.dirname(__file__),
+        "..",
+        "prometheus_alerts_world_practice_adverse_rd_v1.yml",
     )
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f)
@@ -32,9 +32,9 @@ def test_adverse_rd_dashboard_files_exist():
 def test_adverse_rd_alerts_have_required_labels():
     """All alerts must have severity, component, and playbook labels."""
     path = os.path.join(
-        os.path.dirname(__file__)
-        ".."
-        "prometheus_alerts_world_practice_adverse_rd_v1.yml"
+        os.path.dirname(__file__),
+        "..",
+        "prometheus_alerts_world_practice_adverse_rd_v1.yml",
     )
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f)

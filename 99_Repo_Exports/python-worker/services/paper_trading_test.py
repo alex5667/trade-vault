@@ -81,7 +81,7 @@ class PaperTradingTest:
     
     def create_test_signal(
         self,
-        symbol: str = "XAUUSD",
+        symbol="",
         side: str = "LONG",
         confidence: float = 80.0,
         trail_profile: str = "rocket_v1"
@@ -102,7 +102,7 @@ class PaperTradingTest:
         sid = f"paper-test-{symbol}-{ts}-{random.randint(1000, 9999)}"
         
         # Симулируем реальные цены
-        if symbol == "XAUUSD":
+        if symbol == REMOVE_ME:
             base_price = 2765.5
         elif symbol == "BTCUSD":
             base_price = 50000.0
@@ -111,7 +111,7 @@ class PaperTradingTest:
         
         # Добавляем случайное отклонение
         entry = base_price + random.uniform(-10, 10)
-        atr = 2.5 if symbol == "XAUUSD" else 250.0
+        atr = 2.5 if symbol == "" else 250.0
         
         if side == "LONG":
             sl = entry - atr * 1.5
@@ -283,7 +283,7 @@ class PaperTradingTest:
                 side = random.choice(["LONG", "SHORT"])
                 
                 signal = self.create_test_signal(
-                    symbol="XAUUSD",
+                    symbol="",
                     side=side,
                     confidence=confidence,
                     trail_profile=profile
@@ -362,7 +362,7 @@ def main():
         help="Test scenario"
     )
     parser.add_argument("--signals", type=int, default=5, help="Number of signals per scenario")
-    parser.add_argument("--symbol", default="XAUUSD", help="Trading symbol")
+    parser.add_argument("--symbol", help="Trading symbol")
     
     args = parser.parse_args()
     

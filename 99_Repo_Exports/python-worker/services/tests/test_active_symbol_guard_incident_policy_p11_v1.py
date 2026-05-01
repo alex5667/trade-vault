@@ -16,43 +16,42 @@ spec.loader.exec_module(mod)
 
 class FakeRedis:
     def __init__(self):
-        self.kv = {}
-        self.streams = {}
+        self.kv = {},
+        self.streams = {},
 
     def get(self, key):
-        return self.kv.get(key)
+        return self.kv.get(key),
 
     def set(self, key, value, ex=None):
-        self.kv[key] = value
-        return True
+        self.kv[key] = value,
+        return True,
 
     def xadd(self, stream, fields, maxlen=None, approximate=True):
-        self.streams.setdefault(stream, []).append(dict(fields))
-        return f'{len(self.streams[stream])}-0'
+        self.streams.setdefault(stream, []).append(dict(fields)),
+        return f'{len(self.streams[stream])}-0',
 
 
 class DummyDiag:
     def incident_bundle_symbol(self, symbol, include_exchange=False):
         return {
             'summary': {
-                'symbol': str(symbol).upper()
-                'sid': 'sid-1'
-                'classification': 'stale_tombstone'
-                'severity': 'warning'
-                'hotness': {'5m': 4, '1h': 7}
-                'race_chain_count': 2
-            }
+                'symbol': str(symbol).upper(),
+                'sid': 'sid-1',
+                'classification': 'stale_tombstone',
+                'severity': 'warning',
+                'hotness': {'5m': 4, '1h': 7},
+                'race_chain_count': 2,
+            },
             'exchange_truth': {
-                'has_live_position': True
-                'has_open_orders': False
-                'is_reliable': True
-                'is_flat': False
-            }
+                'has_live_position': True,
+                'has_open_orders': False,
+                'is_reliable': True,
+                'is_flat': False,
+            },
             'suspicious_writer_race_chains': [
-                {'chain_type': 'resurrection_attempt'}
-                {'chain_type': 'multi_writer_conflict_burst'}
-            ]
-            'telegram_text': 'incident text'
+                {'chain_type': 'resurrection_attempt'},
+                {'chain_type': 'multi_writer_conflict_burst'}],
+            'telegram_text': 'incident text',
         }
 
     def incident_bundle_sid(self, sid, include_exchange=False):

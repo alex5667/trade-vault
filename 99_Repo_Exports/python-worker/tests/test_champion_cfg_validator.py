@@ -1,8 +1,8 @@
+from __future__ import annotations
 """
 Unit тесты для champion_cfg_validator.
 """
 
-from __future__ import annotations
 
 import json
 import pytest

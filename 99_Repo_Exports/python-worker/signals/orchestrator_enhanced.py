@@ -51,7 +51,7 @@ def fetch_and_publish_top_metrics() -> Tuple[List[str], List[str]]:
         # Экспортируем в Redis на порт 6380
         export_all_signals_to_redis_6380(
             gainers=format_entries(top_gainers) if top_gainers else None,
-            losers=format_entries(top_losers) if top_losers else None
+            losers=format_entries(top_losers) if top_losers else None,
         )
 
         gainers = [t.get("symbol", "") for t in top_gainers if t.get("symbol")]

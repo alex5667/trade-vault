@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from signals.signal_publisher import SignalPublisher
     from signal_scoring.engine import SignalScoringEngine
     from signal_exec import (
-         SignalService, ExecutionPlanner, SignalPerformanceTracker
+         SignalService, ExecutionPlanner, SignalPerformanceTracker,
          SignalRepository, SignalBus
     )
     from core.htf_levels import HTFLevelsProvider
@@ -112,8 +112,8 @@ except ImportError:
 
 # Import context utilities from extracted module
 from .context_helpers.context_utils import (
-    to_float_or_nan as _to_float_or_nan
-    to_opt_float as _to_opt_float
+    to_float_or_nan as _to_float_or_nan,
+    to_opt_float as _to_opt_float,
     ensure_levels,  # re-exported so callers can do: from handlers.base_orderflow_handler import ensure_levels
 )
 
@@ -223,17 +223,17 @@ class BaseOrderFlowHandler(ABC):
     DLQ_DEFAULT = "stream:dlq:orderflow"
 
     def __init__(
-        self
-        symbol: str
-        config: Optional[OrderFlowConfig] = None
-        *
-        source_name: str = "OrderFlow"
-        signal_stream_prefix: str = "signals:orderflow"
-        htf_provider: Optional[HTFLevelsProvider] = None
-        local_calibration: Optional[LCStoreV2] = None
-        unified_pipeline: Optional["UnifiedSignalPipeline"] = None
-        health_metrics: Optional[object] = None
-        dependencies: Optional[HandlerDependencies] = None
+        self,
+        symbol: str,
+        config: Optional[OrderFlowConfig] = None,
+        *,
+        source_name: str = "OrderFlow",
+        signal_stream_prefix: str = "signals:orderflow",
+        htf_provider: Optional[HTFLevelsProvider] = None,
+        local_calibration: Optional[LCStoreV2] = None,
+        unified_pipeline: Optional["UnifiedSignalPipeline"] = None,
+        health_metrics: Optional[object] = None,
+        dependencies: Optional[HandlerDependencies] = None,
     ):
         # Валидация входных данных
         self._validate_inputs(symbol, config, source_name, signal_stream_prefix)
@@ -270,10 +270,10 @@ class BaseOrderFlowHandler(ABC):
         return self._liq_max_age_ms
 
     def _validate_inputs(
-        self
-        symbol: str
-        config: Optional[OrderFlowConfig]
-        source_name: str
+        self,
+        symbol: str,
+        config: Optional[OrderFlowConfig],
+        source_name: str,
         signal_stream_prefix: str
     ) -> None:
         """Валидация входных параметров."""
@@ -429,15 +429,15 @@ class BaseOrderFlowHandler(ABC):
         # Сервисы обработки данных
         self._data_parser = OrderFlowDataParser(self.symbol, self.specs)
         self._data_processor = OrderFlowDataProcessor(
-            self.symbol, self.specs, self.config
-            atr_publisher=self._atr_publisher
-            atr_calculator=self.atr_calculator
-            # NEW: health_metrics прокидываем прямо в DataProcessor
+            self.symbol, self.specs, self.config,
+            atr_publisher=self._atr_publisher,
+            atr_calculator=self.atr_calculator,
+            # NEW: health_metrics прокидываем прямо в DataProcessor,
             # чтобы on_tick(L2 freshness) вызывался в tick-loop.
             # Это заполняет orderflow:{symbol}:health_snapshot корректными данными.
-            health_metrics=getattr(self, "health_metrics", None)
-            l3_queue=self.l3_queue
-            l2_gpu_processor=self.l2_gpu_processor
+            health_metrics=getattr(self, "health_metrics", None),
+            l3_queue=self.l3_queue,
+            l2_gpu_processor=self.l2_gpu_processor,
         )
         self._data_extraction = DataExtractionService(self.symbol)
 
@@ -464,11 +464,11 @@ class BaseOrderFlowHandler(ABC):
 
         # Обработка сигналов (требует, чтобы signal_generator был инициализирован первым)
         self._signal_processing = SignalProcessingService(
-            self.symbol
-            unified_pipeline=self._unified_pipeline
-            signal_generator=self._signal_generator
-            health_metrics=self.health_metrics
-            outbox=getattr(self._unified_pipeline, 'outbox', None) if self._unified_pipeline else None
+            self.symbol,
+            unified_pipeline=self._unified_pipeline,
+            signal_generator=self._signal_generator,
+            health_metrics=self.health_metrics,
+            outbox=getattr(self._unified_pipeline, 'outbox', None) if self._unified_pipeline else None,
         )
 
     def _initialize_signal_services(self) -> None:
@@ -485,24 +485,24 @@ class BaseOrderFlowHandler(ABC):
                     publisher = SignalPublisher(outbox=outbox)
 
         self._signal_generator = SignalGenerator(
-            self.symbol, self.config, publisher, self._cooldown_service
-            dedup_bucket_ms=self._dedup_bucket_ms
-            config_manager=self._config_manager
-            health_metrics=self.health_metrics
+            self.symbol, self.config, publisher, self._cooldown_service,
+            dedup_bucket_ms=self._dedup_bucket_ms,
+            config_manager=self._config_manager,
+            health_metrics=self.health_metrics,
         )
 
         self._signal_execution = SignalExecutionService(
-            self.symbol
-            signal_generator=self._signal_generator
-            config_manager=self._config_manager
+            self.symbol,
+            signal_generator=self._signal_generator,
+            config_manager=self._config_manager,
         )
 
         # Установка компонентов исполнения, если доступны
         self._signal_execution.set_execution_components(
-            execution_planner=getattr(self, '_execution_planner', None)
-            signal_repo=getattr(self, '_signal_repo', None)
-            signal_bus=getattr(self, '_signal_bus', None)
-            performance_tracker=getattr(self, '_performance_tracker', None)
+            execution_planner=getattr(self, '_execution_planner', None),
+            signal_repo=getattr(self, '_signal_repo', None),
+            signal_bus=getattr(self, '_signal_bus', None),
+            performance_tracker=getattr(self, '_performance_tracker', None),
         )
 
     def _initialize_ui_components(self) -> None:
@@ -512,29 +512,29 @@ class BaseOrderFlowHandler(ABC):
 
         # Инициализация обработчика сообщений и основного цикла (подключение health_metrics)
         self._message_handler = MessageHandler(
-            symbol=self.symbol
-            tick_stream=self.tick_stream
-            book_stream=self.book_stream
-            l3_stream=self.l3_stream
-            data_parser=self._data_parser
-            data_processor=self._data_processor
-            config=self.config
-            health_metrics=self.health_metrics
-            on_bar_closed=self._on_1m_bar_closed
-            on_bucket_closed=self._on_signal_bucket_closed
-            error_handler=self._error_handler
-            on_l3_event=self._process_l3_event
+            symbol=self.symbol,
+            tick_stream=self.tick_stream,
+            book_stream=self.book_stream,
+            l3_stream=self.l3_stream,
+            data_parser=self._data_parser,
+            data_processor=self._data_processor,
+            config=self.config,
+            health_metrics=self.health_metrics,
+            on_bar_closed=self._on_1m_bar_closed,
+            on_bucket_closed=self._on_signal_bucket_closed,
+            error_handler=self._error_handler,
+            on_l3_event=self._process_l3_event,
         )
 
         self._main_loop = MainLoopService(
-            tick_stream=self.tick_stream
-            book_stream=self.book_stream
-            l3_stream=self.l3_stream
-            message_handler=self._message_handler
-            error_handler=self._error_handler
-            config=self.config
-            health_metrics=self.health_metrics
-            symbol=self.symbol
+            tick_stream=self.tick_stream,
+            book_stream=self.book_stream,
+            l3_stream=self.l3_stream,
+            message_handler=self._message_handler,
+            error_handler=self._error_handler,
+            config=self.config,
+            health_metrics=self.health_metrics,
+            symbol=self.symbol,
         )
 
 
@@ -607,10 +607,10 @@ class BaseOrderFlowHandler(ABC):
 
         # Initialize regime state with default values
         self.regime_state = RegimeState(
-            regime="unknown"
-            confidence=0.0
-            last_update=time.time()
-            score=0.0
+            regime="unknown",
+            confidence=0.0,
+            last_update=time.time(),
+            score=0.0,
         )
 
     @property
@@ -628,7 +628,7 @@ class BaseOrderFlowHandler(ABC):
                 "Handler initialized: %(handler)s for %(symbol)s | "
                 "source=%(source)s | streams: tick=%(tick_stream)s book=%(book_stream)s | "
                 "thresholds: main_z=%(main_z).2f breakout_z=%(breakout_z).2f | "
-                "bucket=%(bucket)dms | obi_threshold=%(obi_threshold).3f"
+                "bucket=%(bucket)dms | obi_threshold=%(obi_threshold).3f",
                 log_data
             )
         except Exception as e:
@@ -637,32 +637,32 @@ class BaseOrderFlowHandler(ABC):
     def _get_structured_init_data(self) -> Dict[str, Any]:
         """Получение структурированных данных для логирования инициализации."""
         return {
-            "handler": self.__class__.__name__
-            "symbol": self.symbol
-            "source": self.source_name
-            "tick_stream": getattr(self, 'tick_stream', 'unknown')
-            "book_stream": getattr(self, 'book_stream', 'unknown')
-            "main_z": getattr(self.config, 'main_z_threshold', 0.0)
-            "breakout_z": getattr(self.config, 'breakout_z_threshold', 0.0)
-            "bucket": getattr(self.config, 'delta_bucket_ms', 60000)
-            "obi_threshold": getattr(self.config, 'obi_threshold', 0.0)
-            "unified_pipeline": self._unified_pipeline is not None
-            "cooldown_enabled": hasattr(self, '_cooldown_service') and self._cooldown_service is not None
-            "l3_enabled": self.l3_queue is not None
-            "burst_enabled": getattr(self, "burst", None) is not None
-            "gpu_enabled": getattr(self, "l2_gpu_processor", None) is not None
-            "extrema_enabled": getattr(self, "_extrema_service", None) is not None
-            "regime_enabled": getattr(self, "_regime_service", None) is not None
-            "calibration_enabled": getattr(self, "local_calibration", None) is not None
-            "scoring_enabled": getattr(self, "_scoring_engine", None) is not None
+            "handler": self.__class__.__name__,
+            "symbol": self.symbol,
+            "source": self.source_name,
+            "tick_stream": getattr(self, 'tick_stream', 'unknown'),
+            "book_stream": getattr(self, 'book_stream', 'unknown'),
+            "main_z": getattr(self.config, 'main_z_threshold', 0.0),
+            "breakout_z": getattr(self.config, 'breakout_z_threshold', 0.0),
+            "bucket": getattr(self.config, 'delta_bucket_ms', 60000),
+            "obi_threshold": getattr(self.config, 'obi_threshold', 0.0),
+            "unified_pipeline": self._unified_pipeline is not None,
+            "cooldown_enabled": hasattr(self, '_cooldown_service') and self._cooldown_service is not None,
+            "l3_enabled": self.l3_queue is not None,
+            "burst_enabled": getattr(self, "burst", None) is not None,
+            "gpu_enabled": getattr(self, "l2_gpu_processor", None) is not None,
+            "extrema_enabled": getattr(self, "_extrema_service", None) is not None,
+            "regime_enabled": getattr(self, "_regime_service", None) is not None,
+            "calibration_enabled": getattr(self, "local_calibration", None) is not None,
+            "scoring_enabled": getattr(self, "_scoring_engine", None) is not None,
         }
 
     def _log_structured(self, level: str, message: str, **kwargs) -> None:
         """Структурированное логирование сообщения с дополнительным контекстом."""
         extra_data = {
-            "symbol": self.symbol
-            "handler": self.__class__.__name__
-            "timestamp": time.time()
+            "symbol": self.symbol,
+            "handler": self.__class__.__name__,
+            "timestamp": time.time(),
             **kwargs
         }
 
@@ -711,9 +711,9 @@ class BaseOrderFlowHandler(ABC):
             # Clear stop event and create thread
             self._stop_event.clear()
             self._thread = threading.Thread(
-                target=self._run_loop
-                daemon=True
-                name=f"orderflow:{self.symbol}"
+                target=self._run_loop,
+                daemon=True,
+                name=f"orderflow:{self.symbol}",
             )
             
             # Fix Race Condition: Set flag BEFORE starting thread
@@ -823,21 +823,21 @@ class BaseOrderFlowHandler(ABC):
             except AttributeError: l2_is_stale = True
 
             _safe_call_fail_open(
-                getattr(self, "logger", None)
-                key="health_metrics.on_tick"
-                fn=hm.on_tick
+                getattr(self, "logger", None),
+                key="health_metrics.on_tick",
+                fn=hm.on_tick,
                 kwargs=dict(
-                    symbol=self.symbol
-                    l2_age_ms=l2_age_ms
-                    z_score=z_score
-                    obi=obi
-                    obi_20=obi_20
-                    obi_sustained=obi_sustained
-                    spread_bps=spread_bps
-                    eta_fill_ms=eta_fill_ms
-                    burst_ratio=burst_ratio
-                    imbalance_min=imbalance_min
-                    l2_is_stale=l2_is_stale
+                    symbol=self.symbol,
+                    l2_age_ms=l2_age_ms,
+                    z_score=z_score,
+                    obi=obi,
+                    obi_20=obi_20,
+                    obi_sustained=obi_sustained,
+                    spread_bps=spread_bps,
+                    eta_fill_ms=eta_fill_ms,
+                    burst_ratio=burst_ratio,
+                    imbalance_min=imbalance_min,
+                    l2_is_stale=l2_is_stale,
                 )
             )
         except Exception:
@@ -889,10 +889,10 @@ class BaseOrderFlowHandler(ABC):
             hm = getattr(self, "health_metrics", None)
             if hm:
                 _safe_call_fail_open(
-                    getattr(self, "logger", None)
-                    key="health_metrics.on_signal_bar_failed.1m"
-                    fn=hm.on_signal_bar_failed
-                    args=(self.symbol,)
+                    getattr(self, "logger", None),
+                    key="health_metrics.on_signal_bar_failed.1m",
+                    fn=hm.on_signal_bar_failed,
+                    args=(self.symbol,),
                 )
             return
 
@@ -903,10 +903,10 @@ class BaseOrderFlowHandler(ABC):
             hm = getattr(self, "health_metrics", None)
             if hm:
                 _safe_call_fail_open(
-                    getattr(self, "logger", None)
-                    key="health_metrics.on_signal_bar_failed.1m.2"
-                    fn=hm.on_signal_bar_failed
-                    args=(self.symbol,)
+                    getattr(self, "logger", None),
+                    key="health_metrics.on_signal_bar_failed.1m.2",
+                    fn=hm.on_signal_bar_failed,
+                    args=(self.symbol,),
                 )
             return
 
@@ -978,11 +978,11 @@ class BaseOrderFlowHandler(ABC):
             if hm:
                 processed = result is not None and bool(getattr(result, "sent", False))
                 _safe_call_fail_open(
-                    getattr(self, "logger", None)
-                    key="health_metrics.on_bucket_event"
-                    fn=hm.on_bucket_event
-                    args=(self.symbol,)
-                    kwargs=dict(processed=processed, suppressed=False)
+                    getattr(self, "logger", None),
+                    key="health_metrics.on_bucket_event",
+                    fn=hm.on_bucket_event,
+                    args=(self.symbol,),
+                    kwargs=dict(processed=processed, suppressed=False),
                 )
 
         except Exception as e:
@@ -990,10 +990,10 @@ class BaseOrderFlowHandler(ABC):
             hm = getattr(self, "health_metrics", None)
             if hm:
                 _safe_call_fail_open(
-                    getattr(self, "logger", None)
-                    key="health_metrics.on_signal_bucket_failed"
-                    fn=hm.on_signal_bucket_failed
-                    args=(self.symbol,)
+                    getattr(self, "logger", None),
+                    key="health_metrics.on_signal_bucket_failed",
+                    fn=hm.on_signal_bucket_failed,
+                    args=(self.symbol,),
                 )
             return
 

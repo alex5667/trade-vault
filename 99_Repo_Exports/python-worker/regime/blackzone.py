@@ -41,7 +41,7 @@ class BlackZoneScheduler:
         with self.pg.cursor() as cur:
             cur.execute(
                 """
-                SELECT venue, symbol_pattern, family_pattern, timeframe
+                SELECT venue, symbol_pattern, family_pattern, timeframe,
                        ts_start, ts_end, mode
                 FROM signal_news_blackzone
                 WHERE ts_end > now() - interval '5 minutes'
@@ -52,13 +52,13 @@ class BlackZoneScheduler:
         zones: List[BlackZone] = []
         for row in rows:
             z = BlackZone(
-                venue=row[0]
-                symbol_pattern=row[1]
-                family_pattern=row[2]
-                timeframe=row[3]
-                ts_start=row[4]
-                ts_end=row[5]
-                mode=row[6]
+                venue=row[0],
+                symbol_pattern=row[1],
+                family_pattern=row[2],
+                timeframe=row[3],
+                ts_start=row[4],
+                ts_end=row[5],
+                mode=row[6],
             )
             zones.append(z)
 
@@ -73,13 +73,13 @@ class BlackZoneScheduler:
         return value == pattern
 
     def mode_for(
-        self
-        *
-        now: datetime
-        venue: str
-        symbol: str
-        family: str
-        timeframe: str
+        self,
+        *,
+        now: datetime,
+        venue: str,
+        symbol: str,
+        family: str,
+        timeframe: str,
     ) -> Mode:
         if now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Train edge_stack_v1 with strict out-of-fold stacking (OOF).
 
 This tool trains a two-base-model stack:
@@ -21,7 +22,6 @@ Example:
     --n_splits 5 --purge_ms 300000 --embargo_ms 120000
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -61,11 +61,11 @@ except Exception:  # pragma: no cover
 # Prefer the project's feature engineering for train==serve consistency.
 try:
     from core.feature_engineering import (
-        RobustScalerPack
-        apply_transform
-        bucketize
-        derive_regime_label
-        derive_session_label
+        RobustScalerPack,
+        apply_transform,
+        bucketize,
+        derive_regime_label,
+        derive_session_label,
     )
 except Exception:  # pragma: no cover
     RobustScalerPack = None  # type: ignore
@@ -314,10 +314,10 @@ def _fit_robust_scaler(rows: Sequence[Dict[str, Any]], feature_names: Sequence[s
 
 
 def _make_num_getter(
-    *
-    indicators: Dict[str, Any]
-    transforms: Dict[str, Any]
-    scaler_params: Optional[Dict[str, Dict[str, float]]]
+    *,
+    indicators: Dict[str, Any],
+    transforms: Dict[str, Any],
+    scaler_params: Optional[Dict[str, Dict[str, float]]],
 ) -> Any:
     cache: Dict[str, float] = {}
 
@@ -340,17 +340,17 @@ def _make_num_getter(
 
 
 def build_feature_row(
-    *
-    feature_cols: Sequence[str]
-    indicators: Dict[str, Any]
-    direction: str
-    scenario: str
-    ts_ms: int
-    feature_transforms: Optional[Dict[str, Any]] = None
-    robust_scaler_params: Optional[Dict[str, Dict[str, float]]] = None
-    session_cfg: Optional[Dict[str, Any]] = None
-    spread_bucket_edges: Optional[Sequence[float]] = None
-    liq_cfg: Optional[Dict[str, Any]] = None
+    *,
+    feature_cols: Sequence[str],
+    indicators: Dict[str, Any],
+    direction: str,
+    scenario: str,
+    ts_ms: int,
+    feature_transforms: Optional[Dict[str, Any]] = None,
+    robust_scaler_params: Optional[Dict[str, Dict[str, float]]] = None,
+    session_cfg: Optional[Dict[str, Any]] = None,
+    spread_bucket_edges: Optional[Sequence[float]] = None,
+    liq_cfg: Optional[Dict[str, Any]] = None,
 ) -> List[float]:
     tf = feature_transforms if isinstance(feature_transforms, dict) else {}
     sc = session_cfg if isinstance(session_cfg, dict) else {}
@@ -450,40 +450,40 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--feature_cols_json", default="")
     # Feature Registry: детерминированный feature_cols без feature_cols.json
     ap.add_argument(
-        "--feature_schema_ver"
-        default=os.environ.get("FEATURE_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", ""))
-        choices=_schema_choices(include_empty=True)
+        "--feature_schema_ver",
+        default=os.environ.get("FEATURE_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", "")),
+        choices=_schema_choices(include_empty=True),
         help="Если задан, берёт feature_cols из Feature Registry (детерминированно). "
-             "Заменяет feature_cols.json — исключает column drift."
+             "Заменяет feature_cols.json — исключает column drift.",
     )
     ap.add_argument(
-        "--dataset_report_json"
-        default=""
-        help="Опциональный report.json от builder-а; проверяет feature_cols_hash/schema_hash."
+        "--dataset_report_json",
+        default="",
+        help="Опциональный report.json от builder-а; проверяет feature_cols_hash/schema_hash.",
     )
     ap.add_argument(
-        "--scenario_prefix"
-        default="bucket:"
-        help="Префикс сценарного кодирования (bucket: — рекомендуется)."
+        "--scenario_prefix",
+        default="bucket:",
+        help="Префикс сценарного кодирования (bucket: — рекомендуется).",
     )
     ap.add_argument(
-        "--include_time_onehot"
-        type=int
-        default=1
-        help="Включить hour:/dow: one-hots в registry-derived feature_cols."
+        "--include_time_onehot",
+        type=int,
+        default=1,
+        help="Включить hour:/dow: one-hots в registry-derived feature_cols.",
     )
     ap.add_argument(
-        "--require_feature_registry"
-        type=int
-        default=int(os.environ.get("EDGE_STACK_REQUIRE_REGISTRY", "0"))
-        help="Упасть, если registry/meta-валидация недоступна."
+        "--require_feature_registry",
+        type=int,
+        default=int(os.environ.get("EDGE_STACK_REQUIRE_REGISTRY", "0")),
+        help="Упасть, если registry/meta-валидация недоступна.",
     )
     ap.add_argument(
-        "--strict_registry_match"
-        type=int
-        default=1
+        "--strict_registry_match",
+        type=int,
+        default=1,
         help="Если заданы оба --feature_cols_json и --feature_schema_ver, "
-             "требовать exact match списков колонок."
+             "требовать exact match списков колонок.",
     )
     ap.add_argument("--run_id", default="")
 
@@ -501,10 +501,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Strict feature schema: reject scenario_v4_* one-hots (use bucket:/hour:/dow: instead).
     # Activated via --strict_feature_cols=1 or EDGE_STACK_STRICT_FEATURE_COLS=1 env var.
     ap.add_argument(
-        "--strict_feature_cols"
-        type=int
-        default=0
-        help="Reject scenario_v4_* one-hots; use bucket:/hour:/dow: low-cardinality encoding instead"
+        "--strict_feature_cols",
+        type=int,
+        default=0,
+        help="Reject scenario_v4_* one-hots; use bucket:/hour:/dow: low-cardinality encoding instead",
     )
 
     # Base model knobs
@@ -540,16 +540,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             from core.feature_registry import get_edge_stack_feature_spec  # type: ignore
 
             spec = get_edge_stack_feature_spec(
-                schema_ver=schema_ver
-                scenario_prefix=str(getattr(args, "scenario_prefix", "bucket:") or "bucket:")
-                include_direction=True
-                include_scenario=True
-                include_time_onehot=int(getattr(args, "include_time_onehot", 1) or 0) == 1
+                schema_ver=schema_ver,
+                scenario_prefix=str(getattr(args, "scenario_prefix", "bucket:") or "bucket:"),
+                include_direction=True,
+                include_scenario=True,
+                include_time_onehot=int(getattr(args, "include_time_onehot", 1) or 0) == 1,
                 strict_feature_cols=bool(
                     os.environ.get("EDGE_STACK_STRICT_FEATURE_COLS", "0") in ("1", "true", "yes")
-                ) or (int(getattr(args, "strict_feature_cols", 0) or 0) == 1)
-                forbid_scenario_v4_onehot=True
-                max_numeric=int(os.environ.get("MAX_NUMERIC", "128"))
+                ) or (int(getattr(args, "strict_feature_cols", 0) or 0) == 1),
+                forbid_scenario_v4_onehot=True,
+                max_numeric=int(os.environ.get("MAX_NUMERIC", "128")),
             )
             feature_cols = list(spec.feature_cols)
             registry_meta = spec.to_dict()
@@ -657,47 +657,47 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             continue
         ex.append(r)
         ts.append(_get_ts_ms(r, i))
-        y.append(int(yy))
-        direction.append(_get_direction(r))
-        scenario.append(_get_scenario(r))
+        y.append(int(yy)),
+        direction.append(_get_direction(r)),
+        scenario.append(_get_scenario(r)),
 
     if len(ex) < 100:
         raise SystemExit(f"not enough labeled rows: {len(ex)}")
 
     # Robust scaler params over base numeric features (f_ and mul_ inputs)
-    scaler_params: Optional[Dict[str, Dict[str, float]]] = None
+    scaler_params: Optional[Dict[str, Dict[str, float]]] = None,
     if int(args.with_robust_scaler) == 1:
-        base_names = _collect_base_feature_names(feature_cols)
-        scaler_params = _fit_robust_scaler(ex, base_names)
+        base_names = _collect_base_feature_names(feature_cols),
+        scaler_params = _fit_robust_scaler(ex, base_names),
 
     # Build X
-    X = np.zeros((len(ex), len(feature_cols)), dtype=np.float32)
+    X = np.zeros((len(ex), len(feature_cols)), dtype=np.float32),
     for i, r in enumerate(ex):
-        ind = _get_indicators(r)
+        ind = _get_indicators(r),
         X[i, :] = np.asarray(
             build_feature_row(
-                feature_cols=feature_cols
-                indicators=ind
-                direction=direction[i]
-                scenario=scenario[i]
-                ts_ms=ts[i]
-                feature_transforms=feature_transforms
-                robust_scaler_params=scaler_params
+                feature_cols=feature_cols,
+                indicators=ind,
+                direction=direction[i],
+                scenario=scenario[i],
+                ts_ms=ts[i],
+                feature_transforms=feature_transforms,
+                robust_scaler_params=scaler_params,
                 # optional knobs can be provided later via cfg/model-pack
-                session_cfg=None
-                spread_bucket_edges=None
-                liq_cfg=None
-            )
-            dtype=np.float32
+                session_cfg=None,
+                spread_bucket_edges=None,
+                liq_cfg=None,
+            ),
+            dtype=np.float32,
         )
 
     y_arr = np.asarray(y, dtype=np.int64)
 
     splitter = PurgedEmbargoTimeSeriesSplit(
-        n_splits=int(args.n_splits)
-        purge_ms=int(args.purge_ms)
-        embargo_ms=int(args.embargo_ms)
-        min_train=int(args.min_train)
+        n_splits=int(args.n_splits),
+        purge_ms=int(args.purge_ms),
+        embargo_ms=int(args.embargo_ms),
+        min_train=int(args.min_train),
     )
 
     oof_lr = np.full((len(ex),), np.nan, dtype=np.float64)
@@ -711,17 +711,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         X_va = X[va_idx]
 
         lr = LogisticRegression(
-            C=float(args.lr_C)
-            max_iter=500
-            solver="lbfgs"
-            class_weight=(None if args.lr_class_weight == "none" else args.lr_class_weight)
-            random_state=42
+            C=float(args.lr_C),
+            max_iter=500,
+            solver="lbfgs",
+            class_weight=(None if args.lr_class_weight == "none" else args.lr_class_weight),
+            random_state=42,
         )
         gbdt = HistGradientBoostingClassifier(
-            max_depth=int(args.gbdt_max_depth)
-            learning_rate=float(args.gbdt_learning_rate)
-            max_iter=int(args.gbdt_max_iter)
-            random_state=42
+            max_depth=int(args.gbdt_max_depth),
+            learning_rate=float(args.gbdt_learning_rate),
+            max_iter=int(args.gbdt_max_iter),
+            random_state=42,
         )
         lr.fit(X_tr, y_tr)
         gbdt.fit(X_tr, y_tr)
@@ -741,27 +741,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     y_z = y_arr[mask]
 
     meta = LogisticRegression(
-        C=float(args.meta_C)
-        max_iter=500
-        solver="lbfgs"
-        class_weight=(None if args.lr_class_weight == "none" else args.lr_class_weight)
-        random_state=42
+        C=float(args.meta_C),
+        max_iter=500,
+        solver="lbfgs",
+        class_weight=(None if args.lr_class_weight == "none" else args.lr_class_weight),
+        random_state=42,
     )
     meta.fit(Z, y_z)
 
     # Train final base models on all available data
     base_lr = LogisticRegression(
-        C=float(args.lr_C)
-        max_iter=500
-        solver="lbfgs"
-        class_weight=(None if args.lr_class_weight == "none" else args.lr_class_weight)
-        random_state=42
+        C=float(args.lr_C),
+        max_iter=500,
+        solver="lbfgs",
+        class_weight=(None if args.lr_class_weight == "none" else args.lr_class_weight),
+        random_state=42,
     )
     base_gbdt = HistGradientBoostingClassifier(
-        max_depth=int(args.gbdt_max_depth)
-        learning_rate=float(args.gbdt_learning_rate)
-        max_iter=int(args.gbdt_max_iter)
-        random_state=42
+        max_depth=int(args.gbdt_max_depth),
+        learning_rate=float(args.gbdt_learning_rate),
+        max_iter=int(args.gbdt_max_iter),
+        random_state=42,
     )
     base_lr.fit(X, y_arr)
     base_gbdt.fit(X, y_arr)
@@ -775,14 +775,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Report
     report: Dict[str, Any] = {
-        "n_total": int(len(ex))
-        "n_oof": int(np.sum(mask))
-        "pos_rate": float(np.mean(y_arr)) if len(y_arr) else 0.0
-        "p_min": float(args.p_min)
-        "p_min_by_bucket": {}
-        "oof": {}
-        "trained_at": int(time.time())
-        "run_id": str(args.run_id or "")
+        "n_total": int(len(ex)),
+        "n_oof": int(np.sum(mask)),
+        "pos_rate": float(np.mean(y_arr)) if len(y_arr) else 0.0,
+        "p_min": float(args.p_min),
+        "p_min_by_bucket": {},
+        "oof": {},
+        "trained_at": int(time.time()),
+        "run_id": str(args.run_id or ""),
     }
 
     # Registry / schema pinning metadata — предотвращает column drift при промоции модели
@@ -804,19 +804,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         p_meta_oof = meta.predict_proba(Z)[:, 1]
         report["oof"] = {
             "lr": {
-                "logloss": float(logloss([float(x) for x in p_lr_oof], [int(x) for x in y_z]))
-                "brier": float(brier_score([float(x) for x in p_lr_oof], [int(x) for x in y_z]))
-                "precision_top5pct": float(_precision_at_top_k(p_lr_oof, y_z, 0.05))
-            }
+                "logloss": float(logloss([float(x) for x in p_lr_oof], [int(x) for x in y_z])),
+                "brier": float(brier_score([float(x) for x in p_lr_oof], [int(x) for x in y_z])),
+                "precision_top5pct": float(_precision_at_top_k(p_lr_oof, y_z, 0.05)),
+            },
             "gbdt": {
-                "logloss": float(logloss([float(x) for x in p_gbdt_oof], [int(x) for x in y_z]))
-                "brier": float(brier_score([float(x) for x in p_gbdt_oof], [int(x) for x in y_z]))
-                "precision_top5pct": float(_precision_at_top_k(p_gbdt_oof, y_z, 0.05))
-            }
+                "logloss": float(logloss([float(x) for x in p_gbdt_oof], [int(x) for x in y_z])),
+                "brier": float(brier_score([float(x) for x in p_gbdt_oof], [int(x) for x in y_z])),
+                "precision_top5pct": float(_precision_at_top_k(p_gbdt_oof, y_z, 0.05)),
+            },
             "meta": {
-                "logloss": float(logloss([float(x) for x in p_meta_oof], [int(x) for x in y_z]))
-                "brier": float(brier_score([float(x) for x in p_meta_oof], [int(x) for x in y_z]))
-                "precision_top5pct": float(_precision_at_top_k(p_meta_oof, y_z, 0.05))
+                "logloss": float(logloss([float(x) for x in p_meta_oof], [int(x) for x in y_z])),
+                "brier": float(brier_score([float(x) for x in p_meta_oof], [int(x) for x in y_z])),
+                "precision_top5pct": float(_precision_at_top_k(p_meta_oof, y_z, 0.05)),
             }
         }
         ece, bins = ece_score([float(x) for x in p_meta_oof], [int(x) for x in y_z])
@@ -824,19 +824,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         report["oof"]["meta"]["ece_bins"] = bins[:10]
 
     out_pack: Dict[str, Any] = {
-        "schema_version": 1
-        "kind": "edge_stack_v1"
-        "feature_cols": [str(x) for x in feature_cols]
+        "schema_version": 1,
+        "kind": "edge_stack_v1",
+        "feature_cols": [str(x) for x in feature_cols],
         # Pinning metadata: позволяет детектировать column drift при загрузке
-        "feature_cols_hash": _sha256_16([str(x) for x in feature_cols])
-        "feature_schema_ver": str(schema_ver or "")
-        "feature_registry": registry_meta or {}
-        "feature_transforms": feature_transforms
-        "robust_scaler": scaler_params or {}
-        "lr": base_lr
-        "gbdt": base_gbdt
-        "meta": meta
-        "report": report
+        "feature_cols_hash": _sha256_16([str(x) for x in feature_cols]),
+        "feature_schema_ver": str(schema_ver or ""),
+        "feature_registry": registry_meta or {},
+        "feature_transforms": feature_transforms,
+        "robust_scaler": scaler_params or {},
+        "lr": base_lr,
+        "gbdt": base_gbdt,
+        "meta": meta,
+        "report": report,
     }
 
     if calibrator_dict is not None:

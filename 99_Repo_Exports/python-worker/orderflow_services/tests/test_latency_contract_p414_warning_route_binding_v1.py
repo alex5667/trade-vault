@@ -1,5 +1,5 @@
-"""P4.14 tests: warning-code policy route binding invalidation."""
 from __future__ import annotations
+"""P4.14 tests: warning-code policy route binding invalidation."""
 
 import pytest
 

@@ -8,13 +8,13 @@ GET /healthz
     Liveness probe — always 200 OK if the process is alive.
 
 GET /readyz
-    Readiness probe — 200 if the worker is leader AND lag < threshold
+    Readiness probe — 200 if the worker is leader AND lag < threshold,
     503 otherwise. Consumers (Docker Compose health-check) use this to
     route traffic only to the ready worker.
 
 GET /api/execution-projection/health
     Full JSON health snapshot from ``ExecutionProjectionWorker.health_snapshot()``.
-    Fields: leader, fencing_token, cursor, cursor_age_ms, lag_ms
+    Fields: leader, fencing_token, cursor, cursor_age_ms, lag_ms,
     last_batch_ts_ms, ready, lease_enabled, worker_id.
 
 Configuration (ENV)
@@ -43,17 +43,17 @@ def _health_snapshot() -> Dict[str, Any]:
     """Retrieve health snapshot from the registered worker, or a fallback."""
     if _WORKER_REF is None:
         return {
-            'leader': False
-            'ready': False
-            'error': 'worker not registered'
+            'leader': False,
+            'ready': False,
+            'error': 'worker not registered',
         }
     try:
         return _WORKER_REF.health_snapshot(lag_readyz_max_ms=_LAG_READYZ_MAX_MS)
     except Exception as exc:
         return {
-            'leader': False
-            'ready': False
-            'error': str(exc)
+            'leader': False,
+            'ready': False,
+            'error': str(exc),
         }
 
 
@@ -117,11 +117,11 @@ class ProjectionHealthServer:
     """
 
     def __init__(
-        self
+        self,
         worker: Any,  # ExecutionProjectionWorker
-        *
-        port: int = 8090
-        lag_readyz_max_ms: int = 30000
+        *,
+        port: int = 8090,
+        lag_readyz_max_ms: int = 30000,
     ) -> None:
         global _WORKER_REF, _LAG_READYZ_MAX_MS
         _WORKER_REF = worker
@@ -138,9 +138,9 @@ class ProjectionHealthServer:
             log.warning('Could not bind health server on port %d: %s', self.port, exc)
             return
         self._thread = threading.Thread(
-            target=self._httpd.serve_forever
-            daemon=True
-            name=f'projection-health:{self.port}'
+            target=self._httpd.serve_forever,
+            daemon=True,
+            name=f'projection-health:{self.port}',
         )
         self._thread.start()
         log.info('Projection health server listening on :%d', self.port)
@@ -168,19 +168,19 @@ def main() -> int:  # pragma: no cover
         ... all other worker env vars ...
     """
     logging.basicConfig(
-        level=logging.INFO
-        format='%(asctime)s %(levelname)s %(name)s: %(message)s'
-        stream=sys.stdout
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+        stream=sys.stdout,
     )
 
     # Import worker lazily to avoid circular deps at module level
     try:
         from services.execution_projection_worker import (
-            _redis_from_env, _worker_from_env
+            _redis_from_env, _worker_from_env,
         )
     except ImportError:
         from execution_projection_worker import (  # type: ignore
-            _redis_from_env, _worker_from_env
+            _redis_from_env, _worker_from_env,
         )
 
     port = int(os.getenv('EXEC_PROJECTION_HEALTH_PORT', '8090'))

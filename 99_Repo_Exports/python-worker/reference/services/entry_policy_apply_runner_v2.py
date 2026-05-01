@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 EntryPolicy ApplyRunner (v2)
 
@@ -12,7 +13,6 @@ This patch adds:
  - scenario-aware active_arm keys (already in your _apply_one signature)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -73,8 +73,8 @@ class EntryPolicyApplyRunnerV2:
 
         # Safe lock (avoid two apply runners in parallel)
         self.lock = RedisLock(
-            key=os.getenv("ENTRY_POLICY_APPLY_LOCK_KEY", "lock:entry_policy_apply_runner_v2")
-            ttl_sec=55
+            key=os.getenv("ENTRY_POLICY_APPLY_LOCK_KEY", "lock:entry_policy_apply_runner_v2"),
+            ttl_sec=55,
         )
 
         # Hold-down: do not flip active arm too frequently

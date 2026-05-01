@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 FreezePromotionService — shadow→hard auto-promotion for EntryPolicyFreezeV1.
 
@@ -34,7 +35,6 @@ ENV:
   OPS_EVENT_STREAM          ops:eventlog
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio
@@ -79,17 +79,17 @@ def _s(x: Any, d: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 def _promotion_decision(
-    *
-    fz: EntryPolicyFreezeV1
-    stats: Dict[str, str]
-    now_ms: int
-    observe_ms: int
-    min_blocked: int
-    min_seen: int
-    bad_cnt_needed: int
-    thr_spread_z: float
-    thr_obi_age_ms: float
-    thr_pressure: float
+    *,
+    fz: EntryPolicyFreezeV1,
+    stats: Dict[str, str],
+    now_ms: int,
+    observe_ms: int,
+    min_blocked: int,
+    min_seen: int,
+    bad_cnt_needed: int,
+    thr_spread_z: float,
+    thr_obi_age_ms: float,
+    thr_pressure: float,
 ) -> Tuple[bool, str]:
     """Pure-function promotion decision (testable without Redis).
 
@@ -155,11 +155,11 @@ class FreezePromotionService:
     def __init__(self) -> None:
         redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r: aioredis.Redis = aioredis.from_url(
-            redis_url
-            decode_responses=True
-            socket_connect_timeout=10
-            socket_timeout=15
-            max_connections=10
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=10,
+            socket_timeout=15,
+            max_connections=10,
         )
 
         self.poll_s = float(os.getenv("PROMOTER_POLL_S", "30"))
@@ -236,16 +236,16 @@ class FreezePromotionService:
             return  # fail-open
 
         should_promote, reason = _promotion_decision(
-            fz=fz
-            stats=stats
-            now_ms=now
-            observe_ms=self.observe_ms
-            min_blocked=self.min_blocked
-            min_seen=self.min_seen
-            bad_cnt_needed=self.bad_cnt_needed
-            thr_spread_z=self.thr_spread_z
-            thr_obi_age_ms=self.thr_obi_age_ms
-            thr_pressure=self.thr_pressure
+            fz=fz,
+            stats=stats,
+            now_ms=now,
+            observe_ms=self.observe_ms,
+            min_blocked=self.min_blocked,
+            min_seen=self.min_seen,
+            bad_cnt_needed=self.bad_cnt_needed,
+            thr_spread_z=self.thr_spread_z,
+            thr_obi_age_ms=self.thr_obi_age_ms,
+            thr_pressure=self.thr_pressure,
         )
 
         if not should_promote:
@@ -254,12 +254,12 @@ class FreezePromotionService:
         await self._do_promote(fkey=fkey, fz=fz, reason=reason, now_ms=now)
 
     async def _do_promote(
-        self
-        *
-        fkey: str
-        fz: EntryPolicyFreezeV1
-        reason: str
-        now_ms: int
+        self,
+        *,
+        fkey: str,
+        fz: EntryPolicyFreezeV1,
+        reason: str,
+        now_ms: int,
     ) -> None:
         """Atomically promote shadow→hard by overwriting the freeze key."""
         fz.mode = "hard"
@@ -276,29 +276,29 @@ class FreezePromotionService:
         await self._publish_event(fz=fz, reason=reason, now_ms=now_ms)
 
     async def _publish_event(
-        self
-        *
-        fz: EntryPolicyFreezeV1
-        reason: str
-        now_ms: int
+        self,
+        *,
+        fz: EntryPolicyFreezeV1,
+        reason: str,
+        now_ms: int,
     ) -> None:
         """Publish freeze_promoted_hard event to ops:eventlog stream."""
         event = {
-            "type": "freeze_promoted_hard"
-            "ts_ms": now_ms
-            "symbol": fz.symbol
-            "group": fz.group
-            "scenario": fz.scenario
-            "promoted_reason": reason
-            "until_ts_ms": fz.until_ts_ms
-            "src": "freeze_promoter"
+            "type": "freeze_promoted_hard",
+            "ts_ms": now_ms,
+            "symbol": fz.symbol,
+            "group": fz.group,
+            "scenario": fz.scenario,
+            "promoted_reason": reason,
+            "until_ts_ms": fz.until_ts_ms,
+            "src": "freeze_promoter",
         }
         try:
             await self.r.xadd(
-                self.ops_stream
-                {"ts_ms": str(now_ms), "event": json.dumps(event, ensure_ascii=False)[:4000]}
-                maxlen=5000
-                approximate=True
+                self.ops_stream,
+                {"ts_ms": str(now_ms), "event": json.dumps(event, ensure_ascii=False)[:4000]},
+                maxlen=5000,
+                approximate=True,
             )
         except Exception:
             pass  # best-effort

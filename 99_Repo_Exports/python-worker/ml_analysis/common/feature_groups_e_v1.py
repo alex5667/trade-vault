@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Feature-group definitions for ablation/denylist (E block).
 
 Goal
@@ -14,7 +15,6 @@ Notes
   - If you pass full registry names ("n:xxx" / "b:xxx"), use normalize_feature_key().
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Sequence, Set

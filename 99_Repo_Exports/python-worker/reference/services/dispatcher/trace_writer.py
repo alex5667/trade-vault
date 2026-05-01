@@ -23,11 +23,11 @@ class TraceWriter:
         self.logger = logger
 
     def emit_diag(
-        self
-        trace: DecisionTrace
-        *
-        stage: str
-        extra: Optional[Dict[str, Any]] = None
+        self,
+        trace: DecisionTrace,
+        *,
+        stage: str,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Emit diagnostics ONLY into diagnostics stream.
@@ -38,18 +38,18 @@ class TraceWriter:
                 return
             
             payload = {
-                "type": "diagnostic"
-                "stage": str(stage)
-                "ts_ms": get_ny_time_millis()
-                "trace": trace.to_dict(max_events=200)
-                "extra": extra or {}
+                "type": "diagnostic",
+                "stage": str(stage),
+                "ts_ms": get_ny_time_millis(),
+                "trace": trace.to_dict(max_events=200),
+                "extra": extra or {},
             }
             
             self.redis.xadd(
-                self.config.diag_stream
-                {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}
-                maxlen=int(self.config.diag_maxlen)
-                approximate=True
+                self.config.diag_stream,
+                {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+                maxlen=int(self.config.diag_maxlen),
+                approximate=True,
             )
         except Exception:
             # diagnostics must be strictly best-effort
@@ -66,7 +66,7 @@ class TraceWriter:
             
             # Using trace_store_enabled config check if implemented, 
             # otherwise assuming safe to write if meta_prefix is set.
-            # SignalDispatcher didn't check 'trace_store_enabled' explicitly in the copied method
+            # SignalDispatcher didn't check 'trace_store_enabled' explicitly in the copied method,
             # but config has it. We can add check if we want strict parity or improvement.
             # We'll stick to original logic: if prefix exists.
             
@@ -87,9 +87,9 @@ class TraceWriter:
             
             k = f"{prefix}{sid}"
             v = json.dumps(
-                {"type": "meta", "trace": trace.to_dict(max_events=200), "ts_ms": get_ny_time_millis()}
-                ensure_ascii=False
-                separators=(",", ":")
+                {"type": "meta", "trace": trace.to_dict(max_events=200), "ts_ms": get_ny_time_millis()},
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
             self.redis.set(k, v, ex=int(ttl))
         except Exception:
@@ -107,22 +107,22 @@ class TraceWriter:
 
             tid = str(env.get("trace_id") or env.get("corr_id") or env.get("sid") or "")
             payload = {
-                "type": "diagnostic"
-                "tradeable": False
-                "reason": str(reason or "")
-                "trace_id": tid
-                "sid": str(env.get("sid") or "")
-                "symbol": str(env.get("symbol") or "")
-                "kind": str(env.get("kind") or "")
-                "trace": env.get("trace")
-                "ts_ms": get_ny_time_millis()
+                "type": "diagnostic",
+                "tradeable": False,
+                "reason": str(reason or ""),
+                "trace_id": tid,
+                "sid": str(env.get("sid") or ""),
+                "symbol": str(env.get("symbol") or ""),
+                "kind": str(env.get("kind") or ""),
+                "trace": env.get("trace"),
+                "ts_ms": get_ny_time_millis(),
             }
             
             self.redis.xadd(
-                self.config.diag_stream
-                {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}
-                maxlen=int(self.config.diag_maxlen)
-                approximate=True
+                self.config.diag_stream,
+                {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+                maxlen=int(self.config.diag_maxlen),
+                approximate=True,
             )
         except Exception:
             return

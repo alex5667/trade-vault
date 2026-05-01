@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Hawkes-like online intensity features.
 
 Deterministic low-latency burst proxies:
@@ -13,7 +14,6 @@ Where x is either:
 All timestamps are epoch milliseconds.
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

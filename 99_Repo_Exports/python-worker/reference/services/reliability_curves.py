@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional, Tuple, List
 # Reliability curves (post-calibration) for confidence.
 #
 # Goal:
-#   Keep base confidence as-is, but learn how it behaves under "contexts"
+#   Keep base confidence as-is, but learn how it behaves under "contexts",
 #   especially SMT leader/coherence context:
 #
 #     smt_conf   = leader_confirm (0/1)
@@ -25,7 +25,7 @@ from typing import Any, Dict, Optional, Tuple, List
 #     samples, hits, last_ts_ms
 #     n:{bucket}, h:{bucket}  (bucket = 0..100 step=RELIABILITY_BUCKET_STEP)
 #
-# We also always maintain a global curve (ctx="na") for the same dims
+# We also always maintain a global curve (ctx="na") for the same dims,
 # and a context-specific curve (ctx="smtc{0/1}_coh{0/1}_al{0/1}") when SMT fields exist.
 #
 # Targets (selectable via docker-compose env):
@@ -258,26 +258,26 @@ def _extract_entry_regime(pos: Optional[Dict[str, Any]], closed: Dict[str, Any])
 
 
 def make_reliability_key(
-    *
-    target: str
-    strategy: str
-    symbol: str
-    tf: str
-    ctx_key: str
+    *,
+    target: str,
+    strategy: str,
+    symbol: str,
+    tf: str,
+    ctx_key: str,
 ) -> str:
     target = _canon_target(target)
     return f"rel:v2:{target}:{_canon_strategy(strategy)}:{_canon_symbol(symbol)}:{_canon_tf(tf)}:{str(ctx_key or 'na')}"
 
 
 def make_reliability_key_v3(
-    *
-    target: str
-    strategy: str
-    symbol: str
-    tf: str
-    kind: str
-    regime: str
-    ctx_key: str
+    *,
+    target: str,
+    strategy: str,
+    symbol: str,
+    tf: str,
+    kind: str,
+    regime: str,
+    ctx_key: str,
 ) -> str:
     """
     v3 key adds kind×regime dimension to prevent "one calibration fits all".
@@ -290,15 +290,15 @@ def make_reliability_key_v3(
 
 
 def make_reliability_key_v4(
-    *
-    target: str
-    strategy: str
-    symbol: str
-    tf: str
-    venue: str
-    kind: str
-    regime: str
-    ctx_key: str
+    *,
+    target: str,
+    strategy: str,
+    symbol: str,
+    tf: str,
+    venue: str,
+    kind: str,
+    regime: str,
+    ctx_key: str,
 ) -> str:
     """
     v4 key adds venue dimension to prevent mixing fills/execution realities across venues.
@@ -320,10 +320,10 @@ def _dir_to_ud(direction: str) -> str:
 
 
 def _smt_context_key(
-    *
-    pos: Optional[Dict[str, Any]]
-    closed: Dict[str, Any]
-    coh_thr: float
+    *,
+    pos: Optional[Dict[str, Any]],
+    closed: Dict[str, Any],
+    coh_thr: float,
 ) -> Optional[str]:
     """
     Build compact SMT context key:
@@ -400,15 +400,15 @@ def _hset(redis_client: Any, key: str, mapping: Dict[str, Any]) -> None:
 
 
 def _update_curve_one(
-    redis_client: Any
-    *
-    key: str
-    bucket: int
-    y: int
-    ts_ms: int
+    redis_client: Any,
+    *,
+    key: str,
+    bucket: int,
+    y: int,
+    ts_ms: int,
 ) -> None:
     """
-    Best-effort increment. Not atomic, but executed in StatsAggregator.finally
+    Best-effort increment. Not atomic, but executed in StatsAggregator.finally,
     so correctness is "eventually consistent" and must never break runtime.
     """
     d = _hgetall(redis_client, key)
@@ -417,30 +417,30 @@ def _update_curve_one(
     nb = _safe_int(d.get(f"n:{bucket}"), 0) + 1
     hb = _safe_int(d.get(f"h:{bucket}"), 0) + int(y)
     _hset(
-        redis_client
-        key
+        redis_client,
+        key,
         {
-            "samples": str(samples)
-            "hits": str(hits)
-            "last_ts_ms": str(int(ts_ms))
-            f"n:{bucket}": str(nb)
-            f"h:{bucket}": str(hb)
-        }
+            "samples": str(samples),
+            "hits": str(hits),
+            "last_ts_ms": str(int(ts_ms)),
+            f"n:{bucket}": str(nb),
+            f"h:{bucket}": str(hb),
+        },
     )
 
 
 def load_bucket_rate(
-    redis_client: Any
-    *
-    target: str
-    strategy: str
-    symbol: str
-    tf: str
-    venue: Optional[str] = None
-    kind: Optional[str] = None
-    regime: Optional[str] = None
-    ctx_key: str
-    bucket: int
+    redis_client: Any,
+    *,
+    target: str,
+    strategy: str,
+    symbol: str,
+    tf: str,
+    venue: Optional[str] = None,
+    kind: Optional[str] = None,
+    regime: Optional[str] = None,
+    ctx_key: str,
+    bucket: int,
 ) -> Tuple[Optional[float], int]:
     """
     Return (rate, n) for a given bucket in the curve.
@@ -453,36 +453,36 @@ def load_bucket_rate(
 
     if venue is not None and kind is not None and regime is not None:
         k4 = make_reliability_key_v4(
-            target=_canon_target(target)
-            strategy=strategy
-            symbol=symbol
-            tf=tf
-            venue=str(venue)
-            kind=str(kind)
-            regime=str(regime)
-            ctx_key=ctx_key
+            target=_canon_target(target),
+            strategy=strategy,
+            symbol=symbol,
+            tf=tf,
+            venue=str(venue),
+            kind=str(kind),
+            regime=str(regime),
+            ctx_key=ctx_key,
         )
         d = _hgetall(redis_client, k4)
 
     if not d and kind is not None and regime is not None:
         k3 = make_reliability_key_v3(
-            target=_canon_target(target)
-            strategy=strategy
-            symbol=symbol
-            tf=tf
-            kind=str(kind)
-            regime=str(regime)
-            ctx_key=ctx_key
+            target=_canon_target(target),
+            strategy=strategy,
+            symbol=symbol,
+            tf=tf,
+            kind=str(kind),
+            regime=str(regime),
+            ctx_key=ctx_key,
         )
         d = _hgetall(redis_client, k3)
 
     if not d:
         k2 = make_reliability_key(
-            target=_canon_target(target)
-            strategy=strategy
-            symbol=symbol
-            tf=tf
-            ctx_key=ctx_key
+            target=_canon_target(target),
+            strategy=strategy,
+            symbol=symbol,
+            tf=tf,
+            ctx_key=ctx_key,
         )
         d = _hgetall(redis_client, k2)
     n = _safe_int(d.get(f"n:{bucket}"), 0)
@@ -551,8 +551,8 @@ def update_reliability_curve(redis_client: Any, *, closed: Dict[str, Any], pos: 
 
         # 1) Global curve (v4 preferred; v3/v2 optional)
         k4_global = make_reliability_key_v4(
-            target=tgt, strategy=strategy, symbol=symbol, tf=tf
-            venue=venue, kind=kind, regime=regime, ctx_key="na"
+            target=tgt, strategy=strategy, symbol=symbol, tf=tf,
+            venue=venue, kind=kind, regime=regime, ctx_key="na",
         )
         try:
             _update_curve_one(redis_client, key=k4_global, bucket=bucket, y=int(y), ts_ms=ts_ms)
@@ -578,8 +578,8 @@ def update_reliability_curve(redis_client: Any, *, closed: Dict[str, Any], pos: 
         # 2) SMT context curve (only if SMT fields exist)
         if smt_ctx:
             k4_ctx = make_reliability_key_v4(
-                target=tgt, strategy=strategy, symbol=symbol, tf=tf
-                venue=venue, kind=kind, regime=regime, ctx_key=smt_ctx
+                target=tgt, strategy=strategy, symbol=symbol, tf=tf,
+                venue=venue, kind=kind, regime=regime, ctx_key=smt_ctx,
             )
             try:
                 _update_curve_one(redis_client, key=k4_ctx, bucket=bucket, y=int(y), ts_ms=ts_ms)

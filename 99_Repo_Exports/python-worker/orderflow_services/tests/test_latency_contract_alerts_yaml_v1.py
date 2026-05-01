@@ -1,5 +1,5 @@
-"""Tests that prometheus_alerts_latency_contract_v1.yml is valid YAML."""
 from __future__ import annotations
+"""Tests that prometheus_alerts_latency_contract_v1.yml is valid YAML."""
 
 import os
 import yaml

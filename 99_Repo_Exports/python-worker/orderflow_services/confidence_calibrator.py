@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Confidence calibration (production-safe).
 
 Purpose
@@ -13,7 +14,6 @@ Notes
   - Training is done offline (see ml_analysis/tools/train_confidence_calibrator.py).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

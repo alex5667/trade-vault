@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Prometheus metrics for confidence calibration (ROI step).
 
 Why a dedicated module:
@@ -8,7 +9,6 @@ All metrics are fail-open: if prometheus_client is missing or registry conflicts
 we degrade to no-op.
 """
 
-from __future__ import annotations
 
 from typing import List, Optional
 

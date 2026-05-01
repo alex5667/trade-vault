@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for services/shadow_calib_meta.py — the shared calibration metadata module.
 
@@ -8,17 +9,16 @@ Covers:
   4. Integration: signal_pipeline → execution_router → binance_executor passthrough
 """
 
-from __future__ import annotations
 
 import sys
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, "/home/alex/front/trade/scanner_infra/python-worker")
 
 from services.shadow_calib_meta import (
-    CALIB_FIELDS
-    extract_calib_fields
-    merge_calib_fields
-    stamp_virtual_if_calib
+    CALIB_FIELDS,
+    extract_calib_fields,
+    merge_calib_fields,
+    stamp_virtual_if_calib,
 )
 
 
@@ -32,20 +32,20 @@ class TestExtractCalibFields:
     def test_full_extraction(self):
         """All known calib fields extracted."""
         src = {
-            "paper_only": 1
-            "shadow_only": 0
-            "is_virtual": 1
-            "calib": 1
-            "calib_kind": "cont_ctx_window"
-            "calib_run_id": "run_abc123"
-            "candidate_window_ms": 180000
-            "baseline_window_ms": 120000
-            "cont_ctx_age_ms": 95000
-            "entry_reason": "cont_ctx_rescued"
-            "parent_signal_id": "SIG000"
+            "paper_only": 1,
+            "shadow_only": 0,
+            "is_virtual": 1,
+            "calib": 1,
+            "calib_kind": "cont_ctx_window",
+            "calib_run_id": "run_abc123",
+            "candidate_window_ms": 180000,
+            "baseline_window_ms": 120000,
+            "cont_ctx_age_ms": 95000,
+            "entry_reason": "cont_ctx_rescued",
+            "parent_signal_id": "SIG000",
             # Non-calib noise fields
-            "symbol": "BTCUSDT"
-            "side": "LONG"
+            "symbol": "BTCUSDT",
+            "side": "LONG",
         }
         result = extract_calib_fields(src)
         assert result["calib"] == 1
@@ -168,18 +168,18 @@ class TestExecutionRouterCalibPassthrough:
         router = mod.ExecutionRouter(FakeRedis())
 
         original = {
-            "sid": "SIG01"
-            "symbol": "BTCUSDT"
-            "side": "LONG"
-            "qty": 0.001
-            "entry": 65000.0
-            "sl": 64000.0
-            "tp_levels": [66000.0, 67000.0]
+            "sid": "SIG01",
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "qty": 0.001,
+            "entry": 65000.0,
+            "sl": 64000.0,
+            "tp_levels": [66000.0, 67000.0],
             # Calibration fields
-            "calib": 1
-            "calib_kind": "cont_ctx_window"
-            "calib_run_id": "run_xyz"
-            "candidate_window_ms": 180000
+            "calib": 1,
+            "calib_kind": "cont_ctx_window",
+            "calib_run_id": "run_xyz",
+            "candidate_window_ms": 180000,
         }
         guard = {"sid": "OWNER01"}
         state = {"scale_in_seq": 0, "exec_price": 64500.0, "qty": 0.001, "side": "LONG"}

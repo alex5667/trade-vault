@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """meta_cov_outcome_auto_apply_v1.py
 
 P33+P34: Auto-downgrade + quarantine loop for meta ENFORCE per-coverage bucket shares,
@@ -87,7 +88,6 @@ Exit codes
 0 : OK / no action
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

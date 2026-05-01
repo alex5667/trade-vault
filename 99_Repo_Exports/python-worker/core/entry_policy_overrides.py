@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Entry Policy Overrides V1 - Strict Schema with Validation
 
@@ -17,7 +18,6 @@ Expert validation:
   - DevOps/SRE: TTL-based Redis storage, no schema migrations required
   - Professor Statistics: Hysteresis prevents statistical dithering at decision boundaries
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from dataclasses import dataclass, field, asdict

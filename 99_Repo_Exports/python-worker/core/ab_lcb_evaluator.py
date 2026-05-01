@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 AB Winner Evaluator (LCB, per-regime)
 ====================================
@@ -20,7 +21,6 @@ Design rules
 - Per-regime policy: different confidence / min samples / min edge.
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

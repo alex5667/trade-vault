@@ -1,5 +1,5 @@
-"""Tests that the P4.1 Grafana dashboard JSON is valid."""
 from __future__ import annotations
+"""Tests that the P4.1 Grafana dashboard JSON is valid."""
 
 import json
 import os

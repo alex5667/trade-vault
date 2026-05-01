@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """core.slippage_model
 
 Expected slippage (bps) model for adverse-selection filtering.
@@ -18,7 +19,6 @@ Design constraints:
   - Deterministic and cheap.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple

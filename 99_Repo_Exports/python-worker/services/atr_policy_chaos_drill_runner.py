@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Chaos Drill Runner — Phase 3.8 (Disaster Layer).
 
 DRY_RUN-first chaos simulator for the ATR policy control-plane.
@@ -20,7 +21,6 @@ ENV:
   REDIS_URL
   ANALYTICS_DB_DSN / TRADES_DB_DSN
 """
-from __future__ import annotations
 
 import json
 import logging

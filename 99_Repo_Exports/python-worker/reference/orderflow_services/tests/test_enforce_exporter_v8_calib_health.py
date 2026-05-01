@@ -1,3 +1,4 @@
+from __future__ import annotations
 """test_enforce_exporter_v8_calib_health.py
 
 Tests for V8 slippage calibrator health additions to enforce_bucket_state_exporter_v1:
@@ -10,8 +11,7 @@ Tests for nightly_slippage_calibrator_v1 V8 additions:
   - _now_ms() returns valid ms integer
   - Timestamp key name format
   - State key names written after calibration loop
-"""
-from __future__ import annotations
+""",
 from utils.time_utils import get_ny_time_millis
 
 import ast
@@ -38,7 +38,7 @@ EXPORTER_PATH = os.path.join(
 def _load_source_as_module(path: str, module_name: str):
     """Load a Python source file without executing top-level side-effects on
     prometheus_client (which would call start_http_server or register dupes).
-    """
+    """,
     with open(path, "r", encoding="utf-8") as fh:
         source = fh.read()
     tree = ast.parse(source)
@@ -90,22 +90,22 @@ class TestCalibratorNowMs(unittest.TestCase):
         now_ms_min = int(float('1700000000000'))  # 2023-11-14 epoch-ms
         import importlib.util
         spec = importlib.util.spec_from_loader(
-            "calib_test_ns"
-            loader=None
-            origin=CALIB_PATH
+            "calib_test_ns",
+            loader=None,
+            origin=CALIB_PATH,
         )
         # Execute just the _now_ms function in isolation
         ns: dict = {}
         exec(
-            """
+            """,
 import time
 def _now_ms():
     try:
         return get_ny_time_millis()
     except Exception:
         return 0
-"""
-            ns
+""",
+            ns,
         )
         ts = ns["_now_ms"]()
         self.assertGreater(ts, now_ms_min, f"_now_ms() returned {ts}, too small")
@@ -186,7 +186,7 @@ class TestExporterCalibStateMethod(unittest.TestCase):
         ns: dict = {}
         gauge_mock = MagicMock()
         exec(
-            """
+            """,
 def _as_int(x, default=0):
     try:
         if x is None: return int(default)
@@ -216,8 +216,8 @@ class Exporter:
                 of_slippage_calib_last_ok_age_sec.set((_now_ms() - ok_ts) / 1000.0)
         except Exception:
             return
-"""
-            {"gauge_mock": gauge_mock}
+""",
+            {"gauge_mock": gauge_mock},
         )
         ex_no_redis = ns.get("Exporter", None)
         # Check it's in the exec namespace (exec populates differently)
@@ -295,9 +295,9 @@ class TestSQLFix(unittest.TestCase):
     def test_old_column_names_removed(self):
         with open(self.SQL_PATH) as fh:
             sql = fh.read()
-        self.assertNotIn("slippage_residual_bps)", sql
+        self.assertNotIn("slippage_residual_bps)", sql,
                          "Old column name slippage_residual_bps should be replaced")
-        self.assertNotIn("edge_minus_expected_bps <", sql
+        self.assertNotIn("edge_minus_expected_bps <", sql,
                          "Old column name edge_minus_expected_bps should be replaced")
 
     def test_new_column_names_present(self):
@@ -312,10 +312,10 @@ class TestAlertYAML(unittest.TestCase):
     """Verify the alert YAML files have the expected structure."""
 
     ALERT_PATH = os.path.join(
-        BASE
+        BASE,
         "..",  # scanner_infra root
-        "orderflow_services"
-        "prometheus_alerts_slippage_calibrator_health_v1.yml"
+        "orderflow_services",
+        "prometheus_alerts_slippage_calibrator_health_v1.yml",
     )
 
     def _load(self):

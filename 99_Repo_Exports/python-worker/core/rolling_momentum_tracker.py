@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Rolling momentum trackers (price + spread) deterministic by ts_ms.
 
 We intentionally compute momentum from bar-close observations:
@@ -14,7 +15,6 @@ Time safety
 - Non-monotonic ts_ms is rejected and counted (fail-open).
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

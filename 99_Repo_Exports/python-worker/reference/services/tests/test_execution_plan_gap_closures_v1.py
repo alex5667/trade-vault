@@ -1,8 +1,9 @@
+from __future__ import annotations
 """Tests for P0–P4 gap closures in binance_futures_client.py and binance_executor.py.
 
 Covers:
   - _validate_plain_order_contract: hedge/oneway, closePosition, reduceOnly
-  - _validate_algo_order_contract: closePosition/reduceOnly, workingType
+  - _validate_algo_order_contract: closePosition/reduceOnly, workingType,
                                     trailing callbackRate, activatePrice
   - replace_untriggered_algo_order: cancel-then-post flow
   - leverage tier resolver: _symbol_tier / _resolve_symbol_leverage
@@ -10,7 +11,6 @@ Covers:
   - structured state contract: _structured_order_contract / _causal_timestamps
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hashlib
@@ -26,28 +26,28 @@ from unittest.mock import MagicMock, patch
 
 try:
     from services.binance_futures_client import (
-        AlgoOrderRef
-        PlainOrderRef
-        _float_or_none
-        _require_positive
-        _truthy
-        _validate_algo_order_contract
-        _validate_plain_order_contract
-        _validate_working_type
-        BinanceFuturesClient
+        AlgoOrderRef,
+        PlainOrderRef,
+        _float_or_none,
+        _require_positive,
+        _truthy,
+        _validate_algo_order_contract,
+        _validate_plain_order_contract,
+        _validate_working_type,
+        BinanceFuturesClient,
     )
     from services.binance_executor import BinanceExecutor
 except ImportError:
     from binance_futures_client import (
-        AlgoOrderRef
-        PlainOrderRef
-        _float_or_none
-        _require_positive
-        _truthy
-        _validate_algo_order_contract
-        _validate_plain_order_contract
-        _validate_working_type
-        BinanceFuturesClient
+        AlgoOrderRef,
+        PlainOrderRef,
+        _float_or_none,
+        _require_positive,
+        _truthy,
+        _validate_algo_order_contract,
+        _validate_plain_order_contract,
+        _validate_working_type,
+        BinanceFuturesClient,
     )
     from binance_executor import BinanceExecutor
 
@@ -61,14 +61,14 @@ class TestPlainOrderContract:
 
     def test_valid_market_oneway(self):
         _validate_plain_order_contract(
-            {"type": "MARKET", "quantity": 0.01, "side": "BUY"}
-            position_mode="oneway"
+            {"type": "MARKET", "quantity": 0.01, "side": "BUY"},
+            position_mode="oneway",
         )
 
     def test_valid_limit_oneway(self):
         _validate_plain_order_contract(
-            {"type": "LIMIT", "quantity": 0.01, "price": 30000, "timeInForce": "GTC"}
-            position_mode="oneway"
+            {"type": "LIMIT", "quantity": 0.01, "price": 30000, "timeInForce": "GTC"},
+            position_mode="oneway",
         )
 
     def test_missing_order_type_raises(self):
@@ -78,28 +78,28 @@ class TestPlainOrderContract:
     def test_close_position_raises_on_plain_order(self):
         with pytest.raises(ValueError, match="closePosition_not_supported"):
             _validate_plain_order_contract(
-                {"type": "MARKET", "quantity": 0.01, "closePosition": True}
-                position_mode="oneway"
+                {"type": "MARKET", "quantity": 0.01, "closePosition": True},
+                position_mode="oneway",
             )
 
     def test_requires_position_side_in_hedge(self):
         with pytest.raises(ValueError, match="positionSide_required_in_hedge"):
             _validate_plain_order_contract(
-                {"type": "MARKET", "quantity": 0.01}
-                position_mode="hedge"
+                {"type": "MARKET", "quantity": 0.01},
+                position_mode="hedge",
             )
 
     def test_valid_hedge_with_position_side(self):
         _validate_plain_order_contract(
-            {"type": "MARKET", "quantity": 0.01, "positionSide": "LONG"}
-            position_mode="hedge"
+            {"type": "MARKET", "quantity": 0.01, "positionSide": "LONG"},
+            position_mode="hedge",
         )
 
     def test_reduce_only_forbidden_in_hedge(self):
         with pytest.raises(ValueError, match="reduceOnly_forbidden"):
             _validate_plain_order_contract(
-                {"type": "MARKET", "quantity": 0.01, "positionSide": "LONG", "reduceOnly": True}
-                position_mode="hedge"
+                {"type": "MARKET", "quantity": 0.01, "positionSide": "LONG", "reduceOnly": True},
+                position_mode="hedge",
             )
 
     def test_quantity_required(self):
@@ -109,8 +109,8 @@ class TestPlainOrderContract:
     def test_limit_requires_price_and_tif(self):
         with pytest.raises(ValueError, match="must_be_positive|timeInForce"):
             _validate_plain_order_contract(
-                {"type": "LIMIT", "quantity": 0.01, "price": 0, "timeInForce": "GTC"}
-                position_mode="oneway"
+                {"type": "LIMIT", "quantity": 0.01, "price": 0, "timeInForce": "GTC"},
+                position_mode="oneway",
             )
 
 
@@ -119,26 +119,26 @@ class TestPlainOrderContract:
 # ===========================================================================
 
 class TestAlgoOrderContract:
-    """P0: _validate_algo_order_contract."""
+    """P0: _validate_algo_order_contract.""",
 
     def test_valid_stop_market(self):
         res = _validate_algo_order_contract(
-            {"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 29000, "side": "SELL"}
-            position_mode="oneway"
-        )
+            {"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 29000, "side": "SELL"},
+            position_mode="oneway",
+        ),
         assert res["workingType"] in ("MARK_PRICE", "CONTRACT_PRICE")
 
     def test_close_position_with_quantity_raises(self):
-        """algo_closePosition_incompatible_with_quantity."""
+        """algo_closePosition_incompatible_with_quantity.""",
         with pytest.raises(ValueError, match="algo_closePosition_incompatible_with_quantity"):
             _validate_algo_order_contract(
                 {
-                    "type": "STOP_MARKET"
-                    "quantity": 0.01
-                    "triggerPrice": 29000
-                    "closePosition": True
-                }
-                position_mode="oneway"
+                    "type": "STOP_MARKET",
+                    "quantity": 0.01,
+                    "triggerPrice": 29000,
+                    "closePosition": True,
+                },
+                position_mode="oneway",
             )
 
     def test_close_position_with_reduce_only_raises(self):
@@ -146,12 +146,12 @@ class TestAlgoOrderContract:
         with pytest.raises(ValueError, match="algo_closePosition_incompatible_with_reduceOnly"):
             _validate_algo_order_contract(
                 {
-                    "type": "STOP_MARKET"
-                    "triggerPrice": 29000
-                    "closePosition": True
-                    "reduceOnly": True
-                }
-                position_mode="oneway"
+                    "type": "STOP_MARKET",
+                    "triggerPrice": 29000,
+                    "closePosition": True,
+                    "reduceOnly": True,
+                },
+                position_mode="oneway",
             )
 
     def test_bad_activate_price_raises(self):
@@ -159,34 +159,34 @@ class TestAlgoOrderContract:
         with pytest.raises(ValueError, match="activatePrice_must_be_positive"):
             _validate_algo_order_contract(
                 {
-                    "type": "TRAILING_STOP_MARKET"
-                    "quantity": 0.01
-                    "callbackRate": 0.5
-                    "activatePrice": -1
-                }
-                position_mode="oneway"
+                    "type": "TRAILING_STOP_MARKET",
+                    "quantity": 0.01,
+                    "callbackRate": 0.5,
+                    "activatePrice": -1,
+                },
+                position_mode="oneway",
             )
 
     def test_bad_callback_rate_raises(self):
         with pytest.raises(ValueError, match="callbackRate_out_of_range"):
             _validate_algo_order_contract(
                 {
-                    "type": "TRAILING_STOP_MARKET"
-                    "quantity": 0.01
+                    "type": "TRAILING_STOP_MARKET",
+                    "quantity": 0.01,
                     "callbackRate": 99.0,  # > 10.0
-                }
-                position_mode="oneway"
+                },
+                position_mode="oneway",
             )
 
     def test_normalises_working_type(self):
         res = _validate_algo_order_contract(
             {
-                "type": "STOP_MARKET"
-                "quantity": 0.01
-                "triggerPrice": 29000
+                "type": "STOP_MARKET",
+                "quantity": 0.01,
+                "triggerPrice": 29000,
                 "workingType": "mark_price",  # lowercase → normalised
-            }
-            position_mode="oneway"
+            },
+            position_mode="oneway",
         )
         assert res["workingType"] == "MARK_PRICE"
 
@@ -194,19 +194,19 @@ class TestAlgoOrderContract:
         with pytest.raises(ValueError, match="invalid_workingType"):
             _validate_algo_order_contract(
                 {
-                    "type": "STOP_MARKET"
-                    "quantity": 0.01
-                    "triggerPrice": 29000
-                    "workingType": "SPOT_PRICE"
-                }
-                position_mode="oneway"
+                    "type": "STOP_MARKET",
+                    "quantity": 0.01,
+                    "triggerPrice": 29000,
+                    "workingType": "SPOT_PRICE",
+                },
+                position_mode="oneway",
             )
 
     def test_hedge_requires_position_side(self):
         with pytest.raises(ValueError, match="positionSide_required_in_hedge"):
             _validate_algo_order_contract(
-                {"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 29000}
-                position_mode="hedge"
+                {"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 29000},
+                position_mode="hedge",
             )
 
 
@@ -241,10 +241,10 @@ class TestReplaceUntriggeredAlgoOrder:
             inst.position_mode = client.position_mode
 
             new_params = {
-                "type": "STOP_MARKET"
-                "quantity": 0.01
-                "triggerPrice": 28000
-                "side": "BUY"
+                "type": "STOP_MARKET",
+                "quantity": 0.01,
+                "triggerPrice": 28000,
+                "side": "BUY",
             }
             result = inst.replace_untriggered_algo_order(
                 "BTCUSDT", algo_id=9001, new_params=new_params
@@ -266,9 +266,9 @@ class TestReplaceUntriggeredAlgoOrder:
 
             with pytest.raises(RuntimeError, match="not_replaceable"):
                 inst.replace_untriggered_algo_order(
-                    "BTCUSDT"
-                    algo_id=9001
-                    new_params={"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 28000}
+                    "BTCUSDT",
+                    algo_id=9001,
+                    new_params={"type": "STOP_MARKET", "quantity": 0.01, "triggerPrice": 28000},
                 )
 
 
@@ -401,9 +401,8 @@ class TestStructuredOrderContract:
     def test_structured_contract_with_tps(self):
         ex = self._make_executor()
         tps = [
-            AlgoOrderRef(algo_id=3001, client_algo_id="tp1", type="TAKE_PROFIT_MARKET", working_type="MARK_PRICE")
-            AlgoOrderRef(algo_id=3002, client_algo_id="tp2", type="TAKE_PROFIT_MARKET", working_type="MARK_PRICE")
-        ]
+            AlgoOrderRef(algo_id=3001, client_algo_id="tp1", type="TAKE_PROFIT_MARKET", working_type="MARK_PRICE"),
+            AlgoOrderRef(algo_id=3002, client_algo_id="tp2", type="TAKE_PROFIT_MARKET", working_type="MARK_PRICE")]
         contract = ex._structured_order_contract(sid="test-sid", tp_refs=tps)
         assert contract["protective"]["tp_algo_ids"] == [3001, 3002]
 

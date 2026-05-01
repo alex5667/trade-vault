@@ -48,8 +48,8 @@ def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
     """
     Returns:
       total_trades: int
-      veto_hits: int
-      veto_r_sum: float
+      veto_hits: int,
+      veto_r_sum: float,
       global_r_sum: float
     """
     with tempfile.TemporaryDirectory() as tmp:
@@ -65,7 +65,7 @@ def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
                 sys.executable, "tools/export_trade_closed_ndjson.py",
                 "--since-hours", str(hours),
                 "--out", trades_file,
-                "--redis-url", redis_url
+                "--redis-url", redis_url,
             ])
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to export trades: {e}")
@@ -186,7 +186,7 @@ def create_and_send_proposal(
         "ts": str(get_ny_time_millis()),
         "text": text,
         "parse_mode": "HTML",
-        "buttons": json.dumps(buttons)
+        "buttons": json.dumps(buttons),
     }, maxlen=50000)
     logger.info(f"Telegram proposal sent for bundle_id {bundle_id}")
     # Record first reminded_at so reminder loop treats it as freshly sent

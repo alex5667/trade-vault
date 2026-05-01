@@ -67,7 +67,7 @@ def test_self_inclusion_bias_is_in_10_20_percent_typical_case():
 
 def test_detector_emits_unbiased_z_on_same_case():
     """
-    Confirms the detector outputs z computed on the previous window (unbiased)
+    Confirms the detector outputs z computed on the previous window (unbiased),
     not the self-included version.
     """
     det = DeltaSpikeDetector(window=64, z_threshold=2.0, min_abs_volume=0.0)

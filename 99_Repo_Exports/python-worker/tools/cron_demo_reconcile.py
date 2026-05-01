@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 tools/cron_demo_reconcile.py
 
@@ -33,7 +34,6 @@ ENV:
     TELEGRAM_BOT_TOKEN              For direct mode
     TELEGRAM_CHAT_ID                For direct mode
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

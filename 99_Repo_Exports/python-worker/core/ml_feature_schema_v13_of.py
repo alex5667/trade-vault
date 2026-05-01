@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 v13_of — Feature schema v13 (OrderFlow), pinned snapshot + advanced volatility/liquidity/toxicity extensions.
 
@@ -31,7 +32,6 @@ Design notes
 - Append-only: new schema versions always add keys, never remove.
 """
 
-from __future__ import annotations
 
 from typing import List
 

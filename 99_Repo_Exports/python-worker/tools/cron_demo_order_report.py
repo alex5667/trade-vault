@@ -1,4 +1,5 @@
 # python-worker/tools/cron_demo_order_report.py
+from __future__ import annotations
 """
 Отдельный отчёт по ордерам, отправленным на демо-счёт (is_virtual=true).
 
@@ -23,7 +24,6 @@ ENV:
     TELEGRAM_BOT_TOKEN          Для direct-режима
     TELEGRAM_CHAT_ID            Для direct-режима
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

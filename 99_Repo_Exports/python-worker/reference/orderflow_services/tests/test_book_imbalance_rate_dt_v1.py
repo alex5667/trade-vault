@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Unit tests for book_imbalance_rate_10 dt guards (A2).
 
 We validate the dependency-free helper in `core.book_derivatives_v1`.
 """
 
-from __future__ import annotations
 
 import sys
 from pathlib import Path

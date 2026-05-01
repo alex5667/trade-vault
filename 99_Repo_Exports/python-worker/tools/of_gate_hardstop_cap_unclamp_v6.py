@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Staged auto-unclamp v6: triple gate for range (health_global + health_range_segment + outcome_range_long).
 
 This is v6: adds bucket-specific health from metrics:of_gate for range segment.
@@ -42,7 +43,6 @@ Environment Variables:
   - Config: CFG_HASH_PREFIX
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

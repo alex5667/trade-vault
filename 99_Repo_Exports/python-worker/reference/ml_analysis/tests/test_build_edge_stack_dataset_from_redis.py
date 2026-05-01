@@ -25,12 +25,12 @@ def test_parse_replay_signal_from_payload():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_replay_signal
 
     payload = {
-        "ts_ms": 1700000000000
-        "symbol": "BTCUSDT"
-        "direction": "BUY"
-        "scenario_v4": "trend"
-        "sid": "crypto-of:BTCUSDT:1700000000000"
-        "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "exec_risk_norm": 0.1, "delta_z": 0.5}
+        "ts_ms": 1700000000000,
+        "symbol": "BTCUSDT",
+        "direction": "BUY",
+        "scenario_v4": "trend",
+        "sid": "crypto-of:BTCUSDT:1700000000000",
+        "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "exec_risk_norm": 0.1, "delta_z": 0.5},
     }
     fields = {"payload": json.dumps(payload)}
 
@@ -50,15 +50,15 @@ def test_parse_replay_signal_nested_decision_payload():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_replay_signal
 
     payload = {
-        "sid": "crypto-of:BTCUSDT:1700000000000"
+        "sid": "crypto-of:BTCUSDT:1700000000000",
         "decision": {
-            "ts_ms": 1700000000000
-            "symbol": "BTCUSDT"
-            "direction": "LONG"
-            "scenario_v4": "trend"
-        }
-        "close": {"exit_ts_ms": 1700000100000}
-        "label": {"r_mult": 0.5}
+            "ts_ms": 1700000000000,
+            "symbol": "BTCUSDT",
+            "direction": "LONG",
+            "scenario_v4": "trend",
+        },
+        "close": {"exit_ts_ms": 1700000100000},
+        "label": {"r_mult": 0.5},
     }
     fields = {"payload": json.dumps(payload)}
     s = parse_replay_signal(fields)
@@ -88,19 +88,19 @@ def test_join_signals_with_closes_and_label():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import SignalRow, CloseRow, join_signals_with_closes
 
     s = SignalRow(
-        sid="crypto-of:BTCUSDT:1700000000000"
-        ts_ms=1700000000000
-        symbol="BTCUSDT"
-        direction="BUY"
-        scenario="trend"
-        indicators={"spread_bps": 1.2, "expected_slippage_bps": 0.8, "exec_risk_norm": 0.2, "delta_z": 0.5}
+        sid="crypto-of:BTCUSDT:1700000000000",
+        ts_ms=1700000000000,
+        symbol="BTCUSDT",
+        direction="BUY",
+        scenario="trend",
+        indicators={"spread_bps": 1.2, "expected_slippage_bps": 0.8, "exec_risk_norm": 0.2, "delta_z": 0.5},
     )
     c = CloseRow(
-        sid="crypto-of:BTCUSDT:1700000000000"
-        close_ts_ms=1700000100000
-        symbol="BTCUSDT"
-        pnl=10.0
-        risk_usd=20.0
+        sid="crypto-of:BTCUSDT:1700000000000",
+        close_ts_ms=1700000100000,
+        symbol="BTCUSDT",
+        pnl=10.0,
+        risk_usd=20.0,
     )
 
     rows = join_signals_with_closes([s], [c], y_min_r=0.4)
@@ -114,22 +114,22 @@ def test_infer_feature_cols():
 
     rows = [
         {
-            "ts_ms": 1
-            "sid": "crypto-of:BTCUSDT:1"
-            "symbol": "BTCUSDT"
-            "direction": "BUY"
-            "scenario": "trend"
-            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "delta_z": 0.5, "liq_regime": "hi"}
-            "y": 1
-        }
+            "ts_ms": 1,
+            "sid": "crypto-of:BTCUSDT:1",
+            "symbol": "BTCUSDT",
+            "direction": "BUY",
+            "scenario": "trend",
+            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "delta_z": 0.5, "liq_regime": "hi"},
+            "y": 1,
+        },
         {
-            "ts_ms": 2
-            "sid": "crypto-of:BTCUSDT:2"
-            "symbol": "BTCUSDT"
-            "direction": "SELL"
-            "scenario": "range"
-            "indicators": {"spread_bps": 1.0, "expected_slippage_bps": 0.7, "delta_z": -0.2}
-            "y": 0
+            "ts_ms": 2,
+            "sid": "crypto-of:BTCUSDT:2",
+            "symbol": "BTCUSDT",
+            "direction": "SELL",
+            "scenario": "range",
+            "indicators": {"spread_bps": 1.0, "expected_slippage_bps": 0.7, "delta_z": -0.2},
+            "y": 0,
         }
     ]
 
@@ -150,8 +150,8 @@ def test_infer_feature_cols():
 
     # --- legacy: scenario_v4_ prefix, no time one-hots ---
     cols2 = infer_feature_cols(
-        rows, max_numeric=4, include_direction=True, include_scenario=True
-        scenario_prefix="scenario_v4_", include_time_onehot=False
+        rows, max_numeric=4, include_direction=True, include_scenario=True,
+        scenario_prefix="scenario_v4_", include_time_onehot=False,
     )
     assert "f_spread_bps" in cols2
     assert "direction_BUY" in cols2 and "direction_SELL" in cols2
@@ -165,21 +165,21 @@ def test_infer_feature_cols_excludes_dq_policy_and_runtime_meta():
 
     rows = [
         {
-            "ts_ms": 1
-            "sid": "crypto-of:BTCUSDT:1"
-            "symbol": "BTCUSDT"
-            "direction": "BUY"
-            "scenario": "trend"
+            "ts_ms": 1,
+            "sid": "crypto-of:BTCUSDT:1",
+            "symbol": "BTCUSDT",
+            "direction": "BUY",
+            "scenario": "trend",
             "indicators": {
-                "spread_bps": 1.2
-                "tick_gap_p95_ms": 1500.0
-                "dq_pen": 0.1
-                "dq_level": 2
-                "runtime_start_ts_ms": 1700000000000
-                "dq_policy_dq_book_seq_ema_alpha": 0.10
-                "dq_policy_book_stream_interval_ms": 100
-            }
-            "y": 1
+                "spread_bps": 1.2,
+                "tick_gap_p95_ms": 1500.0,
+                "dq_pen": 0.1,
+                "dq_level": 2,
+                "runtime_start_ts_ms": 1700000000000,
+                "dq_policy_dq_book_seq_ema_alpha": 0.10,
+                "dq_policy_book_stream_interval_ms": 100,
+            },
+            "y": 1,
         }
     ]
 
@@ -199,33 +199,33 @@ def test_infer_feature_cols_strict_bucket_only():
 
     rows = [
         {
-            "ts_ms": 1
-            "sid": "crypto-of:BTCUSDT:1"
-            "symbol": "BTCUSDT"
-            "direction": "BUY"
-            "scenario": "range_meanrev:v2|x"
-            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "delta_z": 0.5}
-            "y": 1
-        }
+            "ts_ms": 1,
+            "sid": "crypto-of:BTCUSDT:1",
+            "symbol": "BTCUSDT",
+            "direction": "BUY",
+            "scenario": "range_meanrev:v2|x",
+            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "delta_z": 0.5},
+            "y": 1,
+        },
         {
-            "ts_ms": 2
-            "sid": "crypto-of:BTCUSDT:2"
-            "symbol": "BTCUSDT"
-            "direction": "SELL"
-            "scenario": "trend_continuation"
-            "indicators": {"spread_bps": 1.0, "expected_slippage_bps": 0.7, "delta_z": -0.2}
-            "y": 0
+            "ts_ms": 2,
+            "sid": "crypto-of:BTCUSDT:2",
+            "symbol": "BTCUSDT",
+            "direction": "SELL",
+            "scenario": "trend_continuation",
+            "indicators": {"spread_bps": 1.0, "expected_slippage_bps": 0.7, "delta_z": -0.2},
+            "y": 0,
         }
     ]
 
     cols = infer_feature_cols(
-        rows
-        max_numeric=10
-        include_direction=True
-        include_scenario=True
+        rows,
+        max_numeric=10,
+        include_direction=True,
+        include_scenario=True,
         # default scenario_prefix="bucket:" - overrides don't matter in strict mode
-        strict_feature_cols=True
-        forbid_scenario_v4_onehot=True
+        strict_feature_cols=True,
+        forbid_scenario_v4_onehot=True,
     )
     # strict mode: bucket taxonomy always present
     assert "bucket:trend" in cols
@@ -241,17 +241,17 @@ def test_validate_feature_cols_strict_raises():
 
     # no-op when strict_feature_cols=False
     validate_feature_cols_strict(
-        ["scenario_v4_trend", "f_spread_bps"]
-        strict_feature_cols=False
-        forbid_scenario_v4_onehot=True
+        ["scenario_v4_trend", "f_spread_bps"],
+        strict_feature_cols=False,
+        forbid_scenario_v4_onehot=True,
     )  # must not raise
 
     # raises when strict and forbid both True
     try:
         validate_feature_cols_strict(
-            ["scenario_v4_trend", "f_spread_bps"]
-            strict_feature_cols=True
-            forbid_scenario_v4_onehot=True
+            ["scenario_v4_trend", "f_spread_bps"],
+            strict_feature_cols=True,
+            forbid_scenario_v4_onehot=True,
         )
         assert False, "expected ValueError for forbidden feature cols"
     except ValueError as exc:
@@ -259,9 +259,9 @@ def test_validate_feature_cols_strict_raises():
 
     # no-op when strict=True but forbid=False (explicit override)
     validate_feature_cols_strict(
-        ["scenario_v4_trend"]
-        strict_feature_cols=True
-        forbid_scenario_v4_onehot=False
+        ["scenario_v4_trend"],
+        strict_feature_cols=True,
+        forbid_scenario_v4_onehot=False,
     )  # must not raise
 
 
@@ -271,16 +271,16 @@ def test_parse_replay_signal_from_joiner_payload_decision_nested():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_replay_signal
 
     payload = {
-        "sid": "BTCUSDT:1700000000000"
+        "sid": "BTCUSDT:1700000000000",
         "decision": {
-            "sid": "BTCUSDT:1700000000000"
-            "ts_ms": 1700000000000
-            "symbol": "BTCUSDT"
-            "direction": "LONG"
-            "rule": {"scenario_v4": "trend"}
-            "features": {"spread_bps": 5.0, "obi": 0.12}
-        }
-        "close": {"close_ts_ms": 1700000300000, "r_mult": 0.5}
+            "sid": "BTCUSDT:1700000000000",
+            "ts_ms": 1700000000000,
+            "symbol": "BTCUSDT",
+            "direction": "LONG",
+            "rule": {"scenario_v4": "trend"},
+            "features": {"spread_bps": 5.0, "obi": 0.12},
+        },
+        "close": {"close_ts_ms": 1700000300000, "r_mult": 0.5},
     }
     row = parse_replay_signal({"payload": json.dumps(payload)})
     assert row is not None
@@ -297,13 +297,13 @@ def test_parse_replay_signal_minimal():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_replay_signal
 
     payload = {
-        "sid": "BTCUSDT:1700000000000"
-        "ts_ms": 1700000000000
-        "symbol": "BTCUSDT"
-        "direction": "BUY"
-        "scenario_v4": "trend"
-        "indicators": {"spread_bps": 5.0}
-        "label": {"r_mult": 0.5}
+        "sid": "BTCUSDT:1700000000000",
+        "ts_ms": 1700000000000,
+        "symbol": "BTCUSDT",
+        "direction": "BUY",
+        "scenario_v4": "trend",
+        "indicators": {"spread_bps": 5.0},
+        "label": {"r_mult": 0.5},
     }
     row = parse_replay_signal({"payload": json.dumps(payload)})
     assert row is not None
@@ -320,11 +320,11 @@ def test_parse_trade_closed_from_payload_json():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import parse_trade_closed
 
     payload = {
-        "symbol": "ETHUSDT"
-        "sid": "crypto-of:ETHUSDT:1700000000000"
-        "pnl": 12.5
-        "risk_usd": 25
-        "exit_ts_ms": 1700000100000
+        "symbol": "ETHUSDT",
+        "sid": "crypto-of:ETHUSDT:1700000000000",
+        "pnl": 12.5,
+        "risk_usd": 25,
+        "exit_ts_ms": 1700000100000,
     }
     c = parse_trade_closed({"payload": json.dumps(payload)})
     assert c is not None
@@ -338,9 +338,9 @@ def test_filter_by_time_reads_payload_ts():
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import _filter_by_time
 
     items = [
-        ("1-0", {"payload": json.dumps({"exit_ts_ms": 1700000000000})})
-        ("2-0", {"payload": json.dumps({"exit_ts_ms": 1700000001000})})
-        ("3-0", {"payload": json.dumps({"exit_ts_ms": 1700000002000})})
+        ("1-0", {"payload": json.dumps({"exit_ts_ms": 1700000000000})}),
+        ("2-0", {"payload": json.dumps({"exit_ts_ms": 1700000001000})}),
+        ("3-0", {"payload": json.dumps({"exit_ts_ms": 1700000002000})}),
     ]
     out = _filter_by_time(items, ts_field_candidates=("exit_ts_ms",), start_ms=1700000000500, end_ms=1700000001500)
     assert [x[0] for x in out] == ["2-0"]
@@ -356,12 +356,12 @@ def test_read_archive_items_basic(tmp_path):
     fp.write_text(
         "\n".join(
             [
-                json.dumps({"stream_id": "1-0", "payload": {"ts_ms": 1700000000000, "sid": "a"}})
-                json.dumps({"stream_id": "2-0", "payload": {"ts_ms": 1700000005000, "sid": "b"}})
+                json.dumps({"stream_id": "1-0", "payload": {"ts_ms": 1700000000000, "sid": "a"}}),
+                json.dumps({"stream_id": "2-0", "payload": {"ts_ms": 1700000005000, "sid": "b"}}),
             ]
         )
-        + "\n"
-        encoding="utf-8"
+        + "\n",
+        encoding="utf-8",
     )
 
     items, st = _read_archive_items(str(d), start_ms=1700000001000, end_ms=1700000009000, lookback_days=365, max_records=10)
@@ -380,24 +380,24 @@ def test_infer_feature_cols_bucket_hour_dow():
 
     rows = [
         {
-            "ts_ms": 1700000000000
-            "sid": "crypto-of:BTCUSDT:1700000000000"
-            "symbol": "BTCUSDT"
-            "direction": "BUY"
-            "scenario": "trend"
-            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "delta_z": 0.5}
-            "y": 1
+            "ts_ms": 1700000000000,
+            "sid": "crypto-of:BTCUSDT:1700000000000",
+            "symbol": "BTCUSDT",
+            "direction": "BUY",
+            "scenario": "trend",
+            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8, "delta_z": 0.5},
+            "y": 1,
         }
     ]
 
     # bucket:/hour:/dow: via current API: scenario_prefix="bucket:", include_time_onehot=True
     cols = infer_feature_cols(
-        rows
-        max_numeric=32
-        include_direction=True
-        include_scenario=True
-        scenario_prefix="bucket:"
-        include_time_onehot=True
+        rows,
+        max_numeric=32,
+        include_direction=True,
+        include_scenario=True,
+        scenario_prefix="bucket:",
+        include_time_onehot=True,
     )
     # bucket: taxonomy (low-cardinality)
     assert "bucket:trend" in cols and "bucket:range" in cols and "bucket:other" in cols
@@ -419,24 +419,24 @@ def test_infer_feature_cols_strict_rejects_scenario_v4():
 
     rows = [
         {
-            "ts_ms": 1700000000000
-            "sid": "crypto-of:BTCUSDT:1700000000000"
-            "symbol": "BTCUSDT"
-            "direction": "BUY"
-            "scenario": "trend"
-            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8}
-            "y": 1
+            "ts_ms": 1700000000000,
+            "sid": "crypto-of:BTCUSDT:1700000000000",
+            "symbol": "BTCUSDT",
+            "direction": "BUY",
+            "scenario": "trend",
+            "indicators": {"spread_bps": 1.2, "expected_slippage_bps": 0.8},
+            "y": 1,
         }
     ]
 
     with pytest.raises(ValueError, match="scenario_v4_"):
         infer_feature_cols(
-            rows
-            max_numeric=32
-            include_direction=True
-            include_scenario=True
+            rows,
+            max_numeric=32,
+            include_direction=True,
+            include_scenario=True,
             scenario_prefix="scenario_v4_",  # legacy prefix triggers strict check
-            include_time_onehot=True
-            strict_feature_cols=True
-            forbid_scenario_v4_onehot=True
+            include_time_onehot=True,
+            strict_feature_cols=True,
+            forbid_scenario_v4_onehot=True,
         )

@@ -150,7 +150,7 @@ def _tf_alias_map() -> Dict[int, str]:
         180000: "3m",
         300000: "5m",
         900000: "15m",
-    }
+    },
 
 
 def _candidate_keys_with_alias(tf_ms: int) -> List[str]:

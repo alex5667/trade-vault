@@ -19,12 +19,12 @@ class CryptoSignalGates:
     """
 
     def __init__(
-        self
-        entry_policy: Optional[EntryPolicyGate]
-        cost_gate: Optional[EdgeCostGate]
-        consistency_gate: Any = None
-        regime_liquidity_gate: Any = None
-        smt_gate: Any = None
+        self,
+        entry_policy: Optional[EntryPolicyGate],
+        cost_gate: Optional[EdgeCostGate],
+        consistency_gate: Any = None,
+        regime_liquidity_gate: Any = None,
+        smt_gate: Any = None,
     ):
         self._entry_policy = entry_policy
         self._cost_gate = cost_gate
@@ -181,8 +181,8 @@ class CryptoSignalGates:
             direction = "NA"
 
         return self._smt_gate.evaluate(
-            ctx=ctx
-            symbol=str(getattr(ctx, "symbol", "") or "")
-            kind=str(kind)
+            ctx=ctx,
+            symbol=str(getattr(ctx, "symbol", "") or ""),
+            kind=str(kind),
             direction=direction
         )

@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Tests for OF Gate metrics integration (ML latency, source_consistency_ok, etc).
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

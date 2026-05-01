@@ -18,10 +18,10 @@ def round_to_point(value: float, point: float, mode: str) -> float:
 
 
 def calc_trailing_sl(
-    side: Side
-    current_price: float
-    trailing_distance: float
-    point: float
+    side: Side,
+    current_price: float,
+    trailing_distance: float,
+    point: float,
     prev_sl: float
 ) -> Optional[float]:
     if trailing_distance <= 0:
@@ -49,7 +49,7 @@ def update_excursions(pos: Any, price: float, ts_ms: int) -> None:
       - обновляет максимальные/минимальные увиденные цены
       - обновляет max_favorable_price + max_favorable_ts
     Улучшение (критично для "MFE/MAE before TP1"):
-      - также отслеживать max_adverse_price + max_adverse_ts
+      - также отслеживать max_adverse_price + max_adverse_ts,
         чтобы мы могли позже детерминированно заморозить "MAE_BEFORE_TP1".
     """
     # --- существующий код вычисляет/обновляет favorable ---
@@ -194,10 +194,10 @@ def snapshot_tp1_excursions(pos: Any, ts_ms: int) -> None:
 
     # Снимок экстремумов цены/времени (диагностика; полезно для проверки "до TP1")
     for src, dst in [
-        ("max_favorable_price", "mfe_price_at_tp1")
-        ("max_favorable_ts", "mfe_ts_at_tp1")
-        ("max_adverse_price", "mae_price_before_tp1")
-        ("max_adverse_ts", "mae_ts_before_tp1")
+        ("max_favorable_price", "mfe_price_at_tp1"),
+        ("max_favorable_ts", "mfe_ts_at_tp1"),
+        ("max_adverse_price", "mae_price_before_tp1"),
+        ("max_adverse_ts", "mae_ts_before_tp1"),
     ]:
         try:
             v = getattr(pos, src, None)
@@ -220,9 +220,9 @@ def duration_ms(entry_ts_ms: int, exit_ts_ms: int) -> int:
 
 
 def calc_missed_profit(
-    pos: PositionState
-    spec
-    tp_ratios: Sequence[float]
+    pos: PositionState,
+    spec,
+    tp_ratios: Sequence[float],
 ) -> float:
     """
     Если была ситуация TP→SL, считаем "упущенную прибыль":

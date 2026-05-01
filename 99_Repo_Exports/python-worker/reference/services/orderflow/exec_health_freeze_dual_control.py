@@ -45,15 +45,15 @@ def _i(x: Any, d: int = 0) -> int:
 
 
 DUAL_CONTROL_VIOLATION_KINDS = [
-    'none'
-    'prepare_missing'
-    'approval_missing'
-    'commit_missing'
-    'same_operator_dual_control_violation'
-    'commit_without_prepare'
-    'commit_without_approval'
-    'invalid_commit_signature'
-    'invalid_control_commit_signature'
+    'none',
+    'prepare_missing',
+    'approval_missing',
+    'commit_missing',
+    'same_operator_dual_control_violation',
+    'commit_without_prepare',
+    'commit_without_approval',
+    'invalid_commit_signature',
+    'invalid_control_commit_signature',
 ]
 
 
@@ -94,32 +94,32 @@ def _find_latest(events: Sequence[Any], *, kind: str, request_id: str) -> Tuple[
 def _commit_event_to_control_like(payload: Mapping[str, Any]) -> Dict[str, Any]:
     """Map a manual_ack_thaw_commit event payload to the shape expected by verify_dual_control_commit_signature."""
     return {
-        'manual_override_action': 'thaw'
-        'active_thaw_request_id': _s(payload.get('request_id'))
-        'manual_commit_request_id': _s(payload.get('request_id'))
-        'thaw_request_nonce': _s(payload.get('ack_nonce'))
-        'manual_ack_nonce': _s(payload.get('ack_nonce'))
-        'thaw_prepared_by': _s(payload.get('prepared_by'))
-        'thaw_approved_by': _s(payload.get('approved_by'))
-        'manual_commit_by': _s(payload.get('operator'))
-        'thaw_request_reason': _s(payload.get('reason'))
-        'thaw_request_ticket': _s(payload.get('ticket'))
-        'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0)
-        'thaw_prepare_ts_ms': _i(payload.get('prepared_ts_ms'), 0)
-        'thaw_approve_ts_ms': _i(payload.get('approved_ts_ms'), 0)
-        'manual_commit_ts_ms': _i(payload.get('ts_ms'), 0)
-        'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0)
-        'manual_commit_sig': _s(payload.get('commit_sig'))
-        'manual_ack_sig': _s(payload.get('commit_sig'))
+        'manual_override_action': 'thaw',
+        'active_thaw_request_id': _s(payload.get('request_id')),
+        'manual_commit_request_id': _s(payload.get('request_id')),
+        'thaw_request_nonce': _s(payload.get('ack_nonce')),
+        'manual_ack_nonce': _s(payload.get('ack_nonce')),
+        'thaw_prepared_by': _s(payload.get('prepared_by')),
+        'thaw_approved_by': _s(payload.get('approved_by')),
+        'manual_commit_by': _s(payload.get('operator')),
+        'thaw_request_reason': _s(payload.get('reason')),
+        'thaw_request_ticket': _s(payload.get('ticket')),
+        'last_trigger_ts_ms': _i(payload.get('trigger_ts_ms'), 0),
+        'thaw_prepare_ts_ms': _i(payload.get('prepared_ts_ms'), 0),
+        'thaw_approve_ts_ms': _i(payload.get('approved_ts_ms'), 0),
+        'manual_commit_ts_ms': _i(payload.get('ts_ms'), 0),
+        'manual_ack_ts_ms': _i(payload.get('ts_ms'), 0),
+        'manual_commit_sig': _s(payload.get('commit_sig')),
+        'manual_ack_sig': _s(payload.get('commit_sig')),
     }
 
 
 def evaluate_freeze_dual_control(
-    *
-    control_raw: Mapping[str, Any] | None
-    state_raw: Mapping[str, Any] | None
-    events: Sequence[Any] | None
-    now_ms: int | None = None
+    *,
+    control_raw: Mapping[str, Any] | None,
+    state_raw: Mapping[str, Any] | None,
+    events: Sequence[Any] | None,
+    now_ms: int | None = None,
 ) -> FreezeDualControlResult:
     """Evaluate the dual-control thaw chain integrity.
 
@@ -190,18 +190,18 @@ def evaluate_freeze_dual_control(
         violations = ['none']
 
     return FreezeDualControlResult(
-        request_id=str(request_id or '')
-        request_status=str(request_status or '')
-        request_nonce=str(request_nonce or '')
-        pending_request=bool(pending_request)
-        dual_control_ready=bool(dual_control_ready)
-        prepare_event_present=bool(prepare_present)
-        approve_event_present=bool(approve_present)
-        commit_event_present=bool(commit_present)
-        valid_commit_event_present=bool(valid_commit_event_present)
-        prepared_by=str(prepared_by or '')
-        approved_by=str(approved_by or '')
-        commit_by=str(commit_by or '')
-        same_operator_violation=bool(same_operator)
-        violation_kinds=violations
+        request_id=str(request_id or ''),
+        request_status=str(request_status or ''),
+        request_nonce=str(request_nonce or ''),
+        pending_request=bool(pending_request),
+        dual_control_ready=bool(dual_control_ready),
+        prepare_event_present=bool(prepare_present),
+        approve_event_present=bool(approve_present),
+        commit_event_present=bool(commit_present),
+        valid_commit_event_present=bool(valid_commit_event_present),
+        prepared_by=str(prepared_by or ''),
+        approved_by=str(approved_by or ''),
+        commit_by=str(commit_by or ''),
+        same_operator_violation=bool(same_operator),
+        violation_kinds=violations,
     )

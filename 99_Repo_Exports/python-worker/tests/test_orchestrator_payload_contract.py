@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Golden payload contract test for SignalOrchestrator.
 
@@ -8,7 +9,6 @@ Golden payload contract test for SignalOrchestrator.
 Обновление fixture: при легитимном изменении схемы обновите
 GOLDEN_PAYLOAD_KEYS и добавьте комментарий с датой изменения.
 """
-from __future__ import annotations
 
 import json
 import time
@@ -105,7 +105,7 @@ def _make_orch_and_ctx():
             *,
             signal_id: str = "",
             kind: str = "",
-            symbol: str = "",
+            symbol="",
             side: str | None = None,
             ts_event_ms: int = 0,
             ingest_time_ms: int = 0,

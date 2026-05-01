@@ -62,11 +62,11 @@ class NewsEnricherSync:
         self._cache: Dict[str, tuple[int, NewsFeatures]] = {}
 
     def attach(
-        self
-        ctx: OrderflowSignalContext
-        *
-        asset_class: str = ""
-        now_ts_ms: Optional[int] = None
+        self,
+        ctx: OrderflowSignalContext,
+        *,
+        asset_class: str = "",
+        now_ts_ms: Optional[int] = None,
     ) -> None:
         """Populate ctx.news.
 
@@ -124,17 +124,17 @@ class NewsEnricherSync:
             event_tminus_sec = int((event_ts - now_ms) / 1000) if event_ts > 0 else -1
 
             nf = NewsFeatures(
-                ref=ref
-                news_risk=_safe_float(news.get("risk_ema", 0.0))
-                surprise_score=_safe_float(news.get("surprise_ema", 0.0))
-                news_grade_id=_safe_int(news.get("news_grade_id", 0))
-                tags_mask=_safe_int(news.get("tags_mask", 0))
-                primary_tag_id=_safe_int(news.get("primary_tag_id", 0))
-                confidence=_safe_float(news.get("confidence", 0.0))
-                horizon_sec=_safe_int(news.get("horizon_sec", 0))
-                asof_ts_ms=_safe_int(news.get("asof_ts_ms", 0))
-                event_tminus_sec=event_tminus_sec
-                event_grade_id=_safe_int(cal.get("event_grade_id", 0)) if cal else 0
+                ref=ref,
+                news_risk=_safe_float(news.get("risk_ema", 0.0)),
+                surprise_score=_safe_float(news.get("surprise_ema", 0.0)),
+                news_grade_id=_safe_int(news.get("news_grade_id", 0)),
+                tags_mask=_safe_int(news.get("tags_mask", 0)),
+                primary_tag_id=_safe_int(news.get("primary_tag_id", 0)),
+                confidence=_safe_float(news.get("confidence", 0.0)),
+                horizon_sec=_safe_int(news.get("horizon_sec", 0)),
+                asof_ts_ms=_safe_int(news.get("asof_ts_ms", 0)),
+                event_tminus_sec=event_tminus_sec,
+                event_grade_id=_safe_int(cal.get("event_grade_id", 0)) if cal else 0,
             )
 
             ctx.news = nf

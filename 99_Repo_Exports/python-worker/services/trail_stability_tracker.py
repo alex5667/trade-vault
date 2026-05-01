@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Trail Stability Tracker — monitors calibration parameter stability over multiple runs.
 
@@ -8,7 +9,6 @@ over the recorded history to determine if params are stable enough for enforce.
 Key pattern: trail:stability:{symbol}:{regime}  (Redis list of JSON snapshots)
 Fail-open: never raises.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

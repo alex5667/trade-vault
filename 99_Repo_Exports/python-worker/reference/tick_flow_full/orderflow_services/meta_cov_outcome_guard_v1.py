@@ -118,14 +118,14 @@ def main() -> int:
     reason_str = ",".join(reason) if reason else None
     
     meta = {
-        "blocked": block
-        "reason": reason_str
-        "ts_ms": now
-        "snapshot_ts_ms": ts_ms
-        "stale": stale
-        "last_run_not_ok": last_run_not_ok
-        "preflight_soft": preflight_soft
-        "quarantined": quarantined
+        "blocked": block,
+        "reason": reason_str,
+        "ts_ms": now,
+        "snapshot_ts_ms": ts_ms,
+        "stale": stale,
+        "last_run_not_ok": last_run_not_ok,
+        "preflight_soft": preflight_soft,
+        "quarantined": quarantined,
     }
 
     print(json.dumps(meta, indent=2))

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """redis_lock_v1.py
 
 Small Redis lock helper (SET NX EX + safe release).
@@ -11,7 +12,6 @@ Design goals:
 ENV-driven callers should keep TTL conservative.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

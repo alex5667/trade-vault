@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_nightly_meta_stage2_optimize_share_bundle_v4.py
 
@@ -17,7 +18,6 @@ Unit tests for nightly_meta_stage2_optimize_share_bundle_v4.py:
 - Global budget selection (greedy downgrade)
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -126,7 +126,7 @@ def test_simulate_share():
         {"meta_enforce_key": "key2", "meta_veto": 0, "r_mult": 0.5},   # Would pass
         {"meta_enforce_key": "key3", "meta_veto": 1, "r_mult": -0.3},   # Would be blocked
         {"meta_enforce_key": "key4", "meta_veto": 0, "r_mult": 0.2},   # Would pass
-    ]
+    ],
     
     salt = "test_salt"
     
@@ -155,7 +155,7 @@ def test_simulate_share_missing_key():
         {"meta_enforce_key": "key1", "meta_veto": 1, "r_mult": -1.5},
         {"meta_enforce_key": "", "meta_veto": 1, "r_mult": -0.5},  # Missing key
         {"meta_veto": 0, "r_mult": 0.3},  # Missing key
-    ]
+    ],
     
     salt = "test_salt"
     rep = simulate_share(rows, share=1.0, salt=salt)
@@ -274,13 +274,13 @@ def test_enumerate_symbol_combos():
         {"share": 0.25, "drop": 0.10, "obj": 0.15, "rep": None, "is_cur": False},
         {"share": 0.35, "drop": 0.15, "obj": 0.20, "rep": None, "is_cur": False},
         {"share": 0.10, "drop": 0.0, "obj": 0.10, "rep": None, "is_cur": True},
-    ]
+    ],
     
     range_opts = [
         {"share": 0.25, "drop": 0.08, "obj": 0.12, "rep": None, "is_cur": False},
         {"share": 0.35, "drop": 0.12, "obj": 0.18, "rep": None, "is_cur": False},
         {"share": 0.10, "drop": 0.0, "obj": 0.08, "rep": None, "is_cur": True},
-    ]
+    ],
     
     symbol_budget = 0.25  # Max total drop = 0.25
     
@@ -314,12 +314,12 @@ def test_enumerate_symbol_combos_coupling():
     trend_opts = [
         {"share": 0.20, "drop": 0.05, "obj": 0.10, "rep": None, "is_cur": False},  # trend < 0.25
         {"share": 0.30, "drop": 0.10, "obj": 0.15, "rep": None, "is_cur": False},  # trend >= 0.25
-    ]
+    ],
     
     range_opts = [
         {"share": 0.40, "drop": 0.08, "obj": 0.12, "rep": None, "is_cur": False},  # range > 0.35
         {"share": 0.30, "drop": 0.06, "obj": 0.10, "rep": None, "is_cur": False},  # range <= 0.35
-    ]
+    ],
     
     symbol_budget = 0.25
     trend_threshold = 0.25
@@ -350,7 +350,7 @@ def test_summarize_metrics():
         {"ok": 1, "ok_soft": 1, "latency_us": 2000.0, "exec_risk_norm": 0.6},
         {"ok": 0, "ok_soft": 0, "latency_us": 5000.0, "exec_risk_norm": 0.8},
         {"ok": 1, "ok_soft": 0, "latency_us": 1500.0, "exec_risk_norm": 0.4},
-    ]
+    ],
     
     st = summarize_metrics(rows)
     

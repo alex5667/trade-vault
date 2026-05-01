@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Staged auto-unclamp v2: dual-window health check (30min + 2h), AUTO/PROPOSE modes.
 
 This is the next level above auto-clamp: when hard-stop disappears and health holds,
@@ -32,7 +33,6 @@ Environment Variables:
   - Rec/bot: NOTIFY_TELEGRAM_STREAM, RECS_TTL_SEC, RECS_HMAC_SECRET
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

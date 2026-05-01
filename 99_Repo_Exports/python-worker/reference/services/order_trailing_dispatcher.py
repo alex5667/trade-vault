@@ -33,7 +33,7 @@ class OrderTrailingDispatcher:
     def __init__(
         self, 
         gateway_url: Optional[str] = None, 
-        max_retries: int = 3
+        max_retries: int = 3,
         redis_client = None
     ):
         """
@@ -61,14 +61,14 @@ class OrderTrailingDispatcher:
         for attempt in range(1, self.max_retries + 1):
             try:
                 log.debug(
-                    "Sending %s (attempt %d/%d): sid=%s"
+                    "Sending %s (attempt %d/%d): sid=%s",
                     label, attempt, self.max_retries, payload.get("sid")
                 )
 
                 resp = requests.post(
-                    f"{self.gateway_url}/orders/push"
-                    json=payload
-                    timeout=self.timeout
+                    f"{self.gateway_url}/orders/push",
+                    json=payload,
+                    timeout=self.timeout,
                     headers={"Content-Type": "application/json"}
                 )
 
@@ -77,7 +77,7 @@ class OrderTrailingDispatcher:
                     return True
 
                 log.warning(
-                    "⚠️  Gateway returned status %d (attempt %d/%d): %s"
+                    "⚠️  Gateway returned status %d (attempt %d/%d): %s",
                     resp.status_code, attempt, self.max_retries, resp.text[:200]
                 )
 
@@ -91,7 +91,7 @@ class OrderTrailingDispatcher:
 
             except requests.exceptions.Timeout:
                 log.warning(
-                    "⚠️  Gateway timeout (attempt %d/%d) for %s"
+                    "⚠️  Gateway timeout (attempt %d/%d) for %s",
                     attempt, self.max_retries, label
                 )
                 if attempt < self.max_retries:
@@ -101,7 +101,7 @@ class OrderTrailingDispatcher:
 
             except requests.exceptions.ConnectionError as exc:
                 log.warning(
-                    "⚠️  Gateway connection error (attempt %d/%d) for %s: %s"
+                    "⚠️  Gateway connection error (attempt %d/%d) for %s: %s",
                     attempt, self.max_retries, label, exc
                 )
                 if attempt < self.max_retries:
@@ -111,23 +111,23 @@ class OrderTrailingDispatcher:
 
             except Exception as exc:
                 log.error(
-                    "❌ Unexpected error sending %s: %s"
+                    "❌ Unexpected error sending %s: %s",
                     label, exc, exc_info=True
                 )
                 return False
 
         log.error(
-            "❌ Failed to send %s after %d attempts: sid=%s"
+            "❌ Failed to send %s after %d attempts: sid=%s",
             label, self.max_retries, payload.get("sid")
         )
         return False
 
     def send_trailing_command(
-        self
-        sid: str
-        symbol: str
-        position_id: Optional[str]
-        profile: TrailingProfile
+        self,
+        sid: str,
+        symbol: str,
+        position_id: Optional[str],
+        profile: TrailingProfile,
         metadata: Optional[dict] = None
     ) -> bool:
         """
@@ -144,11 +144,11 @@ class OrderTrailingDispatcher:
             True если успешно, False иначе
         """
         payload = {
-            "action": "trail"
-            "sid": sid
-            "symbol": symbol
+            "action": "trail",
+            "sid": sid,
+            "symbol": symbol,
             "mode": profile.mode,   # "ATR" / "POINTS"
-            "source": "tp1_trailing_orchestrator"
+            "source": "tp1_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
         
@@ -177,13 +177,13 @@ class OrderTrailingDispatcher:
         return True
     
     def send_trailing_command_from_atr(
-        self
-        sid: str
-        symbol: str
-        position_id: Optional[str]
-        atr_value: float
-        atr_mult: float
-        point: Optional[float] = None
+        self,
+        sid: str,
+        symbol: str,
+        position_id: Optional[str],
+        atr_value: float,
+        atr_mult: float,
+        point: Optional[float] = None,
         metadata: Optional[dict] = None
     ) -> bool:
         """
@@ -216,12 +216,12 @@ class OrderTrailingDispatcher:
         trail_points = trail_dist_price / point   # В пунктах MT5
         
         payload = {
-            "action": "trail"
-            "sid": sid
-            "symbol": symbol
+            "action": "trail",
+            "sid": sid,
+            "symbol": symbol,
             "mode": "POINTS",  # 🎯 Готовое значение в пунктах
-            "trail_points": trail_points
-            "source": "tp1_trailing_orchestrator"
+            "trail_points": trail_points,
+            "source": "tp1_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
         
@@ -234,16 +234,16 @@ class OrderTrailingDispatcher:
             metadata = {}
         
         metadata.update({
-            "atr_value": atr_value
-            "atr_mult": atr_mult
-            "trail_dist_price": trail_dist_price
-            "point_size": point
+            "atr_value": atr_value,
+            "atr_mult": atr_mult,
+            "trail_dist_price": trail_dist_price,
+            "point_size": point,
             "calculated_from_signal_atr": True
         })
         payload["metadata"] = metadata
         
         log.info(
-            "Skipping trail command to gateway (POINTS): sid=%s points=%.1f (ATR %.2f × %.2f = %.2f) — will rely on modify with SL"
+            "Skipping trail command to gateway (POINTS): sid=%s points=%.1f (ATR %.2f × %.2f = %.2f) — will rely on modify with SL",
             sid, trail_points, atr_value, atr_mult, trail_dist_price
         )
         # 🛑 gateway требует SL для action=modify; trail без SL отклоняется. Пропускаем как успешное.
@@ -278,12 +278,12 @@ class OrderTrailingDispatcher:
         
         # Fallback значения
         defaults = {
-            "XAUUSD": 0.1
-            "XAGUSD": 0.01
-            "BTCUSD": 1.0
-            "ETHUSD": 0.1
-            "EURUSD": 0.00001
-            "GBPUSD": 0.00001
+            "XAUUSD": 0.1,
+            "XAGUSD": 0.01,
+            "BTCUSD": 1.0,
+            "ETHUSD": 0.1,
+            "EURUSD": 0.00001,
+            "GBPUSD": 0.00001,
         }
         
         point = defaults.get(symbol, 0.1)
@@ -295,22 +295,22 @@ class OrderTrailingDispatcher:
         return self._get_symbol_point(symbol)
 
     def send_trailing_modify(
-        self
-        sid: str
-        symbol: str
-        side: Optional[str]
-        position_id: Optional[str]
-        new_sl: float
-        tp_levels: Optional[List[float]] = None
-        metadata: Optional[Dict[str, Any]] = None
+        self,
+        sid: str,
+        symbol: str,
+        side: Optional[str],
+        position_id: Optional[str],
+        new_sl: float,
+        tp_levels: Optional[List[float]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         clear_tp_levels: bool = False
     ) -> bool:
         payload: Dict[str, Any] = {
-            "action": "modify"
-            "sid": sid
-            "symbol": symbol
-            "sl": new_sl
-            "source": "tp1_trailing_orchestrator"
+            "action": "modify",
+            "sid": sid,
+            "symbol": symbol,
+            "sl": new_sl,
+            "source": "tp1_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
 
@@ -332,10 +332,10 @@ class OrderTrailingDispatcher:
         return self._post_to_gateway(payload, "trailing modify")
     
     def send_modify_sl(
-        self
-        sid: str
-        symbol: str
-        new_sl: float
+        self,
+        sid: str,
+        symbol: str,
+        new_sl: float,
         position_id: Optional[str] = None
     ) -> bool:
         """
@@ -351,11 +351,11 @@ class OrderTrailingDispatcher:
             True если успешно, False иначе
         """
         payload = {
-            "action": "modify_sl"
-            "sid": sid
-            "symbol": symbol
-            "new_sl": new_sl
-            "source": "tp1_trailing_orchestrator"
+            "action": "modify_sl",
+            "sid": sid,
+            "symbol": symbol,
+            "new_sl": new_sl,
+            "source": "tp1_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
         
@@ -373,18 +373,18 @@ if __name__ == "__main__":
     
     # Тестовый профиль
     test_profile = TrailingProfile(
-        name="test_rocket"
-        mode="ATR"
-        atr_mult=0.6
+        name="test_rocket",
+        mode="ATR",
+        atr_mult=0.6,
         comment="Test profile"
     )
     
     # Отправка тестовой команды
     success = dispatcher.send_trailing_command(
-        sid="test-signal-123"
-        symbol="XAUUSD"
-        position_id="1234567"
-        profile=test_profile
+        sid="test-signal-123",
+        symbol="XAUUSD",
+        position_id="1234567",
+        profile=test_profile,
         metadata={"test": True}
     )
     

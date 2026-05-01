@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Metrics Publisher - Публикация метрик для Grafana и мониторинга.
 
@@ -12,7 +13,6 @@ Redis схема:
 - metrics:strategy_perf stream = временной ряд для Grafana
 """
 
-from __future__ import annotations
 import os
 import time
 import json
@@ -54,10 +54,10 @@ class MetricsPublisher:
         self.stream = os.getenv("STRATEGY_METRICS_STREAM", "metrics:strategy_perf")
 
     def publish(
-        self
-        *
-        strategy: str
-        symbol: str
+        self,
+        *,
+        strategy: str,
+        symbol: str,
         metrics: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -85,21 +85,21 @@ class MetricsPublisher:
 
             # Публикуем в stream (временной ряд)
             stream_fields = {
-                "symbol": symbol
-                "strategy": strategy
-                "winrate": round(float(metrics.get("winrate", 0.0)), 4)
-                "avg_pnl": round(float(metrics.get("avg_pnl_usd", 0.0)), 4)
-                "total_pnl": round(float(metrics.get("total_pnl", 0.0)), 4)
-                "total_trades": int(metrics.get("total_trades", 0))
-                "auc": round(float(metrics.get("auc", 0.0)), 4)
-                "thr": metrics.get("thr", "")
+                "symbol": symbol,
+                "strategy": strategy,
+                "winrate": round(float(metrics.get("winrate", 0.0)), 4),
+                "avg_pnl": round(float(metrics.get("avg_pnl_usd", 0.0)), 4),
+                "total_pnl": round(float(metrics.get("total_pnl", 0.0)), 4),
+                "total_trades": int(metrics.get("total_trades", 0)),
+                "auc": round(float(metrics.get("auc", 0.0)), 4),
+                "thr": metrics.get("thr", ""),
                 "ts": time.time()
             }
 
             self.r.xadd(
-                self.stream
-                stream_fields
-                maxlen=5000
+                self.stream,
+                stream_fields,
+                maxlen=5000,
                 approximate=True
             )
 
@@ -140,9 +140,9 @@ class MetricsPublisher:
             return None
 
     def get_timeseries(
-        self
-        count: int = 100
-        strategy: Optional[str] = None
+        self,
+        count: int = 100,
+        strategy: Optional[str] = None,
         symbol: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -169,7 +169,7 @@ class MetricsPublisher:
                     continue
 
                 metrics.append({
-                    "id": msg_id
+                    "id": msg_id,
                     **data
                 })
 

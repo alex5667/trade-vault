@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for of_gate_hardstop_cap_unclamp_v5.py
 
 Tests staged auto-unclamp v5 functionality:
@@ -11,7 +12,6 @@ Tests staged auto-unclamp v5 functionality:
 - State transitions: remaining cells cleared when empty
 """
 
-from __future__ import annotations
 
 import json
 import os

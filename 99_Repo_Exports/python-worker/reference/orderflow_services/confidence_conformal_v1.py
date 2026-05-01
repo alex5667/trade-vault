@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 confidence_conformal_v1.py
 
@@ -9,7 +10,7 @@ Goal
   using split-conformal on nonconformity scores computed from calibrated p.
 
 Model
-- Given p = P(Y=1) (ideally after calibration: confidence_cal)
+- Given p = P(Y=1) (ideally after calibration: confidence_cal),
   nonconformity score is:
     s = 1 - p   if y=1
     s = p       if y=0
@@ -28,7 +29,6 @@ Env
 - CONF_CONFORMAL_RELOAD_TTL_SEC: reload interval
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -95,19 +95,19 @@ class ConformalModel:
             # Shouldn't happen, but fail-open -> include both.
             in0, in1, size = 1, 1, 2
         return {
-            "cp_set_size": int(size)
-            "cp_abstain": int(1 if size == 2 else 0)
-            "cp_in_set0": int(in0)
-            "cp_in_set1": int(in1)
-            "cp_thresh_p0_max": float(q)
-            "cp_thresh_p1_min": float(1.0 - q)
+            "cp_set_size": int(size),
+            "cp_abstain": int(1 if size == 2 else 0),
+            "cp_in_set0": int(in0),
+            "cp_in_set1": int(in1),
+            "cp_thresh_p0_max": float(q),
+            "cp_thresh_p1_min": float(1.0 - q),
         }
 
 
 _CACHE: Dict[str, Any] = {
-    "model": None
-    "loaded_ts_ms": 0
-    "mtime": 0.0
+    "model": None,
+    "loaded_ts_ms": 0,
+    "mtime": 0.0,
 }
 
 
@@ -131,12 +131,12 @@ def _load_model(path: str) -> Optional[ConformalModel]:
                 except Exception:
                     continue
         return ConformalModel(
-            schema_version=schema_version
-            alpha=alpha
-            global_qhat=global_qhat
-            buckets=b2
-            trained_ts_ms=trained_ts_ms
-            source_path=path
+            schema_version=schema_version,
+            alpha=alpha,
+            global_qhat=global_qhat,
+            buckets=b2,
+            trained_ts_ms=trained_ts_ms,
+            source_path=path,
         )
     except Exception:
         return None
@@ -176,7 +176,7 @@ def apply_conformal_binary(*, p: Optional[float], symbol: str, kind: str) -> Dic
     Apply CP to a calibrated probability p.
 
     Returns a dict that is safe to merge into indicators:
-      cp_enabled, cp_alpha, cp_qhat, cp_bucket, cp_set_size, cp_abstain
+      cp_enabled, cp_alpha, cp_qhat, cp_bucket, cp_set_size, cp_abstain,
       cp_in_set0, cp_in_set1, cp_thresh_p0_max, cp_thresh_p1_min.
     """
     m = get_model()
@@ -186,24 +186,24 @@ def apply_conformal_binary(*, p: Optional[float], symbol: str, kind: str) -> Dic
     # Fail-open if missing model: do not abstain, but emit thresholds as unknown.
     if m is None:
         return {
-            "cp_enabled": 0
-            "cp_alpha": float(os.getenv("CONF_CONFORMAL_ALPHA", "0.10"))
-            "cp_qhat": 0.50
-            "cp_bucket": "missing_model"
-            "cp_set_size": 2
-            "cp_abstain": 1
-            "cp_in_set0": 1
-            "cp_in_set1": 1
-            "cp_thresh_p0_max": 0.50
-            "cp_thresh_p1_min": 0.50
+            "cp_enabled": 0,
+            "cp_alpha": float(os.getenv("CONF_CONFORMAL_ALPHA", "0.10")),
+            "cp_qhat": 0.50,
+            "cp_bucket": "missing_model",
+            "cp_set_size": 2,
+            "cp_abstain": 1,
+            "cp_in_set0": 1,
+            "cp_in_set1": 1,
+            "cp_thresh_p0_max": 0.50,
+            "cp_thresh_p1_min": 0.50,
         }
 
     qhat, bucket = m.qhat_for(symbol, kind)
     out = m.predict_set(float(p), float(qhat))
     out.update({
-        "cp_enabled": 1
-        "cp_alpha": float(m.alpha)
-        "cp_qhat": float(qhat)
-        "cp_bucket": str(bucket)
+        "cp_enabled": 1,
+        "cp_alpha": float(m.alpha),
+        "cp_qhat": float(qhat),
+        "cp_bucket": str(bucket),
     })
     return out

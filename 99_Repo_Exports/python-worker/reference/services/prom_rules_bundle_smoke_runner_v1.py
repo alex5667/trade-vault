@@ -145,13 +145,13 @@ def main() -> int:
         return 0
 
     _set_block(
-        reason=block_reason
+        reason=block_reason,
         meta={
-            "owner": "prom_rules_bundle_smoke_runner_v1"
-            "ts_ms": _now_ms()
-            "kind": "prom_rules_bundle_smoke"
-        }
-        hold_s=hold_s
+            "owner": "prom_rules_bundle_smoke_runner_v1",
+            "ts_ms": _now_ms(),
+            "kind": "prom_rules_bundle_smoke",
+        },
+        hold_s=hold_s,
     )
     return 2
 

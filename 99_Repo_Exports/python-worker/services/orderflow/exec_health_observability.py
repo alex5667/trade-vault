@@ -15,36 +15,36 @@ import time
 from typing import Any, Mapping, Optional
 
 from services.orderflow.exec_health_rollups import (
-    ExecHealthDecision
-    get_exec_health_policy_from_env
+    ExecHealthDecision,
+    get_exec_health_policy_from_env,
 )
 from services.orderflow.metrics_exec_health_p6 import (
-    exec_health_apply_total
-    exec_health_decision_total
-    exec_health_flag_total
-    exec_health_last_event_ts_ms
-    exec_health_policy_mode
-    exec_health_policy_threshold_bps
-    exec_health_reader_errors_total
-    exec_health_rollup_present
-    exec_health_rollup_value_bps
-    exec_health_rollup_worst_delta_sec
-    exec_health_tighten_add_bps
-    exec_health_tighten_add_bps_scoped
-    exec_health_tighten_k
-    exec_health_veto_total
+    exec_health_apply_total,
+    exec_health_decision_total,
+    exec_health_flag_total,
+    exec_health_last_event_ts_ms,
+    exec_health_policy_mode,
+    exec_health_policy_threshold_bps,
+    exec_health_reader_errors_total,
+    exec_health_rollup_present,
+    exec_health_rollup_value_bps,
+    exec_health_rollup_worst_delta_sec,
+    exec_health_tighten_add_bps,
+    exec_health_tighten_add_bps_scoped,
+    exec_health_tighten_k,
+    exec_health_veto_total,
 )
 
 _MODE_SET = ("off", "monitor", "tighten", "veto")
 _THRESHOLD_METRICS = (
-    ("is_p95_bps", "max_is_p95_bps")
-    ("perm_impact_p95_bps", "max_perm_impact_p95_bps")
-    ("realized_spread_p50_bps", "min_realized_spread_p50_bps")
+    ("is_p95_bps", "max_is_p95_bps"),
+    ("perm_impact_p95_bps", "max_perm_impact_p95_bps"),
+    ("realized_spread_p50_bps", "min_realized_spread_p50_bps"),
 )
 _ROLLUP_METRICS = ("is_p95_bps", "perm_impact_p95_bps", "realized_spread_p50_bps")
 _DELTA_METRICS = (
-    ("perm_impact_p95_bps", "perm_impact_p95_bps_delta_sec")
-    ("realized_spread_p50_bps", "realized_spread_p50_bps_delta_sec")
+    ("perm_impact_p95_bps", "perm_impact_p95_bps_delta_sec"),
+    ("realized_spread_p50_bps", "realized_spread_p50_bps_delta_sec"),
 )
 
 
@@ -87,13 +87,13 @@ def record_exec_health_reader_error(*, scope: str, where: str) -> None:
 
 
 def record_exec_health_observability(
-    *
-    symbol: str
-    scope: str
-    profile: str
-    rollups: Optional[Mapping[str, Any]] = None
-    decision: Optional[ExecHealthDecision] = None
-    now_ms: Optional[int] = None
+    *,
+    symbol: str,
+    scope: str,
+    profile: str,
+    rollups: Optional[Mapping[str, Any]] = None,
+    decision: Optional[ExecHealthDecision] = None,
+    now_ms: Optional[int] = None,
 ) -> None:
     """Publish a single canonical ExecHealth telemetry sample.
 
@@ -113,9 +113,9 @@ def record_exec_health_observability(
 
     for metric_name, attr_name in _THRESHOLD_METRICS:
         _safe_set(
-            exec_health_policy_threshold_bps
-            labels={"scope": sc, "metric": metric_name}
-            value=_f(getattr(thr, attr_name, 0.0), 0.0)
+            exec_health_policy_threshold_bps,
+            labels={"scope": sc, "metric": metric_name},
+            value=_f(getattr(thr, attr_name, 0.0), 0.0),
         )
 
     roll = dict(rollups or {})
@@ -124,18 +124,18 @@ def record_exec_health_observability(
         _safe_set(exec_health_rollup_present, labels={"scope": sc, "symbol": sym, "metric": metric_name}, value=present)
         if present:
             _safe_set(
-                exec_health_rollup_value_bps
-                labels={"scope": sc, "symbol": sym, "metric": metric_name}
-                value=_f(roll.get(metric_name), 0.0)
+                exec_health_rollup_value_bps,
+                labels={"scope": sc, "symbol": sym, "metric": metric_name},
+                value=_f(roll.get(metric_name), 0.0),
             )
 
     for metric_name, delta_key in _DELTA_METRICS:
         val = roll.get(delta_key)
         if val is not None:
             _safe_set(
-                exec_health_rollup_worst_delta_sec
-                labels={"scope": sc, "symbol": sym, "metric": metric_name}
-                value=_f(val, 0.0)
+                exec_health_rollup_worst_delta_sec,
+                labels={"scope": sc, "symbol": sym, "metric": metric_name},
+                value=_f(val, 0.0),
             )
 
     if decision is None:
@@ -145,8 +145,8 @@ def record_exec_health_observability(
     reason = str(decision.reason_code or "NONE")
     mode = str(decision.mode or pol.mode or "unknown")
     _safe_inc(
-        exec_health_decision_total
-        labels={"scope": sc, "symbol": sym, "mode": mode, "outcome": outcome, "reason": reason}
+        exec_health_decision_total,
+        labels={"scope": sc, "symbol": sym, "mode": mode, "outcome": outcome, "reason": reason},
     )
 
     if bool(decision.apply):
@@ -163,7 +163,7 @@ def record_exec_health_observability(
         _safe_observe(exec_health_tighten_add_bps, labels={"symbol": sym}, value=add_bps)
 
     _safe_set(
-        exec_health_tighten_k
-        labels={"scope": sc, "symbol": sym}
-        value=_f(getattr(decision, "tighten_k_mult", 1.0), 1.0)
+        exec_health_tighten_k,
+        labels={"scope": sc, "symbol": sym},
+        value=_f(getattr(decision, "tighten_k_mult", 1.0), 1.0),
     )

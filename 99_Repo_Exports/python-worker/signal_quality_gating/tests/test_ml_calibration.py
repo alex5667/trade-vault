@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Tests for signal_quality_gating/services/ml_calibration.py
 
 Tests cover: clip_prob, logit, sigmoid, PlattLogitCalibrator,
 brier_score, logloss, ece_score, fit_platt_logit.
 """
 
-from __future__ import annotations
 
 import math
 import sys

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Prometheus exporter for edge_stack_v1 training bundle status (P59).
 
 Reads Redis hash `metrics:edge_stack_train:last` (or configured key) and exposes gauges:
@@ -25,7 +26,6 @@ ENV:
   EDGE_STACK_TRAIN_EXPORTER_STALE_S   (default: 129600 = 36h)
 """
 
-from __future__ import annotations
 
 import os
 import time

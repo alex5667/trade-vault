@@ -1,5 +1,5 @@
-"""P5.7 asset integrity tests: verify systemd units and runbook reference the expected SoT paths."""
 from __future__ import annotations
+"""P5.7 asset integrity tests: verify systemd units and runbook reference the expected SoT paths."""
 
 from pathlib import Path
 

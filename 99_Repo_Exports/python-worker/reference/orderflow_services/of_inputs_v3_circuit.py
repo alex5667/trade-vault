@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OFInputs V3 circuit breaker (P100).
 
 Goal
@@ -19,7 +20,6 @@ Notes
 - Time source must be deterministic: pass tick_ts_ms as now_ms.
 """
 
-from __future__ import annotations
 
 import asyncio
 import json
@@ -95,10 +95,10 @@ async def call_with_timeout(awaitable, timeout_ms: int) -> Any:
 
 
 async def refresh_disabled_state(
-    redis
-    runtime
-    now_ms: int
-    refresh_every_ms: int = 10_000
+    redis,
+    runtime,
+    now_ms: int,
+    refresh_every_ms: int = 10_000,
 ) -> Tuple[bool, int, str]:
     """Refresh runtime cache from cfg disable key.
 
@@ -188,16 +188,16 @@ async def refresh_disabled_state(
 
 
 async def record_downgrade_and_maybe_trip(
-    redis
-    sym: str
-    now_ms: int
-    downgrade_reason: str
-    window_ms: int
-    max_downgrades_in_window: int
-    disable_ms: int
-    cooldown_ms: int = 0
-    block_auto_apply: bool = True
-    auto_apply_reason: str = "of_inputs_v3"
+    redis,
+    sym: str,
+    now_ms: int,
+    downgrade_reason: str,
+    window_ms: int,
+    max_downgrades_in_window: int,
+    disable_ms: int,
+    cooldown_ms: int = 0,
+    block_auto_apply: bool = True,
+    auto_apply_reason: str = "of_inputs_v3",
 ) -> Dict[str, Any]:
     """Record a V3->V2 downgrade and trip circuit if threshold exceeded.
 
@@ -241,13 +241,13 @@ async def record_downgrade_and_maybe_trip(
         until_ms = int(hard_until_ms) + int(cd_ms)
         disable_key = _cfg_disabled_key(sym_s)
         payload = {
-            "until_ms": int(until_ms)
-            "hard_until_ms": int(hard_until_ms)
-            "cooldown_ms": int(cd_ms)
-            "reason": str(rsn)
-            "trip_ts_ms": int(now_ms)
-            "count": int(c)
-            "window_ms": int(window_ms)
+            "until_ms": int(until_ms),
+            "hard_until_ms": int(hard_until_ms),
+            "cooldown_ms": int(cd_ms),
+            "reason": str(rsn),
+            "trip_ts_ms": int(now_ms),
+            "count": int(c),
+            "window_ms": int(window_ms),
         }
 
         pipe2 = redis.pipeline(transaction=False)
@@ -262,11 +262,11 @@ async def record_downgrade_and_maybe_trip(
 
         await pipe2.execute()
         return {
-            "tripped": 1
-            "count": c
-            "disabled_until_ms": int(until_ms)
-            "hard_until_ms": int(hard_until_ms)
-            "cooldown_ms": int(cd_ms)
+            "tripped": 1,
+            "count": c,
+            "disabled_until_ms": int(until_ms),
+            "hard_until_ms": int(hard_until_ms),
+            "cooldown_ms": int(cd_ms),
         }
 
     except Exception:

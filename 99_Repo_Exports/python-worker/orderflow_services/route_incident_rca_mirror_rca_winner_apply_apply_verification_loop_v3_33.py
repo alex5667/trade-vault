@@ -173,7 +173,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_shadow_rate_single_arm": parse_float(raw.get("max_shadow_rate_single_arm"), DEFAULT_MAX_SHADOW_RATE_SINGLE_ARM),
         "require_policy_match": parse_int(raw.get("require_policy_match"), DEFAULT_REQUIRE_POLICY_MATCH),
         "rollback_cooldown_sec": parse_int(raw.get("rollback_cooldown_sec"), DEFAULT_ROLLBACK_COOLDOWN_SEC),
-    }
+    },
 
 
 def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -184,7 +184,7 @@ def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "primary_arm": primary_arm if primary_arm in ALL_ARMS else "deterministic",
         "shadow_arms_json": str(raw.get("shadow_arms_json") or "[]"),
         "last_mode_switch_ts_ms": parse_int(raw.get("last_mode_switch_ts_ms"), 0),
-    }
+    },
 
 
 async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
@@ -233,7 +233,7 @@ def compute_exposure_stats(exposures: List[Dict[str, Any]], target_primary_arm: 
         "primary_match_rate": round(primary_match_rate, 6),
         "unexpected_primary_rate": round(unexpected_primary_rate, 6),
         "shadow_rate": round(shadow_rate, 6),
-    }
+    },
 
 
 def reconstruct_shadow_arms(mode: str, primary_arm: str) -> List[str]:
@@ -260,7 +260,7 @@ def evaluate_verification(
             "target_primary_arm": current_policy["primary_arm"],
             "rollback_mode": current_policy["mode"],
             "rollback_primary_arm": current_policy["primary_arm"],
-        }
+        },
 
     target_mode = str(apply_event.get("mode_after") or current_policy["mode"]).upper()
     target_primary_arm = str(apply_event.get("primary_arm_after") or current_policy["primary_arm"])
@@ -282,7 +282,7 @@ def evaluate_verification(
         "rollback_mode": rollback_mode,
         "rollback_primary_arm": rollback_primary_arm,
         "rollback_cooldown_active": 1 if rollback_cooldown_active else 0,
-    }
+    },
 
     if verify_policy["kill_switch"] == 1:
         base["reason_code"] = "KILL_SWITCH"
@@ -340,7 +340,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_verification_results (
                     ts_ms,
                     decision,
@@ -386,7 +386,7 @@ async def persist_if_configured(
             )
             if evaluation["decision"] == "ROLLBACK_PREVIOUS_POLICY":
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_rollback_journal (
                         ts_ms,
                         reason_code,
@@ -505,7 +505,7 @@ async def main() -> None:  # pragma: no cover
                 "shadow_rate": str(exposure_stats["shadow_rate"]),
                 "exposure_total": str(exposure_stats["total"]),
                 "ts_ms": str(now_ms()),
-            }
+            },
             await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
             await r.xadd(
                 AUDIT_STREAM,

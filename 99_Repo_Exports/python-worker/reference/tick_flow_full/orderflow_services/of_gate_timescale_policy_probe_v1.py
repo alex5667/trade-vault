@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_timescale_policy_probe_v1.py
 
 Probe TimescaleDB policy/job health for OF-gate rollups.
@@ -27,9 +28,8 @@ ENV:
 Exit:
   0: ok
   2: missing/disabled policies (when expect_timescale=1) OR db error
-"""
+""",
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import datetime as dt
@@ -97,13 +97,13 @@ def _bool(v: Any) -> Optional[bool]:
 def _cols(conn, schema: str, table: str) -> List[str]:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             SELECT column_name
             FROM information_schema.columns
             WHERE table_schema=%s AND table_name=%s
             ORDER BY ordinal_position
-            """
-            (schema, table)
+            """,
+            (schema, table),
         )
         return [r[0] for r in cur.fetchall()]
 
@@ -126,9 +126,9 @@ def _fetch_cagg_mat_names(conn) -> Dict[str, str]:
         view_col = "view_name" if "view_name" in cols else None
         mat_col = None
         for c in (
-            "materialization_hypertable_name"
-            "materialization_hypertable"
-            "materialized_hypertable_name"
+            "materialization_hypertable_name",
+            "materialization_hypertable",
+            "materialized_hypertable_name",
         ):
             if c in cols:
                 mat_col = c
@@ -168,10 +168,10 @@ def _jobs(conn) -> Tuple[List[str], List[Dict[str, Any]]]:
 
 
 def _match_jobs(
-    jobs: List[Dict[str, Any]]
-    proc_contains: str
-    hypertable_names: List[str] = None
-    config_contains: List[str] = None
+    jobs: List[Dict[str, Any]],
+    proc_contains: str,
+    hypertable_names: List[str] = None,
+    config_contains: List[str] = None,
 ) -> List[Dict[str, Any]]:
     hypertable_names = hypertable_names or []
     config_contains = config_contains or []
@@ -223,19 +223,19 @@ def main() -> None:
     expect_timescale = 1 if str(expect_ts).strip() == "1" else 0
 
     payload: Dict[str, Any] = {
-        "last_run_ts_ms": now_ms()
-        "expect_timescale": expect_timescale
-        "ok": 0
-        "timescale_present": 0
-        "missing_count": 0
-        "disabled_count": 0
+        "last_run_ts_ms": now_ms(),
+        "expect_timescale": expect_timescale,
+        "ok": 0,
+        "timescale_present": 0,
+        "missing_count": 0,
+        "disabled_count": 0,
     }
 
     required_policies = [
-        "retention_of_gate_metrics"
-        "retention_of_gate_metrics_quarantine"
-        "refresh_of_gate_ok_rate_5m"
-        "refresh_of_gate_ok_rate_1h"
+        "retention_of_gate_metrics",
+        "retention_of_gate_metrics_quarantine",
+        "refresh_of_gate_ok_rate_5m",
+        "refresh_of_gate_ok_rate_1h",
     ]
 
     present: Dict[str, int] = {p: 0 for p in required_policies}
@@ -255,7 +255,7 @@ def main() -> None:
             else:
                 _wanted_cols, jobs = _jobs(conn)
 
-                # cagg materialization names (best-effort). If we can detect them
+                # cagg materialization names (best-effort). If we can detect them,
                 # prefer hypertable_name matching for refresh policies.
                 mats = _fetch_cagg_mat_names(conn)
                 mat_5m = mats.get("of_gate_ok_rate_5m", "")
@@ -264,16 +264,16 @@ def main() -> None:
 
                 # Retention policies
                 ret_jobs_metrics = _match_jobs(
-                    jobs
-                    proc_contains="policy_retention"
-                    hypertable_names=["of_gate_metrics"]
-                    config_contains=["of_gate_metrics"]
+                    jobs,
+                    proc_contains="policy_retention",
+                    hypertable_names=["of_gate_metrics"],
+                    config_contains=["of_gate_metrics"],
                 )
                 ret_jobs_quarantine = _match_jobs(
-                    jobs
-                    proc_contains="policy_retention"
-                    hypertable_names=["of_gate_metrics_quarantine"]
-                    config_contains=["of_gate_metrics_quarantine"]
+                    jobs,
+                    proc_contains="policy_retention",
+                    hypertable_names=["of_gate_metrics_quarantine"],
+                    config_contains=["of_gate_metrics_quarantine"],
                 )
 
                 # Refresh policies: try mat hypertable name first; fallback to config search.
@@ -281,32 +281,32 @@ def main() -> None:
                 refresh_jobs_1h = []
                 if mat_5m:
                     refresh_jobs_5m = _match_jobs(
-                        jobs
-                        proc_contains="policy_refresh_continuous_aggregate"
-                        hypertable_names=[mat_5m]
-                        config_contains=[]
+                        jobs,
+                        proc_contains="policy_refresh_continuous_aggregate",
+                        hypertable_names=[mat_5m],
+                        config_contains=[],
                     )
                 if not refresh_jobs_5m:
                     refresh_jobs_5m = _match_jobs(
-                        jobs
-                        proc_contains="policy_refresh_continuous_aggregate"
-                        hypertable_names=[]
-                        config_contains=["of_gate_ok_rate_5m"]
+                        jobs,
+                        proc_contains="policy_refresh_continuous_aggregate",
+                        hypertable_names=[],
+                        config_contains=["of_gate_ok_rate_5m"],
                     )
 
                 if mat_1h:
                     refresh_jobs_1h = _match_jobs(
-                        jobs
-                        proc_contains="policy_refresh_continuous_aggregate"
-                        hypertable_names=[mat_1h]
-                        config_contains=[]
+                        jobs,
+                        proc_contains="policy_refresh_continuous_aggregate",
+                        hypertable_names=[mat_1h],
+                        config_contains=[],
                     )
                 if not refresh_jobs_1h:
                     refresh_jobs_1h = _match_jobs(
-                        jobs
-                        proc_contains="policy_refresh_continuous_aggregate"
-                        hypertable_names=[]
-                        config_contains=["of_gate_ok_rate_1h"]
+                        jobs,
+                        proc_contains="policy_refresh_continuous_aggregate",
+                        hypertable_names=[],
+                        config_contains=["of_gate_ok_rate_1h"],
                     )
 
                 def _scheduled(job: Dict[str, Any]) -> Optional[bool]:
@@ -367,11 +367,11 @@ def main() -> None:
     if redis_url:
         # keep details small
         details = {
-            "timescale_present": payload.get("timescale_present")
-            "missing": missing_list
-            "disabled": disabled_list
-            "mat_5m": payload.get("mat_5m", "")
-            "mat_1h": payload.get("mat_1h", "")
+            "timescale_present": payload.get("timescale_present"),
+            "missing": missing_list,
+            "disabled": disabled_list,
+            "mat_5m": payload.get("mat_5m", ""),
+            "mat_1h": payload.get("mat_1h", ""),
         }
         payload["details_json"] = json.dumps(details, ensure_ascii=False)[:1800]
         _hset_redis(redis_url, key, payload)

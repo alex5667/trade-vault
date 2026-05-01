@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Minimal feature selection loop: importance + stability by regimes/sessions.
 
 Goal
@@ -34,7 +35,6 @@ Example
       --model gbdt --max_val_rows 200000
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

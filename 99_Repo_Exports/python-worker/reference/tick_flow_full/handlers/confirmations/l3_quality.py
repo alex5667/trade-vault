@@ -55,10 +55,10 @@ class L3QualityPolicy:
 
         # используем уже проставленные в ctx агрегаты (сам l3 объект может отсутствовать в legacy)
         c2t = max(
-            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0)
-            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0)
-            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0)
-            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0)
+            _f(getattr(ctx, "cancel_to_trade_bid_5s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_ask_5s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_bid_20s", None), 0.0),
+            _f(getattr(ctx, "cancel_to_trade_ask_20s", None), 0.0),
         )
         sp = _f(getattr(ctx, "spread_bps", None), 0.0)
 

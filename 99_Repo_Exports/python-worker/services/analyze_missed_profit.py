@@ -7,7 +7,7 @@
 
 Использование:
     python analyze_missed_profit.py
-    python analyze_missed_profit.py --strategy orderflow --symbol XAUUSD
+    python analyze_missed_profit.py --strategy orderflow --symbol 
 """
 
 import sys
@@ -395,7 +395,7 @@ def compare_sources_reliability():
     
     for source in sources_summary.keys():
         stats = StatsAggregator.get_stats_by_source(
-            redis_client, "orderflow", "XAUUSD", "tick", source
+            redis_client, "orderflow", "tick", source
         )
         
         if stats and int(stats.get("total_trades", 0)) > 0:
@@ -451,7 +451,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Анализ упущенной прибыли")
     parser.add_argument("--strategy", default="orderflow", help="Стратегия")
-    parser.add_argument("--symbol", default="XAUUSD", help="Символ")
+    parser.add_argument("--symbol", help="Символ")
     parser.add_argument("--tf", default="tick", help="Таймфрейм")
     parser.add_argument("--mode", default="all", 
                        choices=["metrics", "sources", "trades", "optimize", "all"],

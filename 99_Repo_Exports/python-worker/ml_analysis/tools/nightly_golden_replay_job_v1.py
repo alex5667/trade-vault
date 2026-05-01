@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly golden replay job (B6).
 
 This tool scans OFC_CAPTURE NDJSON captures, groups them by policy hash, and
@@ -6,7 +7,6 @@ runs golden replay parity (B5) per group.
 Key property: we do NOT allow mixed policies in a single replay run.
 """
 
-from __future__ import annotations
 
 import argparse
 import os

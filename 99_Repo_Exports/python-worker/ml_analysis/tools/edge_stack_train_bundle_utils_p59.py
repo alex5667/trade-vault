@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P59 helpers for edge_stack_v1 nightly training bundle.
 
 Goals:
@@ -8,7 +9,6 @@ Goals:
   - champion comparison gate: promote only if challenger is better or equal
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

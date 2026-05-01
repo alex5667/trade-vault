@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/test_signal_scoring_core.py
 ==================================
@@ -5,7 +6,6 @@ Comprehensive pytest suite for the signal_scoring package.
 Tests cover 100% of the public API surface without requiring external services.
 All tests are self-contained, deterministic, and free of networking/DB dependencies.
 """
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass
@@ -139,15 +139,15 @@ class TestScoringConfig:
     def test_get_min_confidence_default(self):
         from signal_scoring.config import ScoringConfig
         cfg = ScoringConfig(min_confidence_default=70.0)
-        assert cfg.get_min_confidence("XAUUSD", None) == pytest.approx(70.0)
+        assert cfg.get_min_confidence(None) == pytest.approx(70.0)
 
     def test_get_min_confidence_symbol_override(self):
         from signal_scoring.config import ScoringConfig
         cfg = ScoringConfig(
             min_confidence_default=80.0,
-            min_confidence_by_symbol={"XAUUSD": 20.0},
+            min_confidence_by_symbol={REMOVE_ME: 20.0},
         )
-        assert cfg.get_min_confidence("XAUUSD", None) == pytest.approx(20.0)
+        assert cfg.get_min_confidence(None) == pytest.approx(20.0)
         assert cfg.get_min_confidence("BTCUSDT", None) == pytest.approx(80.0)
 
     def test_get_min_confidence_pattern_override(self):
@@ -174,10 +174,10 @@ class TestScoringConfig:
     def test_from_env_reads_min_confidence(self, monkeypatch):
         from signal_scoring.config import ScoringConfig
         monkeypatch.setenv("MIN_SIGNAL_CONFIDENCE", "55")
-        monkeypatch.setenv("MIN_SIGNAL_CONFIDENCE__XAUUSD", "25")
+        monkeypatch.setenv("MIN_SIGNAL_CONFIDENCE__", "25")
         cfg = ScoringConfig.from_env()
         assert cfg.min_confidence_default == pytest.approx(55.0)
-        assert cfg.min_confidence_by_symbol.get("XAUUSD") == pytest.approx(25.0)
+        assert cfg.min_confidence_by_symbol.get("") == pytest.approx(25.0)
 
     def test_from_env_metric_weights(self, monkeypatch):
         from signal_scoring.config import ScoringConfig

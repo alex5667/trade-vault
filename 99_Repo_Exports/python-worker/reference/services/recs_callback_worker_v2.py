@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Two-phase callback worker v2 for recs bundles (preview2 -> confirm).
 
 This worker handles:
@@ -9,7 +10,6 @@ This worker handles:
 Reads from bot:callbacks stream, writes to notify:telegram.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -169,30 +169,30 @@ def apply_ops(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str,
             val = str(op.get("value", ""))
             pipe.hset(key, field, val)
             audit_push(r, bundle_id, {
-                "op": "HSET"
-                "key": key
-                "field": field
-                "old": "" if old is None else str(old)
-                "old_null": old_null
-                "new": val
-                "ts_ms": ts
-                "who": "recs_callback_worker_v2"
-                "actor": actor
+                "op": "HSET",
+                "key": key,
+                "field": field,
+                "old": "" if old is None else str(old),
+                "old_null": old_null,
+                "new": val,
+                "ts_ms": ts,
+                "who": "recs_callback_worker_v2",
+                "actor": actor,
             }, ttl)
             applied += 1
 
         elif typ == "HDEL":
             pipe.hdel(key, field)
             audit_push(r, bundle_id, {
-                "op": "HDEL"
-                "key": key
-                "field": field
-                "old": "" if old is None else str(old)
-                "old_null": old_null
-                "new": ""
-                "ts_ms": ts
-                "who": "recs_callback_worker_v2"
-                "actor": actor
+                "op": "HDEL",
+                "key": key,
+                "field": field,
+                "old": "" if old is None else str(old),
+                "old_null": old_null,
+                "new": "",
+                "ts_ms": ts,
+                "who": "recs_callback_worker_v2",
+                "actor": actor,
             }, ttl)
             applied += 1
 
@@ -208,15 +208,15 @@ def apply_ops(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str,
             
             pipe.set(key, val)
             audit_push(r, bundle_id, {
-                "op": "SET"
-                "key": key
+                "op": "SET",
+                "key": key,
                 "field": "",  # no field for SET
-                "old": "" if old_val is None else str(old_val)
-                "old_null": old_null
-                "new": val
-                "ts_ms": ts
-                "who": "recs_callback_worker_v2"
-                "actor": actor
+                "old": "" if old_val is None else str(old_val),
+                "old_null": old_null,
+                "new": val,
+                "ts_ms": ts,
+                "who": "recs_callback_worker_v2",
+                "actor": actor,
             }, ttl)
             applied += 1
 
@@ -350,10 +350,10 @@ def main() -> None:
                         continue
 
                     actor = {
-                        "chat_id": str(fields.get("chat_id", ""))
-                        "user_id": str(fields.get("user_id", ""))
-                        "username": str(fields.get("username", ""))
-                        "timestamp": str(fields.get("timestamp", ""))
+                        "chat_id": str(fields.get("chat_id", "")),
+                        "user_id": str(fields.get("user_id", "")),
+                        "username": str(fields.get("username", "")),
+                        "timestamp": str(fields.get("timestamp", "")),
                     }
 
                     st = status(r, bundle_id)

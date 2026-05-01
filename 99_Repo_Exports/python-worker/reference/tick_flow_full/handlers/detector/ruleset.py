@@ -22,10 +22,10 @@ class RuleSet:
     def default() -> "RuleSet":
         return RuleSet(
             rules=[
-                BreakoutRule()
-                AbsorptionRule()
-                ExtremeRule()
-                ObiSpikeRule()
+                BreakoutRule(),
+                AbsorptionRule(),
+                ExtremeRule(),
+                ObiSpikeRule(),
             ]
         )
 

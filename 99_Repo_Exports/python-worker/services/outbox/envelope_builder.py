@@ -48,19 +48,19 @@ def _sanitize_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def build_outbox_envelope(
-    *
-    sid: str
-    ctx: Any = None
-    kind: str = ""
-    symbol: str = ""
-    notify_payload: Optional[Dict[str, Any]] = None
-    signal_stream: Optional[str] = None
-    signal_stream_payload: Optional[Dict[str, Any]] = None
-    audit_stream: Optional[str] = None
-    audit_payload: Optional[Dict[str, Any]] = None
-    mt5_payload: Optional[Dict[str, Any]] = None
-    meta: Optional[Dict[str, Any]] = None
-    trace: Optional[DecisionTrace] = None
+    *,
+    sid: str,
+    ctx: Any = None,
+    kind: str = "",
+    symbol="",
+    notify_payload: Optional[Dict[str, Any]] = None,
+    signal_stream: Optional[str] = None,
+    signal_stream_payload: Optional[Dict[str, Any]] = None,
+    audit_stream: Optional[str] = None,
+    audit_payload: Optional[Dict[str, Any]] = None,
+    mt5_payload: Optional[Dict[str, Any]] = None,
+    meta: Optional[Dict[str, Any]] = None,
+    trace: Optional[DecisionTrace] = None,
 ) -> Dict[str, Any]:
     """
     Build outbox envelope v2.
@@ -72,10 +72,10 @@ def build_outbox_envelope(
     """
     sid_s = str(sid or "").strip()
     env: Dict[str, Any] = {
-        "sid": sid_s
-        "ts_ms": get_ny_time_millis()
-        "targets": {}
-        "meta": {}
+        "sid": sid_s,
+        "ts_ms": get_ny_time_millis(),
+        "targets": {},
+        "meta": {},
     }
     if symbol:
         env["symbol"] = str(symbol)
@@ -137,11 +137,11 @@ def build_outbox_envelope(
     # Final contract enforcement (warn/raise/off inside outbox_contract).
     env_safe = to_json_safe(env)
     contract_check_best_effort(
-        kind="envelope"
-        obj=env_safe
-        where="build_outbox_envelope"
-        sid=sid_s
-        logger=logger
+        kind="envelope",
+        obj=env_safe,
+        where="build_outbox_envelope",
+        sid=sid_s,
+        logger=logger,
     )
 
     # Mutation guard (dispatcher can detect accidental mutations/regressions).
@@ -211,8 +211,8 @@ def _default_exit_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[
     out.setdefault("maker_tp_ladder", str(out.get("mode", "")).upper() == "MAKER_FIRST")
     out.setdefault("watchdog_timeout_ms", int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000")))
     out.setdefault(
-        "market_fallback"
-        os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1").strip().lower() in {"1", "true", "yes", "on"}
+        "market_fallback",
+        os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1").strip().lower() in {"1", "true", "yes", "on"},
     )
     return out
 
@@ -289,12 +289,12 @@ def build_trace_sidecar_meta_from_ctx(*, ctx: Any, sid: str) -> Dict[str, Any]:
 
 
 def build_envelope(
-    *
-    sid: str
-    payload: Dict[str, Any]
-    targets_obj: Optional[Dict[str, Any]] = None
-    meta: Optional[Dict[str, Any]] = None
-    ctx: Any = None
+    *,
+    sid: str,
+    payload: Dict[str, Any],
+    targets_obj: Optional[Dict[str, Any]] = None,
+    meta: Optional[Dict[str, Any]] = None,
+    ctx: Any = None,
 ) -> Dict[str, Any]:
     """Build outbox envelope (tradeable payload + routing meta/targets).
 
@@ -406,16 +406,16 @@ def build_envelope(
 
 
 def build_entry_policy_diag_event(
-    *
-    sid: str
-    trace_id: str
-    kind: str
-    symbol: str
-    stage: str
-    name: str
-    reason_code: str
-    metrics: Optional[Dict[str, Any]] = None
-    extra: Optional[Dict[str, Any]] = None
+    *,
+    sid: str,
+    trace_id: str,
+    kind: str,
+    symbol: str,
+    stage: str,
+    name: str,
+    reason_code: str,
+    metrics: Optional[Dict[str, Any]] = None,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Create a bounded diagnostics-only event.
 
@@ -423,27 +423,27 @@ def build_entry_policy_diag_event(
     """
 
     return {
-        "v": 1
-        "type": "entry_policy_diag"
-        "ts_ms": _now_ms()
-        "sid": sid
-        "trace_id": trace_id
-        "kind": kind
-        "symbol": symbol
-        "stage": stage
-        "name": name
-        "reason_code": reason_code
-        "metrics": metrics or {}
-        "extra": extra or {}
+        "v": 1,
+        "type": "entry_policy_diag",
+        "ts_ms": _now_ms(),
+        "sid": sid,
+        "trace_id": trace_id,
+        "kind": kind,
+        "symbol": symbol,
+        "stage": stage,
+        "name": name,
+        "reason_code": reason_code,
+        "metrics": metrics or {},
+        "extra": extra or {},
     }
 
 
 def emit_entry_policy_diag_best_effort(
-    redis: Any
-    event: Dict[str, Any]
-    *
-    stream: Optional[str] = None
-    maxlen: int = 100_000
+    redis: Any,
+    event: Dict[str, Any],
+    *,
+    stream: Optional[str] = None,
+    maxlen: int = 100_000,
 ) -> bool:
     """Best-effort emit to diagnostics stream.
 

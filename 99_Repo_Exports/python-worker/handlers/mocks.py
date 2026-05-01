@@ -9,7 +9,7 @@ class L2BookTracker:
 
 
 class L3LiteTracker:
-    def __init__(self, symbol: str = "", l3_queue_events_proxy=None):
+    def __init__(self, symbol="", l3_queue_events_proxy=None):
         pass
 
 
@@ -24,7 +24,7 @@ class QueueETAEvaluator:
 
 
 class BurstinessTracker:
-    def __init__(self, bucket_ms=1000, half_life_short_ms=250, half_life_long_ms=2000
+    def __init__(self, bucket_ms=1000, half_life_short_ms=250, half_life_long_ms=2000,
                  fano_window_buckets=60, dt_alpha=0.05):
         pass
 
@@ -53,7 +53,7 @@ class HTFLevels:
 
 
 class LCStoreV2:
-    def __init__(self, redis_client=None, symbol: str = ""):
+    def __init__(self, redis_client=None, symbol=""):
         pass
 
     def get_metric_cfg(self, *args):

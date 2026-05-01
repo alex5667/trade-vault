@@ -29,18 +29,18 @@ class _FakeAsyncRedis:
 
 def _make_snapshot_json(*, ts_ms: int, symbol: str, window: str) -> bytes:
     snap = {
-        "v": 1
-        "ts_ms": int(ts_ms)
-        "symbol": str(symbol)
-        "window": str(window)
+        "v": 1,
+        "ts_ms": int(ts_ms),
+        "symbol": str(symbol),
+        "window": str(window),
         "levels": [
             # Above
-            {"side": "ask", "price": 101.0, "usd": 200_000.0, "cnt": 10}
-            {"side": "ask", "price": 102.0, "usd": 50_000.0, "cnt": 5}
+            {"side": "ask", "price": 101.0, "usd": 200_000.0, "cnt": 10},
+            {"side": "ask", "price": 102.0, "usd": 50_000.0, "cnt": 5},
             # Below
-            {"side": "bid", "price": 99.0, "usd": 300_000.0, "cnt": 12}
-            {"side": "bid", "price": 98.0, "usd": 40_000.0, "cnt": 4}
-        ]
+            {"side": "bid", "price": 99.0, "usd": 300_000.0, "cnt": 12},
+            {"side": "bid", "price": 98.0, "usd": 40_000.0, "cnt": 4},
+        ],
     }
     return json.dumps(snap).encode("utf-8")
 
@@ -83,10 +83,10 @@ def test_tick_processor_injects_liqmap_features_from_redis_cache_and_failopen():
     # 1) First call => hits Redis, parses snapshot, writes liqmap_* keys.
     asyncio.run(
         tp._inject_liqmap_features(
-            runtime=_Runtime()
-            now_ms=1_000_000
-            price=100.0
-            indicators=indicators
+            runtime=_Runtime(),
+            now_ms=1_000_000,
+            price=100.0,
+            indicators=indicators,
         )
     )
 
@@ -99,10 +99,10 @@ def test_tick_processor_injects_liqmap_features_from_redis_cache_and_failopen():
     indicators2: Dict[str, Any] = {}
     asyncio.run(
         tp._inject_liqmap_features(
-            runtime=_Runtime()
+            runtime=_Runtime(),
             now_ms=1_000_000 + 200,  # < fetch_interval_ms
-            price=100.0
-            indicators=indicators2
+            price=100.0,
+            indicators=indicators2,
         )
     )
     assert tp.redis.get_calls == ["liqmap:snapshot:BTCUSDT:1h"], "Cache/TTL broken: extra Redis get"
@@ -113,10 +113,10 @@ def test_tick_processor_injects_liqmap_features_from_redis_cache_and_failopen():
     indicators3: Dict[str, Any] = {}
     asyncio.run(
         tp._inject_liqmap_features(
-            runtime=_Runtime()
+            runtime=_Runtime(),
             now_ms=1_000_000 + 2000,  # force refresh
-            price=100.0
-            indicators=indicators3
+            price=100.0,
+            indicators=indicators3,
         )
     )
     assert "liqmap_1h_total_usd" in indicators3

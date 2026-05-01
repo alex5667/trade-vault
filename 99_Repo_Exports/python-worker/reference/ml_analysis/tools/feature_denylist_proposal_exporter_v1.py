@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Prometheus textfile exporter: feature-denylist proposal status.
 
 Exports low-cardinality gauges based on proposals manifests on disk.
@@ -25,7 +26,6 @@ REDIS_URL (optional)
 
 """
 
-from __future__ import annotations
 
 import json
 import os

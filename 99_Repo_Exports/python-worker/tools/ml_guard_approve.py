@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Утилита для подтверждения/отклонения предложений ML rollout guard.
 
@@ -9,7 +10,6 @@
 Можно использовать для автоматизации или ручного управления.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -6,5 +6,5 @@
 from .ticker_handler_impl import TickerDataHandler
 
 __all__ = [
-    'TickerDataHandler'
+    'TickerDataHandler',
 ] 

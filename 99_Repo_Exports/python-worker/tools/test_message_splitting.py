@@ -66,7 +66,7 @@ APTUSDT
   MFE_R avg/median=245.20/245.25, giveback_R=244.10, ratio=1.00
   std(MFE_R)=0.33, std(giveback_ratio)=0.00, confidence=0.78
 
-ARBUSDT
+
 - Все win-сделки: n_total=290, n_wins=58, lock_r=0.64R, TP1_OFFSET_ATR=0.64
   MFE_R avg/median=220.35/220.40, giveback_R=219.25, ratio=1.00
   std(MFE_R)=0.31, std(giveback_ratio)=0.00, confidence=0.76

@@ -117,18 +117,18 @@ def fetch_fmp_calendar() -> List[Dict[str, Any]]:
 
             out.append(
                 {
-                    "uid": uid
-                    "event_ts_ms": ts_ms
-                    "ingested_ts_ms": now_ms
-                    "country": country
-                    "currency": currency
-                    "title": event
-                    "importance": importance
-                    "forecast": str(row.get("forecast") or "")
-                    "previous": str(row.get("previous") or "")
-                    "unit": str(row.get("unit") or "")
-                    "source": FMP_NAME
-                    "payload": json.dumps(row, ensure_ascii=False)
+                    "uid": uid,
+                    "event_ts_ms": ts_ms,
+                    "ingested_ts_ms": now_ms,
+                    "country": country,
+                    "currency": currency,
+                    "title": event,
+                    "importance": importance,
+                    "forecast": str(row.get("forecast") or ""),
+                    "previous": str(row.get("previous") or ""),
+                    "unit": str(row.get("unit") or ""),
+                    "source": FMP_NAME,
+                    "payload": json.dumps(row, ensure_ascii=False),
                 }
             )
         except Exception:
@@ -177,10 +177,10 @@ def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
             redis.connection.Connection.lib_version = None
 
             r = redis.Redis.from_url(
-                redis_url
-                decode_responses=True
-                health_check_interval=30
-                socket_timeout=10
+                redis_url,
+                decode_responses=True,
+                health_check_interval=30,
+                socket_timeout=10,
             )
             # Test connection
             r.ping()
@@ -203,12 +203,12 @@ def _write_heartbeat(r: redis.Redis, *, ok: bool, err: str = "", added: int = 0)
     try:
         import json as _json
         obj = {
-            "ts_ms": get_ny_time_millis()
-            "kind": "calendar"
-            "ok": ok
-            "err": err[:512]
-            "added": added
-            "instance": INSTANCE_ID
+            "ts_ms": get_ny_time_millis(),
+            "kind": "calendar",
+            "ok": ok,
+            "err": err[:512],
+            "added": added,
+            "instance": INSTANCE_ID,
         }
         r.set("hb:calendar", _json.dumps(obj, separators=(",", ":")), ex=HEARTBEAT_TTL_SEC)
     except Exception:

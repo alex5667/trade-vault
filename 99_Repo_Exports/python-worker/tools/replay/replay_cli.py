@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 CLI для record & replay.
 
@@ -9,7 +10,6 @@ CLI для record & replay.
   python tools/replay/replay_cli.py --input ctx.jsonl --output signals.jsonl
 """
 
-from __future__ import annotations
 
 import argparse
 import logging

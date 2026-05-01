@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for P80 OF-gate Rollups Freshness Probe.
 
 Covers:
@@ -6,7 +7,6 @@ Covers:
   - run_of_gate_rollups_freshness_probe: enabled/disabled logic (both modules)
   - of_gate_rollups_freshness_probe_v1: dt_to_ms, query_max_bucket, hset_redis, main()
 """
-from __future__ import annotations
 
 import importlib
 import os

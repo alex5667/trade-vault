@@ -129,7 +129,7 @@ def build_rca_input_pack(bundle: IncidentBundle, *, prompt_version: str, policy_
                 "state": item.get("state"),
                 "reason_codes": item.get("reason_codes"),
                 "status": item.get("status"),
-            }
+            },
         )
     return {
         "schema_version": 1,
@@ -160,7 +160,7 @@ def build_rca_input_pack(bundle: IncidentBundle, *, prompt_version: str, policy_
                 "draft_postmortem",
             ],
         },
-    }
+    },
 
 
 async def _ensure_group(r: Any) -> None:
@@ -208,7 +208,7 @@ async def run_forever() -> None:
                     "prompt_version": prompt_version,
                     "policy_version": policy_version,
                     "input_pack_json": json.dumps(req, separators=(",", ":"), sort_keys=True),
-                }
+                },
                 await r.xadd(RCA_REQUEST_STREAM, payload, maxlen=100000, approximate=True)
                 await r.hset(
                     STATE_KEY,

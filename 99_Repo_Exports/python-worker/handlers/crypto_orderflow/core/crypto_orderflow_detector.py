@@ -23,11 +23,11 @@ class CryptoEventDetector:
     """
 
     def __init__(
-        self
-        cfg: DetectorCfg
-        *
-        nearest_pivot_key: Callable[[float, Dict[str, float]], str]
-        breakout_cross_info: Callable[[float, bool, Dict[str, float]], Optional[str]]
+        self,
+        cfg: DetectorCfg,
+        *,
+        nearest_pivot_key: Callable[[float, Dict[str, float]], str],
+        breakout_cross_info: Callable[[float, bool, Dict[str, float]], Optional[str]],
     ) -> None:
         self.cfg = cfg
         self._nearest_pivot_key = nearest_pivot_key
@@ -56,11 +56,11 @@ class CryptoEventDetector:
             lvl = self._nearest_pivot_key(price, pivots)
             out.append(
                 Candidate(
-                    kind="obi_spike"
-                    direction=1 if obi_avg > 0 else -1
-                    raw_score=float(obi_avg)
-                    level_key=str(lvl)
-                    reasons=[f"obi_spike avg={obi_avg:.3f} thr={self.cfg.obi_spike_thr:.3f}"]
+                    kind="obi_spike",
+                    direction=1 if obi_avg > 0 else -1,
+                    raw_score=float(obi_avg),
+                    level_key=str(lvl),
+                    reasons=[f"obi_spike avg={obi_avg:.3f} thr={self.cfg.obi_spike_thr:.3f}"],
                 )
             )
 
@@ -76,11 +76,11 @@ class CryptoEventDetector:
             # raw_score знаковый по стороне: absorption = fade (затухание) => -z
             out.append(
                 Candidate(
-                    kind="absorption"
-                    direction=-1
-                    raw_score=float(-z)
-                    level_key=str(lvl)
-                    reasons=[f"absorption spike z={z:.3f}"]
+                    kind="absorption",
+                    direction=-1,
+                    raw_score=float(-z),
+                    level_key=str(lvl),
+                    reasons=[f"absorption spike z={z:.3f}"],
                 )
             )
 
@@ -90,11 +90,11 @@ class CryptoEventDetector:
             if lvl:
                 out.append(
                     Candidate(
-                        kind="breakout"
-                    direction=1
-                        raw_score=float(z)
-                        level_key=str(lvl)
-                        reasons=[f"breakout cross={lvl} z={z:.3f}"]
+                        kind="breakout",
+                    direction=1,
+                        raw_score=float(z),
+                        level_key=str(lvl),
+                        reasons=[f"breakout cross={lvl} z={z:.3f}"],
                     )
                 )
 
@@ -102,11 +102,11 @@ class CryptoEventDetector:
         if z_abs >= float(self.cfg.extreme_z_threshold):
             out.append(
                 Candidate(
-                    kind="extreme"
-                    direction=1
-                    raw_score=float(z)
-                    level_key="na"
-                    reasons=[f"extreme z={z:.3f} thr={self.cfg.extreme_z_threshold:.3f}"]
+                    kind="extreme",
+                    direction=1,
+                    raw_score=float(z),
+                    level_key="na",
+                    reasons=[f"extreme z={z:.3f} thr={self.cfg.extreme_z_threshold:.3f}"],
                 )
             )
 

@@ -1,8 +1,8 @@
+from __future__ import annotations
 """
 Weak Progress configuration for signal scoring.
 """
 
-from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Literal
 
@@ -39,73 +39,73 @@ class WeakProgressConfig:
 PATTERN_WP_CONFIG: Dict[str, WeakProgressConfig] = {
     # Continuation patterns - need strong progress
     "breakout_R1": WeakProgressConfig(
-        family="continuation"
+        family="continuation",
         cont_strong_min=0.8,  # Higher threshold for strong breakouts
         bonus_cont_strong=15,  # Higher bonus
-    )
+    ),
     "breakout_R2": WeakProgressConfig(
-        family="continuation"
-        cont_strong_min=0.75
-        bonus_cont_strong=12
-    )
+        family="continuation",
+        cont_strong_min=0.75,
+        bonus_cont_strong=12,
+    ),
     "trend_continuation": WeakProgressConfig(
-        family="continuation"
-        cont_strong_min=0.7
-        bonus_cont_strong=10
-    )
+        family="continuation",
+        cont_strong_min=0.7,
+        bonus_cont_strong=10,
+    ),
     "momentum_continuation": WeakProgressConfig(
-        family="continuation"
-        cont_strong_min=0.8
-        bonus_cont_strong=14
-    )
+        family="continuation",
+        cont_strong_min=0.8,
+        bonus_cont_strong=14,
+    ),
 
     # Fade patterns - need weak progress
     "fade_PDH": WeakProgressConfig(
-        family="fade"
+        family="fade",
         fade_weak_max=0.3,  # Stricter weak progress requirement
         fade_min_delta_z=2.0,  # Need stronger impulse to fade
-        bonus_fade_weak=12
+        bonus_fade_weak=12,
         penalty_fade_strong=15,  # Higher penalty for strong progress in fade
-    )
+    ),
     "fade_PDL": WeakProgressConfig(
-        family="fade"
-        fade_weak_max=0.3
-        fade_min_delta_z=2.0
-        bonus_fade_weak=12
-    )
+        family="fade",
+        fade_weak_max=0.3,
+        fade_min_delta_z=2.0,
+        bonus_fade_weak=12,
+    ),
     "fade_HTF_OB": WeakProgressConfig(
-        family="fade"
+        family="fade",
         fade_weak_max=0.35,  # Slightly more lenient
-        fade_min_delta_z=1.8
-        bonus_fade_weak=10
-    )
+        fade_min_delta_z=1.8,
+        bonus_fade_weak=10,
+    ),
     "fade_liquidity": WeakProgressConfig(
-        family="fade"
-        fade_weak_max=0.4
-        fade_min_delta_z=1.5
-        bonus_fade_weak=8
-    )
+        family="fade",
+        fade_weak_max=0.4,
+        fade_min_delta_z=1.5,
+        bonus_fade_weak=8,
+    ),
 
     # Absorption patterns - mixed requirements
     "absorption": WeakProgressConfig(
         family="fade",  # Treat as fade-like
-        fade_weak_max=0.4
-        fade_min_delta_z=1.5
-        bonus_fade_weak=8
-    )
+        fade_weak_max=0.4,
+        fade_min_delta_z=1.5,
+        bonus_fade_weak=8,
+    ),
 
     # Extreme patterns - special handling
     "extreme_high": WeakProgressConfig(
-        family="continuation"
+        family="continuation",
         cont_strong_min=0.9,  # Need very strong progress
-        bonus_cont_strong=20
+        bonus_cont_strong=20,
         penalty_cont_weak=20,  # High penalty for weak
-    )
+    ),
 
     # Default fallback
-    "default_continuation": WeakProgressConfig(family="continuation")
-    "default_fade": WeakProgressConfig(family="fade")
-    "default_other": WeakProgressConfig(family="other")
+    "default_continuation": WeakProgressConfig(family="continuation"),
+    "default_fade": WeakProgressConfig(family="fade"),
+    "default_other": WeakProgressConfig(family="other"),
 }
 
 

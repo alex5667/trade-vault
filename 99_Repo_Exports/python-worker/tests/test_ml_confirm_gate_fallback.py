@@ -1,8 +1,8 @@
+from __future__ import annotations
 """
 Тесты для fallback механизма в MLConfirmGate (hash cfg:ml_confirm fallback).
 """
 
-from __future__ import annotations
 
 import json
 import os

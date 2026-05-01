@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Auto-apply blocker driven by tick-quality gate.
 
 Goal
@@ -37,7 +38,6 @@ AUTO_APPLY_BLOCK_REASON_LABEL_MODE=collapse  # collapse | allow
 AUTO_APPLY_BLOCK_REASON_ALLOWLIST=unknown_side,process_p99,e2e_p99,skew,age,ts_now,ts_stream
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -108,7 +108,7 @@ def _normalize_fail_mode(v: str) -> str:
     return x
 
 
-def _run_tick_gate(metrics_url: str, window_s: int, symbol: str = "") -> GateResult:
+def _run_tick_gate(metrics_url: str, window_s: int, symbol="") -> GateResult:
     """Runs gate tool as subprocess and parses JSON output."""
     cmd = [sys.executable, "-m", "tools.tick_quality_gate_check",
            "--metrics-url", metrics_url,

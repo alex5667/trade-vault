@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Train MetaModelLR on datasets produced by build_dataset_from_inputs_outcomes_v2.py.
 
@@ -17,7 +18,6 @@ Usage:
       --out_joblib /var/lib/trade/of_reports/models/meta_model_lr_v2.joblib \
       --threshold 0.5
 """
-from __future__ import annotations
 
 import argparse
 import json

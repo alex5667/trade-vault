@@ -1,5 +1,6 @@
 # tick_flow_full/core/fill_prob_proxy.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Fill probability / ETA proxy based on L3-lite stats.
 
@@ -12,7 +13,6 @@ to compute a simple proxy:
   p_fill = clamp01(p_base * p_wait)
 """
 
-from __future__ import annotations
 
 from typing import Dict
 

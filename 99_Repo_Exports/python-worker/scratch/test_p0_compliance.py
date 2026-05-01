@@ -20,17 +20,17 @@ def test_p0_compliance():
     
     # 3. SignalV1 Validation
     sig = SignalV1(
-        signal_id=sid
-        symbol="BTCUSDT"
-        ts_event_ms=1714238000000
-        ts_publish_ms=1714238000100
-        direction=Direction.LONG
-        side=Side.BUY
-        side_int=1
-        entry_price=64000.0
-        sl_price=63500.0
-        tp_levels=[65000.0]
-        ok=1
+        signal_id=sid,
+        symbol="BTCUSDT",
+        ts_event_ms=1714238000000,
+        ts_publish_ms=1714238000100,
+        direction=Direction.LONG,
+        side=Side.BUY,
+        side_int=1,
+        entry_price=64000.0,
+        sl_price=63500.0,
+        tp_levels=[65000.0],
+        ok=1,
         reason="spike"
     )
     dump = sig.model_dump()

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+from __future__ import annotations
+""",
 Mini-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга).
 
 Анализирует последние N сделок по символу и считает edge трейлинга:
@@ -10,9 +11,8 @@ Mini-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга)
 
 Использование:
     python analyze_trailing_baseline.py --dsn "postgresql://..." --source CryptoOrderFlow --symbol ETHUSDT --limit 200
-"""
+""",
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass
@@ -48,12 +48,12 @@ def load_last_trades_from_db(
     symbol: str,
     limit: int = 100,
 ) -> List[TradeRow]:
-    """
+    """,
     Загружает последние N сделок из trades_closed.
-    """
+    """,
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             SELECT
                 source,
                 symbol,

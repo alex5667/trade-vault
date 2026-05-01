@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Stage 4 next: AB-winner evaluator v2 (deployable p_min, stratified + bootstrap CI).
 
 Why v2:
@@ -37,7 +38,6 @@ ENV vars (all have defaults):
   NOTIFY_TELEGRAM_STREAM  — Redis stream for Telegram notifications
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -10,38 +10,36 @@ from services.analytics_db import get_conn
 from services.atr_control_plane_graph_service import ControlPlaneGraphService
 from services.atr_graph_reconciliation_service import ATRGraphReconciliationService
 
-logger = logging.getLogger("atr_override_governance")
+logger = logging.getLogger("atr_override_governance"),
 
 class ATROverrideGovernanceService:
     def __init__(self):
-        self.advisory_only = os.getenv("ATR_OVERRIDE_GOVERNANCE_ADVISORY_ONLY", "1") == "1"
-        self.enabled = os.getenv("ATR_OVERRIDE_GOVERNANCE_ENABLE", "1") == "1"
-        self.redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
+        self.advisory_only = os.getenv("ATR_OVERRIDE_GOVERNANCE_ADVISORY_ONLY", "1") == "1",
+        self.enabled = os.getenv("ATR_OVERRIDE_GOVERNANCE_ENABLE", "1") == "1",
+        self.redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True),
 
     def _generate_id(self) -> str:
-        return f"ovr_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        return f"ovr_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
 
     def _get_authority_matrix(self) -> Dict[str, List[str]]:
         return {
             "operator": [
-                "READONLY_ACK"
-                "TEMP_CLIP_OVERRIDE"
-                "TEMP_UNFREEZE_TO_REDUCE_ONLY"
-            ]
+                "READONLY_ACK",
+                "TEMP_CLIP_OVERRIDE",
+                "TEMP_UNFREEZE_TO_REDUCE_ONLY"],
             "senior_operator": [
-                "READONLY_ACK"
-                "TEMP_CLIP_OVERRIDE"
-                "TEMP_UNFREEZE_TO_REDUCE_ONLY"
-                "TEMP_UNFREEZE_TO_CLIP"
-                "TEMP_RELEASE_OVERRIDE" 
-            ]
+                "READONLY_ACK",
+                "TEMP_CLIP_OVERRIDE",
+                "TEMP_UNFREEZE_TO_REDUCE_ONLY",
+                "TEMP_UNFREEZE_TO_CLIP",
+                "TEMP_RELEASE_OVERRIDE" ],
             "technical_owner": [
-                "READONLY_ACK"
-                "TEMP_CLIP_OVERRIDE"
-                "TEMP_UNFREEZE_TO_REDUCE_ONLY"
-                "TEMP_UNFREEZE_TO_CLIP"
-                "TEMP_RELEASE_OVERRIDE"
-                "TEMP_PROMOTION_OVERRIDE"
+                "READONLY_ACK",
+                "TEMP_CLIP_OVERRIDE",
+                "TEMP_UNFREEZE_TO_REDUCE_ONLY",
+                "TEMP_UNFREEZE_TO_CLIP",
+                "TEMP_RELEASE_OVERRIDE",
+                "TEMP_PROMOTION_OVERRIDE",
                 "EMERGENCY_RESTORE_OVERRIDE"
             ]
         }
@@ -85,10 +83,10 @@ class ATROverrideGovernanceService:
             
         symbol = scope.get("symbol", "all")
         if ATRGraphReconciliationService.detect_out_of_band_legacy_write(
-            component="override"
-            scope_value=symbol
-            actor=requester
-            reason_code="legacy_request_override"
+            component="override",
+            scope_value=symbol,
+            actor=requester,
+            reason_code="legacy_request_override",
             payload_json={"class": override_class, "state": requested_target_state}
         ):
             logger.warning(f"Blocked legacy override request for {symbol} due to Graph Primary Authority.")
@@ -99,10 +97,10 @@ class ATROverrideGovernanceService:
         not_after = now_utc + timedelta(seconds=ttl_sec)
         
         req_json = {
-            "scope": scope
+            "scope": scope,
             "constraints": {
-                "protective_exits_required": True
-                "risk_mult_cap": 0.25 if requested_target_state == "clip" else 1.0
+                "protective_exits_required": True,
+                "risk_mult_cap": 0.25 if requested_target_state == "clip" else 1.0,
                 "new_entries_allowed": requested_target_state in ["normal", "clip"]
             }
         }
@@ -110,18 +108,18 @@ class ATROverrideGovernanceService:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO atr_override_requests (
-                    override_id, override_class, scope_kind, source, venue, symbol
-                    scenario, regime, risk_horizon_bucket, layer, policy_ver
-                    requested_target_state, current_state, status, requester, reason_code
+                    override_id, override_class, scope_kind, source, venue, symbol,
+                    scenario, regime, risk_horizon_bucket, layer, policy_ver,
+                    requested_target_state, current_state, status, requester, reason_code,
                     ttl_sec, not_after, request_json, created_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
             """, (
-                override_id, override_class, scope.get("kind", "global"), scope.get("source"), scope.get("venue")
-                scope.get("symbol"), scope.get("scenario"), scope.get("regime"), scope.get("risk_horizon_bucket")
-                scope.get("layer"), scope.get("policy_ver"), requested_target_state, current_state
+                override_id, override_class, scope.get("kind", "global"), scope.get("source"), scope.get("venue"),
+                scope.get("symbol"), scope.get("scenario"), scope.get("regime"), scope.get("risk_horizon_bucket"),
+                scope.get("layer"), scope.get("policy_ver"), requested_target_state, current_state,
                 "requested", requester, reason_code, ttl_sec, not_after.isoformat(), json.dumps(req_json), now_utc.isoformat()
             ))
             
@@ -132,13 +130,13 @@ class ATROverrideGovernanceService:
             
             # Emit graph event
             ControlPlaneGraphService.emit_graph_event(
-                scope_kind=scope.get("kind", "global")
-                scope_value=scope.get("symbol", "all")
-                event_type="override_requested"
+                scope_kind=scope.get("kind", "global"),
+                scope_value=scope.get("symbol", "all"),
+                event_type="override_requested",
                 payload={
-                    "level": requested_target_state
-                    "expires_at_ms": int(not_after.timestamp() * 1000)
-                    "requester": requester
+                    "level": requested_target_state,
+                    "expires_at_ms": int(not_after.timestamp() * 1000),
+                    "requester": requester,
                     "reason_code": reason_code
                 }
             )
@@ -169,10 +167,10 @@ class ATROverrideGovernanceService:
                 
             symbol = req["symbol"] if req["symbol"] else "all"
             if ATRGraphReconciliationService.detect_out_of_band_legacy_write(
-                component="override"
-                scope_value=symbol
-                actor=approver
-                reason_code="legacy_approve_override"
+                component="override",
+                scope_value=symbol,
+                actor=approver,
+                reason_code="legacy_approve_override",
                 payload_json={"override_id": override_id}
             ):
                 logger.warning(f"Blocked legacy override approval for {symbol} due to Graph Primary Authority.")
@@ -187,12 +185,12 @@ class ATROverrideGovernanceService:
             
             # Emit graph event
             ControlPlaneGraphService.emit_graph_event(
-                scope_kind=req["scope_kind"]
-                scope_value=req["symbol"] or "all"
-                event_type="override_approved"
+                scope_kind=req["scope_kind"],
+                scope_value=req["symbol"] or "all",
+                event_type="override_approved",
                 payload={
-                    "level": req["requested_target_state"]
-                    "expires_at_ms": int(datetime.fromisoformat(req["not_after"].replace('Z', '+00:00')).timestamp() * 1000) if isinstance(req["not_after"], str) else int(req["not_after"].timestamp() * 1000)
+                    "level": req["requested_target_state"],
+                    "expires_at_ms": int(datetime.fromisoformat(req["not_after"].replace('Z', '+00:00')).timestamp() * 1000) if isinstance(req["not_after"], str) else int(req["not_after"].timestamp() * 1000),
                     "approver": approver
                 }
             )
@@ -218,11 +216,11 @@ class ATROverrideGovernanceService:
             """, (override_id, "approved", "active", "OVERRIDE_ACTIVATED", json.dumps({})))
             # Emit graph event
             ControlPlaneGraphService.emit_graph_event(
-                scope_kind=req["scope_kind"]
-                scope_value=req["symbol"] or "all"
-                event_type="override_activated"
+                scope_kind=req["scope_kind"],
+                scope_value=req["symbol"] or "all",
+                event_type="override_activated",
                 payload={
-                    "level": req["requested_target_state"]
+                    "level": req["requested_target_state"],
                     "expires_at_ms": int(datetime.fromisoformat(req["not_after"].replace('Z', '+00:00')).timestamp() * 1000) if isinstance(req["not_after"], str) else int(req["not_after"].timestamp() * 1000)
                 }
             )
@@ -241,10 +239,10 @@ class ATROverrideGovernanceService:
                 
             symbol = req["symbol"] if req["symbol"] else "all"
             if not auto_expire and ATRGraphReconciliationService.detect_out_of_band_legacy_write(
-                component="override"
-                scope_value=symbol
-                actor="system"
-                reason_code=reason_code
+                component="override",
+                scope_value=symbol,
+                actor="system",
+                reason_code=reason_code,
                 payload_json={"override_id": override_id}
             ):
                 logger.warning(f"Blocked legacy override revoke for {symbol} due to Graph Primary Authority.")
@@ -259,9 +257,9 @@ class ATROverrideGovernanceService:
             """, (override_id, old_status, new_status, reason_code, json.dumps({})))
             # Emit graph event
             ControlPlaneGraphService.emit_graph_event(
-                scope_kind=req["scope_kind"]
-                scope_value=req["symbol"] or "all"
-                event_type="override_expired" if auto_expire else "override_revoked"
+                scope_kind=req["scope_kind"],
+                scope_value=req["symbol"] or "all",
+                event_type="override_expired" if auto_expire else "override_revoked",
                 payload={"level": "none", "expires_at_ms": 0, "reason_code": reason_code}
             )
 
@@ -315,7 +313,7 @@ class ATROverrideGovernanceService:
                     scope = "global:all" # fallback
                 
                 payload = {
-                    "state": o["requested_target_state"]
+                    "state": o["requested_target_state"],
                     "override_id": o["override_id"]
                 }
                 

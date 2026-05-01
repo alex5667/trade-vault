@@ -127,16 +127,16 @@ class FakeRedis:
 def _mk_worker(redis_obj):
     """Create a projection worker with leader lease enabled."""
     lease = worker_mod.LeaderLease(
-        redis_obj
-        lease_key='orders:exec:projection:leader'
-        fence_key='orders:exec:projection:fence'
-        worker_id='leader-p124'
+        redis_obj,
+        lease_key='orders:exec:projection:leader',
+        fence_key='orders:exec:projection:fence',
+        worker_id='leader-p124',
     )
     return worker_mod.ExecutionProjectionWorker(
-        redis_obj
-        exec_stream='orders:exec'
-        state_key_prefix='orders:state:'
-        leader_lease=lease
+        redis_obj,
+        exec_stream='orders:exec',
+        state_key_prefix='orders:state:',
+        leader_lease=lease,
     )
 
 
@@ -149,13 +149,13 @@ def _seed_stale_user_stream(r):
     """Write a stale user-stream status doc so bootstrap detects a block."""
     stale_ms = _stale_ms()
     r.set('orders:user_stream:status', json.dumps({
-        'connected': True
-        'listen_key': 'lk-stale'
-        'status': 'stream_live'
-        'last_keepalive_ms': stale_ms
-        'last_ingest_ms': stale_ms
-        'last_event_ms': stale_ms
-        'ws_connected_ms': stale_ms
+        'connected': True,
+        'listen_key': 'lk-stale',
+        'status': 'stream_live',
+        'last_keepalive_ms': stale_ms,
+        'last_ingest_ms': stale_ms,
+        'last_event_ms': stale_ms,
+        'ws_connected_ms': stale_ms,
     }))
 
 
@@ -170,11 +170,11 @@ def test_bootstrap_supervisor_persists_latest_block_reason_and_runbook_actions()
     _seed_stale_user_stream(r)
 
     sup = sup_mod.ExecutionBootstrapSupervisor(
-        r
-        projection_worker=worker
-        user_stream_max_stale_ms=1000
-        status_key='orders:execution:bootstrap:status'
-        last_block_key='orders:execution:bootstrap:last_block'
+        r,
+        projection_worker=worker,
+        user_stream_max_stale_ms=1000,
+        status_key='orders:execution:bootstrap:status',
+        last_block_key='orders:execution:bootstrap:last_block',
     )
 
     snap = sup.health_snapshot()
@@ -203,9 +203,9 @@ def test_bootstrap_supervisor_status_key_persisted():
     _seed_stale_user_stream(r)
 
     sup = sup_mod.ExecutionBootstrapSupervisor(
-        r
-        projection_worker=worker
-        user_stream_max_stale_ms=1000
+        r,
+        projection_worker=worker,
+        user_stream_max_stale_ms=1000,
     )
     sup.health_snapshot()
 
@@ -283,21 +283,21 @@ def test_bootstrap_health_server_incident_returns_404_when_no_block():
     # Healthy user stream: connected + fresh timestamp
     now_ms = get_ny_time_millis()
     r.set('orders:user_stream:status', json.dumps({
-        'connected': True
-        'listen_key': 'lk-fresh'
-        'status': 'stream_live'
-        'last_keepalive_ms': now_ms
-        'last_ingest_ms': now_ms
-        'last_event_ms': now_ms
-        'ws_connected_ms': now_ms
+        'connected': True,
+        'listen_key': 'lk-fresh',
+        'status': 'stream_live',
+        'last_keepalive_ms': now_ms,
+        'last_ingest_ms': now_ms,
+        'last_event_ms': now_ms,
+        'ws_connected_ms': now_ms,
     }))
     # Give the worker a leader lease so projection is happy
     r.set('orders:exec:projection:leader', 'leader-p124')
 
     sup = sup_mod.ExecutionBootstrapSupervisor(
-        r
-        projection_worker=worker
-        user_stream_max_stale_ms=60000
+        r,
+        projection_worker=worker,
+        user_stream_max_stale_ms=60000,
         require_projection_ready=False,  # only check user-stream for this test
     )
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Meta Model Quality Report V3.
 
@@ -7,7 +8,6 @@ Improvements over V2:
 - Dynamic grouping: calculates session_bucket/dow_bucket from timestamp if missing
 - Robust metrics: Brier, ECE, PR-AUC, Precision@TopK, Worst-Group analysis
 """
-from __future__ import annotations
 
 import argparse
 import json

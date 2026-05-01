@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Golden replay runner for OFConfirmEngine.
 
 Purpose:
@@ -10,7 +11,6 @@ Output:
   JSON summary with throughput, latency stats, and a deterministic digest of decisions.
 """
 
-from __future__ import annotations
 
 import argparse
 import hashlib

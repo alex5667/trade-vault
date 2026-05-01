@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """conf_score_weight_tuning_exporter_v1.py
 
 Prometheus exporter for Phase2 confidence scorer tuning job status.
@@ -22,7 +23,6 @@ Env:
   EXPORTER_ADDR (default 0.0.0.0)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import logging

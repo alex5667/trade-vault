@@ -15,10 +15,10 @@ import random
 import logging
 from prometheus_client import Counter, Histogram, Summary
 from services.observability.metrics_registry import (
-    ts_rejected_total as _TS_REJECTED_TOTAL
-    signal_dq_flag_total as _DQ_FLAG_TOTAL
-    dlq_xadd_errors_total as _DLQ_XADD_ERRORS_TOTAL
-    schema_version_fallback_total as _SCHEMA_VERSION_FALLBACK_TOTAL
+    ts_rejected_total as _TS_REJECTED_TOTAL,
+    signal_dq_flag_total as _DQ_FLAG_TOTAL,
+    dlq_xadd_errors_total as _DLQ_XADD_ERRORS_TOTAL,
+    schema_version_fallback_total as _SCHEMA_VERSION_FALLBACK_TOTAL,
 )
 from common.enums import VetoReason
 from domain.reasons import ReasonCode, normalize_reason
@@ -26,37 +26,37 @@ from common.metrics_stage import stage_ms_hist, emit_ok_total
 
 logger = logging.getLogger(__name__)
 SIGNAL_BUILD_FAILED_TOTAL = Counter(
-    "signal_build_failed_total"
-    "Total signal payload build failures"
-    ["symbol"]
+    "signal_build_failed_total",
+    "Total signal payload build failures",
+    ["symbol"],
 )
 
 SIGNAL_EMIT_ERROR_TOTAL = Counter(
-    "signal_emit_error_total"
-    "Total signal emit failures"
-    ["symbol"]
+    "signal_emit_error_total",
+    "Total signal emit failures",
+    ["symbol"],
 )
 
 PAYLOAD_TS_ANOMALY_TOTAL = Counter(
-    "payload_ts_anomaly_total"
-    "Trade payloads with anomalous timestamp normalized to 0 (seconds instead of ms / future-skew / zero)"
-    ["symbol"]
+    "payload_ts_anomaly_total",
+    "Trade payloads with anomalous timestamp normalized to 0 (seconds instead of ms / future-skew / zero)",
+    ["symbol"],
 )
 
 ORCHESTRATOR_SWALLOWED_EXCEPTIONS_TOTAL = Counter(
-    "orchestrator_swallowed_exceptions_total"
-    "Exceptions swallowed in fail-open orchestrator hot path"
-    ["phase"]
+    "orchestrator_swallowed_exceptions_total",
+    "Exceptions swallowed in fail-open orchestrator hot path",
+    ["phase"],
 )
 
 # ── SLO Histogram: full pipeline latency (tick → emit) ────────────────────────────
 # Use histogram_quantile(0.99, ...) in PromQL for p99.
 # prometheus_client Python does NOT support Summary(quantiles=...).
 ORCHESTRATOR_SLO_SECONDS = Histogram(
-    "orchestrator_slo_seconds"
-    "Full pipeline SLO: end-to-end latency per candidate from detect to emit (seconds)"
-    ["kind"]
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+    "orchestrator_slo_seconds",
+    "Full pipeline SLO: end-to-end latency per candidate from detect to emit (seconds)",
+    ["kind"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
 )
 
 
@@ -77,8 +77,8 @@ def _parse_buckets(env_var: str, default: tuple) -> tuple:
         return parsed if parsed else default
     except Exception:
         logger.warning(
-            "orchestrator: invalid histogram buckets in %s=%r; using defaults"
-            env_var, raw
+            "orchestrator: invalid histogram buckets in %s=%r; using defaults",
+            env_var, raw,
         )
         return default
 
@@ -88,10 +88,10 @@ _DEFAULT_STAGE_BUCKETS = (0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5
 # Labels: stage = quality | regime | smt | consistency | edge_cost | confirmations | emit | full_process | build_payload
 #         kind  = breakout | reversal | custom | ...
 ORCHESTRATOR_STAGE_MS = Histogram(
-    "orchestrator_stage_ms"
-    "Orchestrator per-stage processing latency in milliseconds"
-    ["stage", "kind"]
-    buckets=_parse_buckets("ORCHESTRATOR_STAGE_MS_BUCKETS", _DEFAULT_STAGE_BUCKETS)
+    "orchestrator_stage_ms",
+    "Orchestrator per-stage processing latency in milliseconds",
+    ["stage", "kind"],
+    buckets=_parse_buckets("ORCHESTRATOR_STAGE_MS_BUCKETS", _DEFAULT_STAGE_BUCKETS),
 )
 
 def _get_lookback_ms() -> int:
@@ -130,7 +130,7 @@ def _resolve_side(cand: Any) -> str:
     return str(side or "").strip()
 
 
-def _emit_dq_flag(ctx: Any, flag: str, symbol: str = "") -> None:
+def _emit_dq_flag(ctx: Any, flag: str, symbol="") -> None:
     """Append DQ flag to ctx AND increment signal_dq_flag_total{flag, symbol}.
 
     This is the canonical callsite for all DQ flag appends in the orchestrator.
@@ -183,8 +183,8 @@ def _normalize_ts_ms(raw_ts: Any, now_ms: int, source: str = "orchestrator") -> 
             else:
                 reason = "too_old"
             logger.warning(
-                "orchestrator ts out of valid range raw=%r normalized=%d source=%s reason=%s; returning 0"
-                raw_ts, ts_val, source, reason
+                "orchestrator ts out of valid range raw=%r normalized=%d source=%s reason=%s; returning 0",
+                raw_ts, ts_val, source, reason,
             )
             try:
                 _TS_REJECTED_TOTAL.labels(source=source, reason=reason).inc()
@@ -250,13 +250,13 @@ class SignalOrchestrator:
     Detect -> Enrich -> Validate -> Score -> Gates -> Emit.
     """
     def __init__(
-        self
-        config: CryptoOrderFlowConfigManager
-        gates: CryptoSignalGates
-        liquidity: CryptoLiquidity
-        observability: CryptoObservability
-        confirmations_engine: Any
-        emitter: Any
+        self,
+        config: CryptoOrderFlowConfigManager,
+        gates: CryptoSignalGates,
+        liquidity: CryptoLiquidity,
+        observability: CryptoObservability,
+        confirmations_engine: Any,
+        emitter: Any,
     ):
         self.cfg = config
         self.gates = gates
@@ -294,14 +294,14 @@ class SignalOrchestrator:
                 ts_val = _normalize_ts_ms(ts_raw, get_epoch_ms(), source="orchestrator_veto")
 
                 dlq_payload = {
-                    "signal_id": str(getattr(cand, "signal_id", "") or "")
-                    "kind": str(kind)
-                    "symbol": str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "")) or "")
-                    "side": str(getattr(cand, "side", "") or "")
-                    "ts_ms": ts_val
-                    "price": float(getattr(ctx, "price", getattr(cand, "price", 0.0)) or 0.0)
-                    "raw_score": float(getattr(cand, "raw_score", 0.0) or 0.0)
-                    "veto_reason": str(rc_norm)
+                    "signal_id": str(getattr(cand, "signal_id", "") or ""),
+                    "kind": str(kind),
+                    "symbol": str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "")) or ""),
+                    "side": str(getattr(cand, "side", "") or ""),
+                    "ts_ms": ts_val,
+                    "price": float(getattr(ctx, "price", getattr(cand, "price", 0.0)) or 0.0),
+                    "raw_score": float(getattr(cand, "raw_score", 0.0) or 0.0),
+                    "veto_reason": str(rc_norm),
                 }
 
                 # DQ marker: replay and Grafana can filter ts_ms=0 rows via dq_flags
@@ -328,9 +328,9 @@ class SignalOrchestrator:
             logger.warning("orchestrator dlq publish payload build failed kind=%s: %r", kind, e)
 
     def process(
-        self
-        ctx: Any
-        detect_fn: Callable[[Any], List[Any]]
+        self,
+        ctx: Any,
+        detect_fn: Callable[[Any], List[Any]],
     ) -> bool:
         """
         Main processing loop.
@@ -440,11 +440,11 @@ class SignalOrchestrator:
                     from services.slq_risk_adjust import maybe_apply_slq_to_risk_cfg
                     redis_client = getattr(ctx, "redis", None)
                     risk_cfg = maybe_apply_slq_to_risk_cfg(
-                        redis=redis_client
-                        ctx=ctx
-                        symbol=str(self.cfg.symbol)
-                        side=side_val
-                        cfg=dict(risk_cfg or {})
+                        redis=redis_client,
+                        ctx=ctx,
+                        symbol=str(self.cfg.symbol),
+                        side=side_val,
+                        cfg=dict(risk_cfg or {}),
                     )
                     try:
                         setattr(ctx, "risk_cfg", dict(risk_cfg or {}))
@@ -452,8 +452,8 @@ class SignalOrchestrator:
                         pass
                 except Exception:
                     logger.exception(
-                        "orchestrator slq_risk_adjust failed symbol=%s kind=%s"
-                        getattr(ctx, "symbol", "?"), kind_key
+                        "orchestrator slq_risk_adjust failed symbol=%s kind=%s",
+                        getattr(ctx, "symbol", "?"), kind_key,
                     )
 
                 # Using liquidity component to ensure levels.
@@ -461,20 +461,20 @@ class SignalOrchestrator:
                 # do NOT re-read here — any mutation of cand.side between
                 # SMT gate and levels would silently diverge.
                 self.liquidity.ensure_trade_levels_once(
-                    ctx=ctx
-                    symbol=ctx.symbol
-                    side=cand.side
-                    kind=cand.kind
-                    cfg=risk_cfg
-                    overwrite=False
+                    ctx=ctx,
+                    symbol=ctx.symbol,
+                    side=cand.side,
+                    kind=cand.kind,
+                    cfg=risk_cfg,
+                    overwrite=False,
                 )
                 # 3.5 Level Metrics
                 tm = str(getattr(ctx, "tp_mode_used", "ATR_LEGACY")).upper()
                 self.observability.emit_level_mode_metric(tm, ctx)
             except Exception:
                 logger.exception(
-                    "orchestrator levels_attach_failed symbol=%s kind=%s"
-                    getattr(ctx, "symbol", "?"), kind_key
+                    "orchestrator levels_attach_failed symbol=%s kind=%s",
+                    getattr(ctx, "symbol", "?"), kind_key,
                 )
                 _emit_dq_flag(ctx, "levels_attach_failed", symbol=_sym_root)
 
@@ -539,20 +539,20 @@ class SignalOrchestrator:
             _t_emit = time.monotonic()
             try:
                 emit_res = self.emitter.emit(
-                    signal_id=envelope_kwargs["signal_id"]
-                    kind=envelope_kwargs["kind"]
-                    symbol=envelope_kwargs["symbol"]
-                    side=envelope_kwargs["side"]
-                    ts_event_ms=envelope_kwargs["ts_event_ms"]
-                    ingest_time_ms=envelope_kwargs["ingest_time_ms"]
-                    trace_id=envelope_kwargs["trace_id"]
-                    quality_flags=envelope_kwargs["quality_flags"]
-                    source=envelope_kwargs["source"]
-                    meta_schema_version=envelope_kwargs["schema_version"]
-                    raw_score=envelope_kwargs["raw_score"]
-                    final_score=envelope_kwargs["final_score"]
-                    confidence_pct=envelope_kwargs["confidence_pct"]
-                    payload=payload
+                    signal_id=envelope_kwargs["signal_id"],
+                    kind=envelope_kwargs["kind"],
+                    symbol=envelope_kwargs["symbol"],
+                    side=envelope_kwargs["side"],
+                    ts_event_ms=envelope_kwargs["ts_event_ms"],
+                    ingest_time_ms=envelope_kwargs["ingest_time_ms"],
+                    trace_id=envelope_kwargs["trace_id"],
+                    quality_flags=envelope_kwargs["quality_flags"],
+                    source=envelope_kwargs["source"],
+                    meta_schema_version=envelope_kwargs["schema_version"],
+                    raw_score=envelope_kwargs["raw_score"],
+                    final_score=envelope_kwargs["final_score"],
+                    confidence_pct=envelope_kwargs["confidence_pct"],
+                    payload=payload,
                 )
                 ok = getattr(emit_res, "ok", bool(emit_res))
                 if ok:
@@ -561,8 +561,8 @@ class SignalOrchestrator:
             except Exception:
                 sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
                 logger.exception(
-                    "orchestrator emit failed symbol=%s kind=%s signal_id=%s"
-                    sym, kind_key, getattr(cand, "signal_id", "?")
+                    "orchestrator emit failed symbol=%s kind=%s signal_id=%s",
+                    sym, kind_key, getattr(cand, "signal_id", "?"),
                 )
                 SIGNAL_EMIT_ERROR_TOTAL.labels(symbol=sym).inc()
             finally:
@@ -580,7 +580,7 @@ class SignalOrchestrator:
 
         Returns (payload_dict, parts, envelope_kwargs) where envelope_kwargs carries
         all mandatory CLAUDE.md §Data Contracts fields:
-          schema_version, source, event_time_ms (= ts_ms), ingest_time_ms
+          schema_version, source, event_time_ms (= ts_ms), ingest_time_ms,
           trace_id, quality_flags.
         event_id is generated automatically by OutboxEnvelope.make_envelope().
         """
@@ -604,8 +604,8 @@ class SignalOrchestrator:
                 pass
             _emit_dq_flag(ctx, "payload_ts_anomaly", symbol=_sym_for_metric)
             logger.warning(
-                "orchestrator _build_payload: ts anomaly symbol=%s raw_ts=%r; payload.ts=0"
-                _sym_for_metric, _ts_raw
+                "orchestrator _build_payload: ts anomaly symbol=%s raw_ts=%r; payload.ts=0",
+                _sym_for_metric, _ts_raw,
             )
 
         # ── ingest_time_ms ────────────────────────────────────────────────────
@@ -660,9 +660,9 @@ class SignalOrchestrator:
             try:
                 from services.observability.metrics_registry import metrics_registry
                 metrics_registry.get_or_create_counter(
-                    "missing_confidence_total"
-                    "Signals missing confidence pct"
-                    ["symbol"]
+                    "missing_confidence_total",
+                    "Signals missing confidence pct",
+                    ["symbol"],
                 ).labels(symbol=_ss(getattr(ctx, "symbol", ""))).inc()
             except Exception: pass
             if "confidence_missing" not in _quality_flags:
@@ -671,35 +671,35 @@ class SignalOrchestrator:
                 _emit_dq_flag(ctx, "confidence_missing", symbol=_sym_conf)
         
         payload = {
-            "kind": _ss(getattr(cand, "kind", ""))
-            "side": _ss(getattr(cand, "side", ""))
-            "symbol": _ss(getattr(ctx, "symbol", ""))
+            "kind": _ss(getattr(cand, "kind", "")),
+            "side": _ss(getattr(cand, "side", "")),
+            "symbol": _ss(getattr(ctx, "symbol", "")),
             # Keep "ts" as backward-compat alias; canonical = event_time_ms in envelope.
-            "ts": _ts_ms
-            "price": safe_float(getattr(ctx, "price", None), 0.0)
-            "raw_score": safe_float(getattr(cand, "raw_score", None), 0.0)
-            "final_score": safe_float(getattr(res, "final_score", 0.0), 0.0)
-            "confidence": _confidence_pct
-            "reasons": reasons
-            "signal_id": _ss(getattr(cand, "signal_id", ""))
-            "venue": _ss(getattr(ctx, "venue", None))
-            "timeframe": _ss(getattr(ctx, "timeframe", None))
+            "ts": _ts_ms,
+            "price": safe_float(getattr(ctx, "price", None), 0.0),
+            "raw_score": safe_float(getattr(cand, "raw_score", None), 0.0),
+            "final_score": safe_float(getattr(res, "final_score", 0.0), 0.0),
+            "confidence": _confidence_pct,
+            "reasons": reasons,
+            "signal_id": _ss(getattr(cand, "signal_id", "")),
+            "venue": _ss(getattr(ctx, "venue", None)),
+            "timeframe": _ss(getattr(ctx, "timeframe", None)),
 
             # -----------------------------------------------------------------
             # Trade levels and ATR for metrics downstream
             # -----------------------------------------------------------------
-            "atr": safe_float(getattr(ctx, "atr", None), 0.0)
-            "sl_price": safe_float(getattr(ctx, "sl_price", None), 0.0)
-            "tp1_price": safe_float(getattr(ctx, "tp1_price", None), 0.0)
-            "tp_mode": str(getattr(ctx, "tp_mode_used", "ATR_LEGACY") or "ATR_LEGACY")
-            "risk_usd_target": safe_float(getattr(ctx, "risk_usd_target", None), 0.0)
-            "risk_usd_actual": safe_float(getattr(ctx, "risk_usd", None), 0.0)
-            "qty": safe_float(getattr(ctx, "qty", None), 0.0)
+            "atr": safe_float(getattr(ctx, "atr", None), 0.0),
+            "sl_price": safe_float(getattr(ctx, "sl_price", None), 0.0),
+            "tp1_price": safe_float(getattr(ctx, "tp1_price", None), 0.0),
+            "tp_mode": str(getattr(ctx, "tp_mode_used", "ATR_LEGACY") or "ATR_LEGACY"),
+            "risk_usd_target": safe_float(getattr(ctx, "risk_usd_target", None), 0.0),
+            "risk_usd_actual": safe_float(getattr(ctx, "risk_usd", None), 0.0),
+            "qty": safe_float(getattr(ctx, "qty", None), 0.0),
 
             # Trailing & Execution params
-            "trail_profile": str(getattr(ctx, "trail_profile", "") or "")
-            "trailing_min_lock_r": safe_float(getattr(ctx, "trailing_min_lock_r", None), 0.0)
-            "slq_used": int(getattr(ctx, "risk_cfg", {}).get("slq_used", 0) or 0)
+            "trail_profile": str(getattr(ctx, "trail_profile", "") or ""),
+            "trailing_min_lock_r": safe_float(getattr(ctx, "trailing_min_lock_r", None), 0.0),
+            "slq_used": int(getattr(ctx, "risk_cfg", {}).get("slq_used", 0) or 0),
         }
 
         # ⚡ LAST-RESORT NOTIONAL CAP: clamp qty before emission
@@ -717,8 +717,8 @@ class SignalOrchestrator:
                             "orchestrator RISK_PERCENT=%.4f выглядит как доля (< 0.5); "
                             "автоматически масштабируется в %.1f%%. "
                             "Задайте значение явно в процентах (например RISK_PERCENT=5.0) "
-                            "для устранения неоднозначности."
-                            _rp, _rp * 100.0
+                            "для устранения неоднозначности.",
+                            _rp, _rp * 100.0,
                         )
                         _rp *= 100.0
                     _nc = float(os.getenv("NOTIONAL_LEVERAGE_CAP", "100") or "100")
@@ -726,8 +726,8 @@ class SignalOrchestrator:
                 _max_qty = float(os.getenv("RISK_MAX_QTY", "0") or "0")
                 _max_qty_by_notional = _max_notional / _entry if _max_notional > 0 else float("inf")
                 _cap = min(
-                    _max_qty_by_notional
-                    _max_qty if _max_qty > 0 else float("inf")
+                    _max_qty_by_notional,
+                    _max_qty if _max_qty > 0 else float("inf"),
                 )
                 if _qty > _cap:
                     payload["qty"] = _cap
@@ -753,9 +753,9 @@ class SignalOrchestrator:
         _hz_risk_profile = None
         try:
             from core.horizon_contract import (
-                attach_phase0_profiles_to_ctx
-                build_horizon_meta_for_payload
-                build_horizon_trace_fragment
+                attach_phase0_profiles_to_ctx,
+                build_horizon_meta_for_payload,
+                build_horizon_trace_fragment,
             )
             from core.horizon_metrics import emit_horizon_contract_metrics
 
@@ -776,14 +776,14 @@ class SignalOrchestrator:
 
             # 1. Attach profiles to ctx (fail-open)
             _hz_risk_profile = attach_phase0_profiles_to_ctx(
-                ctx
-                symbol=_sym_str
-                kind=_kind_key_str
-                regime=_regime_str
-                now_ts_ms=_now_ts_ms_hz
-                sl_atr_mult=_sl_atr_mult
-                tp1_atr_mult=_tp1_atr_mult
-                tp2_atr_mult=_tp2_atr_mult
+                ctx,
+                symbol=_sym_str,
+                kind=_kind_key_str,
+                regime=_regime_str,
+                now_ts_ms=_now_ts_ms_hz,
+                sl_atr_mult=_sl_atr_mult,
+                tp1_atr_mult=_tp1_atr_mult,
+                tp2_atr_mult=_tp2_atr_mult,
             )
 
             if _hz_risk_profile is not None:
@@ -795,16 +795,16 @@ class SignalOrchestrator:
                 if not _existing_meta.get("sl_atr_mult"):
                     _existing_meta["sl_atr_mult"] = _sl_atr_mult
                 _enriched_meta = build_horizon_meta_for_payload(
-                    _hz_risk_profile
-                    existing_meta=_existing_meta
+                    _hz_risk_profile,
+                    existing_meta=_existing_meta,
                 )
                 payload["meta"] = _enriched_meta
 
                 # 3. Emit Prometheus metrics (fail-open)
                 emit_horizon_contract_metrics(
-                    symbol=_sym_str
-                    kind=_kind_key_str
-                    risk_profile=_hz_risk_profile
+                    symbol=_sym_str,
+                    kind=_kind_key_str,
+                    risk_profile=_hz_risk_profile,
                 )
 
                 # 4. Enrich diagnostics trace fragment (fail-open)
@@ -826,12 +826,12 @@ class SignalOrchestrator:
                 from services.observability.metrics_registry import metrics_registry
                 _sym_err = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")) or "unknown")
                 metrics_registry.get_or_create_counter(
-                    "horizon_attach_errors_total"
-                    "Failures during Horizon profile attachment in Orchestrator"
+                    "horizon_attach_errors_total",
+                    "Failures during Horizon profile attachment in Orchestrator",
                     ["symbol", "error_type"]
                 ).labels(symbol=_sym_err, error_type=_hz_err.__class__.__name__).inc()
                 logger.warning(
-                    "orchestrator Phase 0 Horizon attach failed symbol=%s: %r"
+                    "orchestrator Phase 0 Horizon attach failed symbol=%s: %r",
                     _sym_err, _hz_err
                 )
             except Exception:
@@ -841,19 +841,19 @@ class SignalOrchestrator:
 
         # ── Envelope kwargs (mandatory contract fields) ────────────────────────
         envelope_kwargs = {
-            "signal_id": _ss(getattr(cand, "signal_id", ""))
-            "kind": _ss(getattr(cand, "kind", ""))
-            "symbol": _ss(getattr(ctx, "symbol", ""))
-            "side": _resolve_side(cand) or None
-            "ts_event_ms": _ts_ms
-            "ingest_time_ms": _ingest_ms
-            "trace_id": _trace_id
-            "quality_flags": _quality_flags if _quality_flags else None
-            "source": _source
-            "schema_version": _schema_version
-            "raw_score": safe_float(getattr(cand, "raw_score", None), 0.0)
-            "final_score": safe_float(getattr(res, "final_score", None), 0.0)
-            "confidence_pct": _confidence_pct
+            "signal_id": _ss(getattr(cand, "signal_id", "")),
+            "kind": _ss(getattr(cand, "kind", "")),
+            "symbol": _ss(getattr(ctx, "symbol", "")),
+            "side": _resolve_side(cand) or None,
+            "ts_event_ms": _ts_ms,
+            "ingest_time_ms": _ingest_ms,
+            "trace_id": _trace_id,
+            "quality_flags": _quality_flags if _quality_flags else None,
+            "source": _source,
+            "schema_version": _schema_version,
+            "raw_score": safe_float(getattr(cand, "raw_score", None), 0.0),
+            "final_score": safe_float(getattr(res, "final_score", None), 0.0),
+            "confidence_pct": _confidence_pct,
         }
 
         # ── GAP-5: Shadow payload contract validation ─────────────────────────
@@ -882,18 +882,18 @@ class SignalOrchestrator:
                             getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")) or "unknown"
                         )
                         logger.warning(
-                            "orchestrator _build_payload contract violation symbol=%s kind=%s pct=%.1f: %s"
-                            _sym_for_metric
-                            _ss(getattr(cand, "kind", ""))
-                            _rollout_pct
-                            _contract_err
+                            "orchestrator _build_payload contract violation symbol=%s kind=%s pct=%.1f: %s",
+                            _sym_for_metric,
+                            _ss(getattr(cand, "kind", "")),
+                            _rollout_pct,
+                            _contract_err,
                         )
                         try:
                             from services.observability.metrics_registry import metrics_registry
                             metrics_registry.get_or_create_counter(
-                                "signal_payload_contract_violation_total"
-                                "Payload contract assertions that fired in Orchestrator"
-                                ["symbol"]
+                                "signal_payload_contract_violation_total",
+                                "Payload contract assertions that fired in Orchestrator",
+                                ["symbol"],
                             ).labels(symbol=_sym_for_metric).inc()
                         except Exception:
                             pass
@@ -978,27 +978,27 @@ class SignalOrchestrator:
                 edge_ratio = float("inf") if exp_bps > 0 else 0.0
 
             evt = {
-                "signal_id": str(getattr(cand, "signal_id", "") or "")
-                "symbol": str(getattr(ctx, "symbol", "") or self.cfg.symbol or "").upper()
-                "ts_ms": int(ts_ms)
-                "gate_name": "edge_cost"
-                "gate_version": 3
-                "stage": "pre_emit"
-                "passed": 1 if passed else 0
-                "veto_code": veto_code
-                "edge_source": edge_source
+                "signal_id": str(getattr(cand, "signal_id", "") or ""),
+                "symbol": str(getattr(ctx, "symbol", "") or self.cfg.symbol or "").upper(),
+                "ts_ms": int(ts_ms),
+                "gate_name": "edge_cost",
+                "gate_version": 3,
+                "stage": "pre_emit",
+                "passed": 1 if passed else 0,
+                "veto_code": veto_code,
+                "edge_source": edge_source,
                 
                 # Metrics
-                "exp_bps": exp_bps
-                "req_bps": req_bps
-                "margin_bps": margin_bps
-                "edge_ratio": edge_ratio
+                "exp_bps": exp_bps,
+                "req_bps": req_bps,
+                "margin_bps": margin_bps,
+                "edge_ratio": edge_ratio,
                 
-                "k": k
-                "fees_bps": fees_bps
-                "slip_bps": slip_bps
-                "buf_bps": buf_bps
-                "total_costs_bps": total_costs_bps
+                "k": k,
+                "fees_bps": fees_bps,
+                "slip_bps": slip_bps,
+                "buf_bps": buf_bps,
+                "total_costs_bps": total_costs_bps,
                 
                 "ctx": json.dumps({"kind": kind}) 
             }

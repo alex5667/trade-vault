@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """refresh_exec_slip_stats_p80.py
 
 P80: Refresh materialized view mv_exec_slippage_eval_1h_stats to accelerate promoter/rollback/freezer.
@@ -17,7 +18,6 @@ Optional Redis state (if REDIS_URL/CRYPTO_NOTIFY_REDIS_URL provided):
   state:exec_slip_stats_refresher:last_ok
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

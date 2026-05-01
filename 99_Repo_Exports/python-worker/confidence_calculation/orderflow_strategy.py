@@ -82,17 +82,17 @@ from core.atr_sanity import ATRSanity
 
 
 from services.orderflow.metrics import (
-    log_silent_error, ok_metrics_emitted_total, ok_metrics_error_total
-    fp_buckets_evicted_total
-    tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total
-    burst_active_gauge, burst_window_ms_gauge, tick_gap_p50_ms_gauge
-    ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total
-    sweep_detected_total, strong_gate_veto_total, ticks_pressure_filtered_total
-    atr_tf_switch_total, atr_tf_candidate_diff, atr_tf_target_bps, atr_tf_candidate_score
+    log_silent_error, ok_metrics_emitted_total, ok_metrics_error_total,
+    fp_buckets_evicted_total,
+    tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
+    burst_active_gauge, burst_window_ms_gauge, tick_gap_p50_ms_gauge,
+    ticks_out_of_order_total, ticks_side_unknown_total, bars_closed_total, divergence_detected_total,
+    sweep_detected_total, strong_gate_veto_total, ticks_pressure_filtered_total,
+    atr_tf_switch_total, atr_tf_candidate_diff, atr_tf_target_bps, atr_tf_candidate_score,
     book_stale_ms_gauge, ptier_tier0_usd, ptier_tier1_usd, ptier_tier2_usd, dn_gate_events_total, of_session_outcome_total, veto_low_conf_total, cvd_reclaim_eval_total, cvd_reclaim_ok_total, cvd_reclaim_applied_total, cvd_reclaim_age_ms_gauge, record_confirmation_seen, record_evidence_used
 )
 from services.orderflow.utils import (
-    _calc_pressure_sps, _cooldown_ms_for, _should_sample
+    _calc_pressure_sps, _cooldown_ms_for, _should_sample,
     session_utc, hour_of_week_utc
 )
 from services.orderflow.runtime import SymbolRuntime
@@ -151,8 +151,8 @@ logger = logging.getLogger("crypto_orderflow_service")
 # Настройка логирования
 log_level = os.getenv("CRYPTO_OF_LOG_LEVEL", "INFO")
 logging.basicConfig(
-    level=log_level
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=log_level,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 # Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
 # Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
@@ -208,7 +208,7 @@ class OrderFlowStrategy:
         except Exception:
             return 0
     def __init__(self, redis: aioredis.Redis, ticks: aioredis.Redis, publisher: AsyncSignalPublisher, 
-                 of_engine: OFConfirmEngine, calib_svc=None
+                 of_engine: OFConfirmEngine, calib_svc=None,
                  notify_client: Optional[aioredis.Redis] = None, notify_stream: str = "notify:telegram"):
         self.redis = redis
         self.ticks = ticks
@@ -276,8 +276,8 @@ class OrderFlowStrategy:
         # Redis Write-Behind Buffer: coalesces SET/INCR/SADD/EXPIRE into
         # periodic pipeline flushes (every 2s), reducing ~900 ops/sec → ~9.
         self._wb = WriteBehindBuffer(
-            redis_client=self.redis
-            flush_interval_sec=float(os.getenv("WRITE_BEHIND_FLUSH_SEC", "2.0"))
+            redis_client=self.redis,
+            flush_interval_sec=float(os.getenv("WRITE_BEHIND_FLUSH_SEC", "2.0")),
         )
 
     def cleanup_symbol(self, symbol: str) -> None:
@@ -326,40 +326,40 @@ class OrderFlowStrategy:
                 return
             # allowlist of keys (avoid accidental config takeover)
             allow = {
-                "cooldown_reversal_sec"
-                "cooldown_continuation_sec"
-                "pressure_hi_sps"
-                "pressure_ema_alpha"
-                "cooldown_mul_thin"
-                "cooldown_spread_hi_bp"
-                "cooldown_mul_wide_spread"
-                "cooldown_mul_pressure_hi"
-                "cooldown_min_ms"
-                "cooldown_max_ms"
-                "burst_audit_enable"
-                "burst_audit_sample"
+                "cooldown_reversal_sec",
+                "cooldown_continuation_sec",
+                "pressure_hi_sps",
+                "pressure_ema_alpha",
+                "cooldown_mul_thin",
+                "cooldown_spread_hi_bp",
+                "cooldown_mul_wide_spread",
+                "cooldown_mul_pressure_hi",
+                "cooldown_min_ms",
+                "cooldown_max_ms",
+                "burst_audit_enable",
+                "burst_audit_sample",
                 
                 # Confidence scorer / regime / data-health overrides (world practice)
-                "confidence_score_freeze"
-                "confidence_score_scale"
-                "data_health_power"
-                "data_health_floor"
-                "rsi_bonus_w"
-                "div_bonus_w"
-                "sweep_bonus_w"
-                "rsi_w_trend_mult"
-                "div_w_trend_mult"
-                "sweep_w_trend_mult"
-                "rsi_w_range_mult"
-                "div_w_range_mult"
-                "sweep_w_range_mult"
-                "div_countertrend_pen"
-                "div_kind"
-                "div_strength_lo"
-                "div_strength_hi"
-                "sweep_legacy_fallback"
-                "sweep_legacy_score"
-                "micro_bonus_cap"
+                "confidence_score_freeze",
+                "confidence_score_scale",
+                "data_health_power",
+                "data_health_floor",
+                "rsi_bonus_w",
+                "div_bonus_w",
+                "sweep_bonus_w",
+                "rsi_w_trend_mult",
+                "div_w_trend_mult",
+                "sweep_w_trend_mult",
+                "rsi_w_range_mult",
+                "div_w_range_mult",
+                "sweep_w_range_mult",
+                "div_countertrend_pen",
+                "div_kind",
+                "div_strength_lo",
+                "div_strength_hi",
+                "sweep_legacy_fallback",
+                "sweep_legacy_score",
+                "micro_bonus_cap",
             }
             for k, v in d.items():
                 if k in allow:
@@ -381,23 +381,23 @@ class OrderFlowStrategy:
             if not _should_sample(int(now_ms), rate):
                 return
             msg = {
-                "type": "burst_audit"
-                "ts_ms": str(int(now_ms))
-                "symbol": str(runtime.symbol)
-                "event": str(event)
-                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                "type": "burst_audit",
+                "ts_ms": str(int(now_ms)),
+                "symbol": str(runtime.symbol),
+                "event": str(event),
+                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
                 "ind": json.dumps({
-                    "scenario": indicators.get("strong_gate_scn") or ""
-                    "of_score": indicators.get("of_confirm_score", 0.0)
-                    "delta_z": indicators.get("delta_z", 0.0)
-                    "pressure_sps": float(getattr(runtime, "pressure_sps", 0.0) or 0.0)
-                    "pressure_hi": int(getattr(runtime, "pressure_hi", 0) or 0)
-                    "regime": str(getattr(runtime, "last_regime", "na") or "na")
-                    "spread_bp": float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
-                    "obi_age_ms": indicators.get("obi_age_ms", -1)
-                    "iceberg_age_ms": indicators.get("iceberg_age_ms", -1)
-                }, ensure_ascii=False, separators=(",", ":"))
-                "extra": json.dumps(extra or {}, ensure_ascii=False, separators=(",", ":"))
+                    "scenario": indicators.get("strong_gate_scn") or "",
+                    "of_score": indicators.get("of_confirm_score", 0.0),
+                    "delta_z": indicators.get("delta_z", 0.0),
+                    "pressure_sps": float(getattr(runtime, "pressure_sps", 0.0) or 0.0),
+                    "pressure_hi": int(getattr(runtime, "pressure_hi", 0) or 0),
+                    "regime": str(getattr(runtime, "last_regime", "na") or "na"),
+                    "spread_bp": float(getattr(runtime, "last_spread_bps", 0.0) or 0.0),
+                    "obi_age_ms": indicators.get("obi_age_ms", -1),
+                    "iceberg_age_ms": indicators.get("iceberg_age_ms", -1),
+                }, ensure_ascii=False, separators=(",", ":")),
+                "extra": json.dumps(extra or {}, ensure_ascii=False, separators=(",", ":")),
             }
             await self.redis.xadd(self.burst_audit_stream, msg, maxlen=BURST_AUDIT_MAXLEN, approximate=True)
         except Exception as exc:
@@ -546,7 +546,7 @@ class OrderFlowStrategy:
                             pass
                     # Optional: sampled warning
                     sampled_warning(
-                        self.logger, "TIME_SKEW_DETECTED"
+                        self.logger, "TIME_SKEW_DETECTED",
                         "⚠️ Time skew detected for %s: back_ms=%d (clamped)", 
                         runtime.symbol, back
                     )
@@ -677,7 +677,7 @@ class OrderFlowStrategy:
                     bb = float(getattr(snap, "best_bid_px", 0.0) or 0.0)
                     ba = float(getattr(snap, "best_ask_px", 0.0) or 0.0)
                     mid = (bb + ba) / 2.0 if (bb > 0 and ba > 0) else 0.0
-                    depth_qty = float(min(getattr(snap, "depth_5_bid_vol", 0.0) or 0.0
+                    depth_qty = float(min(getattr(snap, "depth_5_bid_vol", 0.0) or 0.0,
                                           getattr(snap, "depth_5_ask_vol", 0.0) or 0.0))
                     depth_usd_min_5 = float(depth_qty * max(mid, 1e-9)) if mid > 0 else 0.0
                     # Compute real spread from bid/ask when spread_bps not pre-calculated on snapshot
@@ -692,12 +692,12 @@ class OrderFlowStrategy:
 
             stale = int(book_gap) if book_ts_base > 0 else int(10**9)
             liq = runtime.liq_service.score(
-                symbol=runtime.symbol
-                ts_ms=int(tick_ts)
-                spread_bps=float(spread_bps)
-                depth_usd_min_5=float(depth_usd_min_5)
-                book_rate_ema_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
-                book_stale_ms=int(stale)
+                symbol=runtime.symbol,
+                ts_ms=int(tick_ts),
+                spread_bps=float(spread_bps),
+                depth_usd_min_5=float(depth_usd_min_5),
+                book_rate_ema_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0),
+                book_stale_ms=int(stale),
             )
             runtime.liq_score = float(liq.liq_score)
             runtime.liq_regime = str(liq.liq_regime)
@@ -732,7 +732,7 @@ class OrderFlowStrategy:
                         p_snap = runtime.pressure.snapshot(now_ms=int(tick_ts))
                         
                         w, ma = runtime.burst_cal.compute(
-                            gap_p50_ms=float(gaps.get("p50", 0.0))
+                            gap_p50_ms=float(gaps.get("p50", 0.0)),
                             cand_per_min=float(p_snap.per_min_ema)
                         )
                         runtime.burst.window_ms = int(w)
@@ -748,7 +748,7 @@ class OrderFlowStrategy:
         # If book is unhealthy, we cannot trust OBI or Iceberg signals.
         # We nullify them (force 0.0) so they don't contribute to the score.
         if int(indicators.get("book_health_ok", 1)) == 0:
-            # We don't VETO the entire signal (maybe price action is valid)
+            # We don't VETO the entire signal (maybe price action is valid),
             # but we remove microstructure evidence component.
             # (unless it's a super-strong price move > strong_z, handled elsewhere)
             # Nullify indicators for downstream
@@ -761,11 +761,11 @@ class OrderFlowStrategy:
 
         if runtime.heartbeat_counter >= 5000:
             self.logger.info(
-                "💓 (%s) Heartbeat: processed 5000 ticks (total=%d) | last_price=%.2f | delta_triggers=%d"
-                runtime.symbol
-                runtime.tick_count
-                float(tick.get("price") or 0.0)
-                runtime.delta_triggers
+                "💓 (%s) Heartbeat: processed 5000 ticks (total=%d) | last_price=%.2f | delta_triggers=%d",
+                runtime.symbol,
+                runtime.tick_count,
+                float(tick.get("price") or 0.0),
+                runtime.delta_triggers,
             )
             runtime.heartbeat_counter = 0
         
@@ -796,9 +796,9 @@ class OrderFlowStrategy:
                 
                 ts_ms = int(tick.get("ts", 0) or 0)
                 dec = runtime._cvd_guard.update(
-                    sym=runtime.symbol
-                    ts_ms=ts_ms
-                    cvd_now=cvd_now
+                    sym=runtime.symbol,
+                    ts_ms=ts_ms,
+                    cvd_now=cvd_now,
                     delta_usd=delta_usd
                 )
                 if dec.quarantine_active:
@@ -849,7 +849,7 @@ class OrderFlowStrategy:
         try:
             # 1. Feed trade
             runtime.l3_queue.on_trade(
-                side=1 if (str(tick.get("side")).upper() == "BUY") else -1
+                side=1 if (str(tick.get("side")).upper() == "BUY") else -1,
                 qty=float(tick.get("qty") or 0.0)
             )
             
@@ -905,10 +905,10 @@ class OrderFlowStrategy:
                             hs["S_churn"] = decay * float(hs.get("S_churn", 0.0)) + churn_rate * dt_s
                 
                         runtime.hawkes_snapshot = {
-                            "hawkes_dt_s": float(dt_s)
-                            "hawkes_taker_lam": float(mu_t + alpha_t * float(hs.get("S_taker", 0.0)))
-                            "hawkes_cancel_lam": float(mu_c + alpha_c * float(hs.get("S_cancel", 0.0)))
-                            "hawkes_churn_lam": float(mu_h + alpha_h * float(hs.get("S_churn", 0.0)))
+                            "hawkes_dt_s": float(dt_s),
+                            "hawkes_taker_lam": float(mu_t + alpha_t * float(hs.get("S_taker", 0.0))),
+                            "hawkes_cancel_lam": float(mu_c + alpha_c * float(hs.get("S_cancel", 0.0))),
+                            "hawkes_churn_lam": float(mu_h + alpha_h * float(hs.get("S_churn", 0.0))),
                         }
                 except Exception:
                     # Fail-open: Hawkes is a feature-only signal for now
@@ -969,7 +969,7 @@ class OrderFlowStrategy:
             if min_usd > 1.0 and delta_usd < min_usd:
                  # Vetoed by USD threshold
                  logger.warning(
-                     "🛑 [MIN-USD] (%s) VETO: delta_usd=$%.2f < min=$%.2f - Signal blocked"
+                     "🛑 [MIN-USD] (%s) VETO: delta_usd=$%.2f < min=$%.2f - Signal blocked",
                      runtime.symbol, delta_usd, min_usd
                  )
                  return None
@@ -1015,11 +1015,11 @@ class OrderFlowStrategy:
             # Sampled debug log for delta trigger
             if runtime.delta_log_sampler.should_log("delta_trigger"):
                 logger.debug(
-                    "🔍 (%s) Delta detector triggered: delta=%.2f, z=%.2f, threshold=%.2f"
-                    runtime.symbol
-                    delta_event.get("delta", 0.0)
-                    delta_event.get("z", 0.0)
-                    runtime.delta_detector.z_threshold
+                    "🔍 (%s) Delta detector triggered: delta=%.2f, z=%.2f, threshold=%.2f",
+                    runtime.symbol,
+                    delta_event.get("delta", 0.0),
+                    delta_event.get("z", 0.0),
+                    runtime.delta_detector.z_threshold,
                 )
 
         # Determine signal direction
@@ -1043,12 +1043,12 @@ class OrderFlowStrategy:
             now_ms = int(tick_ts if tick_ts > 0 else get_ny_time_millis())
             
             res = self._atr_sanity.update(
-                symbol=str(runtime.symbol)
-                atr=float(atr0)
-                px=float(px0)
-                age_ms=int((atr_meta or {}).get("age_ms", 0))
-                now_ms=now_ms
-                tf=str((atr_meta or {}).get("picked_tf") or "5m")
+                symbol=str(runtime.symbol),
+                atr=float(atr0),
+                px=float(px0),
+                age_ms=int((atr_meta or {}).get("age_ms", 0)),
+                now_ms=now_ms,
+                tf=str((atr_meta or {}).get("picked_tf") or "5m"),
             )
             
             atr_used = float(res.atr_used)
@@ -1102,11 +1102,11 @@ class OrderFlowStrategy:
             t2 = float(runtime.dynamic_cfg.get(DK.ATR_FLOOR_T2_BPS, 0.0) or runtime.config.get("atr_floor_t2_bps", 0.0) or 0.0)
             
             tier, rg2, th = compute_atr_bps_threshold(
-                regime=rg
-                cfg=runtime.config
-                t0=t0
-                t1=t1
-                t2=t2
+                regime=rg,
+                cfg=runtime.config,
+                t0=t0,
+                t1=t1,
+                t2=t2,
             )
             
             indicators["atr_floor_tier"] = tier
@@ -1137,11 +1137,11 @@ class OrderFlowStrategy:
         # ------------------------------------------------------------------
         rg = str(getattr(runtime, "last_regime", "na"))
         dn_tiers_decision = runtime.tick_dn_calib.tiers(
-            regime=rg
+            regime=rg,
             ts_ms=int(tick_ts if tick_ts > 0 else get_ny_time_millis()), # Use TS for HoW scale lookup
-            default_t0=float(runtime.config.get("dn_tier0_usd", 120000.0))
-            default_t1=float(runtime.config.get("dn_tier1_usd", 350000.0))
-            default_t2=float(runtime.config.get("dn_tier2_usd", 750000.0))
+            default_t0=float(runtime.config.get("dn_tier0_usd", 120000.0)),
+            default_t1=float(runtime.config.get("dn_tier1_usd", 350000.0)),
+            default_t2=float(runtime.config.get("dn_tier2_usd", 750000.0)),
         )
         
         # Publish decision tiers to canonical runtime.dynamic_cfg for transparency
@@ -1209,9 +1209,9 @@ class OrderFlowStrategy:
              # Log veto
              if runtime.delta_log_sampler.should_log("dn_veto"):
                   logger.info(
-                      "🛑 [DN-GATE] (%s) VETO: delta_usd=$%.0f < T%d=$%.0f (tier=%d < min=%d) src=%s session=%s"
+                      "🛑 [DN-GATE] (%s) VETO: delta_usd=$%.0f < T%d=$%.0f (tier=%d < min=%d) src=%s session=%s",
                       runtime.symbol, delta_usd, min_tier, 
-                      getattr(dn_tiers_decision, f"tier{min_tier}_usd", 0.0)
+                      getattr(dn_tiers_decision, f"tier{min_tier}_usd", 0.0),
                       tier, min_tier, dn_tiers_decision.src, sess
                   )
              return None
@@ -1230,8 +1230,8 @@ class OrderFlowStrategy:
         now_ts = tick_ts if tick_ts > 0 else get_ny_time_millis()
 
         indicators.update({
-            "delta": delta_event.get("delta", 0.0)
-            "delta_z": delta_event.get("z", 0.0)
+            "delta": delta_event.get("delta", 0.0),
+            "delta_z": delta_event.get("z", 0.0),
         })
 
         # Pre-calculate absorption once for all consumers (Variant A + OFConfirm)
@@ -1246,13 +1246,13 @@ class OrderFlowStrategy:
         # ------------------------------------------------------------------
         try:
             spike_out = {
-                "type": "delta_spike"
-                "symbol": runtime.symbol
-                "ts_ms": now_ts
-                "price": float(price)
-                "direction": direction
-                "delta": float(delta_event.get("delta", 0.0))
-                "delta_z": float(delta_event.get("z", 0.0))
+                "type": "delta_spike",
+                "symbol": runtime.symbol,
+                "ts_ms": now_ts,
+                "price": float(price),
+                "direction": direction,
+                "delta": float(delta_event.get("delta", 0.0)),
+                "delta_z": float(delta_event.get("z", 0.0)),
             }
             # Optional: if we already have features from runtime
             # Optional: if we already have features from runtime
@@ -1272,18 +1272,18 @@ class OrderFlowStrategy:
             # Enrich with L3-lite stats
             if runtime.l3_stats:
                 spike_out.update({
-                    "cancel_bid_rate_ema": float(runtime.l3_stats.cancel_bid_rate_ema)
-                    "cancel_ask_rate_ema": float(runtime.l3_stats.cancel_ask_rate_ema)
-                    "taker_buy_rate_ema": float(runtime.l3_stats.taker_buy_rate_ema)
-                    "taker_sell_rate_ema": float(runtime.l3_stats.taker_sell_rate_ema)
+                    "cancel_bid_rate_ema": float(runtime.l3_stats.cancel_bid_rate_ema),
+                    "cancel_ask_rate_ema": float(runtime.l3_stats.cancel_ask_rate_ema),
+                    "taker_buy_rate_ema": float(runtime.l3_stats.taker_buy_rate_ema),
+                    "taker_sell_rate_ema": float(runtime.l3_stats.taker_sell_rate_ema),
                 })
 
             safe_create_task(
                 self.redis.xadd(
-                    "events:delta_spike"
-                    {"payload": json.dumps(spike_out, ensure_ascii=False)}
-                    maxlen=20000
-                    approximate=True
+                    "events:delta_spike",
+                    {"payload": json.dumps(spike_out, ensure_ascii=False)},
+                    maxlen=20000,
+                    approximate=True,
                 )
             )
         except Exception as e:
@@ -1302,20 +1302,20 @@ class OrderFlowStrategy:
             if runtime.last_bar:
                 b = runtime.last_bar
                 indicators.update({
-                    "microbar_tf_ms": int(b.tf_ms)
-                    "microbar_start_ts": int(b.start_ts_ms)
-                    "microbar_end_ts": int(b.end_ts_ms)
-                    "microbar_open": float(b.open)
-                    "microbar_high": float(b.high)
-                    "microbar_low": float(b.low)
-                    "microbar_close": float(b.close)
-                    "microbar_vol": float(b.vol)
-                    "microbar_delta_sum": float(b.delta_sum)
-                    "microbar_cvd_close": float(b.cvd_close)
-                    "microbar_vwap": float(b.vwap)
-                    "microbar_mid": float(b.mid_last) if b.mid_last is not None else None
-                    "microbar_spread": float(b.spread_last) if b.spread_last is not None else None
-                    "microbar_ticks": int(b.tick_count)
+                    "microbar_tf_ms": int(b.tf_ms),
+                    "microbar_start_ts": int(b.start_ts_ms),
+                    "microbar_end_ts": int(b.end_ts_ms),
+                    "microbar_open": float(b.open),
+                    "microbar_high": float(b.high),
+                    "microbar_low": float(b.low),
+                    "microbar_close": float(b.close),
+                    "microbar_vol": float(b.vol),
+                    "microbar_delta_sum": float(b.delta_sum),
+                    "microbar_cvd_close": float(b.cvd_close),
+                    "microbar_vwap": float(b.vwap),
+                    "microbar_mid": float(b.mid_last) if b.mid_last is not None else None,
+                    "microbar_spread": float(b.spread_last) if b.spread_last is not None else None,
+                    "microbar_ticks": int(b.tick_count),
                 })
             
             # RSI indicators (if available)
@@ -1335,27 +1335,27 @@ class OrderFlowStrategy:
             if runtime.last_swing_high:
                 sh = runtime.last_swing_high
                 indicators.update({
-                    "swing_high_ts": int(sh.ts_ms)
-                    "swing_high_px": float(sh.price)
-                    "swing_high_cvd": float(sh.cvd)
+                    "swing_high_ts": int(sh.ts_ms),
+                    "swing_high_px": float(sh.price),
+                    "swing_high_cvd": float(sh.cvd),
                 })
             if runtime.last_swing_low:
                 sl = runtime.last_swing_low
                 indicators.update({
-                    "swing_low_ts": int(sl.ts_ms)
-                    "swing_low_px": float(sl.price)
-                    "swing_low_cvd": float(sl.cvd)
+                    "swing_low_ts": int(sl.ts_ms),
+                    "swing_low_px": float(sl.price),
+                    "swing_low_cvd": float(sl.cvd),
                 })
             if runtime.last_div:
                 dv = runtime.last_div
                 indicators.update({
-                    "div_kind": str(dv.kind)
-                    "div_ts": int(dv.ts_ms)
-                    "div_strength": float(dv.strength)
-                    "div_price_prev": float(dv.price_prev)
-                    "div_price_curr": float(dv.price_curr)
-                    "div_cvd_prev": float(dv.cvd_prev)
-                    "div_cvd_curr": float(dv.cvd_curr)
+                    "div_kind": str(dv.kind),
+                    "div_ts": int(dv.ts_ms),
+                    "div_strength": float(dv.strength),
+                    "div_price_prev": float(dv.price_prev),
+                    "div_price_curr": float(dv.price_curr),
+                    "div_cvd_prev": float(dv.cvd_prev),
+                    "div_cvd_curr": float(dv.cvd_curr),
                 })
         except Exception:
             pass
@@ -1378,9 +1378,9 @@ class OrderFlowStrategy:
             b = runtime.last_bar
             if b is not None and getattr(b, "fp_enabled", False):
                 indicators.update({
-                    "fp_bucket_px": float(getattr(b, "fp_bucket_px", 0.0) or 0.0)
-                    "fp_max_imbalance": float(getattr(b, "fp_max_imbalance", 0.0) or 0.0)
-                    "fp_absorb_score": float(getattr(b, "fp_absorb_score", 0.0) or 0.0)
+                    "fp_bucket_px": float(getattr(b, "fp_bucket_px", 0.0) or 0.0),
+                    "fp_max_imbalance": float(getattr(b, "fp_max_imbalance", 0.0) or 0.0),
+                    "fp_absorb_score": float(getattr(b, "fp_absorb_score", 0.0) or 0.0),
                 })
                 fp_confs = fp_confirmations_from_microbar(b, direction, runtime.config)
                 for c in fp_confs:
@@ -1507,7 +1507,7 @@ class OrderFlowStrategy:
         # CVD quarantine (0/1) + fallback mode
         indicators["cvd_quarantine_active"] = int(getattr(runtime, "cvd_quarantine_active", 0) or indicators.get("cvd_quarantine_active", 0) or 0)
         indicators.setdefault(
-            "delta_fallback_mode"
+            "delta_fallback_mode",
             str(getattr(runtime, "delta_fallback_mode", "") or ("volume" if indicators["cvd_quarantine_active"] else "cvd"))
         )
         # Best-effort meta for reporting (reason/ttl)
@@ -1577,12 +1577,12 @@ class OrderFlowStrategy:
             indicators["atr_bps"] = float(atr_bps)
             
             est = expected_slippage_bps(
-                spread_bps=spr
-                churn_score=churn
-                book_rate_z=brz
-                pressure_sps=press
-                atr_bps=atr_bps
-                cfg=cfg
+                spread_bps=spr,
+                churn_score=churn,
+                book_rate_z=brz,
+                pressure_sps=press,
+                atr_bps=atr_bps,
+                cfg=cfg,
             )
             indicators["expected_slippage_bps"] = float(est.expected_bps)
             indicators["slippage_reason"] = str(est.reason)
@@ -1745,13 +1745,13 @@ class OrderFlowStrategy:
                     ticks_pressure_filtered_total.labels(symbol=runtime.symbol, reason=tier_key).inc()
                     dn_gate_events_total.labels(symbol=runtime.symbol, tier=str(tier_idx), session=sess, result="veto").inc()
                     sampled_warning(
-                        logger
-                        "DN_FILTERED"
-                        "🛑 (%s) Notional Veto: $%.2f < threshold $%.2f (tier=%s)"
-                        runtime.symbol
-                        notional_usd
-                        th
-                        tier_key
+                        logger,
+                        "DN_FILTERED",
+                        "🛑 (%s) Notional Veto: $%.2f < threshold $%.2f (tier=%s)",
+                        runtime.symbol,
+                        notional_usd,
+                        th,
+                        tier_key,
                     )
                     return None
             dn_gate_events_total.labels(symbol=runtime.symbol, tier=str(tier_idx), session=sess, result="pass").inc()
@@ -1852,12 +1852,12 @@ class OrderFlowStrategy:
             try:
                 # Tune-able via config/ENV (defaults: 30s stale, 10s cold-start grace)
                 _stale_ms = int(cfg2.get(
-                    "spread_stale_book_gap_ms"
-                    int(os.getenv("SPREAD_STALE_BOOK_GAP_MS", "30000"))
+                    "spread_stale_book_gap_ms",
+                    int(os.getenv("SPREAD_STALE_BOOK_GAP_MS", "30000")),
                 ))
                 _cold_start_ms = int(cfg2.get(
-                    "spread_missing_cold_start_ms"
-                    int(os.getenv("SPREAD_MISSING_COLD_START_MS", "10000"))
+                    "spread_missing_cold_start_ms",
+                    int(os.getenv("SPREAD_MISSING_COLD_START_MS", "10000")),
                 ))
 
                 # --- Staleness check: how long since the last book snapshot? ---
@@ -1927,10 +1927,10 @@ class OrderFlowStrategy:
                     # ATR bad keys
                     if int(indicators.get("atr_bad", 0) or 0) == 1:
                         o = {
-                            "ts_ms": int(tick_ts or 0)
-                            "atr_age_ms": int(indicators.get("atr_age_ms", 0) or 0)
-                            "atr_bps": float(indicators.get("atr_bps", 0.0) or 0.0)
-                            "reason": str(indicators.get("atr_bad_reason", "") or "")
+                            "ts_ms": int(tick_ts or 0),
+                            "atr_age_ms": int(indicators.get("atr_age_ms", 0) or 0),
+                            "atr_bps": float(indicators.get("atr_bps", 0.0) or 0.0),
+                            "reason": str(indicators.get("atr_bad_reason", "") or ""),
                         }
                         safe_create_task(self.redis.set(f"cfg:atr_bad:{sym}", json.dumps(o, ensure_ascii=False), ex=ttl))
                         sset = os.getenv("ATR_BAD_SYMBOLS_SET", "cfg:atr_bad:symbols")
@@ -1941,9 +1941,9 @@ class OrderFlowStrategy:
                     if int(indicators.get("cvd_quarantine_active", 0) or 0) == 1:
                         until_ms = int(indicators.get("cvd_quarantine_until_ms", 0) or getattr(runtime, "cvd_quarantine_until_ms", 0) or 0)
                         o = {
-                            "ts_ms": int(tick_ts or 0)
-                            "until_ms": int(until_ms)
-                            "reason": str(indicators.get("cvd_quarantine_reason", "") or "")
+                            "ts_ms": int(tick_ts or 0),
+                            "until_ms": int(until_ms),
+                            "reason": str(indicators.get("cvd_quarantine_reason", "") or ""),
                         }
                         safe_create_task(self.redis.set(f"cfg:cvd_quarantine:{sym}", json.dumps(o, ensure_ascii=False), ex=ttl))
                         sset = os.getenv("CVD_Q_SYMBOLS_SET", "cfg:cvd_quarantine:symbols")
@@ -1958,16 +1958,16 @@ class OrderFlowStrategy:
             CAP_PATH = os.getenv("OFC_CAPTURE_PATH", "/tmp/ofc_inputs.ndjson")
             if CAP and (runtime.tick_count % CAP_EVERY == 0):
                 row = {
-                    "symbol": runtime.symbol
-                    "tf": str(runtime.config.get("micro_tf", "1s"))
-                    "direction": direction
-                    "tick_ts_ms": int(tick_ts)
-                    "price": float(price)
-                    "delta_z": float(delta_event.get("z", 0.0))
-                    "indicators": indicators
-                    "absorption": absorption if isinstance(absorption, dict) else None
+                    "symbol": runtime.symbol,
+                    "tf": str(runtime.config.get("micro_tf", "1s")),
+                    "direction": direction,
+                    "tick_ts_ms": int(tick_ts),
+                    "price": float(price),
+                    "delta_z": float(delta_event.get("z", 0.0)),
+                    "indicators": indicators,
+                    "absorption": absorption if isinstance(absorption, dict) else None,
                     # cfg можно ограничить (чтобы файл не раздувался)
-                    "cfg": {}
+                    "cfg": {},
                 }
                 try:
                     with open(CAP_PATH, "a", encoding="utf-8") as f:
@@ -1978,17 +1978,17 @@ class OrderFlowStrategy:
             # Measure engine build latency for SRE monitoring
             t_build_ns0 = time.perf_counter_ns()
             ofc, dec = self.of_engine.build(
-                symbol=runtime.symbol
-                tf=str(runtime.config.get("micro_tf", "1s"))
-                direction=direction
-                tick_ts_ms=tick_ts
-                price=float(price)
-                delta_z=float(delta_z_used)
+                symbol=runtime.symbol,
+                tf=str(runtime.config.get("micro_tf", "1s")),
+                direction=direction,
+                tick_ts_ms=tick_ts,
+                price=float(price),
+                delta_z=float(delta_z_used),
                 snap_t0=getattr(runtime, "last_book", None), # Fix: Pass current book for qimb/ofi features
-                runtime=runtime
-                cfg=cfg2
-                indicators=indicators
-                absorption=absorption if isinstance(absorption, dict) else None
+                runtime=runtime,
+                cfg=cfg2,
+                indicators=indicators,
+                absorption=absorption if isinstance(absorption, dict) else None,
             )
             t_build_us = int((time.perf_counter_ns() - t_build_ns0) / 1000)
 
@@ -2007,8 +2007,8 @@ class OrderFlowStrategy:
                 # ── DIAGNOSTIC (temporary): confirm of_confirm_ok written ──
                 if runtime.tick_count % 50000 == 0:
                     self.logger.warning(
-                        "🔍 [DIAG-OFC-SET] %s | of_confirm_ok=%d | id(indicators)=%d | ofc.ok=%s"
-                        runtime.symbol, int(ofc.ok), id(indicators), ofc.ok
+                        "🔍 [DIAG-OFC-SET] %s | of_confirm_ok=%d | id(indicators)=%d | ofc.ok=%s",
+                        runtime.symbol, int(ofc.ok), id(indicators), ofc.ok,
                     )
                 
                 # ------------------------------------------------------------
@@ -2036,59 +2036,59 @@ class OrderFlowStrategy:
                                 ml_lat_us = 0
 
                             payload = {
-                                "type": "of_gate"
-                                "ts_ms": str(normalize_epoch_ms_v2(tick_ts).ts_ms)
-                                "symbol": str(runtime.symbol)
-                                "direction": str(direction)
-                                "scenario": str(getattr(ofc, "scenario", "") or "")
-                                "scenario_v4": scenario_v4
-                                "ok": str(int(getattr(ofc, "ok", 0) or 0))
-                                "ok_soft": str(int(ev.get("ok_soft", 0) or 0))
-                                "have": str(int(getattr(ofc, "have", 0) or 0))
-                                "need": str(int(getattr(ofc, "need", 0) or 0))
-                                "score": str(float(getattr(ofc, "score", 0.0) or 0.0))
+                                "type": "of_gate",
+                                "ts_ms": str(normalize_epoch_ms_v2(tick_ts).ts_ms),
+                                "symbol": str(runtime.symbol),
+                                "direction": str(direction),
+                                "scenario": str(getattr(ofc, "scenario", "") or ""),
+                                "scenario_v4": scenario_v4,
+                                "ok": str(int(getattr(ofc, "ok", 0) or 0)),
+                                "ok_soft": str(int(ev.get("ok_soft", 0) or 0)),
+                                "have": str(int(getattr(ofc, "have", 0) or 0)),
+                                "need": str(int(getattr(ofc, "need", 0) or 0)),
+                                "score": str(float(getattr(ofc, "score", 0.0) or 0.0)),
                                 # keep for offline debug but cap size (avoid huge cardinality strings)
-                                "reason": str(getattr(ofc, "reason", "") or "")[:120]
-                                "gate_bits": str(int(getattr(ofc, "gate_bits", 0) or 0))
-                                "exec_risk_bps": str(float(ev.get("exec_risk_bps", 0.0) or 0.0))
-                                "exec_risk_norm": str(float(ev.get("exec_risk_norm", 0.0) or 0.0))
-                                "latency_us": str(max(1, int(t_build_us)))
-                                "meta_p": str(float(ev.get("meta_p", -1.0) or -1.0))
-                                "meta_veto": str(int(ev.get("meta_veto", 0) or 0))
-                                "meta_enforce_applied": str(int(ev.get("meta_enforce_applied", 0) or 0))
-                                "meta_enforce_share": str(float(ev.get("meta_enforce_share", 1.0) or 1.0))
-                                "meta_enforce_bucket": str(ev.get("meta_enforce_bucket", "other") or "other")
-                                "data_health": str(float(indicators.get("data_health", 1.0) or 1.0))
-                                "data_health_veto": str(int(indicators.get("data_health_veto_active", 0) or 0))
-                                "data_health_shadow": str(int(indicators.get("data_health_shadow_only", 0) or 0))
-                                "book_health_ok": str(int(indicators.get("book_health_ok", 1) or 1))
+                                "reason": str(getattr(ofc, "reason", "") or "")[:120],
+                                "gate_bits": str(int(getattr(ofc, "gate_bits", 0) or 0)),
+                                "exec_risk_bps": str(float(ev.get("exec_risk_bps", 0.0) or 0.0)),
+                                "exec_risk_norm": str(float(ev.get("exec_risk_norm", 0.0) or 0.0)),
+                                "latency_us": str(max(1, int(t_build_us))),
+                                "meta_p": str(float(ev.get("meta_p", -1.0) or -1.0)),
+                                "meta_veto": str(int(ev.get("meta_veto", 0) or 0)),
+                                "meta_enforce_applied": str(int(ev.get("meta_enforce_applied", 0) or 0)),
+                                "meta_enforce_share": str(float(ev.get("meta_enforce_share", 1.0) or 1.0)),
+                                "meta_enforce_bucket": str(ev.get("meta_enforce_bucket", "other") or "other"),
+                                "data_health": str(float(indicators.get("data_health", 1.0) or 1.0)),
+                                "data_health_veto": str(int(indicators.get("data_health_veto_active", 0) or 0)),
+                                "data_health_shadow": str(int(indicators.get("data_health_shadow_only", 0) or 0)),
+                                "book_health_ok": str(int(indicators.get("book_health_ok", 1) or 1)),
                                 # contract from PDF: needed for SRE monitor
-                                "source_consistency_ok": str(int(indicators.get("source_consistency_ok", 1) or 1))
-                                "missing_legs": json.dumps(missing[:6], ensure_ascii=False, separators=(",", ":"))
+                                "source_consistency_ok": str(int(indicators.get("source_consistency_ok", 1) or 1)),
+                                "missing_legs": json.dumps(missing[:6], ensure_ascii=False, separators=(",", ":")),
 
                                 # ML confirm (for p50/p95/p99 + fail rate)
-                                "ml_mode": str(ml.get("mode", "") or "")
-                                "ml_kind": str(ml.get("kind", "") or "")
-                                "ml_allow": str(int(bool(ml.get("allow", True))))
-                                "ml_bucket": str(ml.get("bucket", "") or "")
-                                "ml_p_edge": str(float(ml.get("p_edge", 0.0) or 0.0))
-                                "ml_p_min": str(float(ml.get("p_min", 0.0) or 0.0))
-                                "ml_score": str(float(ml.get("score", 0.0) or 0.0))
-                                "ml_floor": str(float(ml.get("floor", 0.0) or 0.0))
-                                "ml_latency_us": str(int(ml_lat_us))
+                                "ml_mode": str(ml.get("mode", "") or ""),
+                                "ml_kind": str(ml.get("kind", "") or ""),
+                                "ml_allow": str(int(bool(ml.get("allow", True)))),
+                                "ml_bucket": str(ml.get("bucket", "") or ""),
+                                "ml_p_edge": str(float(ml.get("p_edge", 0.0) or 0.0)),
+                                "ml_p_min": str(float(ml.get("p_min", 0.0) or 0.0)),
+                                "ml_score": str(float(ml.get("score", 0.0) or 0.0)),
+                                "ml_floor": str(float(ml.get("floor", 0.0) or 0.0)),
+                                "ml_latency_us": str(int(ml_lat_us)),
                                 # LOB pressure (P91) - needed for LOB_PRESSURE_SMOKE check
-                                "lob_qi_mean": str(float((runtime.last_lob_event or {}).get("qi_mean", 0.0) or 0.0))
-                                "lob_qi_max_abs": str(float((runtime.last_lob_event or {}).get("qi_max_abs", 0.0) or 0.0))
-                                "lob_qi_slope": str(float((runtime.last_lob_event or {}).get("qi_slope", 0.0) or 0.0))
-                                "lob_micro_mid_div_bps": str(float((runtime.last_lob_event or {}).get("micro_mid_div_bps", 0.0) or 0.0))
-                                "lob_micro_shift_bps": str(float((runtime.last_lob_event or {}).get("micro_shift_bps", 0.0) or 0.0))
-                                "lob_depth_slope_imb": str(float((runtime.last_lob_event or {}).get("depth_slope_imb", 0.0) or 0.0))
-                                "lob_depth_convexity_imb": str(float((runtime.last_lob_event or {}).get("depth_convexity_imb", 0.0) or 0.0))
-                                "lob_dw_obi": str(float((runtime.last_lob_event or {}).get("dw_obi", 0.0) or 0.0))
-                                "lob_dw_obi_z": str(float((runtime.last_lob_event or {}).get("dw_obi_z", 0.0) or 0.0))
-                                "lob_dw_obi_stability_score": str(float((runtime.last_lob_event or {}).get("dw_obi_stability_score", 0.0) or 0.0))
-                                "lob_dw_obi_stable_secs": str(float((runtime.last_lob_event or {}).get("dw_obi_stable_secs", 0.0) or 0.0))
-                                "lob_dw_obi_stable": str(int((runtime.last_lob_event or {}).get("dw_obi_stable", 0) or 0))
+                                "lob_qi_mean": str(float((runtime.last_lob_event or {}).get("qi_mean", 0.0) or 0.0)),
+                                "lob_qi_max_abs": str(float((runtime.last_lob_event or {}).get("qi_max_abs", 0.0) or 0.0)),
+                                "lob_qi_slope": str(float((runtime.last_lob_event or {}).get("qi_slope", 0.0) or 0.0)),
+                                "lob_micro_mid_div_bps": str(float((runtime.last_lob_event or {}).get("micro_mid_div_bps", 0.0) or 0.0)),
+                                "lob_micro_shift_bps": str(float((runtime.last_lob_event or {}).get("micro_shift_bps", 0.0) or 0.0)),
+                                "lob_depth_slope_imb": str(float((runtime.last_lob_event or {}).get("depth_slope_imb", 0.0) or 0.0)),
+                                "lob_depth_convexity_imb": str(float((runtime.last_lob_event or {}).get("depth_convexity_imb", 0.0) or 0.0)),
+                                "lob_dw_obi": str(float((runtime.last_lob_event or {}).get("dw_obi", 0.0) or 0.0)),
+                                "lob_dw_obi_z": str(float((runtime.last_lob_event or {}).get("dw_obi_z", 0.0) or 0.0)),
+                                "lob_dw_obi_stability_score": str(float((runtime.last_lob_event or {}).get("dw_obi_stability_score", 0.0) or 0.0)),
+                                "lob_dw_obi_stable_secs": str(float((runtime.last_lob_event or {}).get("dw_obi_stable_secs", 0.0) or 0.0)),
+                                "lob_dw_obi_stable": str(int((runtime.last_lob_event or {}).get("dw_obi_stable", 0) or 0)),
                             }
                             
                             if self.logger.isEnabledFor(logging.DEBUG):
@@ -2098,10 +2098,10 @@ class OrderFlowStrategy:
                             async def _emit_ok_metrics(_payload: dict) -> None:
                                 try:
                                     await self.redis.xadd(
-                                        OF_GATE_METRICS_STREAM
-                                        {k: str(v) for k, v in _payload.items()}
-                                        maxlen=OF_GATE_METRICS_MAXLEN
-                                        approximate=True
+                                        OF_GATE_METRICS_STREAM,
+                                        {k: str(v) for k, v in _payload.items()},
+                                        maxlen=OF_GATE_METRICS_MAXLEN,
+                                        approximate=True,
                                     )
                                     ok_metrics_emitted_total.labels("orderflow_strategy").inc()
                                 except Exception:
@@ -2204,7 +2204,7 @@ class OrderFlowStrategy:
 
                 if sg_cnt % 10000 == 0:
                     self.logger.info(
-                        "🔥 Signal Strong-Gate Decision: symbol=%s, scenario=%s, ok=%d, score=%.2f, have=%d, need=%d, reason=%s (x%d)"
+                        "🔥 Signal Strong-Gate Decision: symbol=%s, scenario=%s, ok=%d, score=%.2f, have=%d, need=%d, reason=%s (x%d)",
                         runtime.symbol, ofc.scenario, ofc.ok, ofc.score, ofc.have, ofc.need, ofc.reason, sg_cnt
                     )
 
@@ -2227,7 +2227,7 @@ class OrderFlowStrategy:
                         indicators["strong_gate_soft_pass"] = 1
                         
                         self.logger.info(
-                            "⚠️ Signal SOFT-PASSED (Virtual): symbol=%s, scenario=%s, reason=%s"
+                            "⚠️ Signal SOFT-PASSED (Virtual): symbol=%s, scenario=%s, reason=%s",
                             runtime.symbol, indicators.get("soft_fail_type"), indicators.get("soft_fail_reason")
                         )
                     elif bool(runtime.config.get("strong_gate_shadow", False)):
@@ -2240,7 +2240,7 @@ class OrderFlowStrategy:
                         # Add explicit visibility for dropped signals
                         self.logger.warning(
                             "🚫 Signal filtered by Strong Gate (ENFORCE): symbol=%s, scenario=%s, reason=%s. "
-                            "To fix, enable strong_gate_shadow=1 or disable require_strong_confirmation."
+                            "To fix, enable strong_gate_shadow=1 or disable require_strong_confirmation.",
                             runtime.symbol, ofc.scenario, ofc.reason
                         )
                         return None
@@ -2353,10 +2353,10 @@ class OrderFlowStrategy:
                     try:
                         safe_create_task(
                             self.ticks.xadd(
-                                stream
-                                fields={"payload": json.dumps(ofc.to_dict(), ensure_ascii=False)}
-                                maxlen=int(runtime.config.get("of_confirm_stream_maxlen", 50000))
-                                approximate=True
+                                stream,
+                                fields={"payload": json.dumps(ofc.to_dict(), ensure_ascii=False)},
+                                maxlen=int(runtime.config.get("of_confirm_stream_maxlen", 50000)),
+                                approximate=True,
                             )
                         )
                     except Exception:
@@ -2462,11 +2462,11 @@ class OrderFlowStrategy:
                         cfg_safe = {}
                         try:
                             for _k in (
-                                "of_score_min"
-                                "of_inputs_stream"
-                                "of_inputs_stream_maxlen"
-                                "hidden_ctx_valid_ms"
-                                "cont_ctx_valid_ms"
+                                "of_score_min",
+                                "of_inputs_stream",
+                                "of_inputs_stream_maxlen",
+                                "hidden_ctx_valid_ms",
+                                "cont_ctx_valid_ms",
                             ):
                                 if _k in runtime.config:
                                     _v = runtime.config.get(_k)
@@ -2482,32 +2482,32 @@ class OrderFlowStrategy:
 
                         # Build base OFInputs fields
                         ofi_kwargs = {
-                            "v": 2 if emit_v2 else 1
-                            "symbol": _s(runtime.symbol)
-                            "ts_ms": int(tick_ts_ms)
-                            "regime": _s(getattr(runtime, "last_regime", "na"))
-                            "direction": _s(direction)
+                            "v": 2 if emit_v2 else 1,
+                            "symbol": _s(runtime.symbol),
+                            "ts_ms": int(tick_ts_ms),
+                            "regime": _s(getattr(runtime, "last_regime", "na")),
+                            "direction": _s(direction),
                             # prefer scenario_v4 from evidence snapshot if available
-                            "scenario": _s(
+#                             "scenario": _s(
                                 (ofc.evidence.get("scenario_v4") if (ofc and isinstance(getattr(ofc, "evidence", None), dict)) else None)
                                 or (getattr(dec, "scenario_v4", None) if dec else None)
                                 or (getattr(dec, "scenario", None) if dec else None)
                                 or "na"
-                            )
+#                             )
                             # determinism: use the same delta_z used in build(), not raw delta_event
-                            "delta_z": _f(delta_z_used, 0.0)
-                            "weak_progress": ev_weak
-                            "sweep_recent": ev_sweep
-                            "reclaim_recent": ev_reclaim
-                            "obi_stable": ev_obi_stable
-                            "iceberg_strict": ev_ice_strict
-                            "abs_lvl_ok": ev_abs_lvl_ok
-                            "trend_dir": _s(trend_dir, "NONE").upper()
-                            "hidden_ctx_recent": _i(hidden_ctx_recent, 0)
-                            "cont_ctx_recent": _i(cont_ctx_recent, 0)
-                            "cfg": cfg_safe
-                            "fp_eff_quote": _f(getattr(runtime.last_bar, "fp_eff_quote", 0.0) if runtime.last_bar else 0.0, 0.0)
-                            "fp_quote_delta": _f(getattr(runtime.last_bar, "fp_quote_delta", 0.0) if runtime.last_bar else 0.0, 0.0)
+                            "delta_z": _f(delta_z_used, 0.0),
+                            "weak_progress": ev_weak,
+                            "sweep_recent": ev_sweep,
+                            "reclaim_recent": ev_reclaim,
+                            "obi_stable": ev_obi_stable,
+                            "iceberg_strict": ev_ice_strict,
+                            "abs_lvl_ok": ev_abs_lvl_ok,
+                            "trend_dir": _s(trend_dir, "NONE").upper(),
+                            "hidden_ctx_recent": _i(hidden_ctx_recent, 0),
+                            "cont_ctx_recent": _i(cont_ctx_recent, 0),
+                            "cfg": cfg_safe,
+                            "fp_eff_quote": _f(getattr(runtime.last_bar, "fp_eff_quote", 0.0) if runtime.last_bar else 0.0, 0.0),
+                            "fp_quote_delta": _f(getattr(runtime.last_bar, "fp_quote_delta", 0.0) if runtime.last_bar else 0.0, 0.0),
                         }
                         
                         # Optional fields (only if contract supports them)
@@ -2572,9 +2572,9 @@ class OrderFlowStrategy:
                         # Record metrics
                         try:
                             from services.orderflow.metrics import (
-                                of_inputs_version_total
-                                of_inputs_missing_ofi_total
-                                of_inputs_missing_fp_total
+                                of_inputs_version_total,
+                                of_inputs_missing_ofi_total,
+                                of_inputs_missing_fp_total,
                             )
                             version_str = "v2" if emit_v2 else "v1"
                             of_inputs_version_total.labels(symbol=str(runtime.symbol), version=version_str).inc()
@@ -2595,10 +2595,10 @@ class OrderFlowStrategy:
                         sampled_debug(logger, "OFI_PUBLISHING", "OFI: Publishing to Redis...")
                         safe_create_task(
                             self.ticks.xadd(
-                                in_stream
-                                fields={"payload": blob}
-                                maxlen=int(runtime.config.get("of_inputs_stream_maxlen", 10000))
-                                approximate=True
+                                in_stream,
+                                fields={"payload": blob},
+                                maxlen=int(runtime.config.get("of_inputs_stream_maxlen", 10000)),
+                                approximate=True,
                             )
                         )
                         sampled_debug(logger, "OFI_PUBLISHED", "OFI: PublishedTask Created")
@@ -2638,12 +2638,12 @@ class OrderFlowStrategy:
         if delta_abs < min_delta and hard_count < min_confirmations:
             # FORCE LOG for diagnostics
             logger.warning(
-                "🛑 [MIN-CONF] (%s) Signal filtered: delta_abs=%.2f < %.2f AND hard_confirmations=%d < %d"
-                runtime.symbol
-                delta_abs
-                min_delta
-                hard_count
-                min_confirmations
+                "🛑 [MIN-CONF] (%s) Signal filtered: delta_abs=%.2f < %.2f AND hard_confirmations=%d < %d",
+                runtime.symbol,
+                delta_abs,
+                min_delta,
+                hard_count,
+                min_confirmations,
             )
             return None
 
@@ -2733,10 +2733,10 @@ class OrderFlowStrategy:
 
             # Use the service to calculate regime from raw metrics
             liq_ev = runtime.liq_service.update(
-                ts_ms=int(tick_ts)
-                spread_bps=float(spread_bps)
-                depth_min_5_usd=float(depth_usd_min_5)
-                book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
+                ts_ms=int(tick_ts),
+                spread_bps=float(spread_bps),
+                depth_min_5_usd=float(depth_usd_min_5),
+                book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0),
             )
             
             # Update runtime state
@@ -2798,7 +2798,7 @@ class OrderFlowStrategy:
                 pass
 
         # EXPERT RELAXATION (2026-01-30):
-        # Meme coins often have volatile confidence scores. For calibration purposes
+        # Meme coins often have volatile confidence scores. For calibration purposes,
         # we want to capture signals even with lower confidence (pushed to Virtual).
         # Standard floor for memes in Instance 2 is 30%.
         # Can be disabled via env: {PREFIX}_CONF_RELAX_DISABLE=true or CONF_RELAX_DISABLE=true
@@ -2946,13 +2946,13 @@ class OrderFlowStrategy:
             try:
                 # Calibrate
                 cal_ctx = {
-                    "session": indicators.get("session")
-                    "regime": indicators.get("regime", "neutral")
-                    "symbol": runtime.symbol
+                    "session": indicators.get("session"),
+                    "regime": indicators.get("regime", "neutral"),
+                    "symbol": runtime.symbol,
                 }
                 # Using get_calibrated_confidence from Compatibility Layer or Runtime
                 cal_res = self.conf_cal_runtime.get_calibrated_confidence(
-                    raw_conf=confidence
+                    raw_conf=confidence,
                     context=cal_ctx
                 )
                 
@@ -2984,8 +2984,8 @@ class OrderFlowStrategy:
                  self.logger.info("ℹ️ (%s) [LOW-CONF] Signal confidence %.2f%% < %.2f%% but filter is DISABLED.", runtime.symbol, confidence * 100.0, min_conf_pct)
              else:
                  self.low_conf_counters[runtime.symbol] = self.low_conf_counters.get(runtime.symbol, 0) + 1
-                 sampled_warning(logger, "LOW_CONF"
-                     "🛑 [LOW-CONF] (%s) Signal filtered: conf=%.2f%% < min_conf=%.2f%%. (x%d)"
+                 sampled_warning(logger, "LOW_CONF",
+                     "🛑 [LOW-CONF] (%s) Signal filtered: conf=%.2f%% < min_conf=%.2f%%. (x%d)",
                      runtime.symbol, confidence * 100.0, min_conf_pct, self.low_conf_counters[runtime.symbol]
                  )
                  return None
@@ -3029,19 +3029,19 @@ class OrderFlowStrategy:
 
         # Initialize payload early for candidate/pressure enrichment
         payload = {
-            "symbol": runtime.symbol
-            "ts_ms": int(tick_ts)
-            "tick_ts": int(tick_ts)
-            "price": float(price)
-            "entry": float(executable_entry)
-            "direction": direction
-            "side": direction.lower()
-            "indicators": indicators
-            "confirmations": list(confirmations)
-            "confidence": float(confidence)
-            "signal_id": str(signal_id)
-            "entry_tag": str(primary_reason)
-            "is_virtual": bool(int(indicators.get("is_virtual", 0) or 0))
+            "symbol": runtime.symbol,
+            "ts_ms": int(tick_ts),
+            "tick_ts": int(tick_ts),
+            "price": float(price),
+            "entry": float(executable_entry),
+            "direction": direction,
+            "side": direction.lower(),
+            "indicators": indicators,
+            "confirmations": list(confirmations),
+            "confidence": float(confidence),
+            "signal_id": str(signal_id),
+            "entry_tag": str(primary_reason),
+            "is_virtual": bool(int(indicators.get("is_virtual", 0) or 0)),
         }
         
         self._log_metrics(runtime)
@@ -3051,10 +3051,10 @@ class OrderFlowStrategy:
         try:
             ps = runtime.pressure.snapshot(now_ms=int(tick_ts))
             payload["pressure"] = {
-                "per_min_ema": float(ps.per_min_ema)
-                "cd_rate_ema": float(ps.cd_rate_ema)
-                "n_raw": int(ps.n_raw)
-                "n_cd": int(ps.n_cd)
+                "per_min_ema": float(ps.per_min_ema),
+                "cd_rate_ema": float(ps.cd_rate_ema),
+                "n_raw": int(ps.n_raw),
+                "n_cd": int(ps.n_cd),
             }
             hi_th = float(runtime.config.get("pressure_hi_per_min", 60.0))
             payload["pressure"]["pressure_hi"] = 1 if ps.per_min_ema >= hi_th else 0
@@ -3224,16 +3224,16 @@ class OrderFlowStrategy:
                         if not allow_rule_strong:
                             # Real veto: block the signal
                             of_session_outcome_total.labels(
-                                symbol=runtime.symbol
-                                session=sess
+                                symbol=runtime.symbol,
+                                session=sess,
                                 outcome="veto_ml"
                             ).inc()
                             indicators["ml_veto"] = 1
                             indicators["ml_veto_kind"] = ml_kind
                             indicators["ml_enforce_mode"] = rollout_mode
                             sampled_warning(
-                                self.logger, "ML_VETO"
-                                "🚫 [P61] ML veto: symbol=%s, mode=%s, kind=%s, sid=%s"
+                                self.logger, "ML_VETO",
+                                "🚫 [P61] ML veto: symbol=%s, mode=%s, kind=%s, sid=%s",
                                 runtime.symbol, rollout_mode, ml_kind, sid
                             )
                             return None  # Signal blocked
@@ -3284,7 +3284,7 @@ class OrderFlowStrategy:
                 runtime.pending_replaced += 1
             
             logger.warning(
-                "🛑 [COOLDOWN] (%s) Signal buffered (age=%dms < %dms). Pending updated=%s"
+                "🛑 [COOLDOWN] (%s) Signal buffered (age=%dms < %dms). Pending updated=%s",
                 runtime.symbol, age, cooldown_ms, "YES"
             )
             return None
@@ -3306,7 +3306,7 @@ class OrderFlowStrategy:
         
         # DEBUG: Log that signal passed all filters and is about to enter burst
         # logger.info(
-        #     "✅ [PRE-BURST] (%s) Signal passed all filters: dir=%s conf=%.1f%% score=%.2f"
+        #     "✅ [PRE-BURST] (%s) Signal passed all filters: dir=%s conf=%.1f%% score=%.2f",
         #     runtime.symbol, payload.get("direction"), confidence*100, score
         # )
         
@@ -3316,8 +3316,8 @@ class OrderFlowStrategy:
                 async with runtime.burst_mu:
                     was_active = runtime.burst.st.active
                     runtime.burst.consider(
-                        ts_ms=int(now_ms)
-                        cand=BurstCandidate(ts_ms=int(now_ms), score=float(score), payload=payload)
+                        ts_ms=int(now_ms),
+                        cand=BurstCandidate(ts_ms=int(now_ms), score=float(score), payload=payload),
                     )
                     # EXPERT FIX: Check flush immediately to prevent 'stuck' signals
                     pass # Burst flush handled by dedicated loop
@@ -3469,13 +3469,13 @@ class OrderFlowStrategy:
         return conf_final
 
     def _compute_confidence(
-        self
-        runtime: SymbolRuntime
-        indicators: Dict[str, Any]
-        confirmations: Sequence[str]
-        *
-        side: str
-        kind: str
+        self,
+        runtime: SymbolRuntime,
+        indicators: Dict[str, Any],
+        confirmations: Sequence[str],
+        *,
+        side: str,
+        kind: str,
     ) -> float:
         """
         Делегируем расчёт в универсальный ConfidenceScorer (services/signal_confidence.py).
@@ -3487,75 +3487,75 @@ class OrderFlowStrategy:
             return v if v is not None else default
 
         ctx = SimpleNamespace(
-            z_delta=_get("delta_z", _get("z", 0.0))
-            delta=_get("delta", 0.0)
-            obi_avg=_get("obi", 0.0)
-            obi_sustained=bool(indicators.get("obi_sustained", False))
-            obi_avg_20=_get("obi_20", 0.0)
-            obi_sustained_20=bool(indicators.get("obi_sustained_20", False))
-            microprice_shift_bps_20=_get("microprice_shift_bps_20", 0.0)
-            wall_bid=bool(indicators.get("wall_bid", False))
-            wall_ask=bool(indicators.get("wall_ask", False))
-            wall_bid_dist_bps=_get("wall_bid_dist_bps", 0.0)
-            wall_ask_dist_bps=_get("wall_ask_dist_bps", 0.0)
-            depletion_score=_get("depletion_score", 0.0)
-            refill_score=_get("refill_score", 0.0)
-            impact_proxy=_get("impact_proxy", 0.0)
-            spread_bps=_get("spread_bps", 0.0)
-            realized_ema_bps=_get("realized_ema_bps", 0.0)
-            adverse_ratio_ema=_get("adverse_ratio_ema", 0.0)
-            market_mode=indicators.get("market_mode", "mixed") or "mixed"
-            l2_age_ms=_get("l2_age_ms", 0.0)
-            l2_is_stale=bool(indicators.get("l2_is_stale", False))
-            taker_buy_rate_ema=_get("taker_buy_rate_ema", 0.0)
-            taker_sell_rate_ema=_get("taker_sell_rate_ema", 0.0)
-            cancel_to_trade_ask=_get("cancel_to_trade_ask", 0.0)
-            cancel_to_trade_bid=_get("cancel_to_trade_bid", 0.0)
-            eta_fill_ask_sec=_get("eta_fill_ask_sec", 0.0)
-            eta_fill_bid_sec=_get("eta_fill_bid_sec", 0.0)
-            weak_progress=bool(indicators.get("weak_progress", False))
+            z_delta=_get("delta_z", _get("z", 0.0)),
+            delta=_get("delta", 0.0),
+            obi_avg=_get("obi", 0.0),
+            obi_sustained=bool(indicators.get("obi_sustained", False)),
+            obi_avg_20=_get("obi_20", 0.0),
+            obi_sustained_20=bool(indicators.get("obi_sustained_20", False)),
+            microprice_shift_bps_20=_get("microprice_shift_bps_20", 0.0),
+            wall_bid=bool(indicators.get("wall_bid", False)),
+            wall_ask=bool(indicators.get("wall_ask", False)),
+            wall_bid_dist_bps=_get("wall_bid_dist_bps", 0.0),
+            wall_ask_dist_bps=_get("wall_ask_dist_bps", 0.0),
+            depletion_score=_get("depletion_score", 0.0),
+            refill_score=_get("refill_score", 0.0),
+            impact_proxy=_get("impact_proxy", 0.0),
+            spread_bps=_get("spread_bps", 0.0),
+            realized_ema_bps=_get("realized_ema_bps", 0.0),
+            adverse_ratio_ema=_get("adverse_ratio_ema", 0.0),
+            market_mode=indicators.get("market_mode", "mixed") or "mixed",
+            l2_age_ms=_get("l2_age_ms", 0.0),
+            l2_is_stale=bool(indicators.get("l2_is_stale", False)),
+            taker_buy_rate_ema=_get("taker_buy_rate_ema", 0.0),
+            taker_sell_rate_ema=_get("taker_sell_rate_ema", 0.0),
+            cancel_to_trade_ask=_get("cancel_to_trade_ask", 0.0),
+            cancel_to_trade_bid=_get("cancel_to_trade_bid", 0.0),
+            eta_fill_ask_sec=_get("eta_fill_ask_sec", 0.0),
+            eta_fill_bid_sec=_get("eta_fill_bid_sec", 0.0),
+            weak_progress=bool(indicators.get("weak_progress", False)),
             # Phase E+: weak progress trend (history-based)
-            weak_recent_cnt=int((indicators.get("weak_recent_cnt") if indicators.get("weak_recent_cnt") is not None else indicators.get("weak_recent_count", 0)) or 0)
-            weak_recent_window=int(indicators.get("weak_recent_window", 0) or 0)
+            weak_recent_cnt=int((indicators.get("weak_recent_cnt") if indicators.get("weak_recent_cnt") is not None else indicators.get("weak_recent_count", 0)) or 0),
+            weak_recent_window=int(indicators.get("weak_recent_window", 0) or 0),
             # Phase E+: OBI stability quality (duration + persistence score)
-            obi_stable_secs=float(indicators.get("obi_stable_secs", 0.0) or 0.0)
-            obi_stability_score=float(indicators.get("obi_stability_score", 0.0) or 0.0)
+            obi_stable_secs=float(indicators.get("obi_stable_secs", 0.0) or 0.0),
+            obi_stability_score=float(indicators.get("obi_stability_score", 0.0) or 0.0),
             # Phase E+: OFI stability quality
-            ofi_stable_secs=float(indicators.get("ofi_stable_secs", 0.0) or 0.0)
-            ofi_stability_score=float(indicators.get("ofi_stability_score", 0.0) or 0.0)
+            ofi_stable_secs=float(indicators.get("ofi_stable_secs", 0.0) or 0.0),
+            ofi_stability_score=float(indicators.get("ofi_stability_score", 0.0) or 0.0),
             # Liquidity regime (risk overlay)
-            liq_score=float(indicators.get("liq_score", 0.0) or 0.0)
-            liq_regime=str(indicators.get("liq_regime", getattr(runtime, "liq_regime", "normal")) or "normal")
+            liq_score=float(indicators.get("liq_score", 0.0) or 0.0),
+            liq_regime=str(indicators.get("liq_regime", getattr(runtime, "liq_regime", "normal")) or "normal"),
             # Phase E+: footprint edge absorb evidence
-            fp_edge_absorb=bool(indicators.get("fp_edge_absorb", False))
-            fp_edge_absorb_strength=float((indicators.get("fp_edge_absorb_strength") if indicators.get("fp_edge_absorb_strength") is not None else indicators.get("fp_edge_strength", 0.0)) or 0.0)
-            iceberg_refresh=_get("iceberg_refresh", 0.0)
-            iceberg_duration=_get("iceberg_duration", 0.0)
-            absorption_volume=_get("absorption_volume", 0.0)
+            fp_edge_absorb=bool(indicators.get("fp_edge_absorb", False)),
+            fp_edge_absorb_strength=float((indicators.get("fp_edge_absorb_strength") if indicators.get("fp_edge_absorb_strength") is not None else indicators.get("fp_edge_strength", 0.0)) or 0.0),
+            iceberg_refresh=_get("iceberg_refresh", 0.0),
+            iceberg_duration=_get("iceberg_duration", 0.0),
+            absorption_volume=_get("absorption_volume", 0.0),
             # Phase D+: footprint data for scoring
-            confirmations=list(confirmations or [])
-            fp_absorb_min_score=float(runtime.config.get("fp_absorb_min_score", 1.0))
-            fp_absorb_bonus_w=float(runtime.config.get("fp_absorb_bonus_w", 0.06))
-            fp_imb_bonus_w=float(runtime.config.get("fp_imb_bonus_w", 0.03))
-            fp_bonus_cap=float(runtime.config.get("fp_bonus_cap", 0.08))
+            confirmations=list(confirmations or []),
+            fp_absorb_min_score=float(runtime.config.get("fp_absorb_min_score", 1.0)),
+            fp_absorb_bonus_w=float(runtime.config.get("fp_absorb_bonus_w", 0.06)),
+            fp_imb_bonus_w=float(runtime.config.get("fp_imb_bonus_w", 0.03)),
+            fp_bonus_cap=float(runtime.config.get("fp_bonus_cap", 0.08)),
             # ML Scorer V2: L3 orderflow features for MLScoringGate
-            l3_spread_bps=float(_get("l3_spread_bps", _get("spread_bps", 0.0)))
-            l3_microprice_shift_bps_20=float(_get("l3_microprice_shift_bps_20", _get("microprice_shift_bps_20", 0.0)))
-            l3_microprice_velocity_bps=float(_get("l3_microprice_velocity_bps", 0.0))
-            l3_obi_5=float(_get("l3_obi_5", 0.0))
-            l3_obi_20=float(_get("l3_obi_20", _get("obi_20", 0.0)))
-            l3_obi_50=float(_get("l3_obi_50", 0.0))
-            l3_obi_persistence_score=float(_get("l3_obi_persistence_score", 0.0))
-            l3_cancel_to_trade_bid_5s=float(_get("l3_cancel_to_trade_bid_5s", _get("cancel_to_trade_bid", 0.0)))
-            l3_cancel_to_trade_ask_5s=float(_get("l3_cancel_to_trade_ask_5s", _get("cancel_to_trade_ask", 0.0)))
-            l3_cancel_to_trade_bid_20s=float(_get("l3_cancel_to_trade_bid_20s", 0.0))
-            l3_cancel_to_trade_ask_20s=float(_get("l3_cancel_to_trade_ask_20s", 0.0))
-            l3_queue_pressure_bid=float(_get("l3_queue_pressure_bid", 0.0))
-            l3_queue_pressure_ask=float(_get("l3_queue_pressure_ask", 0.0))
-            l3_market_depth_imbalance=float(_get("l3_market_depth_imbalance", 0.0))
-            conf_score=0.0
+            l3_spread_bps=float(_get("l3_spread_bps", _get("spread_bps", 0.0))),
+            l3_microprice_shift_bps_20=float(_get("l3_microprice_shift_bps_20", _get("microprice_shift_bps_20", 0.0))),
+            l3_microprice_velocity_bps=float(_get("l3_microprice_velocity_bps", 0.0)),
+            l3_obi_5=float(_get("l3_obi_5", 0.0)),
+            l3_obi_20=float(_get("l3_obi_20", _get("obi_20", 0.0))),
+            l3_obi_50=float(_get("l3_obi_50", 0.0)),
+            l3_obi_persistence_score=float(_get("l3_obi_persistence_score", 0.0)),
+            l3_cancel_to_trade_bid_5s=float(_get("l3_cancel_to_trade_bid_5s", _get("cancel_to_trade_bid", 0.0))),
+            l3_cancel_to_trade_ask_5s=float(_get("l3_cancel_to_trade_ask_5s", _get("cancel_to_trade_ask", 0.0))),
+            l3_cancel_to_trade_bid_20s=float(_get("l3_cancel_to_trade_bid_20s", 0.0)),
+            l3_cancel_to_trade_ask_20s=float(_get("l3_cancel_to_trade_ask_20s", 0.0)),
+            l3_queue_pressure_bid=float(_get("l3_queue_pressure_bid", 0.0)),
+            l3_queue_pressure_ask=float(_get("l3_queue_pressure_ask", 0.0)),
+            l3_market_depth_imbalance=float(_get("l3_market_depth_imbalance", 0.0)),
+            conf_score=0.0,
             # ML Scorer V2: feature flag for USE_UNIFIED_SCORING gate
-            use_unified_scoring=True
+            use_unified_scoring=True,
         )
 
         # ------------------------------------------------------------------
@@ -3599,9 +3599,9 @@ class OrderFlowStrategy:
         try:
             conf, parts = self.conf_scorer.score(kind=kind or "custom", side=side, ctx=ctx, ff=ctx)
             indicators["confidence_breakdown"] = {
-                "base": round(float(parts.get("base", 0.0)), 4)
-                "mult": round(float(parts.get("mult", 1.0)), 4)
-                "pen_total": round(float(parts.get("pen_total", 0.0)), 4)
+                "base": round(float(parts.get("base", 0.0)), 4),
+                "mult": round(float(parts.get("mult", 1.0)), 4),
+                "pen_total": round(float(parts.get("pen_total", 0.0)), 4),
             }
             conf_v1 = round(float(conf), 4)
             indicators["confidence_v1"] = conf_v1
@@ -3642,9 +3642,9 @@ class OrderFlowStrategy:
                     attach = int(runtime.config.get("confidence_parts_attach_v2", 0) or 0)
                     if attach == 1:
                         indicators["confidence_breakdown_v2"] = {
-                            "base": round(float(parts2.get("base", 0.0)), 4)
-                            "mult": round(float(parts2.get("mult", 1.0)), 4)
-                            "pen_total": round(float(parts2.get("pen_total", 0.0)), 4)
+                            "base": round(float(parts2.get("base", 0.0)), 4),
+                            "mult": round(float(parts2.get("mult", 1.0)), 4),
+                            "pen_total": round(float(parts2.get("pen_total", 0.0)), 4),
                         }
             except Exception:
                 pass
@@ -3663,9 +3663,9 @@ class OrderFlowStrategy:
             try:
                 # Prepare Context
                 ctx_bucket = {
-                    "session": indicators.get("session")
-                    "regime": indicators.get("liq_regime")
-                    "symbol": runtime.symbol
+                    "session": indicators.get("session"),
+                    "regime": indicators.get("liq_regime"),
+                    "symbol": runtime.symbol,
                 }
                 # Fallback regime
                 if not ctx_bucket["regime"]:
@@ -3723,13 +3723,13 @@ class OrderFlowStrategy:
         reason = signal.get("reason") or "delta_spike"
 
         order_cmd = {
-            "id": f"order-{symbol}-{ts_value}"
-            "sid": f"signal-{symbol}-{ts_value}"
-            "symbol": symbol
-            "type": "market"
-            "direction": direction
+            "id": f"order-{symbol}-{ts_value}",
+            "sid": f"signal-{symbol}-{ts_value}",
+            "symbol": symbol,
+            "type": "market",
+            "direction": direction,
             "source": "CryptoOrderFlow",  # ✅ FIX: Use canonical source name for proper mapping
-            "reason": reason
+            "reason": reason,
         }
 
         try:
@@ -3751,17 +3751,17 @@ class OrderFlowStrategy:
         merged = {**payload, **nested}
         ts_ms = normalize_epoch_ms(merged.get("ts") or merged.get("event_time"))
         tick: Dict[str, Any] = {
-            "symbol": merged.get("symbol")
+            "symbol": merged.get("symbol"),
             "ts": int(ts_ms or 0),      # legacy epoch ms (keep)
             "ts_ms": int(ts_ms or 0),   # source of truth epoch ms
-            "price": _safe_float(merged.get("price") or merged.get("last") or merged.get("mid"))
-            "last": _safe_float(merged.get("last"))
-            "bid": _safe_float(merged.get("bid"))
-            "ask": _safe_float(merged.get("ask"))
-            "qty": merged.get("qty") or merged.get("volume")
-            "side": str(merged.get("side") or merged.get("trade_side") or "BUY").upper()
-            "is_buyer_maker": merged.get("is_buyer_maker")
-            "written_at": _safe_int(merged.get("written_at"))
+            "price": _safe_float(merged.get("price") or merged.get("last") or merged.get("mid")),
+            "last": _safe_float(merged.get("last")),
+            "bid": _safe_float(merged.get("bid")),
+            "ask": _safe_float(merged.get("ask")),
+            "qty": merged.get("qty") or merged.get("volume"),
+            "side": str(merged.get("side") or merged.get("trade_side") or "BUY").upper(),
+            "is_buyer_maker": merged.get("is_buyer_maker"),
+            "written_at": _safe_int(merged.get("written_at")),
         }
 
         # Нормализация числовых полей и buyer/maker + mid
@@ -3814,11 +3814,11 @@ class OrderFlowStrategy:
             return
 
         logger.info(
-            "METRICS symbol=%s ticks=%d delta_trig=%d signals=%d"
-            runtime.symbol
-            runtime.tick_count
-            runtime.delta_triggers
-            runtime.signal_count
+            "METRICS symbol=%s ticks=%d delta_trig=%d signals=%d",
+            runtime.symbol,
+            runtime.tick_count,
+            runtime.delta_triggers,
+            runtime.signal_count,
         )
 
     async def _on_microbar_closed(self, runtime: SymbolRuntime, bar: MicroBar) -> None:
@@ -3942,9 +3942,9 @@ class OrderFlowStrategy:
              #              f"Time: {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}"
              #          )
              #          await self.notify_client.xadd(
-             #              self.notify_stream
-             #              {"type": "report", "text": msg_text}
-             #              maxlen=5000
+             #              self.notify_stream,
+             #              {"type": "report", "text": msg_text},
+             #              maxlen=5000,
              #              approximate=True
              #          )
              #      except Exception as ex:
@@ -4117,10 +4117,10 @@ class OrderFlowStrategy:
                 d1 = float(cfg.get("atr_floor_t1_bps", 0.0) or 0.0)
                 d2 = float(cfg.get("atr_floor_t2_bps", 0.0) or 0.0)
                 floors = runtime.atr_bps_calib.thresholds(
-                    regime=rg
-                    default_floor_t0=d0
-                    default_floor_t1=d1
-                    default_floor_t2=d2
+                    regime=rg,
+                    default_floor_t0=d0,
+                    default_floor_t1=d1,
+                    default_floor_t2=d2,
                 )
                 runtime.dynamic_cfg[DK.ATR_FLOOR_T0_BPS] = float(floors.floor_t0)
                 runtime.dynamic_cfg[DK.ATR_FLOOR_T1_BPS] = float(floors.floor_t1)
@@ -4133,11 +4133,11 @@ class OrderFlowStrategy:
 
                 # SELECT threshold by regime tier (this is the missing link)
                 tier, rg2, th = compute_atr_bps_threshold(
-                    regime=rg
-                    cfg=runtime.config
-                    t0=float(floors.floor_t0)
-                    t1=float(floors.floor_t1)
-                    t2=float(floors.floor_t2)
+                    regime=rg,
+                    cfg=runtime.config,
+                    t0=float(floors.floor_t0),
+                    t1=float(floors.floor_t1),
+                    t2=float(floors.floor_t2),
                 )
                 runtime.dynamic_cfg[DK.ATR_FLOOR_TIER] = int(tier)
                 runtime.dynamic_cfg[DK.ATR_BPS_TH] = float(th)
@@ -4165,8 +4165,8 @@ class OrderFlowStrategy:
                 
                 # 1. Update Calibrator (Authoritative source)
                 runtime.dn_calib.update(
-                    regime=rg
-                    dn_usd=float(dn_usd)
+                    regime=rg,
+                    dn_usd=float(dn_usd),
                     ts_ms=int(bar.end_ts_ms)
                 )
 
@@ -4223,7 +4223,7 @@ class OrderFlowStrategy:
                         runtime._calib_bars_since_persist = 0
                         if self.calib_svc:
                             await asyncio.gather(
-                                self.calib_svc.persist_dn(runtime, regime=rg, ts_ms=int(bar.end_ts_ms))
+                                self.calib_svc.persist_dn(runtime, regime=rg, ts_ms=int(bar.end_ts_ms)),
                                 self.calib_svc.persist_tick_dn(runtime, regime=rg, ts_ms=int(bar.end_ts_ms))
                             )
 
@@ -4297,12 +4297,12 @@ class OrderFlowStrategy:
                         runtime.dynamic_cfg[DK.ATR_TF_MODE] = mode
 
                         choice = runtime.atr_tf_calib.recommend_tf(
-                            regime=rg
-                            target_bps=target_bps
-                            fallback_tf=fallback_tf
-                            now_ts_ms=now_ts
-                            current_tf=current_tf
-                            allow_switch=allow_switch
+                            regime=rg,
+                            target_bps=target_bps,
+                            fallback_tf=fallback_tf,
+                            now_ts_ms=now_ts,
+                            current_tf=current_tf,
+                            allow_switch=allow_switch,
                         )
 
                         runtime.dynamic_cfg[DK.ATR_TF_TARGET_BPS] = float(choice.target_bps)
@@ -4330,7 +4330,7 @@ class OrderFlowStrategy:
                             runtime.dynamic_cfg[DK.ATR_TF_LAST_SWITCH_TS_MS] = int(now_ts)
                             # Log switch (rate-limited)
                             logger.info(
-                                "🔄 (%s) ATR-TF switch: %s → %s (target_bps=%.1f, src=%s, n=%d)"
+                                "🔄 (%s) ATR-TF switch: %s → %s (target_bps=%.1f, src=%s, n=%d)",
                                 runtime.symbol, prev_tf, new_tf, target_bps, choice.src, choice.n
                             )
                             # Increment switch counter
@@ -4347,8 +4347,8 @@ class OrderFlowStrategy:
                         if now_ts > 0 and (now_ts - last_p) >= persist_gap and allow_switch:
                             runtime._atr_tf_last_persist_ts_ms = int(now_ts)
                             choice_state = {
-                                "tf": runtime.get_atr_tf_selected()
-                                "src": str(choice.src)
+                                "tf": runtime.get_atr_tf_selected(),
+                                "src": str(choice.src),
                                 "updated_ts_ms": int(now_ts)
                             }
                             if self.calib_svc:
@@ -4403,10 +4403,10 @@ class OrderFlowStrategy:
                 try:
                     if bool(int(os.getenv("ATR_TF_CALIB_ENABLE", "1"))) and close_px > 0:
                         choice = self.atr_tf_sel.choose(
-                            symbol=str(runtime.symbol)
-                            price=float(close_px)
-                            now_ms=int(now_ts)
-                            atr_cache=self.atr_cache
+                            symbol=str(runtime.symbol),
+                            price=float(close_px),
+                            now_ms=int(now_ts),
+                            atr_cache=self.atr_cache,
                         )
                         if choice is not None:
                             # TELEMETRY ONLY: do NOT write to atr_tf_selected (legacy path)
@@ -4441,12 +4441,12 @@ class OrderFlowStrategy:
                         if isinstance(atr_meta, dict):
                             age0 = int(atr_meta.get("age_ms", 0) or 0)
                         res = self._atr_sanity.update(
-                            symbol=str(runtime.symbol)
-                            atr=float(atr_tmp)
-                            px=float(px0)
-                            age_ms=int(age0)
-                            now_ms=int(now_ts)
-                            tf=str(atr_meta.get("tf", "1m")) if isinstance(atr_meta, dict) else "1m"
+                            symbol=str(runtime.symbol),
+                            atr=float(atr_tmp),
+                            px=float(px0),
+                            age_ms=int(age0),
+                            now_ms=int(now_ts),
+                            tf=str(atr_meta.get("tf", "1m")) if isinstance(atr_meta, dict) else "1m",
                         )
                         runtime.last_atr = float(res.atr_used)
                         runtime.last_atr_ts_ms = int(now_ts)
@@ -4528,9 +4528,9 @@ class OrderFlowStrategy:
                                     pools_all.sort(key=lambda p: abs(float(p.level) - float(bar.close)))
                                     np = pools_all[0]
                                     npool_info = {
-                                        "id": str(getattr(np, "pool_id", ""))
-                                        "kind": str(getattr(np, "kind", ""))
-                                        "level": float(getattr(np, "level", 0.0))
+                                        "id": str(getattr(np, "pool_id", "")),
+                                        "kind": str(getattr(np, "kind", "")),
+                                        "level": float(getattr(np, "level", 0.0)),
                                         "dist_px": abs(float(np.level) - float(bar.close))
                                     }
                             except Exception:
@@ -4538,21 +4538,21 @@ class OrderFlowStrategy:
 
                             # 3. Payload
                             payload = {
-                                "signal_type": "Divergence"
-                                "symbol": str(runtime.symbol)
-                                "tf": str(runtime.config.get("micro_tf", "1s"))
-                                "ts_ms": int(d.ts_ms)
-                                "side_bias": str(bias)
-                                "divergence_kind": str(d.kind)
-                                "strength": float(d.strength)
+                                "signal_type": "Divergence",
+                                "symbol": str(runtime.symbol),
+                                "tf": str(runtime.config.get("micro_tf", "1s")),
+                                "ts_ms": int(d.ts_ms),
+                                "side_bias": str(bias),
+                                "divergence_kind": str(d.kind),
+                                "strength": float(d.strength),
                                 "confidence": min(0.99, float(d.strength) / 10.0),  # Simple confidence estimation
-                                "features": feats
-                                "nearest_pool": npool_info
-                                "generated_at": get_ny_time_millis()
+                                "features": feats,
+                                "nearest_pool": npool_info,
+#                                 "generated_at": get_ny_time_millis()
                                 # Standard fields for compatibility
-                                "reason": f"divergence_{d.kind}"
-                                "entry": float(d.price_curr)
-                                "price": float(d.price_curr)
+                                "reason": f"divergence_{d.kind}",
+                                "entry": float(d.price_curr),
+                                "price": float(d.price_curr),
                                 "cvd": float(d.cvd_curr)
                             }
 
@@ -4595,10 +4595,10 @@ class OrderFlowStrategy:
                     tier = int(cfg.get("abs_lvl_tier_thin", 2))
 
                 th = runtime.eff_calib.thresholds(
-                    regime=regime
-                    default_eff_th=float(runtime.config.get("abs_lvl_eff_quote_th", 0.0020))
-                    default_min_qd=float(runtime.config.get("abs_lvl_min_quote_delta", 0.0))
-                    tier=tier
+                    regime=regime,
+                    default_eff_th=float(runtime.config.get("abs_lvl_eff_quote_th", 0.0020)),
+                    default_min_qd=float(runtime.config.get("abs_lvl_min_quote_delta", 0.0)),
+                    tier=tier,
                 )
                 runtime.dynamic_cfg[DK.ABS_LVL_EFF_QUOTE_TH] = float(th.eff_quote_th)
                 runtime.dynamic_cfg[DK.ABS_LVL_MIN_QUOTE_DELTA] = float(th.min_quote_delta)
@@ -4719,14 +4719,14 @@ class OrderFlowStrategy:
                             runtime.last_sweep_ts_ms > 0):
                             
                             res = compute_cvd_reclaim(
-                                ts_ms=int(ev.ts_ms)
-                                sweep_ts_ms=runtime.last_sweep_ts_ms
-                                cvd_sweep=float(runtime.last_sweep_cvd)
-                                reclaim_ts_ms=int(ev.ts_ms)
-                                cvd_reclaim=float(bar.cvd_close)
-                                direction_bias=str(ev.direction_bias)
-                                min_abs=float(runtime.config.get("cvd_reclaim_min_abs", 0.0))
-                                sat_abs=float(runtime.config.get("cvd_reclaim_sat_abs", 0.0))
+                                ts_ms=int(ev.ts_ms),
+                                sweep_ts_ms=runtime.last_sweep_ts_ms,
+                                cvd_sweep=float(runtime.last_sweep_cvd),
+                                reclaim_ts_ms=int(ev.ts_ms),
+                                cvd_reclaim=float(bar.cvd_close),
+                                direction_bias=str(ev.direction_bias),
+                                min_abs=float(runtime.config.get("cvd_reclaim_min_abs", 0.0)),
+                                sat_abs=float(runtime.config.get("cvd_reclaim_sat_abs", 0.0)),
                             )
                             runtime.last_cvd_reclaim = res
                             
@@ -4735,7 +4735,7 @@ class OrderFlowStrategy:
                                 cvd_reclaim_ok_total.labels(symbol=runtime.symbol, bias=str(ev.direction_bias)).inc()
                             
                             self.logger.info(
-                                "CVDReclaim computed sym=%s bias=%s ok=%d score=%.3f delta=%.1f window_ms=%d"
+                                "CVDReclaim computed sym=%s bias=%s ok=%d score=%.3f delta=%.1f window_ms=%d",
                                 runtime.symbol, ev.direction_bias, res.ok, res.score, res.cvd_delta, (int(ev.ts_ms) - runtime.last_sweep_ts_ms)
                             )
                     except Exception:
@@ -4768,35 +4768,35 @@ class OrderFlowStrategy:
         # ------------------------------------------------------------------
         try:
             bar_out = {
-                "type": "microbar_closed"
-                "symbol": runtime.symbol
-                "ts_ms": int(bar.end_ts_ms)
-                "open": float(bar.open)
-                "high": float(bar.high)
-                "low": float(bar.low)
-                "close": float(bar.close)
-                "vol": float(bar.vol)
-                "cvd": float(bar.cvd_close)
+                "type": "microbar_closed",
+                "symbol": runtime.symbol,
+                "ts_ms": int(bar.end_ts_ms),
+                "open": float(bar.open),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "close": float(bar.close),
+                "vol": float(bar.vol),
+#                 "cvd": float(bar.cvd_close)
                 # Metadata needed by OFConfirmEngine
-                "weak_progress": bool(runtime.last_wp.weak_any) if runtime.last_wp else False
+                "weak_progress": bool(runtime.last_wp.weak_any) if runtime.last_wp else False,
                 "sweep": {
-                    "kind": str(runtime.last_sweep.kind)
+                    "kind": str(runtime.last_sweep.kind),
                     "ts_ms": int(runtime.last_sweep.ts_ms)
-                } if runtime.last_sweep else None
-                "regime": str(getattr(runtime, "last_regime", "na"))
+                } if runtime.last_sweep else None,
+                "regime": str(getattr(runtime, "last_regime", "na")),
                 "reclaim": {
-                    "hold_bars": int(runtime.last_reclaim.hold_bars)
+                    "hold_bars": int(runtime.last_reclaim.hold_bars),
                     "ts_ms": int(runtime.last_reclaim.ts_ms)
-                } if runtime.last_reclaim else None
-                "last_div_kind": str(runtime.last_div.kind) if runtime.last_div else None
+                } if runtime.last_reclaim else None,
+                "last_div_kind": str(runtime.last_div.kind) if runtime.last_div else None,
                 "generated_at": get_ny_time_millis()
             }
             # Best practice: optionally split retention per symbol so minors are not evicted by majors
             from services.orderflow.microbar_publish import publish_microbar_closed
             safe_create_task(
                 publish_microbar_closed(
-                    redis_client=self.redis
-                    symbol=runtime.symbol
+                    redis_client=self.redis,
+                    symbol=runtime.symbol,
                     payload_obj=bar_out
                 )
             )
@@ -4842,7 +4842,7 @@ class OrderFlowStrategy:
                      
                      # Log calibration
                      self.logger.info(
-                         "⚖️ [PTIER-CALIB] (%s) Updated thresholds (n=%d): T0=$%.0f, T1=$%.0f, T2=$%.0f"
+                         "⚖️ [PTIER-CALIB] (%s) Updated thresholds (n=%d): T0=$%.0f, T1=$%.0f, T2=$%.0f",
                          runtime.symbol, n, t0, t1, t2
                      )
         except Exception as exc:
@@ -4898,12 +4898,12 @@ class OrderFlowStrategy:
                 try:
                     pm = (getattr(runtime, 'pm', None) or get_persistence_manager())
                     b_dict = {
-                        "ts_ms": int(bar.end_ts_ms)
-                        "open": float(bar.open)
-                        "high": float(bar.high)
-                        "low": float(bar.low)
-                        "close": float(bar.close)
-                        "vol": float(bar.vol)
+                        "ts_ms": int(bar.end_ts_ms),
+                        "open": float(bar.open),
+                        "high": float(bar.high),
+                        "low": float(bar.low),
+                        "close": float(bar.close),
+                        "vol": float(bar.vol),
                         "cvd": float(bar.cvd_close)
                     }
                     safe_create_task(pm.save_microbar(runtime.symbol, b_dict))
@@ -5145,92 +5145,92 @@ class OrderFlowStrategy:
                     pass
 
                 snap = SymbolSnapshot(
-                    symbol=str(runtime.symbol)
-                    ts_ms=now_ts
-                    trend_dir=trend_dir
-                    close_px=close_px
-                    close_cross=close_cross
-                    close_cross_dir=close_cross_dir
-                    close_cross_level=close_cross_level
-                    swing_high_0=sh0
-                    swing_high_1=sh1
-                    swing_low_0=sl0
-                    swing_low_1=sl1
-                    swing_ts_high_0=tsh0
-                    swing_ts_high_1=tsh1
-                    swing_ts_low_0=tsl0
-                    swing_ts_low_1=tsl1
-                    of_strong=of_strong
-                    of_dir=str(of_dir)
-                    of_ts_ms=int(runtime.last_of_strong_ts_ms)
-                    weak_progress=int(wp)
-                    reclaim=reclaim
-                    reclaim_dir=reclaim_dir
-                    reclaim_ts_ms=reclaim_ts
-                    sweep=sweep
-                    sweep_dir=sweep_dir
-                    sweep_ts_ms=sweep_ts
-                    obi_stable_sec=obi_stable_sec
-                    iceberg_strict=iceberg_strict
-                    div_kind=str(runtime.last_div.kind) if runtime.last_div else "none"
-                    div_ts_ms=int(runtime.last_div.ts_ms) if runtime.last_div else 0
-                    rsi14=rsi14
-                    cvd_slope=cvd_slope
-                    retrace_atr=retrace_atr
+                    symbol=str(runtime.symbol),
+                    ts_ms=now_ts,
+                    trend_dir=trend_dir,
+                    close_px=close_px,
+                    close_cross=close_cross,
+                    close_cross_dir=close_cross_dir,
+                    close_cross_level=close_cross_level,
+                    swing_high_0=sh0,
+                    swing_high_1=sh1,
+                    swing_low_0=sl0,
+                    swing_low_1=sl1,
+                    swing_ts_high_0=tsh0,
+                    swing_ts_high_1=tsh1,
+                    swing_ts_low_0=tsl0,
+                    swing_ts_low_1=tsl1,
+                    of_strong=of_strong,
+                    of_dir=str(of_dir),
+                    of_ts_ms=int(runtime.last_of_strong_ts_ms),
+                    weak_progress=int(wp),
+                    reclaim=reclaim,
+                    reclaim_dir=reclaim_dir,
+                    reclaim_ts_ms=reclaim_ts,
+                    sweep=sweep,
+                    sweep_dir=sweep_dir,
+                    sweep_ts_ms=sweep_ts,
+                    obi_stable_sec=obi_stable_sec,
+                    iceberg_strict=iceberg_strict,
+                    div_kind=str(runtime.last_div.kind) if runtime.last_div else "none",
+                    div_ts_ms=int(runtime.last_div.ts_ms) if runtime.last_div else 0,
+                    rsi14=rsi14,
+                    cvd_slope=cvd_slope,
+                    retrace_atr=retrace_atr,
                     # SMT V2 fields
-                    delta_z=float(delta_z)
-                    delta_eff_norm=float(delta_eff_norm)
-                    zone_dist_bp=float(zone_dist_bp)
-                    zone_ok=int(zone_ok)
-                    near_zone=int(near_zone)
-                    abs_lvl_ok=int(abs_lvl_ok)
+                    delta_z=float(delta_z),
+                    delta_eff_norm=float(delta_eff_norm),
+                    zone_dist_bp=float(zone_dist_bp),
+                    zone_ok=int(zone_ok),
+                    near_zone=int(near_zone),
+                    abs_lvl_ok=int(abs_lvl_ok),
                     # Real zone identity (for retest FSM/UI/debug)
-                    zone_id=str(zone_id)
-                    zone_type=str(zone_type)
-                    zone_src=str(zone_src)
-                    zone_side=str(zone_side)
-                    zone_px_lo=float(zone_px_lo)
-                    zone_px_hi=float(zone_px_hi)
-                    zone_ts_ms=int(zone_ts_ms)
-                    zone_weight=float(zone_weight)
+                    zone_id=str(zone_id),
+                    zone_type=str(zone_type),
+                    zone_src=str(zone_src),
+                    zone_side=str(zone_side),
+                    zone_px_lo=float(zone_px_lo),
+                    zone_px_hi=float(zone_px_hi),
+                    zone_ts_ms=int(zone_ts_ms),
+                    zone_weight=float(zone_weight),
                     # Market context
-                    regime=str(getattr(runtime, "last_regime", "na") or "na")
-                    atr=float(getattr(runtime, "last_atr", 0.0) or 0.0)
+                    regime=str(getattr(runtime, "last_regime", "na") or "na"),
+                    atr=float(getattr(runtime, "last_atr", 0.0) or 0.0),
                     # Absorption-level readiness/stability
-                    abs_lvl_ready=int(1 if int(runtime.dynamic_cfg.get(DK.ABS_LVL_CALIB_N, 0) or 0) >= int(runtime.config.get("abs_lvl_calib_min_samples", 300)) else 0)
-                    delta_z_window=int(runtime.config.get("delta_window_n", 60) or 60)
+                    abs_lvl_ready=int(1 if int(runtime.dynamic_cfg.get(DK.ABS_LVL_CALIB_N, 0) or 0) >= int(runtime.config.get("abs_lvl_calib_min_samples", 300)) else 0),
+                    delta_z_window=int(runtime.config.get("delta_window_n", 60) or 60),
 
                     # Book health (deterministic)
-                    book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
-                    book_age_ms=int(max(0, int(now_ts) - int(getattr(runtime, "last_book_ts_ms", 0) or 0))) if int(getattr(runtime, "last_book_ts_ms", 0) or 0) > 0 else 10**9
-                    book_rate_ok_min_hz=float(runtime.dynamic_cfg.get(DK.BOOK_RATE_OK_MIN_HZ, runtime.config.get("book_rate_min_hz", 5.0)))
-                    book_rate_crit_hz=float(runtime.dynamic_cfg.get(DK.BOOK_RATE_CRIT_HZ, runtime.config.get("book_rate_crit_hz", 2.0)))
-                    book_rate_ready=int(runtime.dynamic_cfg.get(DK.BOOK_RATE_READY, 0) or 0)
-                    book_rate_src=str(runtime.dynamic_cfg.get(DK.BOOK_RATE_CALIB_SRC, "static") or "static")
+                    book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0),
+                    book_age_ms=int(max(0, int(now_ts) - int(getattr(runtime, "last_book_ts_ms", 0) or 0))) if int(getattr(runtime, "last_book_ts_ms", 0) or 0) > 0 else 10**9,
+                    book_rate_ok_min_hz=float(runtime.dynamic_cfg.get(DK.BOOK_RATE_OK_MIN_HZ, runtime.config.get("book_rate_min_hz", 5.0))),
+                    book_rate_crit_hz=float(runtime.dynamic_cfg.get(DK.BOOK_RATE_CRIT_HZ, runtime.config.get("book_rate_crit_hz", 2.0))),
+                    book_rate_ready=int(runtime.dynamic_cfg.get(DK.BOOK_RATE_READY, 0) or 0),
+                    book_rate_src=str(runtime.dynamic_cfg.get(DK.BOOK_RATE_CALIB_SRC, "static") or "static"),
                     
                     # Already computed in handle_tick, but we refresh for snapshot context just in case, 
                     # or use stored runtime values.
                     # Using stored runtime values is safer for consistency with what triggered signal.
-                    book_health_ok=int(getattr(runtime, "last_book_health_ok", 1))
-                    book_health=str(getattr(runtime, "last_book_health", "OK"))
+                    book_health_ok=int(getattr(runtime, "last_book_health_ok", 1)),
+                    book_health=str(getattr(runtime, "last_book_health", "OK")),
 
-                    abs_lvl_th_unstable=int(runtime.dynamic_cfg.get(DK.ABS_LVL_TH_UNSTABLE, 0) or 0)
+                    abs_lvl_th_unstable=int(runtime.dynamic_cfg.get(DK.ABS_LVL_TH_UNSTABLE, 0) or 0),
                     # Strong gate diagnostics
-                    of_confirm_score=float(getattr(runtime, "last_of_confirm_score", 0.0) or 0.0)
-                    strong_gate_have=int(getattr(runtime, "last_strong_gate_have", 0) or 0)
-                    strong_gate_need=int(getattr(runtime, "last_strong_gate_need", 0) or 0)
-                    strong_gate_scn=str(getattr(runtime, "last_strong_gate_scn", "") or "")
+                    of_confirm_score=float(getattr(runtime, "last_of_confirm_score", 0.0) or 0.0),
+                    strong_gate_have=int(getattr(runtime, "last_strong_gate_have", 0) or 0),
+                    strong_gate_need=int(getattr(runtime, "last_strong_gate_need", 0) or 0),
+                    strong_gate_scn=str(getattr(runtime, "last_strong_gate_scn", "") or ""),
                     # ADX-aware regime strength
-                    adx_q=float(adx_q)
-                    adx14=float(adx14)
+                    adx_q=float(adx_q),
+                    adx14=float(adx14),
                     # DQ / Pressure
-                    pressure_sps=float(getattr(runtime, "pressure_sps", 0.0) or 0.0)
-                    pressure_hi=int(getattr(runtime, "pressure_hi", 0) or 0)
-                    spread_bp=float(spread_bp)
-                    obi_age_ms=int(obi_age_ms)
-                    iceberg_age_ms=int(iceberg_age_ms)
-                    cooldown_sps=float(getattr(runtime, "cooldown_hits_ema", 0.0) or 0.0)
-                    spread_z=float(getattr(runtime, "last_spread_z", 0.0) or 0.0)
+                    pressure_sps=float(getattr(runtime, "pressure_sps", 0.0) or 0.0),
+                    pressure_hi=int(getattr(runtime, "pressure_hi", 0) or 0),
+                    spread_bp=float(spread_bp),
+                    obi_age_ms=int(obi_age_ms),
+                    iceberg_age_ms=int(iceberg_age_ms),
+                    cooldown_sps=float(getattr(runtime, "cooldown_hits_ema", 0.0) or 0.0),
+                    spread_z=float(getattr(runtime, "last_spread_z", 0.0) or 0.0),
                 )
 
                 ttl_sec = int(runtime.config.get("smt_snapshot_ttl_sec", 30))
@@ -5257,14 +5257,14 @@ class OrderFlowStrategy:
         ts_ms = normalize_epoch_ms(merged.get("ts") or merged.get("event_time"))
 
         book = {
-            "symbol": symbol
-            "ts": int(ts_ms or 0)
+            "symbol": symbol,
+            "ts": int(ts_ms or 0),
             "ts_ms": int(ts_ms or 0),  # deterministic exchange timestamp (ms)
-            "first_id": _safe_int(merged.get("first_id") or merged.get("firstId") or merged.get("U"))
-            "final_id": _safe_int(merged.get("final_id") or merged.get("finalId") or merged.get("u"))
-            "prev_final": _safe_int(merged.get("prev_final") or merged.get("pu"))
-            "bids": bids
-            "asks": asks
+            "first_id": _safe_int(merged.get("first_id") or merged.get("firstId") or merged.get("U")),
+            "final_id": _safe_int(merged.get("final_id") or merged.get("finalId") or merged.get("u")),
+            "prev_final": _safe_int(merged.get("prev_final") or merged.get("pu")),
+            "bids": bids,
+            "asks": asks,
         }
         return book
 

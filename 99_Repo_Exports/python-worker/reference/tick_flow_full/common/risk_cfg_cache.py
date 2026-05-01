@@ -5,12 +5,12 @@ from typing import Any, Dict, Optional
 
 
 def resolve_risk_cfg_cached(
-    *
-    resolver: Any
-    symbol: str
-    cache: Dict[str, Any]
-    cache_ts: Optional[Dict[str, float]] = None
-    ttl_sec: float = 0.0
+    *,
+    resolver: Any,
+    symbol: str,
+    cache: Dict[str, Any],
+    cache_ts: Optional[Dict[str, float]] = None,
+    ttl_sec: float = 0.0,
 ) -> Any:
     """
     Resolve RiskCfgResolver.resolve(symbol) with per-process cache.
@@ -63,10 +63,10 @@ def resolve_risk_cfg_cached(
 
 
 def invalidate_risk_cfg_cache(
-    *
-    cache: Dict[str, Any]
-    cache_ts: Optional[Dict[str, float]] = None
-    symbol: Optional[str] = None
+    *,
+    cache: Dict[str, Any],
+    cache_ts: Optional[Dict[str, float]] = None,
+    symbol: Optional[str] = None,
 ) -> None:
     """
     Explicit invalidation hook (optional, for live tuning).

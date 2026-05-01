@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Soak helper: summarize dq_level==2 share and key DQ inputs per symbol.
 
 Intended usage:
@@ -11,7 +12,6 @@ Design goals:
   - avoids high memory usage via bounded per-symbol sampling
 """
 
-from __future__ import annotations
 
 import argparse
 import json

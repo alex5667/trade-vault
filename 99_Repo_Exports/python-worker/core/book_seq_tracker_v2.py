@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Book sequence / staleness tracker (v2).
 
 Why this exists
@@ -18,7 +19,6 @@ The output of this module is intentionally small and deterministic so it can be
 unit-tested independently of the runtime/service stack.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """python-worker/core/horizon_contract.py
 
 Phase 0 — Единый horizon-aware контракт для всего пайплайна.
@@ -14,7 +15,6 @@ Backward compatibility:
   - signal_id НЕ изменяется (новые поля не входят в dedup-base).
 """
 
-from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field

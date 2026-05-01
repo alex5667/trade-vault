@@ -3,7 +3,7 @@
 Archive Cleanup Job.
 
 Manages retention of archived data in PostgreSQL.
-Although TimescaleDB retention policies handle partition dropping
+Although TimescaleDB retention policies handle partition dropping,
 this script handles additional cleanup logic if needed and provides logging.
 
 Features:
@@ -20,8 +20,8 @@ import psycopg2
 PG_DSN = os.getenv("ANALYTICS_DSN") 
 
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("archive_cleanup")

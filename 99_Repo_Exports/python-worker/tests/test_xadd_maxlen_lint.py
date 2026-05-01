@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: XADD MAXLEN enforcement lint check (merge-blocker).
 
@@ -9,7 +10,6 @@ of Redis OOM in production.
 Run:
     cd python-worker && python -m pytest tests/test_xadd_maxlen_lint.py -v
 """
-from __future__ import annotations
 
 import os
 import re

@@ -28,7 +28,7 @@ def classify_signed_qty(tick: Dict[str, Any]) -> float:
     Shared tick классификация в signed volume (delta_tick).
 
     Важно:
-    - ДОЛЖНО совпадать по семантике с DeltaSpikeDetector.classify_tick()
+    - ДОЛЖНО совпадать по семантике с DeltaSpikeDetector.classify_tick(),
       чтобы delta_spike и CVD считались из одного и того же определения "агрессора".
     - FAIL-OPEN: неизвестная сторона => 0.0 (не вносить систематический bias).
 
@@ -114,7 +114,7 @@ class DeltaSpikeDetector:
         """
         Добавляет тик и возвращает событие, если дельта превысила порог.
 
-        Важно: Z-score считаем по *предыдущему* окну (без включения текущего delta)
+        Важно: Z-score считаем по *предыдущему* окну (без включения текущего delta),
         чтобы избежать bias (10–20% недооценки |z| при self-inclusion).
         """
         delta = self.classify_tick(tick)
@@ -131,7 +131,7 @@ class DeltaSpikeDetector:
             # Логируем прогресс заполнения буфера (только первые несколько раз)
             if DEBUG_DELTAS and (len(self.values) in (1, 5, min_prev)):
                 logger.debug(
-                    "📊 Delta detector buffer: %d/%d тиков (нужно минимум %d)"
+                    "📊 Delta detector buffer: %d/%d тиков (нужно минимум %d)",
                     len(self.values), self.window, min_total
                 )
             return None
@@ -164,10 +164,10 @@ class DeltaSpikeDetector:
             # Deterministic time from tick if possible
             ts_ms = int(tick.get("ts_ms") or tick.get("ts") or tick.get("E") or 0)
             return {
-                "type": "delta_spike"
-                "delta": delta
-                "z": z_value
-                "ts_ms": ts_ms
+                "type": "delta_spike",
+                "delta": delta,
+                "z": z_value,
+                "ts_ms": ts_ms,
             }
         return None
 
@@ -177,7 +177,7 @@ class OBIDetector:
     Детектор Order Book Imbalance с фильтрацией по времени удержания.
     """
 
-    def __init__(self, depth: int = 5, threshold: float = 0.5, hold_secs: float = 2.0
+    def __init__(self, depth: int = 5, threshold: float = 0.5, hold_secs: float = 2.0,
                  z_alpha: float = 0.05, z_floor_var: float = 1e-6):
         self.depth = depth
         self.threshold = threshold
@@ -281,17 +281,17 @@ class OBIDetector:
                 stable_secs = now_s - self.last_ok_ts
                 if stable_secs >= self.hold_secs:
                     return {
-                        "type": "obi"
-                        "direction": direction
-                        "obi": obi
-                        "stable_secs": stable_secs
-                        "bid_vol": float(bid_vol)
-                        "ask_vol": float(ask_vol)
-                        "depth": int(self.depth)
-                        "obi_z": float(obi_z)
-                        "stacking": float(stacking)
-                        "concentration": float(concentration)
-                        "ts_ms": int(ts_ms or 0)
+                        "type": "obi",
+                        "direction": direction,
+                        "obi": obi,
+                        "stable_secs": stable_secs,
+                        "bid_vol": float(bid_vol),
+                        "ask_vol": float(ask_vol),
+                        "depth": int(self.depth),
+                        "obi_z": float(obi_z),
+                        "stacking": float(stacking),
+                        "concentration": float(concentration),
+                        "ts_ms": int(ts_ms or 0),
                     }
             else:
                 self.last_direction = direction
@@ -346,10 +346,10 @@ class AbsorptionDetector:
                 side = "long"
 
         return {
-            "type": "absorption"
-            "volume": self._running_volume
-            "side": side
-            "ts_ms": int(ts_raw or 0)
+            "type": "absorption",
+            "volume": self._running_volume,
+            "side": side,
+            "ts_ms": int(ts_raw or 0),
         }
 
 
@@ -394,10 +394,10 @@ class IcebergDetector:
 
             if not state:
                 self._level_state[(side, price)] = {
-                    "start": now
-                    "last_qty": qty
-                    "refresh": 0
-                    "total_refresh_qty": 0.0
+                    "start": now,
+                    "last_qty": qty,
+                    "refresh": 0,
+                    "total_refresh_qty": 0.0,
                 }
                 continue
 
@@ -412,13 +412,13 @@ class IcebergDetector:
             if state["refresh"] >= self.min_refresh and (now - state["start"]) >= self.min_duration:
                 events.append(
                     {
-                        "type": "iceberg"
-                        "side": side
-                        "price": price
-                        "duration": now - state["start"]
-                        "refresh": state["refresh"]
-                        "total_refresh_qty": state.get("total_refresh_qty", 0.0)
-                        "start_ts": state["start"]
+                        "type": "iceberg",
+                        "side": side,
+                        "price": price,
+                        "duration": now - state["start"],
+                        "refresh": state["refresh"],
+                        "total_refresh_qty": state.get("total_refresh_qty", 0.0),
+                        "start_ts": state["start"],
                     }
                 )
 

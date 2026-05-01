@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Retry behaviour for CryptoOrderflowService._xack_pipeline.
 
 Regression guard for the "XACK FAILURE ... Connection lost" storms on
@@ -5,7 +6,6 @@ alt/meme shards: transient Redis errors must retry with exponential
 backoff before the batch is DLQ'd.
 """
 
-from __future__ import annotations
 
 import asyncio
 import types

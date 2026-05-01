@@ -137,9 +137,9 @@ def validate_repo_rules(*, repo_root: Path, use_promtool: bool, manifest_ref: st
         else:
             for path in files:
                 proc = subprocess.run(
-                    [promtool, "check", "rules", str(path)]
-                    capture_output=True
-                    text=True
+                    [promtool, "check", "rules", str(path)],
+                    capture_output=True,
+                    text=True,
                 )
                 if proc.returncode != 0:
                     out = ((proc.stdout or "") + (proc.stderr or "")).strip()
@@ -153,20 +153,20 @@ def validate_repo_rules(*, repo_root: Path, use_promtool: bool, manifest_ref: st
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument(
-        "--root"
-        default=None
-        help="Repo root (defaults to auto-detected root)"
+        "--root",
+        default=None,
+        help="Repo root (defaults to auto-detected root)",
     )
     p.add_argument(
-        "--manifest"
-        default=None
-        help="Manifest path (relative to repo root or absolute). Default: env PROM_RULES_BUNDLE_MANIFEST or v2 manifest."
+        "--manifest",
+        default=None,
+        help="Manifest path (relative to repo root or absolute). Default: env PROM_RULES_BUNDLE_MANIFEST or v2 manifest.",
     )
     p.add_argument(
-        "--promtool"
-        choices=("auto", "on", "off")
-        default="auto"
-        help="Run promtool check rules: auto|on|off"
+        "--promtool",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="Run promtool check rules: auto|on|off",
     )
     return p.parse_args(argv)
 

@@ -38,7 +38,7 @@ except Exception:  # pragma: no cover
 WINDOWS_SECONDS: Dict[str, int] = {
     '24h': 24 * 60 * 60,
     '7d': 7 * 24 * 60 * 60,
-}
+},
 
 
 @dataclass(frozen=True)

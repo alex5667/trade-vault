@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """conf_cal_live_status_exporter_v1.py
 
 Prometheus exporter for confidence calibration live-health status.
@@ -19,7 +20,6 @@ Requested gauges:
   live_ece_raw, live_ece_cal, live_brier_raw, live_brier_cal, bad_streak, rollback_total
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -97,10 +97,10 @@ def _probe_status_path(reports_dir: str) -> Tuple[str, str]:
     if env_path:
         return env_path, "env"
     candidates = [
-        "conf_cal_live_status.json"
-        "confidence_calibration_live_status.json"
-        "confidence_cal_live_status.json"
-        "live_status.json"
+        "conf_cal_live_status.json",
+        "confidence_calibration_live_status.json",
+        "confidence_cal_live_status.json",
+        "live_status.json",
     ]
     for name in candidates:
         p = os.path.join(reports_dir, name)
@@ -172,12 +172,12 @@ class Exporter:
         self.reports_dir = reports_dir
         self.status_path, self.status_path_reason = _probe_status_path(reports_dir)
         self.state_path = os.getenv(
-            "CONF_CAL_LIVE_EXPORTER_STATE_PATH"
-            os.path.join(str(reports_dir), "conf_cal_live_exporter_state.json")
+            "CONF_CAL_LIVE_EXPORTER_STATE_PATH",
+            os.path.join(str(reports_dir), "conf_cal_live_exporter_state.json"),
         )
         self.proof_path = os.getenv(
-            "CONF_CAL_PROOF_STATE_PATH"
-            "/var/lib/trade/of_calibrators/conf_cal_proof_state.json"
+            "CONF_CAL_PROOF_STATE_PATH",
+            "/var/lib/trade/of_calibrators/conf_cal_proof_state.json",
         )
         self.running = True
         self.state = _State()
@@ -204,12 +204,12 @@ class Exporter:
         self._last_state_write_ms = now_ms
         try:
             _write_json_atomic(
-                self.state_path
+                self.state_path,
                 {
-                    "ts_ms": int(now_ms)
-                    "rollback_total": int(self.state.rollback_total)
-                    "last_rb_event_ts_ms": int(self.state.last_rb_event_ts_ms)
-                }
+                    "ts_ms": int(now_ms),
+                    "rollback_total": int(self.state.rollback_total),
+                    "last_rb_event_ts_ms": int(self.state.last_rb_event_ts_ms),
+                },
             )
         except Exception:
             pass

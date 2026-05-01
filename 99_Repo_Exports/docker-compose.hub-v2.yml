@@ -6,10 +6,10 @@ services:
     container_name: scanner-aggregated-hub-v2
     restart: unless-stopped
     environment:
-    - SYMBOL=XAUUSD
+    - SYMBOL=
     - REDIS_URL=redis://scanner-redis-worker-1:6379/0
-    - TICK_STREAM=ticks:XAUUSD
-    - PRINTS_STREAM=prints:XAUUSD
+    - TICK_STREAM=ticks
+    - PRINTS_STREAM=prints
     - HUB_CONFIDENCE_THR=0.70
     - HUB_MIN_SIG_INT_SEC=180
     - HUB_SIDE_LOCK_SEC=20
@@ -29,7 +29,6 @@ services:
     - ENSEMBLE_THRESHOLD=0.35
     - ENSEMBLE_CONSENSUS_RATIO=1.5
     - ENSEMBLE_CALIB_MODE=shadow
-    - ENSEMBLE_CALIBRATION_SYMBOLS=BTCUSDT,ETHUSDT
     - ENSEMBLE_LOOKBACK_DAYS=30
     - ENSEMBLE_CALIB_TELEGRAM=1
     - ENSEMBLE_CALIB_TELEGRAM_INTERVAL_SEC=3600
@@ -38,7 +37,7 @@ services:
     - PYTHONUNBUFFERED=1
     - TZ=UTC
     command: "sh -c \"cd python-worker && \n       python3 aggregated_signal_hub_v2.py\
-      \ --mode=live --symbol=XAUUSD\"\n"
+      \ --mode=live --symbol=\"\n"
     volumes:
     - ./python-worker:/app/python-worker:ro
     - ./common:/app/common:ro
@@ -77,7 +76,7 @@ services:
     profiles:
     - replay
     environment:
-    - SYMBOL=XAUUSD
+    - SYMBOL=
     - REDIS_URL=redis://scanner-redis-worker-1:6379/0
     - HUB_CONFIDENCE_THR=0.62
     - HUB_MIN_SIG_INT_SEC=180

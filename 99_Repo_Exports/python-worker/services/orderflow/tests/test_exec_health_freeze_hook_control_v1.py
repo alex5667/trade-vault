@@ -30,13 +30,13 @@ class FakeRedis:
 def test_control_latch_blocks_even_if_raw_key_missing() -> None:
     """P7: control hash latch must block even when the raw TTL key is absent (deleted)."""
     control = {
-        'effective_freeze_active': '1'
-        'control_source': 'autoguard'
-        'manual_ack_required': '1'
-        'last_trigger_ts_ms': '10000'
-        'updated_ts_ms': '10000'
-        'freeze_reason': 'cross_scope_mode_mismatch'
-        'schema_version': '1'
+        'effective_freeze_active': '1',
+        'control_source': 'autoguard',
+        'manual_ack_required': '1',
+        'last_trigger_ts_ms': '10000',
+        'updated_ts_ms': '10000',
+        'freeze_reason': 'cross_scope_mode_mismatch',
+        'schema_version': '1',
     }
     r = FakeRedis(control=control, raw=None)  # raw key = None (deleted)
 
@@ -60,12 +60,12 @@ def test_hook_reads_control_hash_first() -> None:
     When control hash latch is set, raw key must NOT be consulted.
     """
     control = {
-        'effective_freeze_active': '1'
-        'control_source': 'autoguard'
-        'manual_ack_required': '1'
-        'last_trigger_ts_ms': '5000'
-        'updated_ts_ms': '5000'
-        'freeze_reason': 'rollout_drift'
+        'effective_freeze_active': '1',
+        'control_source': 'autoguard',
+        'manual_ack_required': '1',
+        'last_trigger_ts_ms': '5000',
+        'updated_ts_ms': '5000',
+        'freeze_reason': 'rollout_drift',
     }
     raw = json.dumps({'freeze_active': 0, 'freeze_reason': '', 'freeze_until_ts_ms': 0, 'ts_ms': 1000})
     r = FakeRedis(control=control, raw=raw)

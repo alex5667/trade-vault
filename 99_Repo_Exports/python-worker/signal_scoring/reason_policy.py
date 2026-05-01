@@ -60,10 +60,10 @@ class LegacyMapAlertConfig:
 #
 # Решение:
 # - Для каждого VETO_* кода задаём whitelist kinds (либо "*" = разрешено везде).
-# - Дальше в Engine нормализуем: если reason_code не разрешён для данного kind
+# - Дальше в Engine нормализуем: если reason_code не разрешён для данного kind,
 #   то превращаем в VETO_UNKNOWN и сохраняем отладочную метку в parts.
 #
-# Это не меняет "veto/non-veto" (сигнал по-прежнему блокируется)
+# Это не меняет "veto/non-veto" (сигнал по-прежнему блокируется),
 # но делает причину строго корректной и стабильной для дашбордов/калибровки.
 
 
@@ -93,20 +93,20 @@ class ReasonPolicyEntry:
 # - Для общих причин используйте "*" (ANY), чтобы не "пережимать".
 POLICY: Dict[str, ReasonPolicyEntry] = {
     # ---------- universal gates ----------
-    ReasonCode.VETO_SPREAD_WIDE.value: ReasonPolicyEntry(ANY, "warn")
-    ReasonCode.VETO_CONF_BELOW_MIN.value: ReasonPolicyEntry(ANY, "warn")
-    ReasonCode.VETO_L3_SPOOF_RISK.value: ReasonPolicyEntry(ANY, "warn")
-    ReasonCode.VETO_WALL_NEAR.value: ReasonPolicyEntry(ANY, "warn")
+    ReasonCode.VETO_SPREAD_WIDE.value: ReasonPolicyEntry(ANY, "warn"),
+    ReasonCode.VETO_CONF_BELOW_MIN.value: ReasonPolicyEntry(ANY, "warn"),
+    ReasonCode.VETO_L3_SPOOF_RISK.value: ReasonPolicyEntry(ANY, "warn"),
+    ReasonCode.VETO_WALL_NEAR.value: ReasonPolicyEntry(ANY, "warn"),
 
     # ---------- L2: fail-closed breakout ----------
     # По вашей политике: breakout без L2 = не торгуем.
-    ReasonCode.VETO_L2_MISSING.value: ReasonPolicyEntry(_k("breakout"), "error")
-    ReasonCode.VETO_L2_STALE.value: ReasonPolicyEntry(_k("breakout"), "error")
-    ReasonCode.VETO_L2_BAD.value: ReasonPolicyEntry(_k("breakout"), "error")
+    ReasonCode.VETO_L2_MISSING.value: ReasonPolicyEntry(_k("breakout"), "error"),
+    ReasonCode.VETO_L2_STALE.value: ReasonPolicyEntry(_k("breakout"), "error"),
+    ReasonCode.VETO_L2_BAD.value: ReasonPolicyEntry(_k("breakout"), "error"),
 
     # ---------- regime gates ----------
     # "range breakout" по смыслу относится к breakout (не absorption/extreme).
-    ReasonCode.VETO_REGIME_RANGE_BREAKOUT.value: ReasonPolicyEntry(_k("breakout"), "error")
+    ReasonCode.VETO_REGIME_RANGE_BREAKOUT.value: ReasonPolicyEntry(_k("breakout"), "error"),
 
     # ---------- placeholders for future ----------
     # Если у вас уже есть другие VETO_* коды — добавьте их сюда.
@@ -167,11 +167,11 @@ class ReasonMismatchMonitor:
     Также умеет "мягкий" алерт на всплеск legacy-кодов через notify callback.
     """
     def __init__(
-        self
-        *
-        metrics: Optional[_Metrics] = None
-        notify: Optional[Callable[[dict[str, Any]], None]] = None
-        alert_cfg: Optional[LegacyMapAlertConfig] = None
+        self,
+        *,
+        metrics: Optional[_Metrics] = None,
+        notify: Optional[Callable[[dict[str, Any]], None]] = None,
+        alert_cfg: Optional[LegacyMapAlertConfig] = None,
     ) -> None:
         self._m = metrics
         self._notify = notify
@@ -186,13 +186,13 @@ class ReasonMismatchMonitor:
         if self._m is not None:
             try:
                 self._m.incr(
-                    "reason_kind_mismatch_total"
-                    1
+                    "reason_kind_mismatch_total",
+                    1,
                     tags={
-                        "kind": _label_sanitize(kind)
-                        "from": _label_sanitize(original_rc)
-                        "to": _label_sanitize(normalized_rc)
-                        "sev": _label_sanitize(mismatch_sev)
+                        "kind": _label_sanitize(kind),
+                        "from": _label_sanitize(original_rc),
+                        "to": _label_sanitize(normalized_rc),
+                        "sev": _label_sanitize(mismatch_sev),
                     }
                 )
             except Exception:
@@ -237,15 +237,15 @@ class ReasonMismatchMonitor:
             try:
                 self._notify(
                     {
-                        "kind": "diag_reason_legacy_spike"
-                        "ts": int(now * 1000)
-                        "severity": "warning"
+                        "kind": "diag_reason_legacy_spike",
+                        "ts": int(now * 1000),
+                        "severity": "warning",
                         "labels": {
-                            "kind": k
-                            "from": f
-                            "to": t
-                            "window_s": win
-                            "count": len(dq)
+                            "kind": k,
+                            "from": f,
+                            "to": t,
+                            "window_s": win,
+                            "count": len(dq),
                             "hint": (
                                 "Всплеск legacy reason_code: где-то начали отдавать старые строки "
                                 "(или откатили часть кода). Проверьте места формирования veto reasons "
@@ -260,10 +260,10 @@ class ReasonMismatchMonitor:
 
 
 def patch_validation_reason_for_kind(
-    *
-    validation: "Validation"
-    kind: str
-    monitor: Optional[ReasonMismatchMonitor] = None
+    *,
+    validation: "Validation",
+    kind: str,
+    monitor: Optional[ReasonMismatchMonitor] = None,
 ) -> "Validation":
     """
     Convenience wrapper: mutate/return a Validation with kind-safe reason_code + reason_u16.

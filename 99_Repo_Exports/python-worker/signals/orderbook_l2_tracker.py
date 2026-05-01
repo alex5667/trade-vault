@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Order Book L2 Tracker - отслеживание изменений глубины рынка.
 
@@ -38,7 +39,6 @@ Order Book L2 Tracker - отслеживание изменений глубин
 2. Refill + OBI sustained = Strong support/resistance
 3. Wall появился + OBI confirms = Potential reversal
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, List

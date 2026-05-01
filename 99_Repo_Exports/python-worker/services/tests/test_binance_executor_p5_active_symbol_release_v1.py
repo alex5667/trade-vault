@@ -115,18 +115,18 @@ def test_guard_released_when_exchange_flat_and_no_orders():
     """When exchange shows positionAmt=0 and no orders, guard is cleared immediately."""
     r = FakeRedis()
     r.set("orders:active_symbol_sid:BTCUSDT", json.dumps({
-        "symbol": "BTCUSDT"
-        "sid": "sid-old"
-        "fsm_state": "PROTECTED"
-        "updated_at_ms": 1700000000000
+        "symbol": "BTCUSDT",
+        "sid": "sid-old",
+        "fsm_state": "PROTECTED",
+        "updated_at_ms": 1700000000000,
     }))
     r.set("orders:user_stream:status", json.dumps({
-        "connected": False
-        "updated_at_ms": 1700000000000
+        "connected": False,
+        "updated_at_ms": 1700000000000,
     }))
     ex = _mk_exec(r)
     ex._load_order_state = lambda sid: {
-        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True
+        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True,
     }
     # Should NOT raise — guard should be cleared
     ex._guard_single_active_symbol_open(sid="sid-new", symbol="BTCUSDT", client=FlatClient())
@@ -143,18 +143,18 @@ def test_guard_stays_and_annotates_key_when_exchange_shows_live_position():
     """When exchange shows live position, guard must NOT be released."""
     r = FakeRedis()
     r.set("orders:active_symbol_sid:ETHUSDT", json.dumps({
-        "symbol": "ETHUSDT"
-        "sid": "sid-old"
-        "fsm_state": "EXIT_FILLED"
-        "updated_at_ms": 1700000000000
+        "symbol": "ETHUSDT",
+        "sid": "sid-old",
+        "fsm_state": "EXIT_FILLED",
+        "updated_at_ms": 1700000000000,
     }))
     r.set("orders:user_stream:status", json.dumps({
-        "connected": False
-        "updated_at_ms": 1700000000000
+        "connected": False,
+        "updated_at_ms": 1700000000000,
     }))
     ex = _mk_exec(r)
     ex._load_order_state = lambda sid: {
-        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True
+        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True,
     }
     try:
         ex._guard_single_active_symbol_open(sid="sid-new", symbol="ETHUSDT", client=LivePositionClient())
@@ -176,15 +176,15 @@ def test_guard_stays_when_exchange_shows_open_orders():
     """Even if positionAmt is 0, open orders must prevent guard release."""
     r = FakeRedis()
     r.set("orders:active_symbol_sid:SOLUSDT", json.dumps({
-        "symbol": "SOLUSDT"
-        "sid": "sid-old"
-        "fsm_state": "EXIT_FILLED"
-        "updated_at_ms": 1700000000000
+        "symbol": "SOLUSDT",
+        "sid": "sid-old",
+        "fsm_state": "EXIT_FILLED",
+        "updated_at_ms": 1700000000000,
     }))
     r.set("orders:user_stream:status", json.dumps({"connected": True, "last_event_ms": 1700000000000}))
     ex = _mk_exec(r)
     ex._load_order_state = lambda sid: {
-        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True
+        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True,
     }
     try:
         ex._guard_single_active_symbol_open(sid="sid-new", symbol="SOLUSDT", client=OpenOrdersOnlyClient())
@@ -203,10 +203,10 @@ def test_guard_stays_and_marks_error_when_exchange_api_fails():
     """When Binance API raises, guard is conservatively kept and annotated."""
     r = FakeRedis()
     r.set("orders:active_symbol_sid:BTCUSDT", json.dumps({
-        "symbol": "BTCUSDT"
-        "sid": "sid-old"
-        "fsm_state": "PROTECTED"
-        "updated_at_ms": 1700000000000
+        "symbol": "BTCUSDT",
+        "sid": "sid-old",
+        "fsm_state": "PROTECTED",
+        "updated_at_ms": 1700000000000,
     }))
     r.set("orders:user_stream:status", json.dumps({"connected": True, "last_event_ms": 1700000000000}))
     ex = _mk_exec(r)
@@ -228,14 +228,14 @@ def test_legacy_terminal_release_when_exchange_truth_disabled():
     """When exchange-truth release is off, terminal FSM state alone clears guard."""
     r = FakeRedis()
     r.set("orders:active_symbol_sid:BTCUSDT", json.dumps({
-        "symbol": "BTCUSDT"
-        "sid": "sid-old"
-        "fsm_state": "PROTECTED"
-        "updated_at_ms": 1700000000000
+        "symbol": "BTCUSDT",
+        "sid": "sid-old",
+        "fsm_state": "PROTECTED",
+        "updated_at_ms": 1700000000000,
     }))
     ex = _mk_exec(r, exchange_truth_release=False)
     ex._load_order_state = lambda sid: {
-        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True
+        "sid": sid, "fsm_state": "EXIT_FILLED", "status": "closed", "closed": True,
     }
     # Should NOT raise (terminal state clears guard without exchange check)
     ex._guard_single_active_symbol_open(sid="sid-new", symbol="BTCUSDT")

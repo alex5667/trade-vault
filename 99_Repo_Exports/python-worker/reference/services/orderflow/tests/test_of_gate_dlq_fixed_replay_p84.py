@@ -1,10 +1,10 @@
 
 from orderflow_services.of_gate_dlq_fix_hints_registry_p84 import hint_for, known_dq_codes
 from orderflow_services.of_gate_dlq_fixed_replay_p84 import (
-    _safe_fix_payload
-    _coerce_int01
-    _normalize_ts_ms
-    _parse_stream_payload_from_fields
+    _safe_fix_payload,
+    _coerce_int01,
+    _normalize_ts_ms,
+    _parse_stream_payload_from_fields,
 )
 
 
@@ -65,9 +65,9 @@ def test_parse_stream_payload_from_fields_payload_key():
 
 def test_safe_fix_payload_schema_ts_missing_legs():
     payload = {
-        "symbol": "BTCUSDT"
-        "ok": 1
-        "ok_soft": 0
+        "symbol": "BTCUSDT",
+        "ok": 1,
+        "ok_soft": 0,
         "ts_ms": 1700000000,  # seconds
     }
     new_p, fixes = _safe_fix_payload(payload.copy(), "1700000000000-0")
@@ -85,13 +85,13 @@ def test_safe_fix_payload_schema_ts_missing_legs():
 
 def test_safe_fix_payload_missing_legs_coerce():
     payload = {
-        "symbol": "BTCUSDT"
-        "schema_name": "of_gate_metrics"
-        "schema_version": "2"
-        "ok": 0
-        "ok_soft": 0
-        "ts_ms": 1700000000000
-        "missing_legs": "not_json"
+        "symbol": "BTCUSDT",
+        "schema_name": "of_gate_metrics",
+        "schema_version": "2",
+        "ok": 0,
+        "ok_soft": 0,
+        "ts_ms": 1700000000000,
+        "missing_legs": "not_json",
     }
     new_p, fixes = _safe_fix_payload(payload.copy(), "1700000000000-0")
     assert "coerce_schema_version_int" in fixes

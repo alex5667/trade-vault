@@ -45,7 +45,7 @@ def _get_or_create_prom_histogram(name: str, documentation: str, labelnames: Lis
 trade_close_joiner_seen_total = _get_or_create_prom_counter(
     "trade_close_joiner_seen_total",
     "Total POSITION_CLOSED events seen by joiner",
-    ["symbol"]
+    ["symbol"],
 )
 
 trade_close_joiner_join_ok_total = _get_or_create_prom_counter(
@@ -75,7 +75,7 @@ trade_close_joiner_dedup_skipped_total = _get_or_create_prom_counter(
 trade_close_joiner_backfill_ok_total = _get_or_create_prom_counter(
     "trade_close_joiner_backfill_ok_total",
     "Total successful joins from close wait backfill",
-    ["symbol"]
+    ["symbol"],
 )
 
 trade_close_joiner_backfill_drop_total = _get_or_create_prom_counter(
@@ -115,7 +115,7 @@ decision_record_sampled_out_total = _get_or_create_prom_counter(
 decision_record_error_total = _get_or_create_prom_counter(
     "decision_record_error_total",
     "Total decision record write errors",
-    ["symbol"]
+    ["symbol"],
 )
 
 
@@ -186,36 +186,36 @@ atr_gate_veto_total = _get_or_create_prom_counter(
 tp1_net_margin_bps_gauge = _get_or_create_prom_gauge(
     'tp1_net_margin_bps',
     'Net profit margin at TP1 after fees and buffer (bps)',
-    ['symbol']
+    ['symbol'],
 )
 tp1_zero_pnl_total = _get_or_create_prom_counter(
     'tp1_zero_pnl_total',
     'Total signals where expected net margin at TP1 is <= 0',
-    ['symbol']
+    ['symbol'],
 )
 
 worker_lag_ms_gauge = _get_or_create_prom_gauge(
     "worker_lag_ms",
     "Lag between wall clock and tick ts_ms at read time (ms)",
-    ["symbol"]
+    ["symbol"],
 )
 
 worker_lag_ms_p50_gauge = _get_or_create_prom_gauge(
     "worker_lag_ms_p50",
     "50th percentile of worker lag (ms)",
-    ["symbol"]
+    ["symbol"],
 )
 
 worker_lag_ms_p95_gauge = _get_or_create_prom_gauge(
     "worker_lag_ms_p95",
     "95th percentile of worker lag (ms)",
-    ["symbol"]
+    ["symbol"],
 )
 
 worker_lag_ms_p99_gauge = _get_or_create_prom_gauge(
     "worker_lag_ms_p99",
     "99th percentile of worker lag (ms)",
-    ["symbol"]
+    ["symbol"],
 )
 
 processing_time_us = _get_or_create_prom_histogram(
@@ -253,17 +253,17 @@ signals_total = _get_or_create_prom_counter(
 fp_imb_confirm_total = _get_or_create_prom_counter(
     'fp_imb_confirm_total',
     'Total footprint imbalance confirmations',
-    ['symbol']
+    ['symbol'],
 )
 fp_absorb_confirm_total = _get_or_create_prom_counter(
     'fp_absorb_confirm_total',
     'Total footprint absorption confirmations',
-    ['symbol']
+    ['symbol'],
 )
 fp_buckets_evicted_total = _get_or_create_prom_counter(
     'fp_buckets_evicted_total',
     'Total footprint buckets evicted (LRU)',
-    ['symbol']
+    ['symbol'],
 )
 
 # --- Expert Calibration Metrics ---
@@ -327,7 +327,7 @@ tick_time_decision_total = _get_or_create_prom_counter(
 tick_time_quarantine_active_gauge = _get_or_create_prom_gauge(
     'tick_time_quarantine_active',
     'Bad time quarantine active status (1=active, 0=inactive)',
-    ['symbol']
+    ['symbol'],
 )
 tick_time_quarantine_enabled_total = _get_or_create_prom_counter(
     'tick_time_quarantine_enabled_total',
@@ -347,17 +347,17 @@ tick_time_soft_event_total = _get_or_create_prom_counter(
 tick_time_state_freeze_total = _get_or_create_prom_counter(
     'tick_time_state_freeze_total',
     'Total state freezes due to bad time',
-    ['symbol']
+    ['symbol'],
 )
 tick_time_recovery_passed_total = _get_or_create_prom_counter(
     'tick_time_recovery_passed_total',
     'Total recovery gates passed after state freeze',
-    ['symbol']
+    ['symbol'],
 )
 tick_time_quarantine_score_gauge = _get_or_create_prom_gauge(
     'tick_time_quarantine_score',
     'Current bad time quarantine score',
-    ['symbol']
+    ['symbol'],
 )
 burst_active_gauge = _get_or_create_prom_gauge('burst_active', 'Burst mode active status (1=active)', ['symbol'])
 burst_flush_total = _get_or_create_prom_counter('burst_flush_total', 'Total burst flushes', ['symbol', 'mode'])
@@ -375,12 +375,12 @@ drain_forced_cancel_total = _get_or_create_prom_counter(
 ticks_out_of_order_total = _get_or_create_prom_counter(
     "ticks_out_of_order_total",
     "Total ticks received out of temporal order",
-    ["symbol"]
+    ["symbol"],
 )
 ticks_side_unknown_total = _get_or_create_prom_counter(
     "ticks_side_unknown_total",
     "Total ticks with unknown side classification",
-    ["symbol"]
+    ["symbol"],
 )
 
 # Unknown-side policy metrics (ingestion-time policy decisions)
@@ -425,7 +425,7 @@ sweep_detected_total = _get_or_create_prom_counter(
 sweep_side_missing_total = _get_or_create_prom_counter(
     "sweep_side_missing_total",
     "Total sweep events where direction/eq_kind is missing or unknown",
-    ["symbol"]
+    ["symbol"],
 )
 
 strong_gate_veto_total = _get_or_create_prom_counter(
@@ -437,22 +437,22 @@ strong_gate_veto_total = _get_or_create_prom_counter(
 divergence_confirmed_total = _get_or_create_prom_counter(
     "divergence_confirmed_total",
     "Total signals where divergence was confirmed",
-    ["symbol"]
+    ["symbol"],
 )
 divergence_triggered_total = _get_or_create_prom_counter(
     "divergence_triggered_total",
     "Total signals triggered specifically by divergence",
-    ["symbol"]
+    ["symbol"],
 )
 divergence_overridden_total = _get_or_create_prom_counter(
     "divergence_overridden_total",
     "Total divergences overridden by other gates",
-    ["symbol"]
+    ["symbol"],
 )
 divergence_suppressed_total = _get_or_create_prom_counter(
     "divergence_suppressed_total",
     "Total divergences suppressed by data quality or other factors",
-    ["symbol"]
+    ["symbol"],
 )
 evidence_used_total = _get_or_create_prom_counter(
     "evidence_used_total",
@@ -470,22 +470,22 @@ ticks_pressure_filtered_total = _get_or_create_prom_counter(
 atr_tf_switch_total = _get_or_create_prom_counter(
     "atr_tf_switch_total",
     "Total ATR timeframe switches",
-    ["symbol"]
+    ["symbol"],
 )
 atr_tf_candidate_diff = _get_or_create_prom_gauge(
     "atr_tf_candidate_diff",
     "1 if candidate TF differs from selected TF, 0 otherwise",
-    ["symbol"]
+    ["symbol"],
 )
 atr_tf_target_bps = _get_or_create_prom_gauge(
     "atr_tf_target_bps",
     "Target ATR in basis points for TF selection",
-    ["symbol"]
+    ["symbol"],
 )
 atr_tf_candidate_score = _get_or_create_prom_gauge(
     "atr_tf_candidate_score",
     "Score of candidate TF",
-    ["symbol"]
+    ["symbol"],
 )
 
 # --- DN Telemetry Pass-Rate & HOW Scale ---
@@ -531,12 +531,12 @@ of_session_outcome_total = _get_or_create_prom_counter(
 ticks_read_total = _get_or_create_prom_counter(
     "ticks_read_total",
     "Total raw tick messages read from Redis stream",
-    ["symbol"]
+    ["symbol"],
 )
 ticks_processed_total = _get_or_create_prom_counter(
     "ticks_processed_total",
     "Total tick messages successfully parsed and passed to detectors",
-    ["symbol"]
+    ["symbol"],
 )
 
 # Tick event-time source distribution (payload vs stream_id vs wall(now))
@@ -575,19 +575,19 @@ tick_event_age_abs_ema_ms_gauge = _get_or_create_prom_gauge(
 signals_published_total = _get_or_create_prom_counter(
     "signals_published_total",
     "Total signals successfully published to all targets (Redis/Telegram/etc)",
-    ["symbol"]
+    ["symbol"],
 )
 
 veto_min_conf_total = _get_or_create_prom_counter(
     "veto_min_conf_total",
     "Total signals vetoed due to confidence < CRYPTO_SIGNAL_MIN_CONF",
-    ["symbol"]
+    ["symbol"],
 )
 
 veto_low_conf_total = _get_or_create_prom_counter(
     "veto_low_conf_total",
     "Total signals vetoed due to confidence < CRYPTO_SIGNAL_LOW_CONF",
-    ["symbol"]
+    ["symbol"],
 )
 
 # Delta-notional gate pass-rate telemetry by session
@@ -606,7 +606,7 @@ dn_how_scale_gauge = Gauge(
 of_hidden_divergence_signal_total = _get_or_create_prom_counter(
     "of_hidden_divergence_signal_total",
     "Total signals where trend direction was confirmed by Hidden Divergence",
-    ["symbol"]
+    ["symbol"],
 )
 
 # ---------------------------------------------------------------------------
@@ -670,7 +670,7 @@ cvd_reclaim_window_ms_gauge = _get_or_create_prom_gauge(
 obi_stability_score_gauge = _get_or_create_prom_gauge(
     'obi_stability_score',
     'Latest OBI stability quality score (0..1) for symbol',
-    ['symbol']
+    ['symbol'],
 )
 
 # --- OF Inputs Version & Missing Fields Metrics ---
@@ -683,19 +683,19 @@ of_inputs_version_total = _get_or_create_prom_counter(
 of_inputs_missing_ofi_total = _get_or_create_prom_counter(
     'of_inputs_missing_ofi_total',
     'Total OF inputs missing OFI fields (v1 or v2 without OFI)',
-    ['symbol']
+    ['symbol'],
 )
 
 of_inputs_missing_fp_total = _get_or_create_prom_counter(
     'of_inputs_missing_fp_total',
     'Total OF inputs missing FP edge fields (v1 or v2 without FP edge)',
-    ['symbol']
+    ['symbol'],
 )
 
 of_inputs_bad_time_total = _get_or_create_prom_counter(
     'of_inputs_bad_time_total',
     'Total OF inputs skipped due to invalid tick_ts_ms (non-deterministic / bad tick time)',
-    ['symbol']
+    ['symbol'],
 )
 
 # --- Pre-publish gates (data quality / regime-session) ---
@@ -716,19 +716,19 @@ ticks_dropped_total = _get_or_create_prom_counter(
 pel_claimed_total = _get_or_create_prom_counter(
     'pel_claimed_total',
     'Total PEL messages claimed by sweeper',
-    ['symbol']
+    ['symbol'],
 )
 
 pel_pending_gauge = _get_or_create_prom_gauge(
     'pel_pending',
     'Current PEL pending count per symbol',
-    ['symbol']
+    ['symbol'],
 )
 
 pel_oldest_idle_ms = _get_or_create_prom_gauge(
     'pel_oldest_idle_ms',
     'Oldest PEL message idle time (ms)',
-    ['symbol']
+    ['symbol'],
 )
 
 # ✅ P0: PEL autoclaim activity (optional sweeper)

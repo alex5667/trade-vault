@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Benchmark engine replay throughput and latency.
 
 Measures real-world performance of OFConfirmEngine.build() on replay inputs.
@@ -7,7 +8,6 @@ Usage:
   python -m tools.bench_replay_throughput --inputs /path/to/inputs.ndjson --out /path/to/bench.json --n 20000
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -60,7 +60,7 @@ def _json_equal(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
 def _load_current_snapshots(conn, kind: str) -> List[Dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            """
+            """,
             SELECT snapshot_json
             FROM atr_policy_snapshots
             WHERE snapshot_kind = %s
@@ -74,11 +74,11 @@ def _load_current_snapshots(conn, kind: str) -> List[Dict[str, Any]]:
 def _load_pending(conn) -> List[Dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            """
+            """,
             SELECT proposal_json
             FROM atr_policy_proposals
             WHERE status = 'SUBMITTED'
-            """
+            """,
         )
         return [dict(r["proposal_json"]) for r in cur.fetchall()]
 
@@ -86,7 +86,7 @@ def _load_pending(conn) -> List[Dict[str, Any]]:
 def _load_decided_not_applied(conn) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            """
+            """,
             WITH last_decision AS (
               SELECT DISTINCT ON (proposal_id)
                      proposal_id, decision_json, ts_ms
@@ -98,7 +98,7 @@ def _load_decided_not_applied(conn) -> List[Tuple[Dict[str, Any], Dict[str, Any]
             JOIN last_decision d
               ON d.proposal_id = p.proposal_id
             WHERE p.status IN ('APPROVED','REVOKE_REQUESTED','REVOKED')
-            """
+            """,
         )
         return [(dict(r["proposal_json"]), dict(r["decision_json"])) for r in cur.fetchall()]
 
@@ -106,7 +106,7 @@ def _load_decided_not_applied(conn) -> List[Tuple[Dict[str, Any], Dict[str, Any]
 def _insert_recovery_event(conn, *, event_type: str, obj: Dict[str, Any], status: str, reason_code: str, payload: Dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             INSERT INTO atr_policy_recovery_events (
               event_type, source, symbol, scenario, regime, risk_horizon_bucket,
               status, reason_code, payload

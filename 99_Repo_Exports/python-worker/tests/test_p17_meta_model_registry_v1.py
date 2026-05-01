@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P1-7 — MetaModelRegistry: shadow-first promotion gate tests.
 
@@ -11,7 +12,6 @@ Verifies:
   7. record_shadow() increments correct tracker
   8. maybe_auto_promote() respects auto_promote=False gate
 """
-from __future__ import annotations
 
 import os
 import sys

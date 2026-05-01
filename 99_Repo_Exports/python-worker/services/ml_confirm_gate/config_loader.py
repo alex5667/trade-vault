@@ -79,10 +79,10 @@ class MLConfirmConfig(BaseModel):
 
 
 def load_config_from_redis(
-    r: redis.Redis
-    champion_key: str
-    challenger_key: str
-    ab_variant: str
+    r: redis.Redis,
+    champion_key: str,
+    challenger_key: str,
+    ab_variant: str,
     hash_fallback_key: str = "cfg:ml_confirm"
 ) -> Tuple[Dict[str, Any], str, str, str]:
     """

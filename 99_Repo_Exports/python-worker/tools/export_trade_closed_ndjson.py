@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 export_trade_closed_ndjson.py
 
@@ -16,7 +17,6 @@ Usage:
   PYTHONPATH=".:.." python tools/export_trade_closed_ndjson.py --since-hours 168 --out /tmp/closed_7d.ndjson
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

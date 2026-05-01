@@ -107,10 +107,10 @@ class Guardrail:
                     return out
                 try:
                     out.append({
-                        "symbol": str(f.get("symbol") or "").upper()
-                        "regime": str(f.get("regime") or "na").lower()
-                        "scenario": str(f.get("scenario") or f.get("decision") or "").lower()
-                        "r_mult": float(f.get("r_mult") or f.get("r_multiple") or 0.0)
+                        "symbol": str(f.get("symbol") or "").upper(),
+                        "regime": str(f.get("regime") or "na").lower(),
+                        "scenario": str(f.get("scenario") or f.get("decision") or "").lower(),
+                        "r_mult": float(f.get("r_mult") or f.get("r_multiple") or 0.0),
                     })
                 except Exception:
                     pass

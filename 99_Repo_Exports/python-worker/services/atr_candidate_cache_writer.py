@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Phase 2.1 — ATR Candidate Cache Writer.
 
@@ -11,7 +12,6 @@ Usage (call from ohlc_aggregator / crypto_htf_aggregator after ATR update):
 
 tf_label values: 15s / 30s / 1m / 3m / 5m / 15m
 """
-from __future__ import annotations
 
 import json
 import logging
@@ -48,10 +48,10 @@ def _redis() -> Optional[object]:
 
 
 def publish_atr_candidate(
-    symbol: str
-    tf_label: str
-    atr_value: float
-    ts_ms: int
+    symbol: str,
+    tf_label: str,
+    atr_value: float,
+    ts_ms: int,
 ) -> bool:
     """
     Write ATR candidate into Redis TA cache after each candle close.
@@ -79,17 +79,17 @@ def publish_atr_candidate(
         if r is None:
             return False
         payload = {
-            "v": 1
-            "symbol": symbol
-            "tf": tf_label
-            "atr": atr_value
-            "ts_ms": ts_ms
+            "v": 1,
+            "symbol": symbol,
+            "tf": tf_label,
+            "atr": atr_value,
+            "ts_ms": ts_ms,
         }
         key = f"ta:last:atr:{symbol}:{tf_label}"
         getattr(r, "set")(
-            key
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-            ex=_TTL_SEC
+            key,
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+            ex=_TTL_SEC,
         )
         return True
     except Exception as exc:

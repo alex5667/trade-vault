@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for common.balance_provider — BalanceProvider.
 
@@ -12,7 +13,6 @@ Coverage:
   - test_mode_direct             BALANCE_PROVIDER_MODE=direct skips Redis, hits REST
   - test_from_ctx                BalanceProvider.from_ctx extracts redis/binance
 """
-from __future__ import annotations
 
 import json
 import os

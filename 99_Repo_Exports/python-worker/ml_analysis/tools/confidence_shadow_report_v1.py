@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Confidence Shadow Report (v1).
 
 Reads the joined dataset JSONL produced by build_edge_stack_dataset_from_redis and evaluates:
@@ -12,7 +13,6 @@ Usage:
   python -m ml_analysis.tools.confidence_shadow_report_v1 --in_jsonl ./edge_train.jsonl
 """
 
-from __future__ import annotations
 
 import argparse
 import json

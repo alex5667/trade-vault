@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Advanced analysis of trades_closed from Postgres/Timescale:
 - managed vs baseline metrics (global and per entry_tag)
@@ -16,7 +17,6 @@ Example:
     --from "2025-12-01" \
     --markdown
 """
-from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
@@ -92,36 +92,36 @@ def parse_ts_arg(val: Optional[str]) -> Optional[int]:
 # Загрузка сделок из Postgres
 # ----------------------------
 def load_trades_from_postgres(
-    dsn: str
-    limit: int
-    table: str = "trades_closed"
-    source_filter: Optional[str] = None
-    symbol_filter: Optional[str] = None
-    from_ts_ms: Optional[int] = None
-    to_ts_ms: Optional[int] = None
+    dsn: str,
+    limit: int,
+    table: str = "trades_closed",
+    source_filter: Optional[str] = None,
+    symbol_filter: Optional[str] = None,
+    from_ts_ms: Optional[int] = None,
+    to_ts_ms: Optional[int] = None,
 ) -> List[Trade]:
     conn = psycopg2.connect(dsn)
     try:
         cur = conn.cursor()
 
         cols = """
-            source
-            symbol
-            exit_ts_ms
-            pnl_net
-            pnl_if_fixed_exit
-            one_r_money
-            giveback
-            missed_profit
-            mfe_pnl
-            mae_pnl
-            trailing_started
-            trailing_active
-            close_reason
-            close_reason_raw
-            close_reason_detail
-            entry_tag
-            strategy
+            source,
+            symbol,
+            exit_ts_ms,
+            pnl_net,
+            pnl_if_fixed_exit,
+            one_r_money,
+            giveback,
+            missed_profit,
+            mfe_pnl,
+            mae_pnl,
+            trailing_started,
+            trailing_active,
+            close_reason,
+            close_reason_raw,
+            close_reason_detail,
+            entry_tag,
+            strategy,
         """
 
         sql = f"SELECT {cols} FROM {table}"
@@ -155,44 +155,44 @@ def load_trades_from_postgres(
     trades: List[Trade] = []
     for row in rows:
         (
-            source
-            symbol
-            exit_ts_ms
-            pnl_net
-            pnl_if_fixed_exit
-            one_r_money
-            giveback
-            missed_profit
-            mfe_pnl
-            mae_pnl
-            trailing_started
-            trailing_active
-            close_reason
-            close_reason_raw
-            close_reason_detail
-            entry_tag
-            strategy
+            source,
+            symbol,
+            exit_ts_ms,
+            pnl_net,
+            pnl_if_fixed_exit,
+            one_r_money,
+            giveback,
+            missed_profit,
+            mfe_pnl,
+            mae_pnl,
+            trailing_started,
+            trailing_active,
+            close_reason,
+            close_reason_raw,
+            close_reason_detail,
+            entry_tag,
+            strategy,
         ) = row
 
         trades.append(
             Trade(
-                source=source or "Unknown"
-                symbol=symbol or "UNKNOWN"
-                exit_ts_ms=_to_int(exit_ts_ms)
-                pnl_net=_to_float(pnl_net)
-                pnl_if_fixed_exit=_to_float(pnl_if_fixed_exit)
-                one_r_money=_to_float(one_r_money)
-                giveback=_to_float(giveback)
-                missed_profit=_to_float(missed_profit)
-                mfe_pnl=_to_float(mfe_pnl)
-                mae_pnl=_to_float(mae_pnl)
-                trailing_started=_to_bool(trailing_started)
-                trailing_active=_to_bool(trailing_active)
-                close_reason=close_reason or ""
-                close_reason_raw=close_reason_raw or ""
-                close_reason_detail=close_reason_detail or ""
-                entry_tag=entry_tag or ""
-                strategy=strategy or ""
+                source=source or "Unknown",
+                symbol=symbol or "UNKNOWN",
+                exit_ts_ms=_to_int(exit_ts_ms),
+                pnl_net=_to_float(pnl_net),
+                pnl_if_fixed_exit=_to_float(pnl_if_fixed_exit),
+                one_r_money=_to_float(one_r_money),
+                giveback=_to_float(giveback),
+                missed_profit=_to_float(missed_profit),
+                mfe_pnl=_to_float(mfe_pnl),
+                mae_pnl=_to_float(mae_pnl),
+                trailing_started=_to_bool(trailing_started),
+                trailing_active=_to_bool(trailing_active),
+                close_reason=close_reason or "",
+                close_reason_raw=close_reason_raw or "",
+                close_reason_detail=close_reason_detail or "",
+                entry_tag=entry_tag or "",
+                strategy=strategy or "",
             )
         )
 
@@ -273,8 +273,8 @@ def render_global_report(label: str, stats: TagStats) -> str:
 
 
 def render_entry_tag_report(
-    stats_by_tag: Dict[str, TagStats]
-    min_trades: int = 5
+    stats_by_tag: Dict[str, TagStats],
+    min_trades: int = 5,
 ) -> str:
     lines: List[str] = []
     lines.append(f"=== Entry-tag metrics (n >= {min_trades}) ===")
@@ -329,8 +329,8 @@ class GroupBucket:
 
 
 def build_groups(
-    trades: List[Trade]
-    group_by: str
+    trades: List[Trade],
+    group_by: str,
 ) -> Dict[str, GroupBucket]:
     """
     group_by:
@@ -358,9 +358,9 @@ def build_groups(
         gb = groups.get(key)
         if gb is None:
             gb = GroupBucket(
-                label=label
-                global_stats=TagStats(tag="__ALL__")
-                by_tag={}
+                label=label,
+                global_stats=TagStats(tag="__ALL__"),
+                by_tag={},
             )
             groups[key] = gb
 
@@ -383,9 +383,9 @@ def main() -> None:
         description="Advanced analysis of trades_closed from Postgres (managed vs baseline, per entry_tag, grouping, time filters)."
     )
     parser.add_argument(
-        "--dsn"
-        required=True
-        help="Postgres DSN, e.g. postgres://user:pass@localhost:5432/scanner_analytics"
+        "--dsn",
+        required=True,
+        help="Postgres DSN, e.g. postgres://user:pass@localhost:5432/scanner_analytics",
     )
     parser.add_argument("--table", default="trades_closed")
     parser.add_argument("--limit", type=int, default=1000)
@@ -393,36 +393,36 @@ def main() -> None:
     parser.add_argument("--symbol", default=None)
 
     parser.add_argument(
-        "--from"
-        dest="from_ts"
-        default=None
-        help="Lower bound for exit_ts_ms (inclusive). Either ms since epoch or date 'YYYY-MM-DD' / ISO."
+        "--from",
+        dest="from_ts",
+        default=None,
+        help="Lower bound for exit_ts_ms (inclusive). Either ms since epoch or date 'YYYY-MM-DD' / ISO.",
     )
     parser.add_argument(
-        "--to"
-        dest="to_ts"
-        default=None
-        help="Upper bound for exit_ts_ms (inclusive). Either ms since epoch or date 'YYYY-MM-DD' / ISO."
-    )
-
-    parser.add_argument(
-        "--group-by"
-        choices=["none", "source_symbol", "strategy"]
-        default="none"
-        help="Grouping mode: none (one bucket), source_symbol, strategy."
+        "--to",
+        dest="to_ts",
+        default=None,
+        help="Upper bound for exit_ts_ms (inclusive). Either ms since epoch or date 'YYYY-MM-DD' / ISO.",
     )
 
     parser.add_argument(
-        "--min-trades-per-tag"
-        type=int
-        default=5
-        help="Minimal trades per entry_tag to show in tag-table."
+        "--group-by",
+        choices=["none", "source_symbol", "strategy"],
+        default="none",
+        help="Grouping mode: none (one bucket), source_symbol, strategy.",
     )
 
     parser.add_argument(
-        "--markdown"
-        action="store_true"
-        help="Wrap output into ``` for Telegram Markdown."
+        "--min-trades-per-tag",
+        type=int,
+        default=5,
+        help="Minimal trades per entry_tag to show in tag-table.",
+    )
+
+    parser.add_argument(
+        "--markdown",
+        action="store_true",
+        help="Wrap output into ``` for Telegram Markdown.",
     )
 
     args = parser.parse_args()
@@ -431,13 +431,13 @@ def main() -> None:
     to_ts_ms = parse_ts_arg(args.to_ts) if args.to_ts else None
 
     trades = load_trades_from_postgres(
-        dsn=args.dsn
-        limit=args.limit
-        table=args.table
-        source_filter=args.source
-        symbol_filter=args.symbol
-        from_ts_ms=from_ts_ms
-        to_ts_ms=to_ts_ms
+        dsn=args.dsn,
+        limit=args.limit,
+        table=args.table,
+        source_filter=args.source,
+        symbol_filter=args.symbol,
+        from_ts_ms=from_ts_ms,
+        to_ts_ms=to_ts_ms,
     )
 
     if not trades:

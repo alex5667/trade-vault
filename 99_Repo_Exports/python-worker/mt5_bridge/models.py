@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 MT5 Bridge Models
 
 Модели данных для MT5-моста - упрощенные версии для исполнения сигналов.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -89,22 +89,22 @@ def plan_from_dict(data: dict) -> Mt5ExecutionPlan:
 
     Формат данных:
     {
-        "signal_id": "XAU_2025-12-15_12:34:56"
-        "symbol": "XAUUSD"
-        "setup_type": "volatility_spike"
-        "side": "long"
-        "ts_signal": "2025-12-15T12:34:56.123456+00:00"
-        "price_at_signal": 2615.3
-        "entry_zone_low": 2610.0
-        "entry_zone_high": 2616.0
-        "stop_price": 2600.0
-        "tp_levels": [2625.0, 2640.0]
-        "partials": [0.5, 0.5]
-        "pos_risk_R": 1.0
-        "risk_usd": 100.0
+        "signal_id": "XAU_2025-12-15_12:34:56",
+        "symbol": ""
+        "setup_type": "volatility_spike",
+        "side": "long",
+        "ts_signal": "2025-12-15T12:34:56.123456+00:00",
+        "price_at_signal": 2615.3,
+        "entry_zone_low": 2610.0,
+        "entry_zone_high": 2616.0,
+        "stop_price": 2600.0,
+        "tp_levels": [2625.0, 2640.0],
+        "partials": [0.5, 0.5],
+        "pos_risk_R": 1.0,
+        "risk_usd": 100.0,
         "position_size": 0.2,  # в лотах
-        "expiry_bars": 3
-        "created_at": "2025-12-15T12:34:56.123456+00:00"
+        "expiry_bars": 3,
+        "created_at": "2025-12-15T12:34:56.123456+00:00",
         "meta": {}
     }
     """
@@ -120,18 +120,18 @@ def plan_from_dict(data: dict) -> Mt5ExecutionPlan:
         return dt
 
     return Mt5ExecutionPlan(
-        signal_id=data["signal_id"]
-        symbol=data["symbol"]
-        side=data["side"]
-        ts_signal=parse_dt(data["ts_signal"])
-        price_at_signal=float(data["price_at_signal"])
-        entry_zone_low=float(data["entry_zone_low"])
-        entry_zone_high=float(data["entry_zone_high"])
-        stop_price=float(data["stop_price"])
-        tp_levels=[float(x) for x in data.get("tp_levels", [])]
-        partials=[float(x) for x in data.get("partials", [])] or [1.0]
-        risk_usd=float(data["risk_usd"])
-        position_size_lots=float(data["position_size"])
-        expiry_bars=int(data.get("expiry_bars", 3))
-        created_at=parse_dt(data["created_at"])
+        signal_id=data["signal_id"],
+        symbol=data["symbol"],
+        side=data["side"],
+        ts_signal=parse_dt(data["ts_signal"]),
+        price_at_signal=float(data["price_at_signal"]),
+        entry_zone_low=float(data["entry_zone_low"]),
+        entry_zone_high=float(data["entry_zone_high"]),
+        stop_price=float(data["stop_price"]),
+        tp_levels=[float(x) for x in data.get("tp_levels", [])],
+        partials=[float(x) for x in data.get("partials", [])] or [1.0],
+        risk_usd=float(data["risk_usd"]),
+        position_size_lots=float(data["position_size"]),
+        expiry_bars=int(data.get("expiry_bars", 3)),
+        created_at=parse_dt(data["created_at"]),
     )

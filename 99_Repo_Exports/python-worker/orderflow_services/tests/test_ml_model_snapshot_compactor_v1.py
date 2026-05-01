@@ -13,7 +13,7 @@ def test_classify_status_critical_on_missing_artifact_and_errors():
         missing_critical_rate_max=0.0,
         latency_p95_max_ms=1.0,
         artifact_exists=False,
-    )
+    ),
     assert status == "critical"
     assert "ARTIFACT_MISSING" in reasons
     assert "ERROR_RATE_CRIT" in reasons
@@ -37,7 +37,7 @@ def test_build_snapshot_aggregates_runtime_rows_and_reasons():
         mode="SHADOW",
         fail_policy="OPEN",
         cfg_source="redis_json",
-    )
+    ),
     rows = [
         RuntimeRow(
             ts_ms=1_000,

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Telegram Reporter Extended - Расширенные отчёты с графиками в Telegram.
 
@@ -12,7 +13,6 @@ Telegram Reporter Extended - Расширенные отчёты с график
 - notify-worker должен поддерживать photo_path
 """
 
-from __future__ import annotations
 import os
 import time
 from typing import Dict, List, Any, Optional
@@ -74,13 +74,13 @@ class TelegramReporterExt:
             text = f"<b>{title}</b>\n" + "\n".join(lines)
 
             self.r.xadd(
-                self.stream
+                self.stream,
                 {
-                    "group_id": group_id
-                    "text": text
+                    "group_id": group_id,
+                    "text": text,
                     "parse_mode": "HTML"
-                }
-                maxlen=50000
+                },
+                maxlen=50000,
                 approximate=True
             )
 
@@ -104,15 +104,15 @@ class TelegramReporterExt:
         """
         try:
             self.r.xadd(
-                self.stream
+                self.stream,
                 {
-                    "group_id": group_id
-                    "photo_path": photo_path
+                    "group_id": group_id,
+                    "photo_path": photo_path,
                     "text": caption, # notify-worker expects 'text' or 'message'
                     "caption": caption, # also keep caption for standard Telegram API compatibility
                     "parse_mode": "HTML"
-                }
-                maxlen=2000
+                },
+                maxlen=2000,
                 approximate=True
             )
 
@@ -120,12 +120,12 @@ class TelegramReporterExt:
             self.logger.error(f"❌ Ошибка отправки фото: {e}")
 
     def send_roc_report(
-        self
-        *
-        strategy: str
-        symbol: str
-        roc_points: List[Dict[str, Any]]
-        auc: float
+        self,
+        *,
+        strategy: str,
+        symbol: str,
+        roc_points: List[Dict[str, Any]],
+        auc: float,
         summary: Dict[str, Any]
     ):
         """
@@ -143,12 +143,12 @@ class TelegramReporterExt:
 
             # 1) Текстовая сводка
             lines = [
-                f"<b>Strategy:</b> <code>{strategy}</code>"
-                f"<b>Symbol:</b> {symbol}"
-                f"<b>AUC:</b> {auc:.3f}"
-                f"<b>Best threshold:</b> {summary.get('thr', 0):.2f}"
-                f"<b>Youden J:</b> {summary.get('youdenJ', 0):.3f}"
-                f"<b>F1-score:</b> {summary.get('f1_at_thr', 0):.3f}"
+                f"<b>Strategy:</b> <code>{strategy}</code>",
+                f"<b>Symbol:</b> {symbol}",
+                f"<b>AUC:</b> {auc:.3f}",
+                f"<b>Best threshold:</b> {summary.get('thr', 0):.2f}",
+                f"<b>Youden J:</b> {summary.get('youdenJ', 0):.3f}",
+                f"<b>F1-score:</b> {summary.get('f1_at_thr', 0):.3f}",
                 f"<b>Support:</b> {summary.get('support', 0)} сделок"
             ]
 
@@ -178,8 +178,8 @@ class TelegramReporterExt:
 
                     # Отправляем
                     self._push_photo(
-                        gid
-                        f"ROC Curve: {strategy}/{symbol}"
+                        gid,
+                        f"ROC Curve: {strategy}/{symbol}",
                         out_path
                     )
 
@@ -194,14 +194,14 @@ class TelegramReporterExt:
             self.logger.error(f"❌ Ошибка отправки ROC отчёта: {e}", exc_info=True)
 
     def send_confusion_matrix_report(
-        self
-        *
-        strategy: str
-        symbol: str
-        tp: int
-        fp: int
-        tn: int
-        fn: int
+        self,
+        *,
+        strategy: str,
+        symbol: str,
+        tp: int,
+        fp: int,
+        tn: int,
+        fn: int,
         threshold: float
     ):
         """
@@ -224,18 +224,18 @@ class TelegramReporterExt:
 
             # Текстовый отчёт
             lines = [
-                f"<b>Strategy:</b> <code>{strategy}</code>"
-                f"<b>Symbol:</b> {symbol}"
-                f"<b>Threshold:</b> {threshold:.2f}"
-                ""
-                "<b>Confusion Matrix:</b>"
-                f"  TP: {tp}  |  FP: {fp}"
-                f"  FN: {fn}  |  TN: {tn}"
-                ""
-                "<b>Metrics:</b>"
-                f"  Precision: {precision:.1%}"
-                f"  Recall: {recall:.1%}"
-                f"  F1-score: {f1:.3f}"
+                f"<b>Strategy:</b> <code>{strategy}</code>",
+                f"<b>Symbol:</b> {symbol}",
+                f"<b>Threshold:</b> {threshold:.2f}",
+                "",
+                "<b>Confusion Matrix:</b>",
+                f"  TP: {tp}  |  FP: {fp}",
+                f"  FN: {fn}  |  TN: {tn}",
+                "",
+                "<b>Metrics:</b>",
+                f"  Precision: {precision:.1%}",
+                f"  Recall: {recall:.1%}",
+                f"  F1-score: {f1:.3f}",
                 f"  Accuracy: {accuracy:.1%}"
             ]
 
@@ -271,8 +271,8 @@ class TelegramReporterExt:
 
                     # Отправляем
                     self._push_photo(
-                        gid
-                        f"Confusion Matrix: {strategy}/{symbol}"
+                        gid,
+                        f"Confusion Matrix: {strategy}/{symbol}",
                         out_path
                     )
 

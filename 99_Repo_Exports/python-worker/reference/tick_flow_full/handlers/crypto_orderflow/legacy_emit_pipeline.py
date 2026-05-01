@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Legacy candidate emission pipeline (Step 2.1) — CONTRACTED VERSION
 
@@ -11,16 +12,15 @@ Legacy candidate emission pipeline (Step 2.1) — CONTRACTED VERSION
 
 Цели:
   - разрезать _emit_candidate_signal() на явный pipeline стадий
-  - минимизировать риск регрессий: бизнес-логика остаётся в handler._legacy_*
+  - минимизировать риск регрессий: бизнес-логика остаётся в handler._legacy_*,
     в этом модуле только оркестрация и fail-open оболочка
 
 Важно:
   - В legacy-contract режиме источник кандидата — scored.candidate (ОДИН кандидат на вызов).
-  - Pipeline сохраняет гарантию: fail-open (никогда не бросает наружу), idempotent (dedup=True)
+  - Pipeline сохраняет гарантию: fail-open (никогда не бросает наружу), idempotent (dedup=True),
     and "signals_veto{reason}" исходит именно из ConfirmationsEngine.validate().
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -80,13 +80,13 @@ class ContextEnricher:
     def run(self, handler: Any, *, ctx: Any, scored: Any, cand: Any, pre: Dict[str, Any]) -> CandidateFrame:
         info = handler._legacy_parse_candidate(cand=cand)
         frame = CandidateFrame(
-            ctx=ctx
-            scored=scored
-            cand=cand
-            kind_str=info["kind_str"]
-            kind_key=info["kind_key"]
-            side_int=info["side_int"]
-            side_raw=info["side_raw"]
+            ctx=ctx,
+            scored=scored,
+            cand=cand,
+            kind_str=info["kind_str"],
+            kind_key=info["kind_key"],
+            side_int=info["side_int"],
+            side_raw=info["side_raw"],
         )
         frame.level_price = handler._legacy_parse_level_price(cand=cand)
 

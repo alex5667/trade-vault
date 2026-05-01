@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly meta ENFORCE proposal with safety gates.
 
 Offline pipeline:
@@ -15,7 +16,6 @@ Usage:
   (reads ENV vars for streams, paths, thresholds)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

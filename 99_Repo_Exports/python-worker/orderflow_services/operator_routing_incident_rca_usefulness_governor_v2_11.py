@@ -108,7 +108,7 @@ class GovernorRepo:
         with psycopg.connect(self.database_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    """,
                     SELECT
                         task_type,
                         prompt_version,
@@ -134,7 +134,7 @@ class GovernorRepo:
                         }
                     )
                 cur.execute(
-                    """
+                    """,
                     SELECT
                         provider,
                         model_name,
@@ -189,7 +189,7 @@ class GovernorRepo:
             with conn.cursor() as cur:
                 for d in decisions:
                     cur.execute(
-                        """
+                        """,
                         INSERT INTO llm_operator_routing_incident_rca_governor_decisions (
                             scope_type,
                             scope_key,

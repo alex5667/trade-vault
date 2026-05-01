@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OF-Gate DLQ -> PostgreSQL/Timescale archiver (P83 optional).
 
 Goal
@@ -20,7 +21,6 @@ Usage
   python -m orderflow_services.of_gate_dlq_archive_to_db_v1 --tail 200000 --no-checkpoint
 """
 
-from __future__ import annotations
 
 import argparse
 import datetime as dt
@@ -161,7 +161,7 @@ class PgWriter:
           stream, dlq_id, ts_ms, ts,
           src_stream, src_stream_id, err,
           dq_code, reason_code, schema_version,
-          payload_json
+          payload_json,
         ) VALUES %s
         ON CONFLICT (stream, dlq_id) DO NOTHING
         """

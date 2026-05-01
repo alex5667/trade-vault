@@ -1,3 +1,4 @@
+from __future__ import annotations
 """A8 — Smoke-check for new derived microstructure features.
 
 Goal
@@ -26,7 +27,6 @@ Exit code
 The script always prints a single JSON line to stdout for the timer worker.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -43,14 +43,14 @@ import redis
 
 KEY_FIELDS: Tuple[str, ...] = (
     # A8 gauges / stream fields
-    "depth_total_10"
-    "gini_depth_10"
-    "vwap_roll_diff_bps"
-    "price_momentum_bps"
-    "realized_vol_bps"
-    "pressure_per_min"
-    "liquidity_pressure"
-    "info_flow"
+    "depth_total_10",
+    "gini_depth_10",
+    "vwap_roll_diff_bps",
+    "price_momentum_bps",
+    "realized_vol_bps",
+    "pressure_per_min",
+    "liquidity_pressure",
+    "info_flow",
 )
 
 
@@ -106,11 +106,11 @@ class RecentRow:
 
 
 def _read_recent_rows(
-    r: redis.Redis
-    stream: str
-    *
-    recent_s: int
-    limit: int
+    r: redis.Redis,
+    stream: str,
+    *,
+    recent_s: int,
+    limit: int,
 ) -> Tuple[List[RecentRow], Dict[str, Any]]:
     """Read tail of a Redis stream and keep only rows within `recent_s` window."""
 
@@ -136,12 +136,12 @@ def _read_recent_rows(
             recent.append(RecentRow(ts_ms=ts, data=fields))
 
     meta = {
-        "now_ms": now_ms
-        "cutoff_ms": cutoff
-        "n_total": n_total
-        "n_recent": len(recent)
-        "max_ts_ms": max_ts_ms
-        "age_ms": (now_ms - max_ts_ms) if max_ts_ms > 0 else None
+        "now_ms": now_ms,
+        "cutoff_ms": cutoff,
+        "n_total": n_total,
+        "n_recent": len(recent),
+        "max_ts_ms": max_ts_ms,
+        "age_ms": (now_ms - max_ts_ms) if max_ts_ms > 0 else None,
     }
     return recent, meta
 
@@ -168,10 +168,10 @@ def _compute_nan_rate(rows: Iterable[RecentRow]) -> Tuple[float, int, int, Dict[
 
 
 def _compute_realized_vol_stuck(
-    rows: Iterable[RecentRow]
-    *
-    min_ready: int
-    eps_bps: float
+    rows: Iterable[RecentRow],
+    *,
+    min_ready: int,
+    eps_bps: float,
 ) -> Tuple[bool, Dict[str, Any]]:
     """Return (stuck, details)."""
 
@@ -202,10 +202,10 @@ def _compute_realized_vol_stuck(
 
     stuck = (ready >= int(min_ready)) and (max_abs <= float(eps_bps))
     details = {
-        "rv_ready": ready
-        "rv_seen": n_seen
-        "rv_eps_bps": float(eps_bps)
-        "rv_max_abs_bps": float(max_abs)
+        "rv_ready": ready,
+        "rv_seen": n_seen,
+        "rv_eps_bps": float(eps_bps),
+        "rv_max_abs_bps": float(max_abs),
     }
     return stuck, details
 
@@ -260,12 +260,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = ap.parse_args(argv)
 
     out: Dict[str, Any] = {
-        "ts_ms": _now_ms()
-        "stream": args.stream
-        "out_stream": args.out_stream
-        "recent_s": int(args.recent_s)
-        "limit": int(args.limit)
-        "key_fields": list(KEY_FIELDS)
+        "ts_ms": _now_ms(),
+        "stream": args.stream,
+        "out_stream": args.out_stream,
+        "recent_s": int(args.recent_s),
+        "limit": int(args.limit),
+        "key_fields": list(KEY_FIELDS),
     }
 
     alert = False
@@ -287,10 +287,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             nan_rate, bad_slots, total_slots, per_key_bad = _compute_nan_rate(rows)
             out.update(
                 {
-                    "nan_rate": float(nan_rate)
-                    "nan_bad_slots": int(bad_slots)
-                    "nan_total_slots": int(total_slots)
-                    "nan_per_key_bad": per_key_bad
+                    "nan_rate": float(nan_rate),
+                    "nan_bad_slots": int(bad_slots),
+                    "nan_total_slots": int(total_slots),
+                    "nan_per_key_bad": per_key_bad,
                 }
             )
             if float(nan_rate) > float(args.nan_rate_max):
@@ -298,9 +298,9 @@ def main(argv: Optional[List[str]] = None) -> None:
                 issues.append(f"nan_rate>{args.nan_rate_max}")
 
             stuck_rv, rv_details = _compute_realized_vol_stuck(
-                rows
-                min_ready=args.rv_min_ready
-                eps_bps=args.rv_eps_bps
+                rows,
+                min_ready=args.rv_min_ready,
+                eps_bps=args.rv_eps_bps,
             )
             out.update(rv_details)
             out["stuck_realized_vol"] = bool(stuck_rv)
@@ -328,10 +328,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         # Emit a small event for dashboards / alerting / forensics.
         try:
             r.xadd(
-                args.out_stream
-                {k: json.dumps(v) if isinstance(v, (dict, list)) else _as_str(v) for k, v in out.items()}
-                maxlen=int(args.maxlen)
-                approximate=True
+                args.out_stream,
+                {k: json.dumps(v) if isinstance(v, (dict, list)) else _as_str(v) for k, v in out.items()},
+                maxlen=int(args.maxlen),
+                approximate=True,
             )
         except Exception:
             # never fail the smoke-check due to the out-stream

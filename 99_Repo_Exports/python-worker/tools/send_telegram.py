@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Tiny Telegram sender (no external deps).
 Env:
   TG_BOT_TOKEN
   TG_CHAT_ID
 """
-from __future__ import annotations
 import json
 import os
 import urllib.request

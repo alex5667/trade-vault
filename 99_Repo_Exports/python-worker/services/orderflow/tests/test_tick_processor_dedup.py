@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for tick dedup logic: _compute_tick_uid + TickDeduper.
 
@@ -9,7 +10,6 @@ P1 contract under test:
   - Same no-trade-id msg_id twice → duplicate
   - Different msg_id, same content → NOT duplicate (stream_id-aware)
 """
-from __future__ import annotations
 
 import unittest
 
@@ -24,40 +24,40 @@ class TestComputeTickUid(unittest.TestCase):
     def test_trade_id_priority(self):
         """trade_id produces {SYMBOL}:{trade_id} — highest priority."""
         uid = _compute_tick_uid(
-            symbol="BTCUSDT"
-            trade_id=12345
-            ts_ms=NOW_MS
-            price_src="50000"
-            qty_src="0.1"
-            side="BUY"
-            is_buyer_maker=False
+            symbol="BTCUSDT",
+            trade_id=12345,
+            ts_ms=NOW_MS,
+            price_src="50000",
+            qty_src="0.1",
+            side="BUY",
+            is_buyer_maker=False,
         )
         self.assertEqual(uid, "BTCUSDT:12345")
 
     def test_stream_id_fallback_when_no_trade_id(self):
         """No trade_id but stream_id → {SYMBOL}:mid{stream_id}."""
         uid = _compute_tick_uid(
-            symbol="BTCUSDT"
-            trade_id=None
-            ts_ms=NOW_MS
-            price_src="50000"
-            qty_src="0.1"
-            side="BUY"
-            is_buyer_maker=False
-            stream_id="1700000100000-0"
+            symbol="BTCUSDT",
+            trade_id=None,
+            ts_ms=NOW_MS,
+            price_src="50000",
+            qty_src="0.1",
+            side="BUY",
+            is_buyer_maker=False,
+            stream_id="1700000100000-0",
         )
         self.assertEqual(uid, "BTCUSDT:mid1700000100000-0")
 
     def test_content_hash_when_no_trade_id_no_stream_id(self):
         """No trade_id, no stream_id → hash fallback {SYMBOL}:h{hex}."""
         uid = _compute_tick_uid(
-            symbol="ETHUSDT"
-            trade_id=None
-            ts_ms=NOW_MS
-            price_src="2500"
-            qty_src="0.05"
-            side="SELL"
-            is_buyer_maker=True
+            symbol="ETHUSDT",
+            trade_id=None,
+            ts_ms=NOW_MS,
+            price_src="2500",
+            qty_src="0.05",
+            side="SELL",
+            is_buyer_maker=True,
         )
         self.assertTrue(uid.startswith("ETHUSDT:h"), f"Got: {uid!r}")
         self.assertEqual(len(uid), len("ETHUSDT:h") + 8)
@@ -65,57 +65,57 @@ class TestComputeTickUid(unittest.TestCase):
     def test_same_trade_id_produces_same_uid(self):
         """Deterministic: same trade_id always yields same uid."""
         a = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=99, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
+            symbol="BTCUSDT", trade_id=99, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
         )
         b = _compute_tick_uid(
             symbol="BTCUSDT", trade_id=99, ts_ms=NOW_MS + 1000,  # ts doesn't matter
-            price_src="99999", qty_src="0.9", side="SELL", is_buyer_maker=True
+            price_src="99999", qty_src="0.9", side="SELL", is_buyer_maker=True,
         )
         self.assertEqual(a, b)
 
     def test_different_stream_id_different_uid(self):
         """Different Redis msg_id → different uid (no false dedup)."""
         uid1 = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
-            stream_id="1700000100000-0"
+            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
+            stream_id="1700000100000-0",
         )
         uid2 = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
-            stream_id="1700000100001-0"
+            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
+            stream_id="1700000100001-0",
         )
         self.assertNotEqual(uid1, uid2)
 
     def test_same_stream_id_same_uid_stable_for_pel(self):
         """Same Redis msg_id (PEL reclaim) → same uid → dedup fires correctly."""
         uid1 = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
-            stream_id="1700000100000-0"
+            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
+            stream_id="1700000100000-0",
         )
         uid2 = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
-            stream_id="1700000100000-0"
+            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
+            stream_id="1700000100000-0",
         )
         self.assertEqual(uid1, uid2)
 
     def test_trade_id_zero_falls_to_stream_id(self):
         """trade_id=0 is not valid → falls back to stream_id."""
         uid = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=0, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
-            stream_id="1700000100000-3"
+            symbol="BTCUSDT", trade_id=0, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
+            stream_id="1700000100000-3",
         )
         self.assertEqual(uid, "BTCUSDT:mid1700000100000-3")
 
     def test_empty_symbol_fallback(self):
         """Empty symbol returns safe fallback uid."""
         uid = _compute_tick_uid(
-            symbol="", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
+            symbol="", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
         )
         self.assertTrue(uid.startswith("UNKNOWN:") or uid == "UNKNOWN:h00000000")
 
@@ -166,9 +166,9 @@ class TestDedupEndToEndStream(unittest.TestCase):
         """Simulates PEL re-delivery: same msg_id produces same uid → dedup fires."""
         dedup = TickDeduper(max_items=1000, max_age_ms=60_000)
         uid = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
-            stream_id="1700000100000-0"
+            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
+            stream_id="1700000100000-0",
         )
         first = dedup.seen(uid, NOW_MS)
         second = dedup.seen(uid, NOW_MS + 10)
@@ -179,13 +179,13 @@ class TestDedupEndToEndStream(unittest.TestCase):
         """Different Redis msg_id → different uid → not a duplicate."""
         dedup = TickDeduper(max_items=1000, max_age_ms=60_000)
         uid1 = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
-            stream_id="1700000100000-0"
+            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
+            stream_id="1700000100000-0",
         )
         uid2 = _compute_tick_uid(
-            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS
-            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False
+            symbol="BTCUSDT", trade_id=None, ts_ms=NOW_MS,
+            price_src="50000", qty_src="0.1", side="BUY", is_buyer_maker=False,
             stream_id="1700000100002-0",  # different msg
         )
         self.assertFalse(dedup.seen(uid1, NOW_MS))

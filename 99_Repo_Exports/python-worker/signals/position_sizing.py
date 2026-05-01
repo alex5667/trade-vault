@@ -57,7 +57,7 @@ def suggest_lot(price: float, atr: float, deposit: float = None,
     risk_usd = _deposit * (_risk_pct / 100.0)
     
     # Потеря на 1 лот при движении на 1 ATR
-    # Для XAUUSD: 1 лот = 100 oz, 1$ движения = 100$ P/L
+    # Для : 1 лот = 100 oz, 1$ движения = 100$ P/L
     loss_per_lot = atr * CONTRACT
     
     # Новая логика (Fixed Notional): Размер лота зависит только от размера Депозита, Риска и Плеча.

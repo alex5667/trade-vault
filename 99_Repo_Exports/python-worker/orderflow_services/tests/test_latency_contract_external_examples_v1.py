@@ -1,5 +1,5 @@
-"""Tests that external example adapters (Go/TypeScript) exist and contain expected identifiers."""
 from __future__ import annotations
+"""Tests that external example adapters (Go/TypeScript) exist and contain expected identifiers."""
 
 import os
 import sys

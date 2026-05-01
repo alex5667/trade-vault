@@ -1,5 +1,5 @@
-"""Tests that grafana/latency_contract_v1.json is valid JSON and has expected panels."""
 from __future__ import annotations
+"""Tests that grafana/latency_contract_v1.json is valid JSON and has expected panels."""
 
 import json
 import os

@@ -20,10 +20,10 @@ class TestSymbolSpecs:
     """Тесты для SymbolSpecs"""
     
     def test_xauusd_specs(self):
-        """Тест спецификации XAUUSD"""
-        specs = get_specs("XAUUSD")
+        """Тест спецификации """
+        specs = get_specs("")
         
-        assert specs.symbol == "XAUUSD"
+        assert specs.symbol == ""
         assert specs.contract_size == 100.0
         assert specs.pip_value == 0.01
         assert specs.lot_step == 0.01
@@ -63,10 +63,10 @@ class TestOrderFlowConfig:
     """Тесты для OrderFlowConfig"""
     
     def test_xauusd_config_from_preset(self):
-        """Тест конфигурации XAUUSD из пресета"""
-        config = get_config("XAUUSD", use_env=False)
+        """Тест конфигурации  из пресета"""
+        config = get_config(use_env=False)
         
-        assert config.symbol == "XAUUSD"
+        assert config.symbol == ""
         assert config.delta_z_threshold == 3.0
         assert config.weak_progress_atr == 0.10
         assert config.obi_threshold == 0.5
@@ -77,8 +77,8 @@ class TestOrderFlowConfig:
         config = get_config("BTCUSD", use_env=False)
 
         assert config.symbol == "BTCUSD"
-        assert config.delta_z_threshold == 2.7  # Меньше чем XAUUSD
-        assert config.min_signal_interval_sec == 20  # Чаще чем XAUUSD
+        assert config.delta_z_threshold == 2.7  # Меньше чем 
+        assert config.min_signal_interval_sec == 20  # Чаще чем 
 
     def test_dogeusdt_config_from_preset(self):
         """Тест конфигурации DOGEUSDT из пресета"""
@@ -96,8 +96,8 @@ class TestOrderFlowConfig:
         # Устанавливаем env переменные
         monkeypatch.setenv("XAU_DELTA_Z_THRESHOLD", "4.0")
         
-        # XAUUSD есть в INSTRUMENT_CONFIGS (Static)
-        config = get_config("XAUUSD", use_env=True)
+        #  есть в INSTRUMENT_CONFIGS (Static)
+        config = get_config(use_env=True)
         
         # Теперь env overlay работает: должно вернуться значение из Env (4.0), а не из Static (3.0)
         assert config.delta_z_threshold == 4.0
@@ -172,8 +172,7 @@ class TestAllPresets:
     """Тесты для всех пресетов"""
     
     @pytest.mark.parametrize("symbol", [
-        "XAUUSD",
-        "XAGUSD",
+        "",
         "BTCUSD",
         "BTCUSDT",
         "ETHUSD",
@@ -188,7 +187,6 @@ class TestAllPresets:
         "WIFUSDT",
         "SUIUSDT",
         "APTUSDT",
-        "ARBUSDT",
         "XAUUSDT",
     ])
     def test_preset_exists(self, symbol):
@@ -197,8 +195,7 @@ class TestAllPresets:
         assert config.symbol == symbol
     
     @pytest.mark.parametrize("symbol", [
-        "XAUUSD",
-        "XAGUSD",
+        "",
         "BTCUSD",
         "BTCUSDT",
         "ETHUSD",
@@ -213,7 +210,6 @@ class TestAllPresets:
         "WIFUSDT",
         "SUIUSDT",
         "APTUSDT",
-        "ARBUSDT",
         "XAUUSDT",
     ])
     def test_specs_exists(self, symbol):

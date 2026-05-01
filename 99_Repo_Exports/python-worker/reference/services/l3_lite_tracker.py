@@ -41,28 +41,28 @@ class L3LiteTracker:
     """
 
     __slots__ = (
-        "alpha"
-        "eps"
-        "min_dt_ms"
-        "enabled"
+        "alpha",
+        "eps",
+        "min_dt_ms",
+        "enabled",
 
-        "_last_book_ts"
-        "_prev_depth_bid_5"
-        "_prev_depth_ask_5"
+        "_last_book_ts",
+        "_prev_depth_bid_5",
+        "_prev_depth_ask_5",
 
-        "_acc_buy_qty"
-        "_acc_sell_qty"
+        "_acc_buy_qty",
+        "_acc_sell_qty",
 
-        "snap"
+        "snap",
     )
 
     def __init__(
-        self
-        *
-        alpha: float = 0.08
-        eps: float = 1e-9
-        min_dt_ms: int = 80
-        enabled: bool = True
+        self,
+        *,
+        alpha: float = 0.08,
+        eps: float = 1e-9,
+        min_dt_ms: int = 80,
+        enabled: bool = True,
     ):
         self.alpha = max(0.01, min(0.5, float(alpha)))
         self.eps = float(eps)
@@ -196,18 +196,18 @@ class L3LiteTracker:
         """
         s = self.snap
         for k, v in (
-            ("taker_buy_rate_ema", s.taker_buy_rate_ema)
-            ("taker_sell_rate_ema", s.taker_sell_rate_ema)
-            ("taker_flow_imb", s.taker_flow_imb)
-            ("taker_flow_imb_mean_ema", s.taker_flow_imb_mean_ema)
-            ("taker_flow_imb_mad_ema", s.taker_flow_imb_mad_ema)
-            ("taker_flow_imb_z", s.taker_flow_imb_z)
-            ("cancel_bid_rate_ema", s.cancel_bid_rate_ema)
-            ("cancel_ask_rate_ema", s.cancel_ask_rate_ema)
-            ("cancel_to_trade_bid", s.cancel_to_trade_bid)
-            ("cancel_to_trade_ask", s.cancel_to_trade_ask)
-            ("eta_fill_bid_sec", s.eta_fill_bid_sec)
-            ("eta_fill_ask_sec", s.eta_fill_ask_sec)
+            ("taker_buy_rate_ema", s.taker_buy_rate_ema),
+            ("taker_sell_rate_ema", s.taker_sell_rate_ema),
+            ("taker_flow_imb", s.taker_flow_imb),
+            ("taker_flow_imb_mean_ema", s.taker_flow_imb_mean_ema),
+            ("taker_flow_imb_mad_ema", s.taker_flow_imb_mad_ema),
+            ("taker_flow_imb_z", s.taker_flow_imb_z),
+            ("cancel_bid_rate_ema", s.cancel_bid_rate_ema),
+            ("cancel_ask_rate_ema", s.cancel_ask_rate_ema),
+            ("cancel_to_trade_bid", s.cancel_to_trade_bid),
+            ("cancel_to_trade_ask", s.cancel_to_trade_ask),
+            ("eta_fill_bid_sec", s.eta_fill_bid_sec),
+            ("eta_fill_ask_sec", s.eta_fill_ask_sec),
         ):
             try:
                 setattr(ctx, k, float(v))

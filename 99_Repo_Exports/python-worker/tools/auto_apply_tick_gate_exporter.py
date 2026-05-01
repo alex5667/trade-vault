@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Auto-apply Tick Gate Exporter
 
@@ -18,7 +19,6 @@ ENV:
   AUTO_APPLY_REASON_ALLOWLIST       comma separated reasons (optional)
 """
 
-from __future__ import annotations
 
 import json
 import os

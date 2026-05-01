@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 Prometheus exporter for the latest Meta AB-winner v2 report JSON.
 
 Exports only low-cardinality, alert-friendly gauges.
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -104,8 +104,8 @@ def _clear() -> None:
 def main() -> int:
     port = _env_int("META_AB_V2_EXPORTER_PORT", 9634)
     report_path = os.getenv(
-        "META_AB_V2_OUT_JSON"
-        "/var/lib/trade/of_reports/out/meta_ab_v2/ab_v2_report.json"
+        "META_AB_V2_OUT_JSON",
+        "/var/lib/trade/of_reports/out/meta_ab_v2/ab_v2_report.json",
     )
     poll_s = _env_int("META_AB_V2_EXPORTER_POLL_S", 10)
 

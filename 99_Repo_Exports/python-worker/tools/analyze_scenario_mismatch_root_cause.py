@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Root cause analysis for scenario mismatch.
 
 Analyzes the specific mismatch case to understand why scenario changed from continuation to none.
@@ -6,7 +7,6 @@ Usage:
   python -m tools.analyze_scenario_mismatch_root_cause --key "ETHUSDT|1770004381249|SHORT" --baseline /path/to/baseline.ndjson --candidate /path/to/candidate.ndjson
 """
 
-from __future__ import annotations
 
 import argparse
 import json

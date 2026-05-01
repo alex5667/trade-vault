@@ -158,7 +158,7 @@ class FilteredSignalWriter:
             reason=reason,
         )
 
-        # Используем единый форматировщик для XAUUSD
+        # Используем единый форматировщик для 
         xauusd_signal = XAUUSDSignal(
             sid=sid,
             symbol=symbol,

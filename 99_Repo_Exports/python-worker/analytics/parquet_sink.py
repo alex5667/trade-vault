@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Parquet Sink - Универсальный писатель тайлов в Parquet.
 
@@ -14,7 +15,6 @@ Layout:
     events/YYYY/MM/DD/HH/*.parquet
 """
 
-from __future__ import annotations
 import os
 import time
 import pathlib
@@ -108,10 +108,10 @@ class ParquetSink:
         return str(path / fname)
 
     def write_records(
-        self
-        kind: str
-        rows: List[Dict[str, Any]]
-        ts_field: str = "ts"
+        self,
+        kind: str,
+        rows: List[Dict[str, Any]],
+        ts_field: str = "ts",
     ) -> Optional[str]:
         """
         Запись батча записей в Parquet файл.
@@ -158,10 +158,10 @@ class ParquetSink:
             return None
 
     def write_batch(
-        self
-        kind: str
-        batch: List[Dict[str, Any]]
-        ts_field: str = "ts"
+        self,
+        kind: str,
+        batch: List[Dict[str, Any]],
+        ts_field: str = "ts",
         batch_size: int = 1000
     ) -> List[str]:
         """
@@ -197,8 +197,8 @@ class ParquetSink:
     def get_tile_stats(self) -> Dict[str, Any]:
         """Получение статистики по тайлам"""
         stats = {
-            "base_dir": self.base_dir
-            "engine": self.engine
+            "base_dir": self.base_dir,
+            "engine": self.engine,
             "kinds": {}
         }
 
@@ -214,7 +214,7 @@ class ParquetSink:
                     total_size = sum(f.stat().st_size for f in files)
 
                     stats["kinds"][kind] = {
-                        "files": len(files)
+                        "files": len(files),
                         "size_mb": round(total_size / 1024 / 1024, 2)
                     }
 

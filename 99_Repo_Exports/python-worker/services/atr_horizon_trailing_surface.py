@@ -1,3 +1,4 @@
+from __future__ import annotations
 """atr_horizon_trailing_surface.py — Phase 2.6: trailing surface builder.
 
 Computes the offset ATR mult & absolute values for dynamic trailing based on the 
@@ -6,7 +7,6 @@ selected horizon ATR profile (meta.atr_profile).
 Fail-open logic: never causes an exception if keys are missing.
 """
 
-from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from typing import Any, Dict
@@ -37,9 +37,9 @@ class TrailingSurface:
 
 
 def build_trailing_surface(
-    signal_payload: Dict[str, Any]
-    pos_atr: float
-    offset_mult: float
+    signal_payload: Dict[str, Any],
+    pos_atr: float,
+    offset_mult: float,
 ) -> Dict[str, Any]:
     """Phase 2.6: compute trailing offset surface from selected ATR (meta.atr_profile).
 
@@ -66,15 +66,15 @@ def build_trailing_surface(
     # If no ATR profile exists, the "selected" surface gracefully falls back to baseline config
     if atr_value <= 0.0:
         return asdict(TrailingSurface(
-            mode="fallback_to_baseline"
-            atr_tf_ms=0
-            atr_value=pos_atr
-            atr_pct=0.0
-            baseline_offset_atr_mult=baseline_offset_mult
-            baseline_offset_distance_px=baseline_offset_distance_px
-            selected_offset_atr_mult=baseline_offset_mult
-            selected_offset_distance_px=baseline_offset_distance_px
-            reason_code="ATR_PROFILE_NOT_FOUND"
+            mode="fallback_to_baseline",
+            atr_tf_ms=0,
+            atr_value=pos_atr,
+            atr_pct=0.0,
+            baseline_offset_atr_mult=baseline_offset_mult,
+            baseline_offset_distance_px=baseline_offset_distance_px,
+            selected_offset_atr_mult=baseline_offset_mult,
+            selected_offset_distance_px=baseline_offset_distance_px,
+            reason_code="ATR_PROFILE_NOT_FOUND",
         ))
 
     # Calculate Candidate offset using the same multiplier against the fresh ATR
@@ -82,13 +82,13 @@ def build_trailing_surface(
     selected_offset_distance_px = max(0.0, atr_value * baseline_offset_mult)
 
     return asdict(TrailingSurface(
-        mode="candidate"
-        atr_tf_ms=int(_safe_float(atr_profile.get("atr_tf_ms"), 0))
-        atr_value=atr_value
-        atr_pct=_safe_float(atr_profile.get("atr_pct", 0.0))
-        baseline_offset_atr_mult=baseline_offset_mult
-        baseline_offset_distance_px=baseline_offset_distance_px
-        selected_offset_atr_mult=baseline_offset_mult
-        selected_offset_distance_px=selected_offset_distance_px
-        reason_code="ATR_PROFILE_APPLIED"
+        mode="candidate",
+        atr_tf_ms=int(_safe_float(atr_profile.get("atr_tf_ms"), 0)),
+        atr_value=atr_value,
+        atr_pct=_safe_float(atr_profile.get("atr_pct", 0.0)),
+        baseline_offset_atr_mult=baseline_offset_mult,
+        baseline_offset_distance_px=baseline_offset_distance_px,
+        selected_offset_atr_mult=baseline_offset_mult,
+        selected_offset_distance_px=selected_offset_distance_px,
+        reason_code="ATR_PROFILE_APPLIED",
     ))

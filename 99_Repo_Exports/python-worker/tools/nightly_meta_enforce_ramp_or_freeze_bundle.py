@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 nightly_meta_enforce_ramp_or_freeze_bundle.py
 
@@ -21,7 +22,6 @@ Usage:
   (reads ENV vars for schedule, thresholds, symbols, DiD params, freeze policy)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -268,7 +268,7 @@ def main() -> None:
             f"share: <code>{cur:.2f}</code> → <code>{nxt:.2f}</code>\n"
             f"syms=<code>{','.join(syms)}</code>\n"
             f"eval_cells=<code>{rep.get('evaluated_cells')}</code>",
-            buttons=buttons
+            buttons=buttons,
         )
         logger.info(f"Ramp bundle proposed: {bundle_id}, {cur:.2f} → {nxt:.2f}")
         return

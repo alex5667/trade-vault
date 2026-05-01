@@ -133,7 +133,7 @@ def build_routing_incident_rca_pack(bundle_row: Dict[str, Any]) -> Dict[str, Any
         "timeline": timeline,
         "prompt_version": PROMPT_VERSION,
         "policy_version": POLICY_VERSION,
-    }
+    },
     compact_hash = hashlib.sha256(stable_json(key_material).encode("utf-8")).hexdigest()[:16]
 
     return {
@@ -153,7 +153,7 @@ def build_routing_incident_rca_pack(bundle_row: Dict[str, Any]) -> Dict[str, Any
         "prompt_version": PROMPT_VERSION,
         "policy_version": POLICY_VERSION,
         "ts_ms": now_ms(),
-    }
+    },
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:

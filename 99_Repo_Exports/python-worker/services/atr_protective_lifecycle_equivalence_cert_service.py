@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Phase 8.6 — Protective Lifecycle Equivalence Cert Service
 
@@ -16,7 +17,6 @@ Checks C1–C7:
 Readiness ladder:
     not_ready → shadow_healthy → ready_for_read → ready_for_enforce
 """
-from __future__ import annotations
 
 import json
 import logging

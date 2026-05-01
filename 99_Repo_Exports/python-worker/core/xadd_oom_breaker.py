@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 XADD OOM / circuit-breaker scaffolding (shadow-mode skeleton).
 
@@ -51,7 +52,6 @@ Call sites wrap an xadd in the pattern::
             raise
 """
 
-from __future__ import annotations
 
 import logging
 import os

@@ -90,42 +90,42 @@ class MLConfirmDecision:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "mode": self.mode
-            "kind": self.kind
-            "allow": bool(self.allow)
-            "p_edge": float(self.p_edge)
-            "p_min": float(self.p_min)
-            "best_h_ms": int(self.best_h_ms)
-            "score": float(self.score)
-            "floor": float(self.floor)
-            "bucket": str(self.bucket)
-            "util_pred": self.util_pred or {}
-            "unc": self.unc or {}
-            "missing": self.missing or []
-            "model_run_id": self.model_run_id
-            "model_path": self.model_path
-            "reason": self.reason
-            "error": self.error
-            "latency_us": int(self.latency_us)
-            "abstain": int(bool(self.abstain))
-            "conf": float(self.conf)
-            "p_margin": float(self.p_margin)
-            "status": str(self.status)
-            "p_edge_raw": float(self.p_edge_raw)
-            "p_edge_cal": float(self.p_edge_cal)
-            "calib_type": str(self.calib_type or "")
-            "cfg_key_used": str(self.cfg_key_used or "")
-            "cfg_source": str(self.cfg_source or "")
-            "cfg_raw_len": int(self.cfg_raw_len)
-            "cfg_parse_err": str(self.cfg_parse_err or "")
-            "effective_mode": str(self.effective_mode or self.mode)
-            "mode_source": str(self.mode_source or "global")
+            "mode": self.mode,
+            "kind": self.kind,
+            "allow": bool(self.allow),
+            "p_edge": float(self.p_edge),
+            "p_min": float(self.p_min),
+            "best_h_ms": int(self.best_h_ms),
+            "score": float(self.score),
+            "floor": float(self.floor),
+            "bucket": str(self.bucket),
+            "util_pred": self.util_pred or {},
+            "unc": self.unc or {},
+            "missing": self.missing or [],
+            "model_run_id": self.model_run_id,
+            "model_path": self.model_path,
+            "reason": self.reason,
+            "error": self.error,
+            "latency_us": int(self.latency_us),
+            "abstain": int(bool(self.abstain)),
+            "conf": float(self.conf),
+            "p_margin": float(self.p_margin),
+            "status": str(self.status),
+            "p_edge_raw": float(self.p_edge_raw),
+            "p_edge_cal": float(self.p_edge_cal),
+            "calib_type": str(self.calib_type or ""),
+            "cfg_key_used": str(self.cfg_key_used or ""),
+            "cfg_source": str(self.cfg_source or ""),
+            "cfg_raw_len": int(self.cfg_raw_len),
+            "cfg_parse_err": str(self.cfg_parse_err or ""),
+            "effective_mode": str(self.effective_mode or self.mode),
+            "mode_source": str(self.mode_source or "global"),
 
             # P74+
-            "exec_risk_ref_bps": float(self.exec_risk_ref_bps)
-            "exec_risk_bps": float(self.exec_risk_bps)
-            "exec_risk_norm": float(self.exec_risk_norm)
-            "exec_pen": float(self.exec_pen)
-            "score_breakdown_small": self.score_breakdown_small or {}
-            "score_breakdown_json": str(self.score_breakdown_json or "")
+            "exec_risk_ref_bps": float(self.exec_risk_ref_bps),
+            "exec_risk_bps": float(self.exec_risk_bps),
+            "exec_risk_norm": float(self.exec_risk_norm),
+            "exec_pen": float(self.exec_pen),
+            "score_breakdown_small": self.score_breakdown_small or {},
+            "score_breakdown_json": str(self.score_breakdown_json or ""),
         }

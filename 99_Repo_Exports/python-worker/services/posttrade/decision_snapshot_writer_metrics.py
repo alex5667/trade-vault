@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Prometheus metrics for DecisionSnapshotWriter.
 
 Design goals:
@@ -19,7 +20,6 @@ Additional useful counters (low-cardinality):
 - decision_snapshot_writer_dlq_by_reason_total{reason}
 """
 
-from __future__ import annotations
 
 import logging
 import os
@@ -73,55 +73,55 @@ def build_metrics() -> WriterMetrics:
         from prometheus_client import Counter, Histogram, Gauge
 
         written_total = Counter(
-            "decision_snapshot_writer_written_total"
-            "Rows successfully upserted into TimescaleDB from decision_snapshot stream."
+            "decision_snapshot_writer_written_total",
+            "Rows successfully upserted into TimescaleDB from decision_snapshot stream.",
         )
         db_fail_total = Counter(
-            "decision_snapshot_writer_db_fail_total"
-            "DB write failures (batch upsert exceptions)."
+            "decision_snapshot_writer_db_fail_total",
+            "DB write failures (batch upsert exceptions).",
         )
         processed_total = Counter(
-            "decision_snapshot_writer_processed_total"
-            "Redis entries processed (including bad/dlq)."
+            "decision_snapshot_writer_processed_total",
+            "Redis entries processed (including bad/dlq).",
         )
         dlq_total = Counter(
-            "decision_snapshot_writer_dlq_total"
-            "Entries sent to DLQ (bad payload/row)."
+            "decision_snapshot_writer_dlq_total",
+            "Entries sent to DLQ (bad payload/row).",
         )
         dlq_by_reason_total = Counter(
-            "decision_snapshot_writer_dlq_by_reason_total"
-            "Entries sent to DLQ, by reason (low cardinality)."
-            ["reason"]
+            "decision_snapshot_writer_dlq_by_reason_total",
+            "Entries sent to DLQ, by reason (low cardinality).",
+            ["reason"],
         )
         reclaim_total = Counter(
-            "decision_snapshot_writer_reclaim_total"
-            "Pending entries reclaimed via XAUTOCLAIM/XCLAIM."
+            "decision_snapshot_writer_reclaim_total",
+            "Pending entries reclaimed via XAUTOCLAIM/XCLAIM.",
         )
         claim_fail_total = Counter(
-            "decision_snapshot_writer_claim_fail_total"
-            "PEL claim failures (XAUTOCLAIM/XCLAIM errors)."
+            "decision_snapshot_writer_claim_fail_total",
+            "PEL claim failures (XAUTOCLAIM/XCLAIM errors).",
         )
         pending_count = Gauge(
-            "decision_snapshot_writer_pending_count"
-            "Current pending entries in the Redis consumer group (PEL size)."
+            "decision_snapshot_writer_pending_count",
+            "Current pending entries in the Redis consumer group (PEL size).",
         )
 
         redis_lag_ms = Histogram(
-            "decision_snapshot_writer_redis_lag_ms"
-            "Processing lag in ms: now_ms - decision_ts_ms for consumed decision_snapshot entries."
-            buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10_000, 30_000, 60_000, 120_000)
+            "decision_snapshot_writer_redis_lag_ms",
+            "Processing lag in ms: now_ms - decision_ts_ms for consumed decision_snapshot entries.",
+            buckets=(50, 100, 250, 500, 1000, 2000, 5000, 10_000, 30_000, 60_000, 120_000),
         )
 
         _METRICS = WriterMetrics(
-            written_total=written_total
-            db_fail_total=db_fail_total
-            processed_total=processed_total
-            dlq_total=dlq_total
-            dlq_by_reason_total=dlq_by_reason_total
-            reclaim_total=reclaim_total
-            claim_fail_total=claim_fail_total
-            pending_count=pending_count
-            redis_lag_ms=redis_lag_ms
+            written_total=written_total,
+            db_fail_total=db_fail_total,
+            processed_total=processed_total,
+            dlq_total=dlq_total,
+            dlq_by_reason_total=dlq_by_reason_total,
+            reclaim_total=reclaim_total,
+            claim_fail_total=claim_fail_total,
+            pending_count=pending_count,
+            redis_lag_ms=redis_lag_ms,
         )
         return _METRICS
 
@@ -129,15 +129,15 @@ def build_metrics() -> WriterMetrics:
         logger.warning("prometheus_client not available, metrics disabled: %s", e)
         noop = _NoOp()
         _METRICS = WriterMetrics(
-            written_total=noop
-            db_fail_total=noop
-            processed_total=noop
-            dlq_total=noop
-            dlq_by_reason_total=noop
-            reclaim_total=noop
-            claim_fail_total=noop
-            pending_count=noop
-            redis_lag_ms=noop
+            written_total=noop,
+            db_fail_total=noop,
+            processed_total=noop,
+            dlq_total=noop,
+            dlq_by_reason_total=noop,
+            reclaim_total=noop,
+            claim_fail_total=noop,
+            pending_count=noop,
+            redis_lag_ms=noop,
         )
         return _METRICS
 

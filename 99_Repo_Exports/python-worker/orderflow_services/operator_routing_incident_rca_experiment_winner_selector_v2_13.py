@@ -96,7 +96,7 @@ class ExperimentWinnerRepo:
         with psycopg.connect(self.db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    """,
                     SELECT
                         bucket,
                         COUNT(*) as sample_n,

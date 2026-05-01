@@ -4,7 +4,7 @@ from utils.time_utils import get_ny_time_millis
 """
 common/veto_reason_reporter.py
 ------------------------------
-Top-N агрегация veto-reasons -> 1 компактное сообщение в outbox_labels (label_update)
+Top-N агрегация veto-reasons -> 1 компактное сообщение в outbox_labels (label_update),
 чтобы downstream (TG/WS) отправлял человеку "что именно блокирует эмит".
 
 Задача: убрать спам и сохранить смысл:
@@ -50,11 +50,11 @@ class _Key:
 
 class VetoTopNReporter:
     def __init__(
-        self
-        *
-        emitter: Any
-        logger: Any
-        now_ms_fn: Optional[Callable[[], int]] = None
+        self,
+        *,
+        emitter: Any,
+        logger: Any,
+        now_ms_fn: Optional[Callable[[], int]] = None,
     ) -> None:
         self._emitter = emitter
         self._logger = logger
@@ -73,7 +73,7 @@ class VetoTopNReporter:
 
         # "⅛ гайки": alert по смене FAMILY (ещё более устойчиво и почти без кардинальности)
         # Это полезнее, чем смена конкретного reason, потому что:
-        #  - reason может "дрожать" от мелких деталей
+        #  - reason может "дрожать" от мелких деталей,
         #  - family показывает смену класса проблем (L2 gate -> confidence gate -> spread gate).
         self._fam_change_min_share = _env_float("VETO_TOPN_FAMILY_CHANGE_MIN_SHARE", 0.45)
         self._fam_change_cooldown_ms = _env_int("VETO_TOPN_FAMILY_CHANGE_COOLDOWN_MS", 900_000)  # 15m
@@ -81,7 +81,7 @@ class VetoTopNReporter:
         # заметно "сильнее/концентрированнее", чем была в прошлом окне.
         # Это убирает FP, когда family "переключилась" на волоске 0.48 -> 0.50.
         self._fam_change_min_delta = _env_float("VETO_TOPN_FAMILY_CHANGE_MIN_DELTA", 0.20)
-        # "ещё ¼ гайки": смена family должна сопровождаться реальным ухудшением
+        # "ещё ¼ гайки": смена family должна сопровождаться реальным ухудшением,
         # а не просто перестановкой причин внутри того же объёма veto.
         #
         # Идея: алертить family-change только если:
@@ -171,14 +171,14 @@ class VetoTopNReporter:
                     self._last_change_emit_ms[key] = now
                     try:
                         self._emit_change(
-                            ctx=ctx
-                            key=key
-                            total=t
-                            prev_top=prev_top
-                            new_top=top_reason
-                            new_top_share=top_share
-                            fam_counts=fam_counts
-                            now_ms=now
+                            ctx=ctx,
+                            key=key,
+                            total=t,
+                            prev_top=prev_top,
+                            new_top=top_reason,
+                            new_top_share=top_share,
+                            fam_counts=fam_counts,
+                            now_ms=now,
                         )
                     except Exception as e:
                         try:
@@ -223,19 +223,19 @@ class VetoTopNReporter:
                     self._last_family_change_emit_ms[key] = now
                     try:
                         self._emit_family_change(
-                            ctx=ctx
-                            key=key
-                            total=t
-                            prev_total=int(prev_total) if prev_total is not None else None
-                            total_delta=int(total_delta)
-                            total_ratio=float(total_ratio)
-                            prev_family=prev_fam
-                            new_family=top_fam
-                            new_family_share=top_fam_share
-                            new_family_share_delta=fam_share_delta
-                            top_reason=top_reason
-                            top_reason_share=top_share
-                            now_ms=now
+                            ctx=ctx,
+                            key=key,
+                            total=t,
+                            prev_total=int(prev_total) if prev_total is not None else None,
+                            total_delta=int(total_delta),
+                            total_ratio=float(total_ratio),
+                            prev_family=prev_fam,
+                            new_family=top_fam,
+                            new_family_share=top_fam_share,
+                            new_family_share_delta=fam_share_delta,
+                            top_reason=top_reason,
+                            top_reason_share=top_share,
+                            now_ms=now,
                         )
                     except Exception as e:
                         try:
@@ -255,14 +255,14 @@ class VetoTopNReporter:
             # emit analytics summary to outbox_labels via label_update
             try:
                 self._emit_summary(
-                    ctx=ctx
-                    key=key
-                    total=t
-                    items=items[: max(1, self._n)]
-                    top_reason=top_reason
-                    top_share=top_share
-                    fam_counts=fam_counts
-                    now_ms=now
+                    ctx=ctx,
+                    key=key,
+                    total=t,
+                    items=items[: max(1, self._n)],
+                    top_reason=top_reason,
+                    top_share=top_share,
+                    fam_counts=fam_counts,
+                    now_ms=now,
                 )
             except Exception as e:
                 try:
@@ -271,16 +271,16 @@ class VetoTopNReporter:
                     pass
 
     def _emit_summary(
-        self
-        *
-        ctx: Any
-        key: _Key
-        total: int
-        items: list[tuple[str, int]]
-        top_reason: str
-        top_share: float
-        fam_counts: dict[tuple[_Key, str], int]
-        now_ms: int
+        self,
+        *,
+        ctx: Any,
+        key: _Key,
+        total: int,
+        items: list[tuple[str, int]],
+        top_reason: str,
+        top_share: float,
+        fam_counts: dict[tuple[_Key, str], int],
+        now_ms: int,
     ) -> None:
         # Human-readable текст (готовый для TG).
         lines = []
@@ -312,21 +312,21 @@ class VetoTopNReporter:
 
         sid = hashlib.sha1(f"veto_topn|{key.symbol}|{key.kind}|{top_reason}|{now_ms//self._win_ms}".encode("utf-8")).hexdigest()
         payload = {
-            "kind": "label_update"
-            "symbol": key.symbol
-            "ts": now_ms
-            "signal_id": sid
-            "title": "veto_topn"
-            "text": text
+            "kind": "label_update",
+            "symbol": key.symbol,
+            "ts": now_ms,
+            "signal_id": sid,
+            "title": "veto_topn",
+            "text": text,
             "labels": {
-                "analytics": 1
-                "type": "veto_topn"
-                "symbol": key.symbol
-                "signal_kind": key.kind
-                "top_reason": top_reason
-                "top_share": float(top_share)
-                "total_veto": int(total)
-                "window_sec": int(self._win_ms / 1000)
+                "analytics": 1,
+                "type": "veto_topn",
+                "symbol": key.symbol,
+                "signal_kind": key.kind,
+                "top_reason": top_reason,
+                "top_share": float(top_share),
+                "total_veto": int(total),
+                "window_sec": int(self._win_ms / 1000),
             }
         }
         # dedup=True безопасно: sid стабилен на окно
@@ -355,16 +355,16 @@ class VetoTopNReporter:
         return "Сфокусируйтесь на top_reason: сравните p95 лаги, стейлнес L2/L3, и пороги min_conf/spread/cooldown."
 
     def _emit_change(
-        self
-        *
-        ctx: Any
-        key: _Key
-        total: int
-        prev_top: str
-        new_top: str
-        new_top_share: float
-        fam_counts: dict[tuple[_Key, str], int]
-        now_ms: int
+        self,
+        *,
+        ctx: Any,
+        key: _Key,
+        total: int,
+        prev_top: str,
+        new_top: str,
+        new_top_share: float,
+        fam_counts: dict[tuple[_Key, str], int],
+        now_ms: int,
     ) -> None:
         lines = []
         lines.append("VETO dominant reason changed")
@@ -391,42 +391,42 @@ class VetoTopNReporter:
             f"veto_change|{key.symbol}|{key.kind}|{prev_top}|{new_top}|{now_ms//self._win_ms}".encode("utf-8")
         ).hexdigest()
         payload = {
-            "kind": "label_update"
-            "symbol": key.symbol
-            "ts": now_ms
-            "signal_id": sid
-            "title": "veto_topn_change"
-            "text": text
+            "kind": "label_update",
+            "symbol": key.symbol,
+            "ts": now_ms,
+            "signal_id": sid,
+            "title": "veto_topn_change",
+            "text": text,
             "labels": {
-                "analytics": 1
-                "type": "veto_topn_change"
-                "symbol": key.symbol
-                "signal_kind": key.kind
-                "prev_top_reason": prev_top
-                "new_top_reason": new_top
-                "new_top_share": float(new_top_share)
-                "total_veto": int(total)
-                "window_sec": int(self._win_ms / 1000)
+                "analytics": 1,
+                "type": "veto_topn_change",
+                "symbol": key.symbol,
+                "signal_kind": key.kind,
+                "prev_top_reason": prev_top,
+                "new_top_reason": new_top,
+                "new_top_share": float(new_top_share),
+                "total_veto": int(total),
+                "window_sec": int(self._win_ms / 1000),
             }
         }
         self._emitter.emit(payload, labels=None, dedup=True)
 
     def _emit_family_change(
-        self
-        *
-        ctx: Any
-        key: _Key
-        total: int
-        prev_total: Optional[int]
-        total_delta: int
-        total_ratio: float
-        prev_family: str
-        new_family: str
-        new_family_share: float
-        new_family_share_delta: float
-        top_reason: str
-        top_reason_share: float
-        now_ms: int
+        self,
+        *,
+        ctx: Any,
+        key: _Key,
+        total: int,
+        prev_total: Optional[int],
+        total_delta: int,
+        total_ratio: float,
+        prev_family: str,
+        new_family: str,
+        new_family_share: float,
+        new_family_share_delta: float,
+        top_reason: str,
+        top_reason_share: float,
+        now_ms: int,
     ) -> None:
         # Это самый "дешёвый" алерт: family почти не имеет кардинальности.
         lines = []
@@ -464,28 +464,28 @@ class VetoTopNReporter:
             f"veto_fam_change|{key.symbol}|{key.kind}|{prev_family}|{new_family}|{now_ms//self._win_ms}".encode("utf-8")
         ).hexdigest()
         payload = {
-            "kind": "label_update"
-            "symbol": key.symbol
-            "ts": now_ms
-            "signal_id": sid
-            "title": "veto_topn_family_change"
-            "text": text
+            "kind": "label_update",
+            "symbol": key.symbol,
+            "ts": now_ms,
+            "signal_id": sid,
+            "title": "veto_topn_family_change",
+            "text": text,
             "labels": {
-                "analytics": 1
-                "type": "veto_topn_family_change"
-                "symbol": key.symbol
-                "signal_kind": key.kind
-                "prev_family": prev_family
-                "new_family": new_family
-                "new_family_share": float(new_family_share)
-                "new_family_share_delta": float(new_family_share_delta)
-                "prev_total_veto": int(prev_total) if prev_total is not None else None
-                "total_veto_delta": int(total_delta)
-                "total_veto_ratio": float(total_ratio)
-                "top_reason": top_reason
-                "top_reason_share": float(top_reason_share)
-                "total_veto": int(total)
-                "window_sec": int(self._win_ms / 1000)
+                "analytics": 1,
+                "type": "veto_topn_family_change",
+                "symbol": key.symbol,
+                "signal_kind": key.kind,
+                "prev_family": prev_family,
+                "new_family": new_family,
+                "new_family_share": float(new_family_share),
+                "new_family_share_delta": float(new_family_share_delta),
+                "prev_total_veto": int(prev_total) if prev_total is not None else None,
+                "total_veto_delta": int(total_delta),
+                "total_veto_ratio": float(total_ratio),
+                "top_reason": top_reason,
+                "top_reason_share": float(top_reason_share),
+                "total_veto": int(total),
+                "window_sec": int(self._win_ms / 1000),
             }
         }
         self._emitter.emit(payload, labels=None, dedup=True)

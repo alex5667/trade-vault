@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Fill / trade-close event contract (A3).
 
 Goal:
@@ -26,7 +27,6 @@ Optional (high value):
 - mid_at_fill
 """
 
-from __future__ import annotations
 
 import math
 from typing import Any, Dict, List, Optional, Tuple

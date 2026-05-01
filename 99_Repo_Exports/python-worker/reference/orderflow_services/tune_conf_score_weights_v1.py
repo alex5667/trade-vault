@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 
 from orderflow_services.conf_score_weight_calibrator_v1 import (
-    ConfScoreWeightCalibratorV1
-    load_replay_ndjson
+    ConfScoreWeightCalibratorV1,
+    load_replay_ndjson,
 )
 
 def main() -> None:

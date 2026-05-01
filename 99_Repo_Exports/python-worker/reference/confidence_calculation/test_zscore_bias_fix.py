@@ -171,8 +171,8 @@ class TestConfidenceIntegration:
         # Simulate ConfCtx from tick_processor.py
         class MockRuntime:
             config = {
-                "obi_stable_bonus_w": 0.05
-                "micro_bonus_cap": 0.12
+                "obi_stable_bonus_w": 0.05,
+                "micro_bonus_cap": 0.12,
             }
             last_atr = 10.0
         

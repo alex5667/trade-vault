@@ -3,7 +3,7 @@ import redis
 ALLOWED = {
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
     "PEPEUSDT", "DOGEUSDT", "SHIBUSDT", "FLOKIUSDT", "BONKUSDT",
-    "WIFUSDT", "SUIUSDT", "APTUSDT", "ARBUSDT"
+    "WIFUSDT", "SUIUSDT", "APTUSDT"
 }
 
 HOSTS = ["redis", "redis-worker-1", "redis-worker-2", "redis-ticks"]

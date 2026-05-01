@@ -1,3 +1,4 @@
+from __future__ import annotations
 """policy_effectiveness_telegram_report_p73_v1.py
 
 P73: Nightly/periodic Telegram summary for policy effectiveness (P71).
@@ -30,7 +31,6 @@ Env:
   POLICY_EFF_TG_STATE_KEY=ops:policy_eff:p73:tg_state
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -78,16 +78,16 @@ def _telegram_send_redis(redis_url: str, stream: str, text_html: str) -> None:
 
     r = redis.Redis.from_url(redis_url)
     r.xadd(
-        stream
+        stream,
         {
-            "type": "report"
-            "text": text_html
-            "parse_mode": "HTML"
-            "disable_web_page_preview": "1"
-            "ts": str(now_ms())
-        }
-        maxlen=200000
-        approximate=True
+            "type": "report",
+            "text": text_html,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": "1",
+            "ts": str(now_ms()),
+        },
+        maxlen=200000,
+        approximate=True,
     )
 
 
@@ -96,23 +96,23 @@ def _telegram_send_direct(token: str, chat_id: str, text_html: str) -> None:
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     requests.post(
-        url
+        url,
         json={
-            "chat_id": chat_id
-            "text": text_html
-            "parse_mode": "HTML"
-            "disable_web_page_preview": True
-        }
-        timeout=15
+            "chat_id": chat_id,
+            "text": text_html,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+        timeout=15,
     ).raise_for_status()
 
 
 def _classify_severity(
-    report_age_sec: int
-    baseline_ok_present: int
-    total_n_24h: int
-    stale_warn_sec: int
-    stale_crit_sec: int
+    report_age_sec: int,
+    baseline_ok_present: int,
+    total_n_24h: int,
+    stale_warn_sec: int,
+    stale_crit_sec: int,
 ) -> str:
     if report_age_sec >= stale_crit_sec:
         return "critical"
@@ -139,10 +139,10 @@ def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
     deltas = {}
     for m in ["warn", "block", "unknown"]:
         deltas[m] = {
-            "exp_r": _f(cfg.get(f"policy_effectiveness_expectancy_r_delta_24h_{m}"), 0.0)
-            "prec_top5p": _f(cfg.get(f"policy_effectiveness_precision_top5p_delta_24h_{m}"), 0.0)
-            "ece": _f(cfg.get(f"policy_effectiveness_ece_delta_24h_{m}"), 0.0)
-        }
+            "exp_r": _f(cfg.get(f"policy_effectiveness_expectancy_r_delta_24h_{m}"), 0.0),
+            "prec_top5p": _f(cfg.get(f"policy_effectiveness_precision_top5p_delta_24h_{m}"), 0.0),
+            "ece": _f(cfg.get(f"policy_effectiveness_ece_delta_24h_{m}"), 0.0),
+        },
 
     def _code(x: str) -> str:
         return f"<code>{html.escape(x)}</code>"
@@ -185,24 +185,24 @@ def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
             )
 
     meta = {
-        "ts_ms": ts_ms
-        "age_sec": age_sec
-        "in_age_sec": in_age_sec
-        "baseline_ok": baseline_ok
-        "total_n": total_n
-        "shares": shares
-        "deltas": deltas
-    }
+        "ts_ms": ts_ms,
+        "age_sec": age_sec,
+        "in_age_sec": in_age_sec,
+        "baseline_ok": baseline_ok,
+        "total_n": total_n,
+        "shares": shares,
+        "deltas": deltas,
+    },
     return "\n".join(lines), meta
 
 
 def should_send(
-    r
-    state_key: str
-    msg_html: str
-    severity: str
-    cooldown_sec: int
-    force_on_critical: int
+    r,
+    state_key: str,
+    msg_html: str,
+    severity: str,
+    cooldown_sec: int,
+    force_on_critical: int,
 ) -> Tuple[bool, str]:
     """Returns (send?, reason)."""
     try:
@@ -253,23 +253,23 @@ def run_once() -> int:
 
     msg, meta = build_message(cfg)
     sev = _classify_severity(
-        report_age_sec=int(meta.get("age_sec", 10**9))
-        baseline_ok_present=int(meta.get("baseline_ok", 0))
-        total_n_24h=int(meta.get("total_n", 0))
-        stale_warn_sec=stale_warn_sec
-        stale_crit_sec=stale_crit_sec
+        report_age_sec=int(meta.get("age_sec", 10**9)),
+        baseline_ok_present=int(meta.get("baseline_ok", 0)),
+        total_n_24h=int(meta.get("total_n", 0)),
+        stale_warn_sec=stale_warn_sec,
+        stale_crit_sec=stale_crit_sec,
     )
 
     if int(meta.get("total_n", 0)) < min_total_n and sev != "critical":
         return 0
 
     send, reason = should_send(
-        r=r
-        state_key=state_key
-        msg_html=msg
-        severity=sev
-        cooldown_sec=cooldown_sec
-        force_on_critical=force_on_critical
+        r=r,
+        state_key=state_key,
+        msg_html=msg,
+        severity=sev,
+        cooldown_sec=cooldown_sec,
+        force_on_critical=force_on_critical,
     )
     if not send:
         return 0
@@ -290,13 +290,13 @@ def run_once() -> int:
 
     try:
         r.hset(
-            state_key
+            state_key,
             mapping={
-                "last_sent_ts_ms": str(now_ms())
-                "last_hash": _sha1(msg)
-                "last_severity": sev
-                "last_reason": reason
-            }
+                "last_sent_ts_ms": str(now_ms()),
+                "last_hash": _sha1(msg),
+                "last_severity": sev,
+                "last_reason": reason,
+            },
         )
         r.expire(state_key, int(os.getenv("POLICY_EFF_TG_STATE_TTL_SEC", "2592000") or 2592000))
     except Exception:

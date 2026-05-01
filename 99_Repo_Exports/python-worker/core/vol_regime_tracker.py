@@ -1,5 +1,6 @@
 # tick_flow_full/core/vol_regime_tracker.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Volatility regime tracker (fast/slow realized vol ratio + robust z-score).
 
@@ -17,7 +18,6 @@ Both APIs keep the same EMA + RollingRobustZ underneath.
 The regime label (shock / calm / normal / na) is written on every update.
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field

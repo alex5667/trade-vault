@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """enforce_bucket_promoter_rollback_controller_v1.py
 
 Rollback controller for bucket-aware enforcement.
@@ -40,7 +41,6 @@ Usage:
   python -m orderflow_services.enforce_bucket_promoter_rollback_controller_v1 --apply 1
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -374,7 +374,7 @@ async def run(apply: bool) -> int:
         },
         "bucket_stats": {k: vars(v) for k, v in stats.items()},
         "apply": bool(apply),
-    }
+    },
 
     if not dec.rollback:
         await r.aclose()
@@ -408,7 +408,7 @@ async def run(apply: bool) -> int:
             "rollback_ts_ms": rb_ts,
             "last_apply_ts_ms": last_apply_ts,
             "reasons": dec.reasons,
-        }
+        },
         pipe2.set(block_key, "1")
         pipe2.set(meta_key, json.dumps(meta, separators=(",", ":")))
         pipe2.set(ts_key, str(rb_ts))

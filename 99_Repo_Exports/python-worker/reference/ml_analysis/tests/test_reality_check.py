@@ -7,9 +7,9 @@ import pytest
 from ml_analysis.reality_check import evaluate_rows, load_jsonl, normalize_row
 
 
-def _make_rows(n: int, net_r: float = 0.01, score: float = 0.8, label: int = 1
+def _make_rows(n: int, net_r: float = 0.01, score: float = 0.8, label: int = 1,
                cost_bps: float = 10.0, period: str = '2024-01-01', variant: str = 'v1'):
-    return [{'net_r': net_r, 'score': score, 'label': label
+    return [{'net_r': net_r, 'score': score, 'label': label,
               'cost_bps': cost_bps, 'period': period, 'variant': variant} for _ in range(n)]
 
 

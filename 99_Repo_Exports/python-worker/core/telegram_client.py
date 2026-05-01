@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """core.telegram_client
 
 Minimal Telegram sender (no extra deps).
@@ -13,7 +14,6 @@ Env expected by services:
   - TELEGRAM_CHAT_ID
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Dict, Any

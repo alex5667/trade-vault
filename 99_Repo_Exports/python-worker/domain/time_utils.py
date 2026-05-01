@@ -29,7 +29,7 @@ _EPOCH_MS_CUTOFF = 1_000_000_000_000  # 1e12
 # ---------------------------------------------------------------------
 # STRICT EPOCH FLOOR + PLAUSIBILITY WINDOW (anti-regression)
 # ---------------------------------------------------------------------
-# If ts comes as "minutes-of-day" (0..1439) or other non-epoch small numbers
+# If ts comes as "minutes-of-day" (0..1439) or other non-epoch small numbers,
 # classic normalize_ts_ms would treat it as seconds and multiply -> still non-epoch.
 # Strict normalization rejects anything that does not look like real epoch ms.
 # Hard normalization additionally rejects far-future/far-past timestamps that
@@ -186,7 +186,7 @@ def normalize_epoch_ms_strict(ts_any: Any) -> int:
     Strict epoch-ms normalizer for *gates* and *session extraction*.
 
     Why this exists:
-      - In the pipeline you may see non-epoch time representations elsewhere (e.g. minutes-of-day)
+      - In the pipeline you may see non-epoch time representations elsewhere (e.g. minutes-of-day),
         and even if "it shouldn't happen" for signal ctx, the safest approach is to harden the
         execution-cost/entry-quality gates against regressions.
 

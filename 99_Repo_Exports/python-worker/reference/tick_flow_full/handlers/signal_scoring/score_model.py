@@ -124,8 +124,8 @@ class ScoreModel:
         self._last_calib_err_ts = now
         try:
             logger.warning(
-                "ScoreModel calibration failed (mode=isotonic). Falling back to sigmoid. kind=%s symbol=%s err=%s"
-                kind, symbol, repr(e)
+                "ScoreModel calibration failed (mode=isotonic). Falling back to sigmoid. kind=%s symbol=%s err=%s",
+                kind, symbol, repr(e),
             )
         except Exception:
             # never break scoring due to logging

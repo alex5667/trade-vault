@@ -203,7 +203,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "min_accepted_rate": parse_float(raw.get("min_accepted_rate"), DEFAULT_MIN_ACCEPTED_RATE),
         "min_score_margin": parse_float(raw.get("min_score_margin"), DEFAULT_MIN_SCORE_MARGIN),
         "incumbent_arm": incumbent,
-    }
+    },
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -301,7 +301,7 @@ def build_scorecards(exposures: List[Dict[str, Any]], results: List[Dict[str, An
             "score_raw": score_raw,
             "score": score,
             "eligible": eligible,
-        }
+        },
     return scorecards
 
 
@@ -351,7 +351,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
         with conn.cursor() as cur:
             if feedback_row is not None:
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_rca_gov_apply_flow_exp_feedback (
                         request_id, bundle_id, ts_ms, quality_score, usefulness_score, accepted, reason_code, feedback_json
                     ) VALUES (
@@ -372,7 +372,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
             for arm in ARMS:
                 sc = scorecards[arm]
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_rca_gov_apply_flow_exp_scorec (
                         ts_ms, arm, exposure_n, result_n, feedback_n, avg_quality, avg_usefulness, accepted_rate,
                         result_coverage, feedback_coverage, coverage_multiplier, score_raw, score, eligible, scorecard_json
@@ -388,7 +388,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                     },
                 )
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_rca_gov_apply_flow_exp_win_dec (
                     ts_ms, decision, reason_code, winner_arm, decision_json
                 ) VALUES (

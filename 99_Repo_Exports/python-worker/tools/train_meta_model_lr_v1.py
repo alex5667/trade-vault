@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Train MetaModelLR (portable JSON LR) from a Parquet dataset.
 
 Expected input (flexible):
@@ -9,7 +10,6 @@ Expected input (flexible):
 The output is a JSON file compatible with core.meta_model_lr.MetaModelLR.load().
 """
 
-from __future__ import annotations
 
 import argparse
 import json

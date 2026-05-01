@@ -9,9 +9,9 @@ class OrderFlowParsing:
     """
     
     @staticmethod
-    def parse_tick_payload(raw_data: Any, default_symbol: str = "", log: Optional[Callable] = None) -> Optional[Dict[str, Any]]:
+    def parse_tick_payload(raw_data: Any, default_symbol="", log: Optional[Callable] = None) -> Optional[Dict[str, Any]]:
         """
-        Wrapper around utils._parse_tick_payload to maintain strategy interface if needed
+        Wrapper around utils._parse_tick_payload to maintain strategy interface if needed,
         or we can use the utils one directly. keeping this for compatibility/extension.
         """
         return _utils_parse_tick_payload(raw_data, default_symbol=default_symbol, log=log)

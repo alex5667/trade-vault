@@ -48,7 +48,7 @@ def _proposal_upsert_sql() -> str:
       approved = EXCLUDED.approved,
       proposal_json = EXCLUDED.proposal_json,
       updated_at_ms = EXCLUDED.updated_at_ms
-    """
+    """,
 
 
 def upsert_proposal(conn, proposal: Dict[str, Any]) -> None:
@@ -76,7 +76,7 @@ def upsert_proposal(conn, proposal: Dict[str, Any]) -> None:
 def insert_decision(conn, proposal_id: str, decision: Dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             INSERT INTO atr_policy_decisions (
               proposal_id, action, actor, note, decision_json, ts_ms
             ) VALUES (%s,%s,%s,%s,%s::jsonb,%s)
@@ -95,7 +95,7 @@ def insert_decision(conn, proposal_id: str, decision: Dict[str, Any]) -> None:
 def update_proposal_status(conn, proposal_id: str, *, status: str, approved: bool, updated_at_ms: int) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             UPDATE atr_policy_proposals
             SET status = %s,
                 approved = %s,
@@ -123,7 +123,7 @@ def transition_snapshot(
 
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             UPDATE atr_policy_snapshots
             SET is_current = false,
                 effective_to_ms = %s
@@ -139,7 +139,7 @@ def transition_snapshot(
         )
 
         cur.execute(
-            """
+            """,
             INSERT INTO atr_policy_snapshots (
               snapshot_kind, source, symbol, scenario, regime, risk_horizon_bucket,
               policy_ver, stop_ttl_mode, trailing_mode, snapshot_json,
@@ -174,7 +174,7 @@ def insert_recovery_event(
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            """,
             INSERT INTO atr_policy_recovery_events (
               event_type, source, symbol, scenario, regime, risk_horizon_bucket,
               status, reason_code, payload

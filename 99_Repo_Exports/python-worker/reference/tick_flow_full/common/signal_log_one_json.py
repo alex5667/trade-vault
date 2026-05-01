@@ -92,15 +92,15 @@ def _infer_missing_htf(ctx: Any) -> int:
 
 
 def build_signal_one_json_obj(
-    *
-    payload: Dict[str, Any]
-    ctx: Any
-    parts: Optional[Dict[str, Any]] = None
-    emitted: bool
-    emit_ok: Optional[bool] = None
-    conf_factor01: Optional[float] = None
-    veto_reason_code: Optional[str] = None
-    veto_reason_u16: Optional[int] = None
+    *,
+    payload: Dict[str, Any],
+    ctx: Any,
+    parts: Optional[Dict[str, Any]] = None,
+    emitted: bool,
+    emit_ok: Optional[bool] = None,
+    conf_factor01: Optional[float] = None,
+    veto_reason_code: Optional[str] = None,
+    veto_reason_u16: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Build a stable, compact log object:
@@ -177,46 +177,46 @@ def build_signal_one_json_obj(
 
     # Keep schema stable: always emit all keys.
     return {
-        "type": "signal_sent" if emitted else "signal_veto"
-        "signal_id": signal_id
-        "symbol": symbol
-        "kind": kind
-        "side": side
-        "ts": ts
-        "level_key": level_key
-        "raw_score": raw_score
-        "conf_factor01": cf01
-        "final_score": final_score
-        "emit_ok": _b(emit_ok) if emit_ok is not None else None
-        "veto_reason_code": veto_reason_code or None
-        "veto_reason_u16": veto_reason_u16 or None
+        "type": "signal_sent" if emitted else "signal_veto",
+        "signal_id": signal_id,
+        "symbol": symbol,
+        "kind": kind,
+        "side": side,
+        "ts": ts,
+        "level_key": level_key,
+        "raw_score": raw_score,
+        "conf_factor01": cf01,
+        "final_score": final_score,
+        "emit_ok": _b(emit_ok) if emit_ok is not None else None,
+        "veto_reason_code": veto_reason_code or None,
+        "veto_reason_u16": veto_reason_u16 or None,
         # top features
-        "spread_bps": spread_bps
-        "obi_avg": obi_avg
-        "microprice_shift": microprice_shift
-        "cancel_to_trade": cancel_to_trade
-        "taker_rate": taker_rate
-        "regime_score": regime_score
-        "geometry_score": geometry_score
+        "spread_bps": spread_bps,
+        "obi_avg": obi_avg,
+        "microprice_shift": microprice_shift,
+        "cancel_to_trade": cancel_to_trade,
+        "taker_rate": taker_rate,
+        "regime_score": regime_score,
+        "geometry_score": geometry_score,
         # data quality flags
-        "l2_is_stale": l2_is_stale
-        "used_fallback_hlc": used_fallback_hlc
-        "missing_htf": missing_htf
-        "missing_l3": missing_l3
+        "l2_is_stale": l2_is_stale,
+        "used_fallback_hlc": used_fallback_hlc,
+        "missing_htf": missing_htf,
+        "missing_l3": missing_l3,
     }
 
 
 def log_signal_one_json(
-    logger: Any
-    *
-    payload: Dict[str, Any]
-    ctx: Any
-    parts: Optional[Dict[str, Any]] = None
-    emitted: bool
-    emit_ok: Optional[bool] = None
-    conf_factor01: Optional[float] = None
-    veto_reason_code: Optional[str] = None
-    veto_reason_u16: Optional[int] = None
+    logger: Any,
+    *,
+    payload: Dict[str, Any],
+    ctx: Any,
+    parts: Optional[Dict[str, Any]] = None,
+    emitted: bool,
+    emit_ok: Optional[bool] = None,
+    conf_factor01: Optional[float] = None,
+    veto_reason_code: Optional[str] = None,
+    veto_reason_u16: Optional[int] = None,
 ) -> None:
     """
     PERF CRITICAL:
@@ -227,14 +227,14 @@ def log_signal_one_json(
         if not logger.isEnabledFor(logging.INFO):
             return
         obj = build_signal_one_json_obj(
-            payload=payload
-            ctx=ctx
-            parts=parts
-            emitted=emitted
-            emit_ok=emit_ok
-            conf_factor01=conf_factor01
-            veto_reason_code=veto_reason_code
-            veto_reason_u16=veto_reason_u16
+            payload=payload,
+            ctx=ctx,
+            parts=parts,
+            emitted=emitted,
+            emit_ok=emit_ok,
+            conf_factor01=conf_factor01,
+            veto_reason_code=veto_reason_code,
+            veto_reason_u16=veto_reason_u16,
         )
         logger.info(dumps1(obj))
     except Exception:

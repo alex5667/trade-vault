@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Signal Quality KPI Worker V1
 
@@ -17,7 +18,6 @@ Writes global config to Redis for Prometheus Exporter:
 - plus regime-specific keys
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -32,9 +32,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import redis  # type: ignore
 
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO")
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    datefmt="%Y-%m-%d %H:%M:%S"
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("signal_quality_kpi_v1")
 
@@ -201,13 +201,13 @@ class Row:
 
 
 def _load_rows_from_stream(
-    r: redis.Redis
-    stream: str
-    lookback_ms: int
-    max_scan: int
-    win_r_min: float
-    score_fields: List[str]
-    prob_fields: List[str]
+    r: redis.Redis,
+    stream: str,
+    lookback_ms: int,
+    max_scan: int,
+    win_r_min: float,
+    score_fields: List[str],
+    prob_fields: List[str],
 ) -> List[Row]:
     cutoff = _now_ms() - lookback_ms
     rows: List[Row] = []
@@ -256,22 +256,22 @@ def _load_rows_from_stream(
             regime = _derive_regime(dq_state, drift_state)
 
             rows.append(Row(
-                sid=sid
-                ts_ms=int(ts_ms)
-                r_mult=float(r_mult)
-                y=int(y)
-                rank_score=rank_score
-                p=p
-                strategy=strategy
-                symbol=symbol
-                tf=tf
-                bucket=bucket
-                reason_top1=reason_top1
-                model_ver=model_ver
-                dq_state=dq_state
-                drift_state=drift_state
-                drift_mode=drift_mode
-                regime=regime
+                sid=sid,
+                ts_ms=int(ts_ms),
+                r_mult=float(r_mult),
+                y=int(y),
+                rank_score=rank_score,
+                p=p,
+                strategy=strategy,
+                symbol=symbol,
+                tf=tf,
+                bucket=bucket,
+                reason_top1=reason_top1,
+                model_ver=model_ver,
+                dq_state=dq_state,
+                drift_state=drift_state,
+                drift_mode=drift_mode,
+                regime=regime,
             ))
         last_id = res[-1][0]
         if isinstance(last_id, str):
@@ -353,14 +353,14 @@ def _compute_metrics(rows: List[Row], top_p: float, bins: int) -> Dict[str, Any]
 
 
 def _write_cfg2(
-    r: redis.Redis
-    dyn_cfg_key: str
-    expectancy: Optional[float]
-    precision: Optional[float]
-    ece: Optional[float]
-    n: int
-    last_ts_ms: int
-    per_regime: Dict[str, Dict[str, Any]]
+    r: redis.Redis,
+    dyn_cfg_key: str,
+    expectancy: Optional[float],
+    precision: Optional[float],
+    ece: Optional[float],
+    n: int,
+    last_ts_ms: int,
+    per_regime: Dict[str, Dict[str, Any]],
 ) -> None:
     mapping: Dict[str, Any] = {"signal_quality_n_24h": str(int(n)), "signal_quality_last_ts_ms": str(int(last_ts_ms))}
     if expectancy is not None:
@@ -387,15 +387,15 @@ def _write_cfg2(
 
 
 def _write_breakdown_hash(
-    r: redis.Redis
-    out_hash: str
-    global_obj: Dict[str, Any]
-    per_regime: Dict[str, Dict[str, Any]]
-    rows: List[Row]
-    top_p: float
-    bins: int
-    max_groups: int
-    include_reason: bool
+    r: redis.Redis,
+    out_hash: str,
+    global_obj: Dict[str, Any],
+    per_regime: Dict[str, Dict[str, Any]],
+    rows: List[Row],
+    top_p: float,
+    bins: int,
+    max_groups: int,
+    include_reason: bool,
 ) -> None:
     pipe = r.pipeline(transaction=False)
     pipe.hset(out_hash, "global", json.dumps(global_obj, separators=(",", ":"), ensure_ascii=False))
@@ -437,13 +437,13 @@ def process_metrics(trades: List[Dict]) -> Optional[Dict[str, Any]]:
                 break
                 
         rows.append(Row(
-            sid="mock"
-            ts_ms=ts_ms
-            r_mult=r_mult
-            y=y
-            rank_score=rank_score
-            p=p
-            strategy="", symbol="", tf="", bucket="", reason_top1="", model_ver=""
+            sid="mock",
+            ts_ms=ts_ms,
+            r_mult=r_mult,
+            y=y,
+            rank_score=rank_score,
+            p=p,
+            strategy="", symbol="", tf="", bucket="", reason_top1="", model_ver="",
             dq_state="unknown", drift_state="unknown", drift_mode="unknown", regime="unknown"
         ))
     
@@ -477,10 +477,10 @@ def get_trades_window(r, stream, window_ms):
     # Convert back to dicts roughly
     return [
         {
-            "close_ts_ms": row.ts_ms
-            "r_mult": row.r_mult
-            "ml_p": row.p
-            "dq_state": row.dq_state
+            "close_ts_ms": row.ts_ms,
+            "r_mult": row.r_mult,
+            "ml_p": row.p,
+            "dq_state": row.dq_state,
         }
         for row in rows
     ]
@@ -519,7 +519,7 @@ def _connect_redis_with_retry(redis_url: str, max_retries: int = 60) -> redis.Re
         except redis.exceptions.BusyLoadingError as e:
             wait_time = min(5, 2 ** attempt)  # 1s, 2s, 4s, 5s...
             logger.warning(
-                "Redis is loading dataset (attempt %d/%d). Waiting %ds... Error: %s"
+                "Redis is loading dataset (attempt %d/%d). Waiting %ds... Error: %s",
                 attempt + 1, max_retries, wait_time, e
             )
             if attempt < max_retries - 1:
@@ -542,13 +542,13 @@ def run_once() -> int:
     
     r = _connect_redis_with_retry(redis_url)
     rows = _load_rows_from_stream(
-        r=r
-        stream=trades_stream
-        lookback_ms=int(LOOKBACK_H * 3600 * 1000)
-        max_scan=MAX_SCAN
-        win_r_min=WIN_R_MIN
-        score_fields=SCORE_FIELDS
-        prob_fields=PROB_FIELDS
+        r=r,
+        stream=trades_stream,
+        lookback_ms=int(LOOKBACK_H * 3600 * 1000),
+        max_scan=MAX_SCAN,
+        win_r_min=WIN_R_MIN,
+        score_fields=SCORE_FIELDS,
+        prob_fields=PROB_FIELDS,
     )
     n = len(rows)
     last_ts_ms = max((rw.ts_ms for rw in rows), default=_now_ms())
@@ -567,39 +567,39 @@ def run_once() -> int:
         per_regime[regime]["regime"] = regime
 
     logger.info(
-        "P47/P64: n=%d exp=%s ptop=%.3f prec=%s ece=%s | ok=%d warn=%d block=%d"
-        n
-        f"{global_metrics['expectancy_r']:.6f}" if global_metrics["expectancy_r"] is not None else "na"
-        TOP_P
-        f"{global_metrics['precision_top_p']:.6f}" if global_metrics["precision_top_p"] is not None else "na"
-        f"{global_metrics['ece']:.6f}" if global_metrics["ece"] is not None else "na"
-        int(per_regime["ok"]["n"])
-        int(per_regime["warn"]["n"])
-        int(per_regime["block"]["n"])
+        "P47/P64: n=%d exp=%s ptop=%.3f prec=%s ece=%s | ok=%d warn=%d block=%d",
+        n,
+        f"{global_metrics['expectancy_r']:.6f}" if global_metrics["expectancy_r"] is not None else "na",
+        TOP_P,
+        f"{global_metrics['precision_top_p']:.6f}" if global_metrics["precision_top_p"] is not None else "na",
+        f"{global_metrics['ece']:.6f}" if global_metrics["ece"] is not None else "na",
+        int(per_regime["ok"]["n"]),
+        int(per_regime["warn"]["n"]),
+        int(per_regime["block"]["n"]),
     )
 
     if WRITE_CFG2:
         _write_cfg2(
-            r=r
-            dyn_cfg_key=DYN_CFG_KEY
-            expectancy=global_metrics["expectancy_r"]
-            precision=global_metrics["precision_top_p"]
-            ece=global_metrics["ece"]
-            n=n
-            last_ts_ms=last_ts_ms
-            per_regime=per_regime
+            r=r,
+            dyn_cfg_key=DYN_CFG_KEY,
+            expectancy=global_metrics["expectancy_r"],
+            precision=global_metrics["precision_top_p"],
+            ece=global_metrics["ece"],
+            n=n,
+            last_ts_ms=last_ts_ms,
+            per_regime=per_regime,
         )
 
     _write_breakdown_hash(
-        r=r
-        out_hash=OUT_HASH
-        global_obj={**global_metrics, "top_p": TOP_P, "bins": ECE_BINS}
-        per_regime=per_regime
-        rows=rows
-        top_p=TOP_P
-        bins=ECE_BINS
-        max_groups=MAX_GROUPS
-        include_reason=INCLUDE_REASON
+        r=r,
+        out_hash=OUT_HASH,
+        global_obj={**global_metrics, "top_p": TOP_P, "bins": ECE_BINS},
+        per_regime=per_regime,
+        rows=rows,
+        top_p=TOP_P,
+        bins=ECE_BINS,
+        max_groups=MAX_GROUPS,
+        include_reason=INCLUDE_REASON,
     )
     return 0
 

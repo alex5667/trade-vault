@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Comprehensive unit tests for SmtLeaderCoherenceGate (gate #8).
 
@@ -15,7 +16,6 @@ Covers all scenarios from the spec table:
   - Hash / JSON state sources (dual Redis read path)
   - All 9 required ctx audit fields
 """
-from __future__ import annotations
 
 import json
 import math

@@ -110,41 +110,41 @@ def _stream_sort_key(stream_id: str) -> Tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 TRADE_EXECUTION_PROJECTION_EVENT_TOTAL = _metric(
-    Counter
-    'trade_execution_projection_event_total'
-    'Projected execution journal events processed by the derived-state worker.'
-    ['result']
+    Counter,
+    'trade_execution_projection_event_total',
+    'Projected execution journal events processed by the derived-state worker.',
+    ['result'],
 )
 
 TRADE_EXECUTION_PROJECTION_LAG_MS = _metric(
-    Gauge
-    'trade_execution_projection_lag_ms'
-    'Age of the most recently projected execution journal event.'
+    Gauge,
+    'trade_execution_projection_lag_ms',
+    'Age of the most recently projected execution journal event.',
 )
 
 TRADE_EXECUTION_PROJECTION_CURSOR_TS_MS = _metric(
-    Gauge
-    'trade_execution_projection_cursor_ts_ms'
-    'Timestamp component of the latest projected orders:exec stream ID.'
+    Gauge,
+    'trade_execution_projection_cursor_ts_ms',
+    'Timestamp component of the latest projected orders:exec stream ID.',
 )
 
 # P1.2.2 HA metrics
 TRADE_EXECUTION_PROJECTION_IS_LEADER = _metric(
-    Gauge
-    'trade_execution_projection_is_leader'
-    'Whether this worker instance currently holds the projection leader lease (1=leader, 0=standby).'
+    Gauge,
+    'trade_execution_projection_is_leader',
+    'Whether this worker instance currently holds the projection leader lease (1=leader, 0=standby).',
 )
 
 TRADE_EXECUTION_PROJECTION_FENCING_TOKEN = _metric(
-    Gauge
-    'trade_execution_projection_fencing_token'
-    'Current fencing token value (monotonically increasing on each lease acquisition).'
+    Gauge,
+    'trade_execution_projection_fencing_token',
+    'Current fencing token value (monotonically increasing on each lease acquisition).',
 )
 
 TRADE_EXECUTION_PROJECTION_STALE_WRITER_TOTAL = _metric(
-    Counter
-    'trade_execution_projection_stale_writer_total'
-    'Times a stale-writer (fencing token mismatch) was detected and the batch was aborted.'
+    Counter,
+    'trade_execution_projection_stale_writer_total',
+    'Times a stale-writer (fencing token mismatch) was detected and the batch was aborted.',
 )
 
 
@@ -168,14 +168,14 @@ class LeaderLease:
     """
 
     def __init__(
-        self
-        redis_client: Any
-        *
-        lease_key: str = 'orders:exec:projection:leader'
-        fence_key: str = 'orders:exec:projection:fence'
-        lease_ttl_ms: int = 5000
-        renew_interval_ms: int = 2000
-        worker_id: str = ''
+        self,
+        redis_client: Any,
+        *,
+        lease_key: str = 'orders:exec:projection:leader',
+        fence_key: str = 'orders:exec:projection:fence',
+        lease_ttl_ms: int = 5000,
+        renew_interval_ms: int = 2000,
+        worker_id: str = '',
     ) -> None:
         self.r = redis_client
         self.lease_key = lease_key
@@ -319,16 +319,16 @@ class ExecutionProjectionWorker:
     """
 
     def __init__(
-        self
-        redis_client: Any
-        *
-        exec_stream: str = 'orders:exec'
-        state_key_prefix: str = 'orders:state:'
-        active_symbol_key_prefix: str = 'orders:active_symbol_sid:'
-        state_ttl_sec: int = 86400
-        cursor_key: str = 'orders:exec:projection:cursor'
-        batch_size: int = 500
-        execution_journal: Optional[ExecutionJournalSink] = None
+        self,
+        redis_client: Any,
+        *,
+        exec_stream: str = 'orders:exec',
+        state_key_prefix: str = 'orders:state:',
+        active_symbol_key_prefix: str = 'orders:active_symbol_sid:',
+        state_ttl_sec: int = 86400,
+        cursor_key: str = 'orders:exec:projection:cursor',
+        batch_size: int = 500,
+        execution_journal: Optional[ExecutionJournalSink] = None,
         leader_lease: Optional[LeaderLease] = None,  # P1.2.2: inject lease
     ) -> None:
         self.r = redis_client
@@ -416,13 +416,13 @@ class ExecutionProjectionWorker:
                 pass
             return
         payload = json.dumps({
-            'symbol': symbol
-            'sid': sid
-            'fsm_state': str(doc.get('fsm_state') or doc.get('status') or '')
-            'state': str(doc.get('fsm_state') or doc.get('status') or '')
-            'side': str(doc.get('side') or '')
-            'updated_at_ms': int(doc.get('updated_at_ms') or doc.get('ts_state_commit_ms') or _ms_now())
-            'ts_state_commit_ms': int(doc.get('ts_state_commit_ms') or _ms_now())
+            'symbol': symbol,
+            'sid': sid,
+            'fsm_state': str(doc.get('fsm_state') or doc.get('status') or ''),
+            'state': str(doc.get('fsm_state') or doc.get('status') or ''),
+            'side': str(doc.get('side') or ''),
+            'updated_at_ms': int(doc.get('updated_at_ms') or doc.get('ts_state_commit_ms') or _ms_now()),
+            'ts_state_commit_ms': int(doc.get('ts_state_commit_ms') or _ms_now()),
         }, ensure_ascii=False, default=str)
         try:
             if self.state_ttl_sec > 0:
@@ -538,8 +538,8 @@ class ExecutionProjectionWorker:
                 # Standby: skip silently, let leader do the work
                 cursor = self._cursor()
                 return ProjectionBatchResult(
-                    processed=0, last_stream_id=cursor
-                    idle=True, skipped_not_leader=True
+                    processed=0, last_stream_id=cursor,
+                    idle=True, skipped_not_leader=True,
                 )
 
             # Stale-writer protection: abort if fencing token is behind Redis
@@ -551,8 +551,8 @@ class ExecutionProjectionWorker:
                     pass
                 cursor = self._cursor()
                 return ProjectionBatchResult(
-                    processed=0, last_stream_id=cursor
-                    idle=True, stale_writer=True
+                    processed=0, last_stream_id=cursor,
+                    idle=True, stale_writer=True,
                 )
         else:
             # Single-node mode: always act as leader
@@ -639,15 +639,15 @@ class ExecutionProjectionWorker:
         ready = is_leader and lag_ms < lag_readyz_max_ms
 
         return {
-            'leader': is_leader
-            'fencing_token': fencing_token
-            'cursor': cursor
-            'cursor_age_ms': cursor_age_ms
-            'lag_ms': lag_ms
-            'last_batch_ts_ms': self._last_batch_ts_ms
-            'ready': ready
-            'lease_enabled': self.leader_lease is not None
-            'worker_id': worker_id
+            'leader': is_leader,
+            'fencing_token': fencing_token,
+            'cursor': cursor,
+            'cursor_age_ms': cursor_age_ms,
+            'lag_ms': lag_ms,
+            'last_batch_ts_ms': self._last_batch_ts_ms,
+            'ready': ready,
+            'lease_enabled': self.leader_lease is not None,
+            'worker_id': worker_id,
         }
 
     # ------------------------------------------------------------------
@@ -767,24 +767,24 @@ def _worker_from_env(r: Any) -> ExecutionProjectionWorker:  # pragma: no cover
     leader_lease: Optional[LeaderLease] = None
     if lease_enabled:
         leader_lease = LeaderLease(
-            r
-            lease_key=os.getenv('EXEC_PROJECTION_LEASE_KEY', 'orders:exec:projection:leader')
-            fence_key=os.getenv('EXEC_PROJECTION_FENCE_KEY', 'orders:exec:projection:fence')
-            lease_ttl_ms=int(os.getenv('EXEC_PROJECTION_LEASE_TTL_MS', '5000'))
-            renew_interval_ms=int(os.getenv('EXEC_PROJECTION_LEASE_RENEW_INTERVAL_MS', '2000'))
-            worker_id=os.getenv('EXEC_PROJECTION_WORKER_ID', '') or socket.gethostname()
+            r,
+            lease_key=os.getenv('EXEC_PROJECTION_LEASE_KEY', 'orders:exec:projection:leader'),
+            fence_key=os.getenv('EXEC_PROJECTION_FENCE_KEY', 'orders:exec:projection:fence'),
+            lease_ttl_ms=int(os.getenv('EXEC_PROJECTION_LEASE_TTL_MS', '5000')),
+            renew_interval_ms=int(os.getenv('EXEC_PROJECTION_LEASE_RENEW_INTERVAL_MS', '2000')),
+            worker_id=os.getenv('EXEC_PROJECTION_WORKER_ID', '') or socket.gethostname(),
         )
 
     return ExecutionProjectionWorker(
-        r
-        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec')
-        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:')
-        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:')
-        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400'))
-        cursor_key=os.getenv('EXEC_PROJECTION_CURSOR_KEY', 'orders:exec:projection:cursor')
-        batch_size=int(os.getenv('EXEC_PROJECTION_BATCH_SIZE', '500'))
-        execution_journal=ExecutionJournalSink(dsn=os.getenv('EXECUTION_JOURNAL_DSN', ''))
-        leader_lease=leader_lease
+        r,
+        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+        state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
+        active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
+        state_ttl_sec=int(os.getenv('ORDERS_STATE_TTL_SEC', '86400')),
+        cursor_key=os.getenv('EXEC_PROJECTION_CURSOR_KEY', 'orders:exec:projection:cursor'),
+        batch_size=int(os.getenv('EXEC_PROJECTION_BATCH_SIZE', '500')),
+        execution_journal=ExecutionJournalSink(dsn=os.getenv('EXECUTION_JOURNAL_DSN', '')),
+        leader_lease=leader_lease,
     )
 
 
@@ -794,34 +794,34 @@ def _worker_from_env(r: Any) -> ExecutionProjectionWorker:  # pragma: no cover
 
 def _build_arg_parser() -> argparse.ArgumentParser:  # pragma: no cover
     p = argparse.ArgumentParser(
-        description='Execution projection worker — rebuild CLI + daemon mode (P1.2.2)'
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description='Execution projection worker — rebuild CLI + daemon mode (P1.2.2)',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        '--rebuild-all'
-        action='store_true'
-        help='Replay entire orders:exec and rebuild all orders:state:{sid} keys, then exit.'
+        '--rebuild-all',
+        action='store_true',
+        help='Replay entire orders:exec and rebuild all orders:state:{sid} keys, then exit.',
     )
     p.add_argument(
-        '--rebuild-sid'
-        metavar='SID'
-        default=''
-        help='Rebuild orders:state for one SID from orders:exec, then exit.'
+        '--rebuild-sid',
+        metavar='SID',
+        default='',
+        help='Rebuild orders:state for one SID from orders:exec, then exit.',
     )
     p.add_argument(
-        '--reset-derived-state'
-        action='store_true'
-        help='DEL all orders:state:* keys (DANGER — requires explicit flag).'
+        '--reset-derived-state',
+        action='store_true',
+        help='DEL all orders:state:* keys (DANGER — requires explicit flag).',
     )
     p.add_argument(
-        '--set-cursor-to-tip'
-        action='store_true'
-        help='Advance projection cursor to latest orders:exec stream ID, then exit.'
+        '--set-cursor-to-tip',
+        action='store_true',
+        help='Advance projection cursor to latest orders:exec stream ID, then exit.',
     )
     p.add_argument(
-        '--print-health'
-        action='store_true'
-        help='Print health JSON and exit.'
+        '--print-health',
+        action='store_true',
+        help='Print health JSON and exit.',
     )
     return p
 

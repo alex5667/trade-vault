@@ -64,17 +64,17 @@ class NormalizedUserStreamEvent:
 
     def to_redis_fields(self) -> Dict[str, str]:
         return {
-            "event_type": str(self.event_type)
-            "event_time_ms": str(self.event_time_ms)
-            "symbol": str(self.symbol)
-            "side": str(self.side)
-            "status": str(self.status)
-            "execution_type": str(self.execution_type)
-            "order_id": "" if self.order_id is None else str(self.order_id)
-            "client_order_id": self.client_order_id or ""
-            "algo_id": "" if self.algo_id is None else str(self.algo_id)
-            "client_algo_id": self.client_algo_id or ""
-            "raw_json": json.dumps(self.raw, ensure_ascii=False, default=str)
+            "event_type": str(self.event_type),
+            "event_time_ms": str(self.event_time_ms),
+            "symbol": str(self.symbol),
+            "side": str(self.side),
+            "status": str(self.status),
+            "execution_type": str(self.execution_type),
+            "order_id": "" if self.order_id is None else str(self.order_id),
+            "client_order_id": self.client_order_id or "",
+            "algo_id": "" if self.algo_id is None else str(self.algo_id),
+            "client_algo_id": self.client_algo_id or "",
+            "raw_json": json.dumps(self.raw, ensure_ascii=False, default=str),
         }
 
 
@@ -102,32 +102,32 @@ class BinanceUserStreamWorker:
         if e == "ORDER_TRADE_UPDATE":
             order = payload.get("o") or {}
             return NormalizedUserStreamEvent(
-                event_type=e
-                event_time_ms=event_time_ms
-                symbol=str(order.get("s") or "")
-                side=str(order.get("S") or "")
-                status=str(order.get("X") or "")
-                execution_type=str(order.get("x") or "")
-                order_id=int(order.get("i")) if order.get("i") not in (None, "") else None
-                client_order_id=str(order.get("c") or "") or None
-                algo_id=None
-                client_algo_id=None
-                raw=payload
+                event_type=e,
+                event_time_ms=event_time_ms,
+                symbol=str(order.get("s") or ""),
+                side=str(order.get("S") or ""),
+                status=str(order.get("X") or ""),
+                execution_type=str(order.get("x") or ""),
+                order_id=int(order.get("i")) if order.get("i") not in (None, "") else None,
+                client_order_id=str(order.get("c") or "") or None,
+                algo_id=None,
+                client_algo_id=None,
+                raw=payload,
             )
         if e == "ALGO_UPDATE":
             algo = payload.get("ao") or payload.get("a") or payload.get("o") or {}
             return NormalizedUserStreamEvent(
-                event_type=e
-                event_time_ms=event_time_ms
-                symbol=str(algo.get("s") or payload.get("s") or "")
-                side=str(algo.get("S") or "")
-                status=str(algo.get("X") or algo.get("x") or "")
-                execution_type=str(algo.get("x") or payload.get("x") or "")
-                order_id=None
-                client_order_id=None
-                algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None
-                client_algo_id=str(algo.get("clientAlgoId") or "") or None
-                raw=payload
+                event_type=e,
+                event_time_ms=event_time_ms,
+                symbol=str(algo.get("s") or payload.get("s") or ""),
+                side=str(algo.get("S") or ""),
+                status=str(algo.get("X") or algo.get("x") or ""),
+                execution_type=str(algo.get("x") or payload.get("x") or ""),
+                order_id=None,
+                client_order_id=None,
+                algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None,
+                client_algo_id=str(algo.get("clientAlgoId") or "") or None,
+                raw=payload,
             )
         return None
 

@@ -14,21 +14,21 @@ def test_outbox_writer_puts_meta_extra_under_payload_meta(monkeypatch):
 
     # build_trace_sidecar_meta должен дать базовый sidecar meta
     monkeypatch.setattr(
-        mod
-        "build_trace_sidecar_meta"
-        lambda ctx, sid: {"schema": "decision_trace_sidecar:v1", "trace_id": "T-1"}
+        mod,
+        "build_trace_sidecar_meta",
+        lambda ctx, sid: {"schema": "decision_trace_sidecar:v1", "trace_id": "T-1"},
     )
 
     f = mod.CandidateFrame(
-        handler=handler
-        ctx=ctx
-        cand=object()
-        kind_str="k"
-        kind_key="k"
-        side_int=1
-        ctx_symbol="BTCUSDT"
-        ctx_ts=0
-        ctx_price=1.0
+        handler=handler,
+        ctx=ctx,
+        cand=object(),
+        kind_str="k",
+        kind_key="k",
+        side_int=1,
+        ctx_symbol="BTCUSDT",
+        ctx_ts=0,
+        ctx_price=1.0,
     )
 
     payload = {"sid": "S-1", "signal_id": "S-1"}

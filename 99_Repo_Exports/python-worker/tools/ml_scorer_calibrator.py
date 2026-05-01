@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 ML Scorer V2 Calibrator.
 
@@ -33,7 +34,6 @@ ENV vars:
   MLS_CAL_CFG_KEY                 cfg:ml_scorer:mode
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

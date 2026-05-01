@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 SRE поллер для метрик ML Confirm и labels:tb.
 
@@ -14,7 +15,6 @@ SRE поллер для метрик ML Confirm и labels:tb.
   - tb_promo_success_total / tb_promo_fail_total (counter)
 """
 
-from __future__ import annotations
 
 import os
 import time
@@ -45,43 +45,43 @@ logger = logging.getLogger("ml_confirm_sre_poller")
 # Prometheus metrics
 if PROMETHEUS_AVAILABLE:
     tb_labels_xlen = Gauge(
-        "tb_labels_xlen"
-        "XLEN of labels:tb stream"
+        "tb_labels_xlen",
+        "XLEN of labels:tb stream",
     )
     
     tb_labels_xadd_rate = Gauge(
-        "tb_labels_xadd_rate"
-        "XADD rate for labels:tb (approximate, per minute)"
+        "tb_labels_xadd_rate",
+        "XADD rate for labels:tb (approximate, per minute)",
     )
     
     tb_labeler_group_exists = Gauge(
-        "tb_labeler_group_exists"
-        "Consumer group exists for labels:tb (0/1)"
+        "tb_labeler_group_exists",
+        "Consumer group exists for labels:tb (0/1)",
     )
     
     tb_train_empty_run_total = Counter(
-        "tb_train_empty_run_total"
-        "Count of training runs with 0 exported labels"
+        "tb_train_empty_run_total",
+        "Count of training runs with 0 exported labels",
     )
     
     tb_promo_success_total = Counter(
-        "tb_promo_success_total"
-        "Count of successful champion promotions"
+        "tb_promo_success_total",
+        "Count of successful champion promotions",
     )
     
     tb_promo_fail_total = Counter(
-        "tb_promo_fail_total"
-        "Count of failed champion promotions"
-        ["reason"]
+        "tb_promo_fail_total",
+        "Count of failed champion promotions",
+        ["reason"],
     )
     
     # ML Confirm config health metrics (from Redis)
     # Import from registry if available, otherwise define locally
     try:
         from services.observability.metrics_registry import (
-            ml_confirm_cfg_present
-            ml_confirm_cfg_valid
-            ml_confirm_enforce_share
+            ml_confirm_cfg_present,
+            ml_confirm_cfg_valid,
+            ml_confirm_enforce_share,
         )
         ml_confirm_cfg_present_gauge = ml_confirm_cfg_present
         ml_confirm_cfg_valid_gauge = ml_confirm_cfg_valid
@@ -89,19 +89,19 @@ if PROMETHEUS_AVAILABLE:
     except Exception:
         # Fallback: define locally if registry not available
         ml_confirm_cfg_present_gauge = Gauge(
-            "ml_confirm_cfg_present"
-            "Whether cfg:ml_confirm:champion exists in Redis (1/0)"
-            ["kind"]
+            "ml_confirm_cfg_present",
+            "Whether cfg:ml_confirm:champion exists in Redis (1/0)",
+            ["kind"],
         )
         ml_confirm_cfg_valid_gauge = Gauge(
-            "ml_confirm_cfg_valid"
-            "Whether cfg:ml_confirm:champion passed validation (1/0)"
-            ["kind"]
+            "ml_confirm_cfg_valid",
+            "Whether cfg:ml_confirm:champion passed validation (1/0)",
+            ["kind"],
         )
         ml_confirm_enforce_share_gauge = Gauge(
-            "ml_confirm_enforce_share"
-            "Current enforce_share from validated champion cfg"
-            ["kind"]
+            "ml_confirm_enforce_share",
+            "Current enforce_share from validated champion cfg",
+            ["kind"],
         )
 else:
     # Mock metrics
@@ -121,12 +121,12 @@ class MLConfirmSREPoller:
     """SRE поллер для мониторинга ML Confirm и labels:tb."""
     
     def __init__(
-        self
-        *
-        r: redis.Redis
-        labels_stream: str = "labels:tb"
-        poll_interval_sec: int = 60
-        champion_key: str = "cfg:ml_confirm:champion"
+        self,
+        *,
+        r: redis.Redis,
+        labels_stream: str = "labels:tb",
+        poll_interval_sec: int = 60,
+        champion_key: str = "cfg:ml_confirm:champion",
     ) -> None:
         self.r = r
         self.labels_stream = labels_stream
@@ -201,7 +201,7 @@ class MLConfirmSREPoller:
                     if raw_cfg_str:
                         # Validate with strict mode (no defaulting)
                         champion_cfg, _ = validate_champion_cfg(
-                            raw_cfg_str
+                            raw_cfg_str,
                             default_enforce_share=None  # Strict: missing enforce_share → error
                         )
                         kind_for_metrics = champion_cfg.kind or "unknown"
@@ -267,7 +267,7 @@ def main() -> None:
     
     # Setup logging
     logging.basicConfig(
-        level=logging.INFO
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     
@@ -284,10 +284,10 @@ def main() -> None:
     
     # Run poller
     poller = MLConfirmSREPoller(
-        r=r
-        labels_stream=args.labels_stream
-        poll_interval_sec=args.poll_interval
-        champion_key=args.champion_key
+        r=r,
+        labels_stream=args.labels_stream,
+        poll_interval_sec=args.poll_interval,
+        champion_key=args.champion_key,
     )
     poller.run_forever()
 

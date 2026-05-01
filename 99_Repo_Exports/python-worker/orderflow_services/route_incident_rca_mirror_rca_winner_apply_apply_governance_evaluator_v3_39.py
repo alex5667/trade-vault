@@ -188,7 +188,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "incumbent_arm": incumbent_arm,
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
-    }
+    },
 
 
 def arm_from_request_id(request_id: str, explicit_arm: str = "") -> str:
@@ -235,7 +235,7 @@ def empty_scorecard(arm: str) -> Dict[str, Any]:
         "score": 0.0,
         "eligible": 0,
         "reason_codes": [],
-    }
+    },
 
 
 def scorecards_from_rows(
@@ -331,7 +331,7 @@ def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[
             "incumbent_arm": incumbent,
             "winner_score": incumbent_card["score"],
             "incumbent_score": incumbent_card["score"],
-        }
+        },
 
     best = max(candidates, key=lambda c: (c["score"], c["avg_usefulness"], c["avg_quality"]))
     margin = round(best["score"] - incumbent_card["score"], 6)
@@ -344,7 +344,7 @@ def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[
             "incumbent_arm": incumbent,
             "winner_score": incumbent_card["score"],
             "incumbent_score": incumbent_card["score"],
-        }
+        },
 
     if best["arm"] == "vertex_candidate":
         decision = "PROMOTE_VERTEX_CANDIDATE"
@@ -360,7 +360,7 @@ def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[
         "incumbent_arm": incumbent,
         "winner_score": best["score"],
         "incumbent_score": incumbent_card["score"],
-    }
+    },
 
 
 async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any]], recommendation: Dict[str, Any]) -> None:
@@ -370,7 +370,7 @@ async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any
         with conn.cursor() as cur:
             for arm, card in scorecards.items():
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_governance_scorecards (
                         ts_ms, arm, exposure_n, result_n, feedback_n, avg_quality,
                         avg_usefulness, accepted_rate, result_coverage, feedback_coverage,
@@ -389,7 +389,7 @@ async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any
                     },
                 )
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_governance_evaluator_decisions (
                     ts_ms, decision, reason_code, winner_arm, incumbent_arm,
                     winner_score, incumbent_score, decision_json

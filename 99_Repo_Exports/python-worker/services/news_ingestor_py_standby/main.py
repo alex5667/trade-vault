@@ -4,7 +4,7 @@ import logging
 
 # Setup logging
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO")
+    level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s"
 )
 
@@ -31,10 +31,10 @@ def get_redis():
     while retry_count < max_retries:
         try:
             r = redis.Redis.from_url(
-                url
-                decode_responses=True
-                health_check_interval=30
-                socket_timeout=10
+                url,
+                decode_responses=True,
+                health_check_interval=30,
+                socket_timeout=10,
             )
             # Test connection
             r.ping()

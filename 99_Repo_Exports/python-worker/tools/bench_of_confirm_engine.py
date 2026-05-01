@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Нагрузочный/latency bench: synthetic + "from inputs" bench, p50/p95/p99 + budgets.
 
 Why:
@@ -8,7 +9,6 @@ Usage:
   python -m tools.bench_of_confirm_engine --n 20000 --warmup 2000 --out /tmp/bench.json
 """
 
-from __future__ import annotations
 
 import argparse
 import json

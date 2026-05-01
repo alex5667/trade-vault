@@ -4,12 +4,12 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 
 FREEZE_PRECEDENCE = {
-    "clip": 10
-    "no_new_risk": 20
-    "scope_frozen": 30
-    "venue_frozen": 40
-    "promotions_frozen": 50
-    "release_frozen": 60
+    "clip": 10,
+    "no_new_risk": 20,
+    "scope_frozen": 30,
+    "venue_frozen": 40,
+    "promotions_frozen": 50,
+    "release_frozen": 60,
     "hard_freeze": 100
 }
 
@@ -25,7 +25,7 @@ class ATRFreezeMatrixService:
     def _get_precedence(self, freeze_state: str) -> int:
         return FREEZE_PRECEDENCE.get(freeze_state, 0)
 
-    def resolve_freeze_state(self, trigger_kind: str, scope_kind: str, severity: str
+    def resolve_freeze_state(self, trigger_kind: str, scope_kind: str, severity: str,
                              available_policies: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """
         Find the matching policy from the catalog.
@@ -39,11 +39,11 @@ class ATRFreezeMatrixService:
                     return p
         return None
 
-    def evaluate_trigger(self, trigger: Dict[str, Any]
-                         active_freezes: List[Dict[str, Any]]
+    def evaluate_trigger(self, trigger: Dict[str, Any],
+                         active_freezes: List[Dict[str, Any]],
                          available_policies: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Takes a trigger and the current list of active freezes, evaluates precedence
+        Takes a trigger and the current list of active freezes, evaluates precedence,
         and either creates a new freeze or escalates an existing one.
         """
         trigger_kind = trigger.get("trigger_kind", "unknown")
@@ -86,13 +86,13 @@ class ATRFreezeMatrixService:
             # Already in a stronger or equal freeze state
             # Extend TTL if necessary
             return {
-                "status": "extended" if highest_active_precedence == target_precedence else "ignored_lower_priority"
-                "freeze_id": existing_freeze_id
-                "freeze_state": current_state
-                "advisory_only": self.advisory_only
+                "status": "extended" if highest_active_precedence == target_precedence else "ignored_lower_priority",
+                "freeze_id": existing_freeze_id,
+                "freeze_state": current_state,
+                "advisory_only": self.advisory_only,
                 "update_payload": {
-                    "expires_at": expires_at_dt.isoformat()
-                    "recovery_not_before": recovery_dt.isoformat()
+                    "expires_at": expires_at_dt.isoformat(),
+                    "recovery_not_before": recovery_dt.isoformat(),
                     "status": "active" # Refreeze if it was recovering
                 }
             }
@@ -101,22 +101,22 @@ class ATRFreezeMatrixService:
             new_id = existing_freeze_id or hashlib.sha1(f"{trigger_kind}|{scope_kind}|{scope_value}|{now_ts}".encode()).hexdigest()[:20]
             
             return {
-                "status": "escalated" if existing_freeze_id else "created"
-                "freeze_id": new_id
-                "freeze_state": target_freeze_state
-                "advisory_only": self.advisory_only
+                "status": "escalated" if existing_freeze_id else "created",
+                "freeze_id": new_id,
+                "freeze_state": target_freeze_state,
+                "advisory_only": self.advisory_only,
                 "payload": {
-                    "trigger_kind": trigger_kind
-                    "scope_kind": scope_kind
-                    "scope_value": scope_value
-                    "freeze_state": target_freeze_state
-                    "source_reason_code": reason_code
-                    "status": "active"
-                    "started_at": now_utc.isoformat()
-                    "expires_at": expires_at_dt.isoformat()
-                    "recovery_not_before": recovery_dt.isoformat()
+                    "trigger_kind": trigger_kind,
+                    "scope_kind": scope_kind,
+                    "scope_value": scope_value,
+                    "freeze_state": target_freeze_state,
+                    "source_reason_code": reason_code,
+                    "status": "active",
+                    "started_at": now_utc.isoformat(),
+                    "expires_at": expires_at_dt.isoformat(),
+                    "recovery_not_before": recovery_dt.isoformat(),
                     "freeze_json": {
-                        "escalated_from": current_state
+                        "escalated_from": current_state,
                         "escalation_policy": policy.get("policy_id")
                     }
                 }
@@ -137,19 +137,19 @@ class ATRFreezeMatrixService:
             # Runtime uses these generic keys with state payload
             if state in ["clip", "no_new_risk", "scope_frozen", "venue_frozen", "hard_freeze"]:
                 redis_updates.append({
-                    "key": f"cfg:atr_degrade:{scope}"
+                    "key": f"cfg:atr_degrade:{scope}",
                     "value": {"state": state, "freeze_id": freeze["freeze_id"], "advisory": self.advisory_only}
                 })
             
             if state in ["promotions_frozen", "release_frozen"]:
                 redis_updates.append({
-                    "key": f"cfg:atr_promotion_freeze:{scope}"
+                    "key": f"cfg:atr_promotion_freeze:{scope}",
                     "value": {"state": state, "freeze_id": freeze["freeze_id"], "advisory": self.advisory_only}
                 })
 
             if state in ["release_frozen", "hard_freeze"]:
                 redis_updates.append({
-                    "key": f"cfg:atr_release_freeze:{scope}"
+                    "key": f"cfg:atr_release_freeze:{scope}",
                     "value": {"state": state, "freeze_id": freeze["freeze_id"], "advisory": self.advisory_only}
                 })
 

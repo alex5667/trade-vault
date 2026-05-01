@@ -164,7 +164,7 @@ def normalize_weights(raw: Any) -> Dict[str, int]:
         "vertex_primary_weight": parse_int(obj.get("vertex_primary_weight"), 0),
         "vertex_compact_weight": parse_int(obj.get("vertex_compact_weight"), 0),
         "local_candidate_weight": parse_int(obj.get("local_candidate_weight"), 0),
-    }
+    },
 
 
 def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -178,7 +178,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
         "allow_commit": parse_int(raw.get("allow_commit"), DEFAULT_ALLOW_COMMIT),
         "allowed_reasons": {str(x) for x in allowed_reasons},
-    }
+    },
 
 
 def evaluate_rollback(verification_row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -194,7 +194,7 @@ def evaluate_rollback(verification_row: Dict[str, Any], policy: Dict[str, Any]) 
         "rollback_profile": rollback_profile,
         "rollback_incumbent_arm": rollback_incumbent_arm,
         "rollback_weights": rollback_weights,
-    }
+    },
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
         return out
@@ -225,7 +225,7 @@ async def persist_if_configured(db_url: str, rollback_out: Dict[str, Any], verif
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_rr_winner_apply_gov_exp_rollback_journal (
                     ts_ms, decision, reason_code, rollback_profile, rollback_incumbent_arm,
                     rollback_weights_json, applied, journal_json

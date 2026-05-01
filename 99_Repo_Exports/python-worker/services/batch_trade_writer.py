@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 services/batch_trade_writer.py
 ──────────────────────────────
@@ -23,7 +24,6 @@ ENV:
   BATCH_WRITER_MAX_RETRIES      (default 3)    — повторы при ошибке PG
   BATCH_WRITER_QUEUE_MAXSIZE    (default 10000)— предел очереди (backpressure)
 """
-from __future__ import annotations
 
 import json
 import logging
@@ -35,9 +35,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from services.horizon_contract import (
-        extract_horizon_contract_from_payload
-        extract_horizon_bucket
-        extract_atr_tf_ms
+        extract_horizon_contract_from_payload,
+        extract_horizon_bucket,
+        extract_atr_tf_ms,
     )
 except ImportError:  # pragma: no cover
     def extract_horizon_contract_from_payload(p):  # type: ignore[misc]
@@ -59,30 +59,30 @@ try:
     from prometheus_client import Counter, Gauge, Histogram
 
     _TM_DB_BATCH_SIZE = Histogram(
-        "tm_db_batch_size"
-        "Количество строк в одном batch flush"
-        buckets=[1, 5, 10, 50, 100, 200, 500]
+        "tm_db_batch_size",
+        "Количество строк в одном batch flush",
+        buckets=[1, 5, 10, 50, 100, 200, 500],
     )
     _TM_DB_FLUSH_MS = Histogram(
-        "tm_db_flush_duration_ms"
-        "Длительность batch flush в мс"
-        buckets=[1, 5, 10, 50, 100, 500, 2000]
+        "tm_db_flush_duration_ms",
+        "Длительность batch flush в мс",
+        buckets=[1, 5, 10, 50, 100, 500, 2000],
     )
     _TM_DB_PENDING = Gauge(
-        "tm_db_batch_pending"
-        "Количество сделок в очереди batch writer"
+        "tm_db_batch_pending",
+        "Количество сделок в очереди batch writer",
     )
     _TM_DB_DROPPED = Counter(
-        "tm_db_batch_dropped_total"
-        "Сделки потерянные из-за переполнения очереди"
+        "tm_db_batch_dropped_total",
+        "Сделки потерянные из-за переполнения очереди",
     )
     _TM_DB_RETRIES = Counter(
-        "tm_db_batch_retries_total"
-        "Количество retry-попыток batch flush"
+        "tm_db_batch_retries_total",
+        "Количество retry-попыток batch flush",
     )
     _TM_DB_FLUSHED = Counter(
-        "tm_db_batch_flushed_total"
-        "Суммарное количество строк записанных в Postgres через batch"
+        "tm_db_batch_flushed_total",
+        "Суммарное количество строк записанных в Postgres через batch",
     )
     _PROM_AVAILABLE = True
 except Exception:  # pragma: no cover
@@ -122,13 +122,13 @@ class BatchTradeWriter:
     """
 
     def __init__(
-        self
-        *
-        enabled: Optional[bool] = None
-        max_size: Optional[int] = None
-        flush_interval_s: Optional[float] = None
-        max_retries: Optional[int] = None
-        queue_maxsize: Optional[int] = None
+        self,
+        *,
+        enabled: Optional[bool] = None,
+        max_size: Optional[int] = None,
+        flush_interval_s: Optional[float] = None,
+        max_retries: Optional[int] = None,
+        queue_maxsize: Optional[int] = None,
     ) -> None:
         self.enabled = enabled if enabled is not None else _ENV_ENABLED
         self.max_size = max_size if max_size is not None else _ENV_MAX_SIZE
@@ -164,9 +164,9 @@ class BatchTradeWriter:
         except queue.Full:
             _TM_DB_DROPPED.inc()
             logger.warning(
-                "BatchTradeWriter: очередь переполнена (maxsize=%d), сделка order_id=%s потеряна!"
-                self._queue.maxsize
-                getattr(closed, "order_id", "?")
+                "BatchTradeWriter: очередь переполнена (maxsize=%d), сделка order_id=%s потеряна!",
+                self._queue.maxsize,
+                getattr(closed, "order_id", "?"),
             )
 
     def flush(self) -> int:
@@ -198,8 +198,8 @@ class BatchTradeWriter:
         _TM_DB_FLUSHED.inc(written)
 
         logger.debug(
-            "BatchTradeWriter: flush %d/%d строк за %.1f мс"
-            written, len(items), elapsed_ms
+            "BatchTradeWriter: flush %d/%d строк за %.1f мс",
+            written, len(items), elapsed_ms,
         )
         return written
 
@@ -210,14 +210,14 @@ class BatchTradeWriter:
                 return
             self._stop_event.clear()
             self._thread = threading.Thread(
-                target=self._run_loop
-                name="TM_BatchWriter"
-                daemon=True
+                target=self._run_loop,
+                name="TM_BatchWriter",
+                daemon=True,
             )
             self._thread.start()
             logger.info(
-                "BatchTradeWriter запущен (enabled=%s, max_size=%d, interval=%.1fs)"
-                self.enabled, self.max_size, self.flush_interval_s
+                "BatchTradeWriter запущен (enabled=%s, max_size=%d, interval=%.1fs)",
+                self.enabled, self.max_size, self.flush_interval_s,
             )
 
     def stop(self, timeout: float = 5.0) -> None:
@@ -259,7 +259,7 @@ class BatchTradeWriter:
         Выполняет batch INSERT с повторами при ошибке PG.
 
         При неудаче возвращает несохранённые элементы обратно в очередь
-        (в начало — LIFO-priority через put_nowait, порядок не гарантирован
+        (в начало — LIFO-priority через put_nowait, порядок не гарантирован,
         но lossless-critical: не теряем сделки).
         """
         last_exc: Optional[Exception] = None
@@ -272,16 +272,16 @@ class BatchTradeWriter:
                     _TM_DB_RETRIES.inc()
                     sleep_s = 0.1 * (2 ** attempt)  # exp backoff: 0.1, 0.2, 0.4
                     logger.warning(
-                        "BatchTradeWriter: ошибка batch flush (попытка %d/%d), retry через %.1fs: %s"
-                        attempt + 1, self.max_retries + 1, sleep_s, exc
+                        "BatchTradeWriter: ошибка batch flush (попытка %d/%d), retry через %.1fs: %s",
+                        attempt + 1, self.max_retries + 1, sleep_s, exc,
                     )
                     time.sleep(sleep_s)
 
         # Все попытки провалились — возвращаем в очередь lossless
         logger.error(
             "BatchTradeWriter: batch flush провалился после %d попыток: %s. "
-            "Возвращаем %d записей в очередь."
-            self.max_retries + 1, last_exc, len(items)
+            "Возвращаем %d записей в очередь.",
+            self.max_retries + 1, last_exc, len(items),
         )
         for item in reversed(items):
             try:
@@ -307,8 +307,8 @@ class BatchTradeWriter:
                     p0_rows.append(_build_p0_row(closed))
             except Exception as exc:
                 logger.error(
-                    "BatchTradeWriter: ошибка сборки строки для order_id=%s: %s"
-                    getattr(closed, "order_id", "?"), exc
+                    "BatchTradeWriter: ошибка сборки строки для order_id=%s: %s",
+                    getattr(closed, "order_id", "?"), exc,
                 )
 
         if not main_rows:
@@ -316,86 +316,86 @@ class BatchTradeWriter:
 
         sql_main = """
             INSERT INTO trades_closed (
-                order_id, sid, strategy, source, symbol, tf, direction
-                entry_ts_ms, exit_ts_ms, entry_price, exit_price, lot, notional_usd
-                pnl_net, pnl_gross, fees, pnl_pct
-                pnl_if_fixed_exit, baseline_exit_reason, baseline_exit_ts_ms, baseline_exit_price
-                tp1_hit, tp2_hit, tp3_hit, tp_hits, tp_before_sl
-                trailing_started, trailing_active, trailing_moves, trailing_profile
-                mfe_pnl, mae_pnl, giveback, missed_profit
-                one_r_money, r_multiple, duration_ms
-                close_reason, close_reason_raw
-                entry_tag, max_favorable_price, max_favorable_ts
-                is_final_close, remaining_qty, status
-                sc_contract_ver
-                sc_risk_horizon_bucket
-                sc_hold_target_ms
-                sc_alpha_half_life_ms
-                sc_max_signal_age_ms
-                sc_atr_age_ms
-                sc_atr_source
-                sc_atr_pct
-                sc_vol_ratio_fast_slow
-                sc_vol_ratio_z
-                health_l2_stale_ratio_tick, health_l2_stale_ratio_now
-                health_avg_l2_age_ms, health_avg_l2_age_tick_ms
-                health_signal_emit_rate, health_dlq_rate
-                config_json
-                horizon_contract
-                horizon_bucket
-                atr_tf_ms
-                is_virtual
-                meta_enforce_cov_bucket
-                meta_enforce_applied
-                live_surface_applied
-                live_surface_reason_code
-                baseline_sl_price
-                baseline_tp1_price
-                selected_sl_price
-                selected_tp1_price
-                trailing_surface_applied
-                trailing_surface_reason_code
-                baseline_trailing_offset_atr
-                selected_trailing_offset_atr
+                order_id, sid, strategy, source, symbol, tf, direction,
+                entry_ts_ms, exit_ts_ms, entry_price, exit_price, lot, notional_usd,
+                pnl_net, pnl_gross, fees, pnl_pct,
+                pnl_if_fixed_exit, baseline_exit_reason, baseline_exit_ts_ms, baseline_exit_price,
+                tp1_hit, tp2_hit, tp3_hit, tp_hits, tp_before_sl,
+                trailing_started, trailing_active, trailing_moves, trailing_profile,
+                mfe_pnl, mae_pnl, giveback, missed_profit,
+                one_r_money, r_multiple, duration_ms,
+                close_reason, close_reason_raw,
+                entry_tag, max_favorable_price, max_favorable_ts,
+                is_final_close, remaining_qty, status,
+                sc_contract_ver,
+                sc_risk_horizon_bucket,
+                sc_hold_target_ms,
+                sc_alpha_half_life_ms,
+                sc_max_signal_age_ms,
+                sc_atr_age_ms,
+                sc_atr_source,
+                sc_atr_pct,
+                sc_vol_ratio_fast_slow,
+                sc_vol_ratio_z,
+                health_l2_stale_ratio_tick, health_l2_stale_ratio_now,
+                health_avg_l2_age_ms, health_avg_l2_age_tick_ms,
+                health_signal_emit_rate, health_dlq_rate,
+                config_json,
+                horizon_contract,
+                horizon_bucket,
+                atr_tf_ms,
+                is_virtual,
+                meta_enforce_cov_bucket,
+                meta_enforce_applied,
+                live_surface_applied,
+                live_surface_reason_code,
+                baseline_sl_price,
+                baseline_tp1_price,
+                selected_sl_price,
+                selected_tp1_price,
+                trailing_surface_applied,
+                trailing_surface_reason_code,
+                baseline_trailing_offset_atr,
+                selected_trailing_offset_atr,
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
 
         sql_p0 = """
             INSERT INTO trades_closed_p0 (
-                order_id
-                exit_ts
-                exit_ts_ms
-                scenario, regime, session, entry_reason
-                mae_bps, mfe_bps, time_to_mfe_ms, hold_ms
-                spread_bps_at_entry, slippage_bps_est, book_age_ms
-                features_json
-                is_virtual
-                meta_enforce_cov_bucket
-                meta_enforce_applied
-                trailing_surface_applied
-                trailing_surface_reason_code
-                baseline_trailing_offset_atr
-                selected_trailing_offset_atr
+                order_id,
+                exit_ts,
+                exit_ts_ms,
+                scenario, regime, session, entry_reason,
+                mae_bps, mfe_bps, time_to_mfe_ms, hold_ms,
+                spread_bps_at_entry, slippage_bps_est, book_age_ms,
+                features_json,
+                is_virtual,
+                meta_enforce_cov_bucket,
+                meta_enforce_applied,
+                trailing_surface_applied,
+                trailing_surface_reason_code,
+                baseline_trailing_offset_atr,
+                selected_trailing_offset_atr,
                 updated_at
             ) VALUES %s
             ON CONFLICT (order_id, exit_ts)
             DO UPDATE SET
-                scenario = EXCLUDED.scenario
-                regime = EXCLUDED.regime
-                session = EXCLUDED.session
-                entry_reason = EXCLUDED.entry_reason
-                mae_bps = EXCLUDED.mae_bps
-                mfe_bps = EXCLUDED.mfe_bps
-                time_to_mfe_ms = EXCLUDED.time_to_mfe_ms
-                hold_ms = EXCLUDED.hold_ms
-                spread_bps_at_entry = EXCLUDED.spread_bps_at_entry
-                slippage_bps_est = EXCLUDED.slippage_bps_est
-                book_age_ms = EXCLUDED.book_age_ms
-                features_json = EXCLUDED.features_json
-                is_virtual = EXCLUDED.is_virtual
-                meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket
-                meta_enforce_applied = EXCLUDED.meta_enforce_applied
+                scenario = EXCLUDED.scenario,
+                regime = EXCLUDED.regime,
+                session = EXCLUDED.session,
+                entry_reason = EXCLUDED.entry_reason,
+                mae_bps = EXCLUDED.mae_bps,
+                mfe_bps = EXCLUDED.mfe_bps,
+                time_to_mfe_ms = EXCLUDED.time_to_mfe_ms,
+                hold_ms = EXCLUDED.hold_ms,
+                spread_bps_at_entry = EXCLUDED.spread_bps_at_entry,
+                slippage_bps_est = EXCLUDED.slippage_bps_est,
+                book_age_ms = EXCLUDED.book_age_ms,
+                features_json = EXCLUDED.features_json,
+                is_virtual = EXCLUDED.is_virtual,
+                meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket,
+                meta_enforce_applied = EXCLUDED.meta_enforce_applied,
                 updated_at = now()
         """
 
@@ -405,11 +405,11 @@ class BatchTradeWriter:
                 try:
                     # p0 использует to_timestamp() — нужна шаблонная форма
                     p0_sql_tmpl = sql_p0.replace(
-                        "VALUES %s"
-                        "VALUES %s"
+                        "VALUES %s",
+                        "VALUES %s",
                     )
                     # Адаптированный вариант для exit_ts: передаём как литерал to_timestamp(%s/1000.0)
-                    # execute_values не поддерживает смешанные функции в шаблоне
+                    # execute_values не поддерживает смешанные функции в шаблоне,
                     # поэтому адаптируем exit_ts_ms → datetime в Python
                     import datetime as _dt
                     p0_rows_adapted = [
@@ -424,43 +424,43 @@ class BatchTradeWriter:
                     ]
                     sql_p0_adapted = """
                         INSERT INTO trades_closed_p0 (
-                            order_id
-                            exit_ts
-                            exit_ts_ms
-                            scenario, regime, session, entry_reason
-                            mae_bps, mfe_bps, time_to_mfe_ms, hold_ms
-                            spread_bps_at_entry, slippage_bps_est, book_age_ms
-                            features_json
-                            is_virtual
-                            meta_enforce_cov_bucket
-                            meta_enforce_applied
-                            trailing_surface_applied
-                            trailing_surface_reason_code
-                            baseline_trailing_offset_atr
-                            selected_trailing_offset_atr
+                            order_id,
+                            exit_ts,
+                            exit_ts_ms,
+                            scenario, regime, session, entry_reason,
+                            mae_bps, mfe_bps, time_to_mfe_ms, hold_ms,
+                            spread_bps_at_entry, slippage_bps_est, book_age_ms,
+                            features_json,
+                            is_virtual,
+                            meta_enforce_cov_bucket,
+                            meta_enforce_applied,
+                            trailing_surface_applied,
+                            trailing_surface_reason_code,
+                            baseline_trailing_offset_atr,
+                            selected_trailing_offset_atr,
                             updated_at
                         ) VALUES %s
                         ON CONFLICT (order_id, exit_ts)
                         DO UPDATE SET
-                            scenario = EXCLUDED.scenario
-                            regime = EXCLUDED.regime
-                            session = EXCLUDED.session
-                            entry_reason = EXCLUDED.entry_reason
-                            mae_bps = EXCLUDED.mae_bps
-                            mfe_bps = EXCLUDED.mfe_bps
-                            time_to_mfe_ms = EXCLUDED.time_to_mfe_ms
-                            hold_ms = EXCLUDED.hold_ms
-                            spread_bps_at_entry = EXCLUDED.spread_bps_at_entry
-                            slippage_bps_est = EXCLUDED.slippage_bps_est
-                            book_age_ms = EXCLUDED.book_age_ms
-                            features_json = EXCLUDED.features_json
-                            is_virtual = EXCLUDED.is_virtual
-                            meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket
-                            meta_enforce_applied = EXCLUDED.meta_enforce_applied
-                            trailing_surface_applied = EXCLUDED.trailing_surface_applied
-                            trailing_surface_reason_code = EXCLUDED.trailing_surface_reason_code
-                            baseline_trailing_offset_atr = EXCLUDED.baseline_trailing_offset_atr
-                            selected_trailing_offset_atr = EXCLUDED.selected_trailing_offset_atr
+                            scenario = EXCLUDED.scenario,
+                            regime = EXCLUDED.regime,
+                            session = EXCLUDED.session,
+                            entry_reason = EXCLUDED.entry_reason,
+                            mae_bps = EXCLUDED.mae_bps,
+                            mfe_bps = EXCLUDED.mfe_bps,
+                            time_to_mfe_ms = EXCLUDED.time_to_mfe_ms,
+                            hold_ms = EXCLUDED.hold_ms,
+                            spread_bps_at_entry = EXCLUDED.spread_bps_at_entry,
+                            slippage_bps_est = EXCLUDED.slippage_bps_est,
+                            book_age_ms = EXCLUDED.book_age_ms,
+                            features_json = EXCLUDED.features_json,
+                            is_virtual = EXCLUDED.is_virtual,
+                            meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket,
+                            meta_enforce_applied = EXCLUDED.meta_enforce_applied,
+                            trailing_surface_applied = EXCLUDED.trailing_surface_applied,
+                            trailing_surface_reason_code = EXCLUDED.trailing_surface_reason_code,
+                            baseline_trailing_offset_atr = EXCLUDED.baseline_trailing_offset_atr,
+                            selected_trailing_offset_atr = EXCLUDED.selected_trailing_offset_atr,
                             updated_at = now()
                     """
                     psycopg2.extras.execute_values(cur, sql_p0_adapted, p0_rows_adapted, page_size=200)
@@ -502,64 +502,64 @@ def _build_main_row(closed: Any) -> Tuple:
         config_snapshot["_horizon_contract"] = horizon_contract
 
     return (
-        closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction
-        closed.entry_ts_ms, closed.exit_ts_ms, closed.entry_price, closed.exit_price, closed.lot, closed.notional_usd
-        closed.pnl_net, closed.pnl_gross, closed.fees, closed.pnl_pct
-        closed.pnl_if_fixed_exit
-        getattr(closed, "baseline_exit_reason", "")
-        getattr(closed, "baseline_exit_ts_ms", 0)
-        getattr(closed, "baseline_exit_price", 0.0)
-        closed.tp1_hit, closed.tp2_hit, closed.tp3_hit, closed.tp_hits, closed.tp_before_sl
-        closed.trailing_started, closed.trailing_active, closed.trailing_moves
-        getattr(closed, "trailing_profile", "")
-        closed.mfe_pnl, closed.mae_pnl, closed.giveback, closed.missed_profit
-        closed.one_r_money, closed.r_multiple, closed.duration_ms
-        closed.close_reason
-        getattr(closed, "close_reason_raw", "")
-        getattr(closed, "entry_tag", "")
-        getattr(closed, "max_favorable_price", 0.0)
-        getattr(closed, "max_favorable_ts", 0)
-        getattr(closed, "is_final_close", True)
-        getattr(closed, "remaining_qty", 0.0)
-        getattr(closed, "status", "closed")
+        closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
+        closed.entry_ts_ms, closed.exit_ts_ms, closed.entry_price, closed.exit_price, closed.lot, closed.notional_usd,
+        closed.pnl_net, closed.pnl_gross, closed.fees, closed.pnl_pct,
+        closed.pnl_if_fixed_exit,
+        getattr(closed, "baseline_exit_reason", ""),
+        getattr(closed, "baseline_exit_ts_ms", 0),
+        getattr(closed, "baseline_exit_price", 0.0),
+        closed.tp1_hit, closed.tp2_hit, closed.tp3_hit, closed.tp_hits, closed.tp_before_sl,
+        closed.trailing_started, closed.trailing_active, closed.trailing_moves,
+        getattr(closed, "trailing_profile", ""),
+        closed.mfe_pnl, closed.mae_pnl, closed.giveback, closed.missed_profit,
+        closed.one_r_money, closed.r_multiple, closed.duration_ms,
+        closed.close_reason,
+        getattr(closed, "close_reason_raw", ""),
+        getattr(closed, "entry_tag", ""),
+        getattr(closed, "max_favorable_price", 0.0),
+        getattr(closed, "max_favorable_ts", 0),
+        getattr(closed, "is_final_close", True),
+        getattr(closed, "remaining_qty", 0.0),
+        getattr(closed, "status", "closed"),
         # Phase 0.3: first-class scalar horizon/ATR columns
-        getattr(closed, "contract_ver", None) or getattr(closed, "horizon_contract_ver", 2)
-        getattr(closed, "risk_horizon_bucket", "") or ""
-        getattr(closed, "hold_target_ms", 0) or 0
-        getattr(closed, "alpha_half_life_ms", 0) or 0
-        getattr(closed, "max_signal_age_ms", 0) or 0
-        getattr(closed, "atr_age_ms", 0) or 0
-        getattr(closed, "atr_source", "") or ""
-        getattr(closed, "atr_pct", 0.0) or 0.0
-        getattr(closed, "vol_ratio_fast_slow", 1.0) if getattr(closed, "vol_ratio_fast_slow", None) is not None else 1.0
-        getattr(closed, "vol_ratio_z", 0.0) or 0.0
-        getattr(closed, "health_l2_stale_ratio_tick", 0.0)
-        getattr(closed, "health_l2_stale_ratio_now", 0.0)
-        getattr(closed, "health_avg_l2_age_ms", 0.0)
-        getattr(closed, "health_l2_age_tick_ms", 0.0)
-        getattr(closed, "health_signal_emit_rate", 0.0)
-        getattr(closed, "health_dlq_rate", 0.0)
+        getattr(closed, "contract_ver", None) or getattr(closed, "horizon_contract_ver", 2),
+        getattr(closed, "risk_horizon_bucket", "") or "",
+        getattr(closed, "hold_target_ms", 0) or 0,
+        getattr(closed, "alpha_half_life_ms", 0) or 0,
+        getattr(closed, "max_signal_age_ms", 0) or 0,
+        getattr(closed, "atr_age_ms", 0) or 0,
+        getattr(closed, "atr_source", "") or "",
+        getattr(closed, "atr_pct", 0.0) or 0.0,
+        getattr(closed, "vol_ratio_fast_slow", 1.0) if getattr(closed, "vol_ratio_fast_slow", None) is not None else 1.0,
+        getattr(closed, "vol_ratio_z", 0.0) or 0.0,
+        getattr(closed, "health_l2_stale_ratio_tick", 0.0),
+        getattr(closed, "health_l2_stale_ratio_now", 0.0),
+        getattr(closed, "health_avg_l2_age_ms", 0.0),
+        getattr(closed, "health_l2_age_tick_ms", 0.0),
+        getattr(closed, "health_signal_emit_rate", 0.0),
+        getattr(closed, "health_dlq_rate", 0.0),
         # Config Json (enriched with horizon snapshot)
-        json.dumps(config_snapshot, ensure_ascii=False, sort_keys=True)
+        json.dumps(config_snapshot, ensure_ascii=False, sort_keys=True),
         # Horizon contract columns
-        json.dumps(horizon_contract, ensure_ascii=False, sort_keys=True)
-        horizon_bucket or None
-        atr_tf_ms_val or None
-        getattr(closed, "is_virtual", False)
-        getattr(closed, "meta_enforce_cov_bucket", "")
-        getattr(closed, "meta_enforce_applied", -1)
+        json.dumps(horizon_contract, ensure_ascii=False, sort_keys=True),
+        horizon_bucket or None,
+        atr_tf_ms_val or None,
+        getattr(closed, "is_virtual", False),
+        getattr(closed, "meta_enforce_cov_bucket", ""),
+        getattr(closed, "meta_enforce_applied", -1),
         # Phase 2.4E: live surface A/B analytics
-        getattr(closed, "live_surface_applied", None)
-        getattr(closed, "live_surface_reason_code", None)
-        getattr(closed, "baseline_sl_price", None)
-        getattr(closed, "baseline_tp1_price", None)
-        getattr(closed, "selected_sl_price", None)
-        getattr(closed, "selected_tp1_price", None)
+        getattr(closed, "live_surface_applied", None),
+        getattr(closed, "live_surface_reason_code", None),
+        getattr(closed, "baseline_sl_price", None),
+        getattr(closed, "baseline_tp1_price", None),
+        getattr(closed, "selected_sl_price", None),
+        getattr(closed, "selected_tp1_price", None),
         # Phase 2.6: trailing surface A/B analytics
-        getattr(closed, "trailing_surface_applied", None)
-        getattr(closed, "trailing_surface_reason_code", None)
-        getattr(closed, "baseline_trailing_offset_atr", None)
-        getattr(closed, "selected_trailing_offset_atr", None)
+        getattr(closed, "trailing_surface_applied", None),
+        getattr(closed, "trailing_surface_reason_code", None),
+        getattr(closed, "baseline_trailing_offset_atr", None),
+        getattr(closed, "selected_trailing_offset_atr", None),
     )
 
 
@@ -576,19 +576,19 @@ def _build_p0_row(closed: Any) -> Tuple:
 
     # whitelist (как в analytics_db.py)
     ALLOW = {
-        "delta_z", "dn_usd", "obi", "cvd_slope"
-        "absorption_score", "weak_progress", "vwap_pos"
-        "atr_bps", "liq_scale", "confidence"
-        "adverse_bps_t"
-        "spread_bps_at_entry", "book_age_ms", "slippage_bps_est"
-        "data_health", "expected_slippage_bps"
-        "expected_slippage_decomp_bps", "impact_proxy"
-        "slip_decomp_coeff_bps", "slip_decomp_spread_bps", "slip_decomp_impact_bps"
-        "exec_regime_bucket", "liq_regime_label", "vol_regime_label"
-        "spread_bps_submit", "mid_px_submit"
-        "taker_flow_imb", "taker_flow_imb_z"
-        "taker_flow_gate_veto", "taker_flow_gate_shadow_veto"
-        "taker_flow_gate_soft", "taker_flow_gate_reason"
+        "delta_z", "dn_usd", "obi", "cvd_slope",
+        "absorption_score", "weak_progress", "vwap_pos",
+        "atr_bps", "liq_scale", "confidence",
+        "adverse_bps_t",
+        "spread_bps_at_entry", "book_age_ms", "slippage_bps_est",
+        "data_health", "expected_slippage_bps",
+        "expected_slippage_decomp_bps", "impact_proxy",
+        "slip_decomp_coeff_bps", "slip_decomp_spread_bps", "slip_decomp_impact_bps",
+        "exec_regime_bucket", "liq_regime_label", "vol_regime_label",
+        "spread_bps_submit", "mid_px_submit",
+        "taker_flow_imb", "taker_flow_imb_z",
+        "taker_flow_gate_veto", "taker_flow_gate_shadow_veto",
+        "taker_flow_gate_soft", "taker_flow_gate_reason",
     }
     features = {k: features[k] for k in ALLOW if k in features}
     features_str = json.dumps(features, ensure_ascii=False)

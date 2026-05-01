@@ -12,7 +12,7 @@ Commands:
 Environment:
     BOT_TOKEN - Telegram bot token (required)
     OBI_HOST - OBI service URL (default: http://127.0.0.1:8090)
-    DEFAULT_SYMBOL - Default symbol (default: XAUUSD)
+    DEFAULT_SYMBOL - Default symbol (default: )
 
 Usage:
     export BOT_TOKEN=123456:ABC-DEF...
@@ -30,7 +30,7 @@ from aiogram.types import Message, FSInputFile
 # Configuration
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 OBI_HOST = os.getenv("OBI_HOST", "http://127.0.0.1:8090")
-DEFAULT_SYMBOL = os.getenv("DEFAULT_SYMBOL", "XAUUSD")
+DEFAULT_SYMBOL = os.getenv("DEFAULT_SYMBOL")
 
 # Bot and Dispatcher
 bot = Bot(BOT_TOKEN)
@@ -47,7 +47,7 @@ def get_symbol_from_message(msg: Message, index: int = 1) -> str:
 async def cmd_start(message: Message):
     """Welcome message with available commands."""
     text = (
-        "🤖 <b>XAUUSD Analytics Bot</b>\n\n"
+        "🤖 <b> Analytics Bot</b>\n\n"
         "Available commands:\n"
         "• <code>/obi [SYMBOL]</code> - OBI timeline PNG\n"
         "• <code>/depth [SYMBOL]</code> - Depth profile PNG\n"

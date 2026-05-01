@@ -342,7 +342,7 @@ def should_suppress_reminder(
     return {"suppressed": False, "reason": "ack_expired", "ack_state": state}
 
 
-def recent_ack_audit(redis_client: Any, *, symbol: str = "", limit: int = 50) -> List[Dict[str, Any]]:
+def recent_ack_audit(redis_client: Any, *, symbol="", limit: int = 50) -> List[Dict[str, Any]]:
     """Read the most recent ACK audit events from the audit stream.
 
     Args:

@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from core.calendar_flags import (
-    calendar_flags_utc
-    is_end_of_month_utc
-    is_end_of_quarter_utc
-    day_of_month_utc
-    day_of_quarter_utc
+    calendar_flags_utc,
+    is_end_of_month_utc,
+    is_end_of_quarter_utc,
+    day_of_month_utc,
+    day_of_quarter_utc,
 )
 from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
 

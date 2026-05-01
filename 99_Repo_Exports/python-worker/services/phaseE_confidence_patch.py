@@ -33,10 +33,10 @@ def clamp01(x: float) -> float:
 
 
 def scale_bonus_by_quality(
-    *
-    base_bonus: float
-    quality: float
-    floor: float = 0.35
+    *,
+    base_bonus: float,
+    quality: float,
+    floor: float = 0.35,
 ) -> float:
     """Scale a bonus by a quality score.
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Redis/Lua atomicity verification for notify gate.
 
@@ -7,7 +8,6 @@ Tests the contract that Lua _LUA_NOTIFY_GATE_XADD_THEN_MARK maintains atomicity:
 - gating works correctly with every_n parameter
 """
 
-from __future__ import annotations
 
 import pytest
 

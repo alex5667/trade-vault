@@ -46,10 +46,10 @@ import os
 from typing import Any, Dict, List, Optional, Sequence
 
 from services.orderflow.exec_health_rollups import (
-    ExecHealthDecision
-    ExecHealthThresholds
-    aread_exec_health_rollups
-    read_exec_health_rollups_sync
+    ExecHealthDecision,
+    ExecHealthThresholds,
+    aread_exec_health_rollups,
+    read_exec_health_rollups_sync,
 )
 
 
@@ -92,11 +92,11 @@ def build_rollup_keys(*, metric: str, sym: str, venue: str, session: str, tf: st
         return f"tca:{metric}:{sym}:{venue}:{_sess}:{_tf}:{_kind}:{side}"
 
     keys = [
-        k(session, tf, kind)
-        k(session, "all", kind)
-        k(session, tf, "all")
-        k("all", tf, kind)
-        k("all", "all", "all")
+        k(session, tf, kind),
+        k(session, "all", kind),
+        k(session, tf, "all"),
+        k("all", tf, kind),
+        k("all", "all", "all"),
     ]
     out = []
     seen = set()
@@ -112,14 +112,14 @@ async def read_exec_rollups(
 ) -> Dict[str, float]:
     """Legacy wrapper: delegates to aread_exec_health_rollups with single delta."""
     return await aread_exec_health_rollups(
-        redis=redis
-        sym=sym
-        venue=venue
-        session=session
-        tf=tf
-        kind=kind
-        side=side
-        delta_sec_list=(int(delta_sec),)
+        redis=redis,
+        sym=sym,
+        venue=venue,
+        session=session,
+        tf=tf,
+        kind=kind,
+        side=side,
+        delta_sec_list=(int(delta_sec),),
     )
 
 

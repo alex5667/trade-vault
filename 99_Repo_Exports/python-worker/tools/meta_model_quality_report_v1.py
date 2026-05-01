@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Offline quality report for MetaModelLR (meta-labeling).
 
 Computes:
@@ -13,7 +14,6 @@ Designed for:
   - nightly exporter that writes JSON + optional Prometheus textfile metrics
 """
 
-from __future__ import annotations
 
 import argparse
 import json

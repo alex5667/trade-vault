@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Tests for orderflow_services._common shared helpers."""
 from __future__ import annotations
+"""Tests for orderflow_services._common shared helpers."""
 from utils.time_utils import get_ny_time_millis
 
 import json

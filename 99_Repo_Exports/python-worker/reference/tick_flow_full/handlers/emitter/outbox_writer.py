@@ -27,25 +27,25 @@ class OutboxWriter:
       - если доступен redis и мы знаем stream key, пишем В ОДНОЙ АТОМАРНОЙ ОПЕРАЦИИ:
           (dedup NX) + (XADD) + (dedup commit) через Lua-script.
         Это закрывает гонки/дубликаты даже при параллельных воркерах.
-      - если redis/stream неизвестны, падаем назад на publish(payload) + двухфазный дедуп (SETNX PENDING / commit)
+      - если redis/stream неизвестны, падаем назад на publish(payload) + двухфазный дедуп (SETNX PENDING / commit),
         который хуже при гонках, но сохраняет поведение совместимости.
     """
 
     def __init__(
-        self
-        *
-        publisher: Any
-        logger: Any
-        retries: int
-        retry_sleep_ms: int
-        dedup_ttl_ms: int
-        dedup_pending_ttl_ms: int
-        stream_key: Optional[str] = None
-        sem_enabled: Optional[bool] = None
-        sem_ttl_ms: Optional[int] = None
-        sem_pending_ttl_ms: Optional[int] = None
-        sem_bucket_ms: Optional[int] = None
-        sem_level_decimals: Optional[int] = None
+        self,
+        *,
+        publisher: Any,
+        logger: Any,
+        retries: int,
+        retry_sleep_ms: int,
+        dedup_ttl_ms: int,
+        dedup_pending_ttl_ms: int,
+        stream_key: Optional[str] = None,
+        sem_enabled: Optional[bool] = None,
+        sem_ttl_ms: Optional[int] = None,
+        sem_pending_ttl_ms: Optional[int] = None,
+        sem_bucket_ms: Optional[int] = None,
+        sem_level_decimals: Optional[int] = None,
     ) -> None:
         self._pub = publisher
         self._logger = logger
@@ -131,11 +131,11 @@ class OutboxWriter:
         # "последняя гайка": hard-ограничение размера / сериализации.
         # Не блокируем outbox запись: кладём только минимальные поля + маркер.
         minimal = {
-            "kind": payload.get("kind")
-            "symbol": payload.get("symbol")
-            "ts": payload.get("ts")
-            "signal_id": payload.get("signal_id")
-            "labels": {"payload_truncated_fail_open": 1}
+            "kind": payload.get("kind"),
+            "symbol": payload.get("symbol"),
+            "ts": payload.get("ts"),
+            "signal_id": payload.get("signal_id"),
+            "labels": {"payload_truncated_fail_open": 1},
         }
         try:
             return json.dumps(minimal, ensure_ascii=False, separators=(",", ":"), default=str)
@@ -260,46 +260,46 @@ class OutboxWriter:
     local xadd_ok, entry_id
     if maxlen > 0 then
         if trace_id ~= '' then
-            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*'
-                'signal_id', ARGV[3]
-                'trace_id',  trace_id
-                'kind',      ARGV[4]
-                'symbol',    ARGV[5]
-                'ts',        ARGV[6]
+            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*',
+                'signal_id', ARGV[3],
+                'trace_id',  trace_id,
+                'kind',      ARGV[4],
+                'symbol',    ARGV[5],
+                'ts',        ARGV[6],
                 -- Backward compatibility:
                 -- - SignalDispatcher historically expects "data"
                 -- - some legacy readers expect "payload"
-                'data',      ARGV[7]
+                'data',      ARGV[7],
                 'payload',   ARGV[7]
             )
         else
-            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*'
-                'signal_id', ARGV[3]
-                'kind',      ARGV[4]
-                'symbol',    ARGV[5]
-                'ts',        ARGV[6]
-                'data',      ARGV[7]
+            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], 'MAXLEN', '~', maxlen, '*',
+                'signal_id', ARGV[3],
+                'kind',      ARGV[4],
+                'symbol',    ARGV[5],
+                'ts',        ARGV[6],
+                'data',      ARGV[7],
                 'payload',   ARGV[7]
             )
         end
     else
         if trace_id ~= '' then
-            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], '*'
-                'signal_id', ARGV[3]
-                'trace_id',  trace_id
-                'kind',      ARGV[4]
-                'symbol',    ARGV[5]
-                'ts',        ARGV[6]
-                'data',      ARGV[7]
+            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], '*',
+                'signal_id', ARGV[3],
+                'trace_id',  trace_id,
+                'kind',      ARGV[4],
+                'symbol',    ARGV[5],
+                'ts',        ARGV[6],
+                'data',      ARGV[7],
                 'payload',   ARGV[7]
             )
         else
-            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], '*'
-                'signal_id', ARGV[3]
-                'kind',      ARGV[4]
-                'symbol',    ARGV[5]
-                'ts',        ARGV[6]
-                'data',      ARGV[7]
+            xadd_ok, entry_id = pcall(redis.call, 'XADD', KEYS[3], '*',
+                'signal_id', ARGV[3],
+                'kind',      ARGV[4],
+                'symbol',    ARGV[5],
+                'ts',        ARGV[6],
+                'data',      ARGV[7],
                 'payload',   ARGV[7]
             )
         end
@@ -384,7 +384,7 @@ class OutboxWriter:
 
     def _atomic_xadd(self, redis: Any, *, stream_key: str, payload: dict[str, Any], signal_id: str, meta_json: str = "", meta_ttl_sec: int = 0) -> Optional[str]:
         """
-        Возвращает entry_id если запись успешно сделана
+        Возвращает entry_id если запись успешно сделана,
         None если дедуп сработал (уже видели signal_id).
         Бросать исключения наружу нежелательно — write() сам ретраит.
         """
@@ -428,7 +428,7 @@ class OutboxWriter:
             meta_key = "__none__"
 
         res = redis.eval(
-            self._LUA_ATOMIC_XADD
+            self._LUA_ATOMIC_XADD,
             4,                # было 3
             dedup_key,         # KEYS[1]
             sem_key,           # KEYS[2]
@@ -468,19 +468,19 @@ class OutboxWriter:
             pass
 
     def write(
-        self
-        *
-        payload: dict[str, Any]
-        signal_id: str
-        dedup: bool
-        meta: Optional[dict[str, Any]] = None
+        self,
+        *,
+        payload: dict[str, Any],
+        signal_id: str,
+        dedup: bool,
+        meta: Optional[dict[str, Any]] = None,
     ) -> bool:
         """
         Запись в outbox.
 
         meta:
-          - не влияет на дедуп/валидаторы
-          - сохраняется отдельно по ключу OUTBOX_META_PREFIX + signal_id
+          - не влияет на дедуп/валидаторы,
+          - сохраняется отдельно по ключу OUTBOX_META_PREFIX + signal_id,
           - по умолчанию TTL берём OUTBOX_META_TTL_SEC (fallback на dedup TTL).
         """
         redis = self._redis()
@@ -504,12 +504,12 @@ class OutboxWriter:
             for i in range(max(1, self._retries + 1)):
                 try:
                     entry_id = self._atomic_xadd(
-                        redis
-                        stream_key=str(self._stream_key)
-                        payload=payload
-                        signal_id=signal_id
-                        meta_json=meta_json
-                        meta_ttl_sec=meta_ttl_sec if meta_json else 0
+                        redis,
+                        stream_key=str(self._stream_key),
+                        payload=payload,
+                        signal_id=signal_id,
+                        meta_json=meta_json,
+                        meta_ttl_sec=meta_ttl_sec if meta_json else 0,
                     )
                     return bool(entry_id)  # None => dedup hit => False
                 except Exception as e:
@@ -545,7 +545,7 @@ class OutboxWriter:
 
             # ------------------------------------------------------------
             # ВАЖНО (жёсткий слой):
-            # sidecar meta (trace/payload_meta) пишем NX=True ДО publish
+            # sidecar meta (trace/payload_meta) пишем NX=True ДО publish,
             # чтобы даже при падении publish/worker мы не теряли diagnostics.
             # ------------------------------------------------------------
             try:

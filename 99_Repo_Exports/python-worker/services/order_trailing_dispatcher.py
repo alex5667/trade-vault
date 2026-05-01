@@ -135,7 +135,7 @@ class OrderTrailingDispatcher:
         
         Args:
             sid: ID сигнала
-            symbol: Символ (XAUUSD, BTCUSD, etc)
+            symbol: Символ ( BTCUSD, etc)
             position_id: ID позиции MT5 (опционально)
             profile: Профиль трейлинга
             metadata: Дополнительные метаданные
@@ -197,7 +197,7 @@ class OrderTrailingDispatcher:
         
         Args:
             sid: ID сигнала
-            symbol: Символ (XAUUSD, BTCUSD, etc)
+            symbol: Символ ( BTCUSD, etc)
             position_id: ID позиции MT5 (опционально)
             atr_value: Значение ATR из исходного сигнала
             atr_mult: Множитель ATR из профиля (0.6, 0.8, 1.2)
@@ -254,10 +254,10 @@ class OrderTrailingDispatcher:
         Получить размер пункта для символа из Redis symbol specs.
         
         Args:
-            symbol: Символ (XAUUSD, BTCUSD, etc)
+            symbol: Символ ( BTCUSD, etc)
             
         Returns:
-            Размер пункта (default 0.1 для XAUUSD)
+            Размер пункта (default 0.1 для )
         """
         try:
             import json
@@ -278,8 +278,7 @@ class OrderTrailingDispatcher:
         
         # Fallback значения
         defaults = {
-            "XAUUSD": 0.1,
-            "XAGUSD": 0.01,
+            0.1: 0.01,
             "BTCUSD": 1.0,
             "ETHUSD": 0.1,
             "EURUSD": 0.00001,
@@ -382,7 +381,7 @@ if __name__ == "__main__":
     # Отправка тестовой команды
     success = dispatcher.send_trailing_command(
         sid="test-signal-123",
-        symbol="XAUUSD",
+        symbol="",
         position_id="1234567",
         profile=test_profile,
         metadata={"test": True}

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ML feature schema v7 (OrderFlow).
 
 v7_of = v6_of + execution/LOB extras already present + *new* Hawkes-like intensity splits and VPIN-like toxicity.
@@ -10,7 +11,6 @@ Rationale
 All features must already be present in `indicators` at runtime.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List

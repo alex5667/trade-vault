@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Common logging utilities for the scanner infrastructure.
 
@@ -19,7 +20,6 @@ FastAPI / asyncio: set_trace_id() at the entry point of each request/task.
 Go-originated trace_id: read from Redis payload field and call set_trace_id()
 before processing the tick.
 """
-from __future__ import annotations
 
 import logging
 import sys

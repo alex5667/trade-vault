@@ -1,9 +1,9 @@
 # utils.py
+from __future__ import annotations
 """
 Utility functions extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Any, Optional, Dict, Dict
@@ -196,17 +196,17 @@ def _iso_date_utc_from_ms(ts_ms: int) -> str:
 
 
 def normalize_pivots_bundle(
-    pivots: Any
-    *
-    now_ms: Optional[int] = None
-    strict: bool = False
+    pivots: Any,
+    *,
+    now_ms: Optional[int] = None,
+    strict: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
     Canonical pivots wrapper:
       {
         "ts_ms": int,          # epoch ms
         "date": "YYYY-MM-DD",  # UTC date derived from ts_ms (or provided)
-        "hlc": {high,low,close} | None
+        "hlc": {high,low,close} | None,
         "pivots": { ... }      # numeric levels
       }
 
@@ -318,12 +318,12 @@ def compute_daily_pivots(hlc: dict) -> dict:
     s2 = pivot - (high - low)
 
     return {
-        'pivot': pivot
-        'r1': r1
-        's1': s1
-        'r2': r2
-        's2': s2
-        'high': high
-        'low': low
-        'close': close
+        'pivot': pivot,
+        'r1': r1,
+        's1': s1,
+        'r2': r2,
+        's2': s2,
+        'high': high,
+        'low': low,
+        'close': close,
     }

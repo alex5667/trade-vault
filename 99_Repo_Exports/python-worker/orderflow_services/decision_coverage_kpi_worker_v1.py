@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Decision coverage KPI worker (P66-ish).
 
@@ -16,7 +17,6 @@ Design goals:
   - low overhead (bucketed per-minute counts + rolling window subtract on minute advance)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

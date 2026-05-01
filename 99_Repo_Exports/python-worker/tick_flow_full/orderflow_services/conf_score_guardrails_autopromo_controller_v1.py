@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """conf_score_guardrails_autopromo_controller_v1.py
 
 World practice: automated, gated promotion with canary window + auto rollback.
@@ -44,7 +45,6 @@ Env (recommended):
   CONF_SCORE_GUARD_HEALTH_STATE_PATH
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

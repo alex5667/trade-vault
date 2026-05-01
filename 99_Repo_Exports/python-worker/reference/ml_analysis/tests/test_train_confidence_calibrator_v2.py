@@ -119,10 +119,10 @@ class TestTrainConfidenceCalibratorV2(unittest.TestCase):
         self._make_jsonl(rows)
         
         trainer_args = [
-            "--in_jsonl", self.jsonl_path
-            "--out_bundle", self.bundle_path
-            "--method", "platt"
-            "--bucket_by", "session"
+            "--in_jsonl", self.jsonl_path,
+            "--out_bundle", self.bundle_path,
+            "--method", "platt",
+            "--bucket_by", "session",
             "--min_rows", "10"
         ]
         

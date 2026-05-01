@@ -3,7 +3,7 @@
 from .scoring_engine import ScoringResult, QualityResult, SignalQualityLabel
 
 __all__ = [
-    "ScoringResult"
-    "QualityResult"
-    "SignalQualityLabel"
+    "ScoringResult",
+    "QualityResult",
+    "SignalQualityLabel",
 ]

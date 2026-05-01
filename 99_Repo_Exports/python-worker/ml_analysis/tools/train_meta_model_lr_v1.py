@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Train MetaModelLR (portable JSON LR) from a dataset parquet.
 
 Train==Serve contract:
@@ -22,7 +23,6 @@ Usage:
     --out /data/meta_lr_v8.json
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

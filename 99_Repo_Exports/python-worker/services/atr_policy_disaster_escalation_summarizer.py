@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Disaster Escalation Summarizer — Phase 3.8 (Disaster Layer).
 
 Reads stream:atr_policy:escalations and stream:atr_policy:rollback_results,
@@ -20,7 +21,6 @@ ENV:
   TELEGRAM_OPS_CHAT_ID
   REDIS_URL
 """
-from __future__ import annotations
 
 import json
 import logging

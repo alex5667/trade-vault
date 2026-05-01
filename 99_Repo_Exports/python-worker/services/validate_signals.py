@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Offline signal validation for XAUUSD order flow.
+Offline signal validation for  order flow.
 
 Validates signal generation rules against historical data using forward returns.
 Provides metrics: signal count, win rate, average edge, percentile edges.
@@ -270,7 +270,7 @@ def evaluate(
 def main():
     """Main entry point."""
     ap = argparse.ArgumentParser(
-        description="Validate XAUUSD signal rules against historical data",
+        description="Validate  signal rules against historical data",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Confirmations coverage nightly job (v1).
 
 Goal: ensure confirmations (conf_*) are actually present and non-zero in the
@@ -14,7 +15,6 @@ Exit codes:
   2 => invalid args / unrecoverable IO (still tries to write report if possible)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

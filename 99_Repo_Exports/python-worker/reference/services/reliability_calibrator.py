@@ -15,7 +15,7 @@ from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 #   symbol × venue × session × tf × kind × regime
 #
 # Why:
-#   - One calibrator per symbol is often too coarse: kinds behave differently
+#   - One calibrator per symbol is often too coarse: kinds behave differently,
 #     regimes behave differently, and microstructure varies by venue/session.
 #   - We store simple empirical reliability curves:
 #       bucket(confidence_pct) -> hit_rate(outcome)
@@ -169,16 +169,16 @@ class RelCalConfig:
         if not outcomes:
             outcomes = ["tp2", "nosl_after_tp1"]
         return RelCalConfig(
-            enabled=enabled
-            prefix=prefix
-            outcomes=outcomes
-            bucket_step_pct=bucket_step_pct
-            ttl_sec=ttl_sec
-            use_kind_dim=use_kind_dim
-            use_regime_dim=use_regime_dim
-            use_venue_dim=use_venue_dim
-            use_session_dim=use_session_dim
-            use_tf_dim=use_tf_dim
+            enabled=enabled,
+            prefix=prefix,
+            outcomes=outcomes,
+            bucket_step_pct=bucket_step_pct,
+            ttl_sec=ttl_sec,
+            use_kind_dim=use_kind_dim,
+            use_regime_dim=use_regime_dim,
+            use_venue_dim=use_venue_dim,
+            use_session_dim=use_session_dim,
+            use_tf_dim=use_tf_dim,
         )
 
 
@@ -296,7 +296,7 @@ def _compute_hit(outcome: str, pos: Dict[str, Any], closed: Dict[str, Any]) -> b
         #     - exit_ts_ms - tp1_hit_ts_ms >= T
         #
         # Rationale:
-        #   Without an explicit "SL occurred within first T after TP1" marker
+        #   Without an explicit "SL occurred within first T after TP1" marker,
         #   the best deterministic proxy is "trade survived >= T and not SL".
         #   This is conservative: short-lived trades (<T) are not counted as hit.
         t = _parse_nosl_t(o)
@@ -339,12 +339,12 @@ def _build_key(cfg: RelCalConfig, *, outcome: str, kind: str, symbol: str, venue
 
 
 def update_reliability_curves(
-    redis_client: Any
-    *
-    cfg: Optional[RelCalConfig] = None
-    pos: Dict[str, Any]
-    trade_closed: Dict[str, Any]
-    now_ms: Optional[int] = None
+    redis_client: Any,
+    *,
+    cfg: Optional[RelCalConfig] = None,
+    pos: Dict[str, Any],
+    trade_closed: Dict[str, Any],
+    now_ms: Optional[int] = None,
 ) -> None:
     """
     Fail-open writer:
@@ -375,14 +375,14 @@ def update_reliability_curves(
         for outcome in (cfg2.outcomes or []):
             hit = _compute_hit(outcome, pos, trade_closed)
             key = _build_key(
-                cfg2
-                outcome=outcome
-                kind=kind
-                symbol=symbol
-                venue=venue
-                session=session
-                tf=tf
-                regime=regime
+                cfg2,
+                outcome=outcome,
+                kind=kind,
+                symbol=symbol,
+                venue=venue,
+                session=session,
+                tf=tf,
+                regime=regime,
             )
             # Global totals
             pipe.hincrby(key, "samples_total", 1)

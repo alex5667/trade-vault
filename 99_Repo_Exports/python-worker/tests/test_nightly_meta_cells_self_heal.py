@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_nightly_meta_cells_self_heal.py
 
@@ -10,7 +11,6 @@ Unit tests for nightly_meta_cells_self_heal.py:
 - Cell evaluation (health gates)
 """
 
-from __future__ import annotations
 
 import json
 import os

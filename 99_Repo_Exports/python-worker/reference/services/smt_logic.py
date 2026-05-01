@@ -223,10 +223,10 @@ class SMTDecision:
 
 
 def decide_smt(
-    leader: SymbolSnapshot
-    snaps: List[SymbolSnapshot]
-    coh: float
-    cfg: Dict
+    leader: SymbolSnapshot,
+    snaps: List[SymbolSnapshot],
+    coh: float,
+    cfg: Dict,
 ) -> SMTDecision:
     """
     If leader confirmed and coh >= thr => continuation:
@@ -244,46 +244,46 @@ def decide_smt(
     risk_factor_bps = int(cfg.get("risk_factor_bps", 10000))
     if int(cfg.get("news_blocked", 0) or 0) == 1:
         return SMTDecision(
-            kind="none"
-            leader=leader.symbol
-            coh=coh
-            trend_dir=trend_dir
-            pick=None
-            div=None
-            reason=str(cfg.get("news_reason", "news_gate"))
-            conf_score=float(conf_score)
-            reject_score=float(rej_score)
-            news_blocked=1
-            news_until_ts_ms=int(cfg.get("news_until_ts_ms", 0) or 0)
-            risk_factor_bps=risk_factor_bps
+            kind="none",
+            leader=leader.symbol,
+            coh=coh,
+            trend_dir=trend_dir,
+            pick=None,
+            div=None,
+            reason=str(cfg.get("news_reason", "news_gate")),
+            conf_score=float(conf_score),
+            reject_score=float(rej_score),
+            news_blocked=1,
+            news_until_ts_ms=int(cfg.get("news_until_ts_ms", 0) or 0),
+            risk_factor_bps=risk_factor_bps,
         )
 
     conf_min = float(cfg.get("smt_leader_conf_min_score", 0.65))
     if confirm and coh >= thr and ranked:
         if conf_score < conf_min:
             return SMTDecision(
-                kind="none"
-                leader=leader.symbol
-                coh=coh
-                trend_dir=trend_dir
-                pick=None
-                div=None
-                reason="confirm_but_weak"
-                conf_score=float(conf_score)
-                reject_score=float(rej_score)
-                risk_factor_bps=risk_factor_bps
+                kind="none",
+                leader=leader.symbol,
+                coh=coh,
+                trend_dir=trend_dir,
+                pick=None,
+                div=None,
+                reason="confirm_but_weak",
+                conf_score=float(conf_score),
+                reject_score=float(rej_score),
+                risk_factor_bps=risk_factor_bps,
             )
         return SMTDecision(
-            kind="continuation"
-            leader=leader.symbol
-            coh=coh
-            trend_dir=trend_dir
-            pick=ranked[0].symbol
-            div=None
-            reason="leader_confirm+coh"
-            conf_score=float(conf_score)
-            reject_score=float(rej_score)
-            risk_factor_bps=risk_factor_bps
+            kind="continuation",
+            leader=leader.symbol,
+            coh=coh,
+            trend_dir=trend_dir,
+            pick=ranked[0].symbol,
+            div=None,
+            reason="leader_confirm+coh",
+            conf_score=float(conf_score),
+            reject_score=float(rej_score),
+            risk_factor_bps=risk_factor_bps,
         )
 
     # reversal path
@@ -309,27 +309,27 @@ def decide_smt(
         if best_kind is not None:
             pick = ranked[0].symbol if best_kind == "bullish_smt" else ranked[-1].symbol
             return SMTDecision(
-                kind="reversal"
-                leader=leader.symbol
-                coh=coh
-                trend_dir=trend_dir
-                pick=pick
-                div=best_kind
-                reason=f"leader_reject+basket_smt_k{int(k)}"
-                conf_score=float(conf_score)
-                reject_score=float(rej_score)
-                risk_factor_bps=risk_factor_bps
+                kind="reversal",
+                leader=leader.symbol,
+                coh=coh,
+                trend_dir=trend_dir,
+                pick=pick,
+                div=best_kind,
+                reason=f"leader_reject+basket_smt_k{int(k)}",
+                conf_score=float(conf_score),
+                reject_score=float(rej_score),
+                risk_factor_bps=risk_factor_bps,
             )
 
     return SMTDecision(
-        kind="none"
-        leader=leader.symbol
-        coh=coh
-        trend_dir=trend_dir
-        pick=None
-        div=None
-        reason="no_setup"
-        conf_score=float(conf_score)
-        reject_score=float(rej_score)
-        risk_factor_bps=risk_factor_bps
+        kind="none",
+        leader=leader.symbol,
+        coh=coh,
+        trend_dir=trend_dir,
+        pick=None,
+        div=None,
+        reason="no_setup",
+        conf_score=float(conf_score),
+        reject_score=float(rej_score),
+        risk_factor_bps=risk_factor_bps,
     )

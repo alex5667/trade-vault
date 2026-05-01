@@ -1,4 +1,5 @@
 # tests/test_trailing_profiles_registry_in_tm_v1.py
+from __future__ import annotations
 """
 Regression tests: trade_monitor reads trailing atr_mult from TrailingProfilesRegistry
 (same source as binance_executor), not from ENV alone.
@@ -8,7 +9,6 @@ Priority chain tested:
   1b) TrailingProfilesRegistry[profile].atr_mult  ← new unified source
   2+) ENV per-symbol / per-source / global
 """
-from __future__ import annotations
 
 import os
 from types import SimpleNamespace

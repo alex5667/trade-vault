@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Telegram Bot Commands for XAUUSD Analytics.
+Telegram Bot Commands for  Analytics.
 
 Adds interactive commands to telegram_labeler.py:
-    /obi XAUUSD - Get OBI timeline PNG
-    /depth XAUUSD - Get depth profile PNG
-    /events XAUUSD - Get recent OBI events
+    /obi  - Get OBI timeline PNG
+    /depth  - Get depth profile PNG
+    /events  - Get recent OBI events
 
 Usage:
     This module should be imported by telegram_labeler.py
@@ -96,7 +96,7 @@ def register_analytics_commands(dp, bot):
     async def cmd_obi(message: types.Message):
         """Send OBI timeline PNG."""
         args = message.text.split()[1:] if message.text else []
-        symbol = args[0] if args else "XAUUSD"
+        symbol = args[0] if args else ""
         
         await message.answer(f"📊 Fetching OBI timeline for {symbol}...")
         
@@ -105,7 +105,7 @@ def register_analytics_commands(dp, bot):
         if png_bytes:
             photo = types.BufferedInputFile(png_bytes, filename=f"{symbol}_obi.png")
             await message.answer_photo(
-                photo=photo
+                photo=photo,
                 caption=f"📊 {symbol} OBI Timeline (last 5 min)"
             )
         else:
@@ -115,7 +115,7 @@ def register_analytics_commands(dp, bot):
     async def cmd_depth(message: types.Message):
         """Send depth profile PNG."""
         args = message.text.split()[1:] if message.text else []
-        symbol = args[0] if args else "XAUUSD"
+        symbol = args[0] if args else ""
         
         await message.answer(f"📊 Fetching depth profile for {symbol}...")
         
@@ -124,7 +124,7 @@ def register_analytics_commands(dp, bot):
         if png_bytes:
             photo = types.BufferedInputFile(png_bytes, filename=f"{symbol}_depth.png")
             await message.answer_photo(
-                photo=photo
+                photo=photo,
                 caption=f"📊 {symbol} Depth Profile (top levels)"
             )
         else:
@@ -134,7 +134,7 @@ def register_analytics_commands(dp, bot):
     async def cmd_events(message: types.Message):
         """Send recent OBI events."""
         args = message.text.split()[1:] if message.text else []
-        symbol = args[0] if args else "XAUUSD"
+        symbol = args[0] if args else ""
         
         events_data = await fetch_events(symbol, last=10)
         
@@ -179,9 +179,9 @@ async def ask_llm(prompt_text: str) -> Optional[str]:
     try:
         endpoint = f"{OLLAMA_BASE_URL}/api/generate"
         payload = {
-            "model": MODEL
-            "prompt": prompt_text
-            "stream": False
+            "model": MODEL,
+            "prompt": prompt_text,
+            "stream": False,
             "options": {"temperature": 0.1, "num_predict": 400}
         }
         async with aiohttp.ClientSession() as session:
@@ -242,7 +242,7 @@ def create_simple_handlers():
     """
     async def handle_obi(chat_id: int, args: list, send_photo_func, send_message_func):
         """Handle /obi command."""
-        symbol = args[0] if args else "XAUUSD"
+        symbol = args[0] if args else ""
         
         await send_message_func(chat_id, f"📊 Fetching OBI timeline for {symbol}...")
         
@@ -255,7 +255,7 @@ def create_simple_handlers():
     
     async def handle_depth(chat_id: int, args: list, send_photo_func, send_message_func):
         """Handle /depth command."""
-        symbol = args[0] if args else "XAUUSD"
+        symbol = args[0] if args else ""
         
         await send_message_func(chat_id, f"📊 Fetching depth profile for {symbol}...")
         
@@ -268,7 +268,7 @@ def create_simple_handlers():
     
     async def handle_events(chat_id: int, args: list, send_message_func):
         """Handle /events command."""
-        symbol = args[0] if args else "XAUUSD"
+        symbol = args[0] if args else ""
         
         events_data = await fetch_events(symbol, last=10)
         
@@ -289,8 +289,8 @@ def create_simple_handlers():
             await send_message_func(chat_id, f"❌ Failed to fetch events for {symbol}")
     
     return {
-        "/obi": handle_obi
-        "/depth": handle_depth
+        "/obi": handle_obi,
+        "/depth": handle_depth,
         "/events": handle_events
     }
 
@@ -309,7 +309,7 @@ if __name__ == "__main__":
             print("   Saved to /tmp/test_obi.png")
         
         print("\nTesting depth PNG fetch...")
-        png = await fetch_png("/render/depth.png", {"symbol": "XAUUSD"})
+        png = await fetch_png("/render/depth.png", {"symbol": ""})
         if png:
             print(f"✅ Fetched depth PNG ({len(png)} bytes)")
             with open("/tmp/test_depth.png", "wb") as f:
@@ -317,7 +317,7 @@ if __name__ == "__main__":
             print("   Saved to /tmp/test_depth.png")
         
         print("\nTesting events fetch...")
-        events = await fetch_events("XAUUSD", last=5)
+        events = await fetch_events(last=5)
         if events:
             print(f"✅ Fetched {events['count']} events")
             for evt in events.get("events", []):

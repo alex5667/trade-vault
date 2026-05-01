@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Диагностика латентности ML из metrics:ml_confirm stream.
 
@@ -8,7 +9,6 @@
 - Временные паттерны
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

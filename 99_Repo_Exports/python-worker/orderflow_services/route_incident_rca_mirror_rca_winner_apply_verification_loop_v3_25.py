@@ -81,7 +81,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    }
+    },
 
 async def persist_verification(db_url: str, apply_id: str, decision: str, 
                                primary_match_rate: float, unexpected_primary_rate: float, shadow_rate: float, 
@@ -91,7 +91,7 @@ async def persist_verification(db_url: str, apply_id: str, decision: str,
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_verification_results (
                     apply_id, decision, primary_match_rate, unexpected_primary_rate, shadow_rate,
                     target_mode, target_primary_arm, ts_ms
@@ -119,7 +119,7 @@ async def persist_rollback(db_url: str, apply_id: str, reason_code: str, harness
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_rollback_journal (
                     apply_id, reason_code, harness_state_restored_json, ts_ms
                 ) VALUES (

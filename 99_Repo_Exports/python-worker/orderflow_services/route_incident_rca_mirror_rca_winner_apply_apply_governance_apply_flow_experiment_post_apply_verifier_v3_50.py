@@ -187,7 +187,7 @@ def normalize_weights(raw: Any) -> Dict[str, int]:
         "vertex_primary_weight": parse_int(obj.get("vertex_primary_weight"), 0),
         "vertex_compact_weight": parse_int(obj.get("vertex_compact_weight"), 0),
         "local_candidate_weight": parse_int(obj.get("local_candidate_weight"), 0),
-    }
+    },
 
 
 def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -198,7 +198,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "share_tolerance": parse_float(raw.get("share_tolerance"), DEFAULT_SHARE_TOLERANCE),
         "require_incumbent_match": parse_int(raw.get("require_incumbent_match"), DEFAULT_REQUIRE_INCUMBENT_MATCH),
         "max_weight_delta_sum": parse_int(raw.get("max_weight_delta_sum"), DEFAULT_MAX_WEIGHT_DELTA_SUM),
-    }
+    },
 
 
 def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, int]:
@@ -206,13 +206,13 @@ def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, int]:
         "vertex_primary_weight": parse_int(raw.get("vertex_primary_weight"), 0),
         "vertex_compact_weight": parse_int(raw.get("vertex_compact_weight"), 0),
         "local_candidate_weight": parse_int(raw.get("local_candidate_weight"), 0),
-    }
+    },
 
 
 def winner_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "incumbent_arm": str(raw.get("incumbent_arm") or "vertex_primary"),
-    }
+    },
 
 
 def weights_delta_sum(a: Dict[str, int], b: Dict[str, int]) -> int:
@@ -278,7 +278,7 @@ def evaluate_post_apply(
         "post_apply_exposure_n": 0,
         "observed_target_share": 0.0,
         "expected_target_share": expected_target_share(target_weights, target_incumbent_arm),
-    }
+    },
 
     applied = parse_int(journal_row.get("applied"), 0)
     if applied != 1:
@@ -350,7 +350,7 @@ async def persist_if_configured(db_url: str, journal_row: Dict[str, Any], verifi
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_rr_winner_apply_gov_exp_verification_results (
                     ts_ms, decision, reason_code, target_profile, rollback_profile, target_incumbent_arm, rollback_incumbent_arm,
                     post_apply_exposure_n, observed_target_share, expected_target_share, verification_json

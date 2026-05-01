@@ -190,10 +190,10 @@ class ATRCache:
                 cand_atr = float(cand.get("atr", 0.0) or 0.0)
                 if cand_atr > 0:
                     return cand_atr, {
-                        "src": str(cand.get("src", "atr_string"))
-                        "tf": str(cand.get("tf", tf))
-                        "ts_ms": int(cand.get("ts_ms", 0) or 0)
-                        "age_ms": int(cand.get("age_ms", 0) or 0)
+                        "src": str(cand.get("src", "atr_string")),
+                        "tf": str(cand.get("tf", tf)),
+                        "ts_ms": int(cand.get("ts_ms", 0) or 0),
+                        "age_ms": int(cand.get("age_ms", 0) or 0),
                     }
 
         return None, {"src": "none", "tf": "na", "ts_ms": 0, "age_ms": 0}
@@ -238,13 +238,13 @@ class ATRCache:
         if not tf:
             return "M1"
         tf_map = {
-            "1m": "M1", "m1": "M1"
-            "5m": "M5", "m5": "M5"
-            "15m": "M15", "m15": "M15"
-            "30m": "M30", "m30": "M30"
-            "1h": "H1", "h1": "H1"
-            "4h": "H4", "h4": "H4"
-            "1d": "D1", "d1": "D1"
+            "1m": "M1", "m1": "M1",
+            "5m": "M5", "m5": "M5",
+            "15m": "M15", "m15": "M15",
+            "30m": "M30", "m30": "M30",
+            "1h": "H1", "h1": "H1",
+            "4h": "H4", "h4": "H4",
+            "1d": "D1", "d1": "D1",
         }
         key = tf.strip().lower()
         return tf_map.get(key, tf.strip().upper())

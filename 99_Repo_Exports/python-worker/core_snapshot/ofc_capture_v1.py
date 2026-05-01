@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OFC_CAPTURE v1: deterministic sampling + NDJSON capture to stable storage.
 
 Why this exists (Train==Serve / golden replay):
@@ -19,7 +20,6 @@ Security note:
     on trusted machines only and apply retention policies.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

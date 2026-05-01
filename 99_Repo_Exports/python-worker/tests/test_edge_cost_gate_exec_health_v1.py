@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Unit tests for EdgeCostGate execution-health overlay (TCA rollups).
 
@@ -18,7 +19,6 @@ How to run:
   # OR (from within python-worker):
   cd python-worker && python3 -m pytest tests/test_edge_cost_gate_exec_health_v1.py -v
 """
-from __future__ import annotations
 
 import os
 import sys

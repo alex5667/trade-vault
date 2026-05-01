@@ -34,12 +34,12 @@ def runtime():
 async def test_reversal_veto_no_evidence(service, runtime):
     """Reversal signal should be vetoed if no evidence is present."""
     payload = {
-        "direction": "LONG"
+        "direction": "LONG",
         "indicators": {
-            "strong_gate_scn": "reversal"
-            "cvd_reclaim_ok": 0
-            "absorption_volume": 0
-            "obi_stable": 0
+            "strong_gate_scn": "reversal",
+            "cvd_reclaim_ok": 0,
+            "absorption_volume": 0,
+            "obi_stable": 0,
             "ofi_stable": 0
         }
     }
@@ -50,12 +50,12 @@ async def test_reversal_veto_no_evidence(service, runtime):
 async def test_reversal_pass_with_evidence(service, runtime):
     """Reversal signal should pass if evidence is present."""
     payload = {
-        "direction": "LONG"
+        "direction": "LONG",
         "indicators": {
-            "strong_gate_scn": "reversal"
+            "strong_gate_scn": "reversal",
             "cvd_reclaim_ok": 1, # Evidence!
-            "absorption_volume": 0
-            "obi_stable": 0
+            "absorption_volume": 0,
+            "obi_stable": 0,
             "ofi_stable": 0
         }
     }
@@ -66,7 +66,7 @@ async def test_reversal_pass_with_evidence(service, runtime):
 async def test_continuation_wait_for_bar(service, runtime):
     """Continuation signal should be buffered for the next bar."""
     payload = {
-        "direction": "LONG"
+        "direction": "LONG",
         "indicators": {
             "strong_gate_scn": "continuation"
         }
@@ -81,7 +81,7 @@ async def test_continuation_verified_by_bar_closed(service, runtime):
     """Continuation signal buffered, then verified by a bar closing in the correct direction."""
     # 1. Provide signal and buffer it manually as strategy would
     payload = {
-        "direction": "LONG"
+        "direction": "LONG",
         "indicators": {
             "strong_gate_scn": "continuation"
         }
@@ -111,7 +111,7 @@ async def test_continuation_discarded_by_bar_closed(service, runtime):
     """Continuation signal buffered, then discarded if bar closes in wrong direction."""
     # 1. Provide signal
     payload = {
-        "direction": "LONG"
+        "direction": "LONG",
         "indicators": {
             "strong_gate_scn": "continuation"
         }

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Диагностический скрипт для анализа проблем с ATR (Average True Range).
 
@@ -12,7 +13,6 @@ Usage:
     python scripts/diagnose_atr_bad.py [--symbol SYMBOL] [--top N] [--reason REASON]
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -76,12 +76,12 @@ def get_reason_distribution(r: redis.Redis, symbols: List[str]) -> Dict[str, int
 def get_symbol_details(r: redis.Redis, symbol: str) -> Dict[str, any]:
     """Get detailed info about a symbol's ATR bad status."""
     details: Dict[str, any] = {
-        "symbol": symbol
-        "bad_active": False
-        "current_reason": "unknown"
-        "reason_counts": {}
-        "total_count": 0
-        "bad_info": None
+        "symbol": symbol,
+        "bad_active": False,
+        "current_reason": "unknown",
+        "reason_counts": {},
+        "total_count": 0,
+        "bad_info": None,
     }
     
     # Check if currently bad

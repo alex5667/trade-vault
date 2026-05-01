@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Promotion V2 Service — Phase 5.1
 
 Evaluates provenanced closed trades and decides (PROMOTE, HOLD, ROLLBACK).
@@ -5,7 +6,6 @@ Writes decisions to cfg:suggestions:atr_policy_v2:* and notify:telegram.
 Provides Prometheus metrics.
 """
 
-from __future__ import annotations
 
 import json
 import logging

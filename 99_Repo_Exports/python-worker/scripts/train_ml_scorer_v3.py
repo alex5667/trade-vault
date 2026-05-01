@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 ML Scorer V3 Training Script — Binary Classification model for signal confidence scoring.
 
@@ -22,7 +23,6 @@ Usage:
     --feature_schema_ver v12_of
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -69,8 +69,8 @@ except ImportError:
     RandomUnderSampler = None
 
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s %(name)s %(levelname)s %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
 logger = logging.getLogger("ml_scorer_v2_train")
 
@@ -193,10 +193,10 @@ class PurgedEmbargoTimeSeriesSplit:
 
 def _get_dsn() -> str:
     return os.getenv(
-        "ANALYTICS_DB_DSN"
+        "ANALYTICS_DB_DSN",
         os.getenv(
-            "PG_DSN"
-            f"postgresql://trading:{os.getenv('TRADING_PASSWORD', 'trading_password')}@postgres:5432/scanner_analytics"
+            "PG_DSN",
+            f"postgresql://trading:{os.getenv('TRADING_PASSWORD', 'trading_password')}@postgres:5432/scanner_analytics",
         )
     )
 
@@ -212,42 +212,42 @@ def fetch_training_data(lookback_days: int) -> Optional[Any]:
 
     query = f"""
     SELECT
-        s.ts
-        EXTRACT(EPOCH FROM s.ts)::BIGINT * 1000 AS ts_ms
-        s.signal_id
-        s.symbol
-        s.direction
-        s.signal_family
-        s.conf_score
-        s.atr_14
-        s.delta_spike_z
-        s.obi_avg_20
-        s.weak_progress_ratio
-        s.l3_spread_bps
-        s.l3_microprice_shift_bps_20
-        s.l3_microprice_velocity_bps
-        s.l3_obi_5
-        s.l3_obi_20
-        s.l3_obi_50
-        s.l3_obi_persistence_score
-        s.l3_cancel_to_trade_bid_5s
-        s.l3_cancel_to_trade_ask_5s
-        s.l3_cancel_to_trade_bid_20s
-        s.l3_cancel_to_trade_ask_20s
-        s.l3_queue_pressure_bid
-        s.l3_queue_pressure_ask
-        s.l3_market_depth_imbalance
-        t.r AS pnl_r
-        t.hit AS is_win
-        t.slippage_bps
-        t.adverse_bps
-        t.holding_ms
+        s.ts,
+        EXTRACT(EPOCH FROM s.ts)::BIGINT * 1000 AS ts_ms,
+        s.signal_id,
+        s.symbol,
+        s.direction,
+        s.signal_family,
+        s.conf_score,
+        s.atr_14,
+        s.delta_spike_z,
+        s.obi_avg_20,
+        s.weak_progress_ratio,
+        s.l3_spread_bps,
+        s.l3_microprice_shift_bps_20,
+        s.l3_microprice_velocity_bps,
+        s.l3_obi_5,
+        s.l3_obi_20,
+        s.l3_obi_50,
+        s.l3_obi_persistence_score,
+        s.l3_cancel_to_trade_bid_5s,
+        s.l3_cancel_to_trade_ask_5s,
+        s.l3_cancel_to_trade_bid_20s,
+        s.l3_cancel_to_trade_ask_20s,
+        s.l3_queue_pressure_bid,
+        s.l3_queue_pressure_ask,
+        s.l3_market_depth_imbalance,
+        t.r AS pnl_r,
+        t.hit AS is_win,
+        t.slippage_bps,
+        t.adverse_bps,
+        t.holding_ms,
         t.close_reason_bucket
     FROM signal_facts s
     JOIN trade_performance t ON s.signal_id = t.signal_id
     WHERE s.ts > NOW() - INTERVAL '{lookback_days} days'
       AND t.r IS NOT NULL
-      AND s.symbol NOT IN ('XAUUSDT', 'XAUUSD', 'GOLD', 'XAGUSD', 'XAGUSDT')
+      AND s.symbol NOT IN ('XAUUSDT', '', 'GOLD')
       AND ABS(t.r) < 20.0
     ORDER BY s.ts ASC
     """
@@ -277,23 +277,23 @@ def fetch_training_data(lookback_days: int) -> Optional[Any]:
 # ---------------------------------------------------------------------------
 
 NUMERIC_FEATURES = [
-    "atr_14"
-    "obi_avg_20"
-    "weak_progress_ratio"
-    "l3_spread_bps"
-    "l3_microprice_shift_bps_20"
-    "l3_microprice_velocity_bps"
-    "l3_obi_5"
-    "l3_obi_20"
-    "l3_obi_50"
-    "l3_obi_persistence_score"
-    "l3_cancel_to_trade_bid_5s"
-    "l3_cancel_to_trade_ask_5s"
-    "l3_cancel_to_trade_bid_20s"
-    "l3_cancel_to_trade_ask_20s"
-    "l3_queue_pressure_bid"
-    "l3_queue_pressure_ask"
-    "l3_market_depth_imbalance"
+    "atr_14",
+    "obi_avg_20",
+    "weak_progress_ratio",
+    "l3_spread_bps",
+    "l3_microprice_shift_bps_20",
+    "l3_microprice_velocity_bps",
+    "l3_obi_5",
+    "l3_obi_20",
+    "l3_obi_50",
+    "l3_obi_persistence_score",
+    "l3_cancel_to_trade_bid_5s",
+    "l3_cancel_to_trade_ask_5s",
+    "l3_cancel_to_trade_bid_20s",
+    "l3_cancel_to_trade_ask_20s",
+    "l3_queue_pressure_bid",
+    "l3_queue_pressure_ask",
+    "l3_market_depth_imbalance",
 ]
 
 # Derived features
@@ -324,10 +324,10 @@ def _build_feature_row(row_dict: Dict[str, Any]) -> List[float]:
     out.append(1.0 if direction > 0 else 0.0)  # direction_long
 
     c2t_vals = [
-        _f(row_dict.get("l3_cancel_to_trade_bid_5s"), 0.0)
-        _f(row_dict.get("l3_cancel_to_trade_ask_5s"), 0.0)
-        _f(row_dict.get("l3_cancel_to_trade_bid_20s"), 0.0)
-        _f(row_dict.get("l3_cancel_to_trade_ask_20s"), 0.0)
+        _f(row_dict.get("l3_cancel_to_trade_bid_5s"), 0.0),
+        _f(row_dict.get("l3_cancel_to_trade_ask_5s"), 0.0),
+        _f(row_dict.get("l3_cancel_to_trade_bid_20s"), 0.0),
+        _f(row_dict.get("l3_cancel_to_trade_ask_20s"), 0.0),
     ]
     out.append(max(c2t_vals))  # cancel_to_trade_max
 
@@ -389,9 +389,9 @@ def _fit_robust_scaler(
 
 
 def _apply_robust_scaler(
-    X: np.ndarray
-    feature_names: List[str]
-    params: Dict[str, Dict[str, float]]
+    X: np.ndarray,
+    feature_names: List[str],
+    params: Dict[str, Dict[str, float]],
 ) -> np.ndarray:
     """Apply robust scaler in-place."""
     out = X.copy()
@@ -423,13 +423,13 @@ def _compute_target(row_dict: Dict[str, Any]) -> float:
 # ---------------------------------------------------------------------------
 
 def train_model(
-    X: np.ndarray
-    y: np.ndarray
-    ts_ms: List[int]
-    *
-    n_splits: int = 5
-    purge_ms: int = 300_000
-    embargo_ms: int = 120_000
+    X: np.ndarray,
+    y: np.ndarray,
+    ts_ms: List[int],
+    *,
+    n_splits: int = 5,
+    purge_ms: int = 300_000,
+    embargo_ms: int = 120_000,
 ) -> Tuple[Any, np.ndarray, Dict[str, float]]:
     """Train LightGBM binary classifier with OOF evaluation and RUS."""
     import lightgbm as lgb
@@ -441,22 +441,22 @@ def train_model(
     # min_train = 40% of N guarantees at least 3-4 valid folds on 38k samples.
     min_train_samples = max(2000, int(len(X) * 0.40))
     logger.info(
-        "Splitter: n_splits=%d min_train=%d (40%% of %d) purge_ms=%d embargo_ms=%d"
-        n_splits, min_train_samples, len(X), purge_ms, embargo_ms
+        "Splitter: n_splits=%d min_train=%d (40%% of %d) purge_ms=%d embargo_ms=%d",
+        n_splits, min_train_samples, len(X), purge_ms, embargo_ms,
     )
     # Warn early if positive rate is very low — RUS will starve fold training sets
     pos_rate = float(np.mean(y > 0))
     if pos_rate < 0.15:
         logger.warning(
             "⚠️  Low positive rate %.1f%% — RUS will reduce each fold train to ~%.0f rows. "
-            "Consider lowering target threshold or collecting more data."
-            pos_rate * 100, min_train_samples * pos_rate * 2
+            "Consider lowering target threshold or collecting more data.",
+            pos_rate * 100, min_train_samples * pos_rate * 2,
         )
     splitter = PurgedEmbargoTimeSeriesSplit(
-        n_splits=n_splits
-        purge_ms=purge_ms
-        embargo_ms=embargo_ms
-        min_train=min_train_samples
+        n_splits=n_splits,
+        purge_ms=purge_ms,
+        embargo_ms=embargo_ms,
+        min_train=min_train_samples,
     )
 
     oof_preds = np.full(len(X), np.nan, dtype=np.float64)
@@ -465,20 +465,20 @@ def train_model(
 
     # Restore LightGBM parameters (with outlier-resistant constraints)
     params = {
-        "objective": "binary"
-        "metric": "auc"
-        "verbose": -1
-        "learning_rate": 0.05
-        "num_leaves": 31
-        "min_data_in_leaf": 50
-        "max_depth": 5
-        "feature_fraction": 0.8
-        "bagging_fraction": 0.8
-        "bagging_freq": 5
-        "reg_lambda": 5.0
-        "is_unbalance": False if RandomUnderSampler is not None else True
-        "seed": 42
-        "n_jobs": 2
+        "objective": "binary",
+        "metric": "auc",
+        "verbose": -1,
+        "learning_rate": 0.05,
+        "num_leaves": 31,
+        "min_data_in_leaf": 50,
+        "max_depth": 5,
+        "feature_fraction": 0.8,
+        "bagging_fraction": 0.8,
+        "bagging_freq": 5,
+        "reg_lambda": 5.0,
+        "is_unbalance": False if RandomUnderSampler is not None else True,
+        "seed": 42,
+        "n_jobs": 2,
     }
 
     fold_n = 0
@@ -500,10 +500,10 @@ def train_model(
         valid_data = lgb.Dataset(X_va, label=y_va, reference=train_data)
 
         model = lgb.train(
-            params
-            train_data
-            num_boost_round=100
-            valid_sets=[valid_data]
+            params,
+            train_data,
+            num_boost_round=100,
+            valid_sets=[valid_data],
         )
 
         preds = model.predict(X_va)
@@ -517,12 +517,12 @@ def train_model(
         fold_y_means.append(float(np.mean(y_va > 0)))
 
         logger.info(
-            "Fold %d: raw_train=%d (pos=%.1f%%) → after_RUS=%d | val=%d (pos=%.1f%%) | Top5=%.2f%%"
-            fold_n
-            n_train_before, train_pos_rate_before * 100
-            len(y_tr)
-            len(va_idx), float(np.mean(y_va > 0)) * 100
-            fold_top5_hits[-1] * 100
+            "Fold %d: raw_train=%d (pos=%.1f%%) → after_RUS=%d | val=%d (pos=%.1f%%) | Top5=%.2f%%",
+            fold_n,
+            n_train_before, train_pos_rate_before * 100,
+            len(y_tr),
+            len(va_idx), float(np.mean(y_va > 0)) * 100,
+            fold_top5_hits[-1] * 100,
         )
 
     if fold_n == 0:
@@ -539,9 +539,9 @@ def train_model(
 
     train_data = lgb.Dataset(X_fin, label=y_fin)
     final_model = lgb.train(
-        params
-        train_data
-        num_boost_round=100
+        params,
+        train_data,
+        num_boost_round=100,
     )
 
     # OOF metrics
@@ -574,19 +574,19 @@ def train_model(
     top5_hit_rate = float(np.mean(fold_top5_hits)) if fold_top5_hits else 0.0
 
     metrics = {
-        "n_oof": n_oof
-        "roc_auc_oof": roc_auc
-        "logloss_oof": logloss
-        "brier_oof": brier
-        "top5_hit_rate": top5_hit_rate
-        "y_mean_val": float(np.mean(fold_y_means)) if fold_y_means else float(np.mean(y))
-        "y_mean": float(np.mean(y))
-        "folds": fold_n
+        "n_oof": n_oof,
+        "roc_auc_oof": roc_auc,
+        "logloss_oof": logloss,
+        "brier_oof": brier,
+        "top5_hit_rate": top5_hit_rate,
+        "y_mean_val": float(np.mean(fold_y_means)) if fold_y_means else float(np.mean(y)),
+        "y_mean": float(np.mean(y)),
+        "folds": fold_n,
     }
 
     logger.info(
-        "OOF metrics: ROC-AUC=%.4f LogLoss=%.4f Brier=%.4f Top5%%HitRate=%.2f"
-        roc_auc, logloss, brier, top5_hit_rate
+        "OOF metrics: ROC-AUC=%.4f LogLoss=%.4f Brier=%.4f Top5%%HitRate=%.2f",
+        roc_auc, logloss, brier, top5_hit_rate,
     )
 
     return final_model, oof_preds, metrics
@@ -623,9 +623,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Train ML Scorer V2 (regression)")
     parser.add_argument("--lookback", type=int, default=60, help="Days to look back")
     parser.add_argument(
-        "--output"
-        type=str
-        default="/var/lib/trade/ml_models/scorer_v3/scorer_v3.joblib"
+        "--output",
+        type=str,
+        default="/var/lib/trade/ml_models/scorer_v3/scorer_v3.joblib",
     )
     parser.add_argument("--min_samples", type=int, default=2000)
     parser.add_argument("--n_splits", type=int, default=5)
@@ -633,16 +633,16 @@ def main() -> int:
     parser.add_argument("--embargo_ms", type=int, default=120_000)
     parser.add_argument("--winsorize_sigma", type=float, default=3.0)
     parser.add_argument(
-        "--feature_schema_ver"
-        type=str
-        default=os.getenv("ML_SCORER_FEATURE_SCHEMA_VER", "v12_of")
-        help="Feature schema version tag (pinned to v12_of to avoid train/serve skew)"
+        "--feature_schema_ver",
+        type=str,
+        default=os.getenv("ML_SCORER_FEATURE_SCHEMA_VER", "v12_of"),
+        help="Feature schema version tag (pinned to v12_of to avoid train/serve skew)",
     )
     parser.add_argument(
-        "--approval"
-        type=int
-        default=int(os.getenv("ML_SCORER_APPROVAL_REQUIRED", "0"))
-        help="1 = send Telegram approval request after training, 0 = auto-promote/reject by champion comparison (default)"
+        "--approval",
+        type=int,
+        default=int(os.getenv("ML_SCORER_APPROVAL_REQUIRED", "0")),
+        help="1 = send Telegram approval request after training, 0 = auto-promote/reject by champion comparison (default)",
     )
     args = parser.parse_args()
 
@@ -662,8 +662,8 @@ def main() -> int:
 
     if n_total < args.min_samples:
         logger.warning(
-            "Insufficient data (%d < %d). Rule-based scoring continues."
-            n_total, args.min_samples
+            "Insufficient data (%d < %d). Rule-based scoring continues.",
+            n_total, args.min_samples,
         )
         return 0
 
@@ -673,8 +673,8 @@ def main() -> int:
     # 3. Build features
     feature_names = _build_feature_names()
     X_raw = np.array(
-        [_build_feature_row(rd) for rd in row_dicts]
-        dtype=np.float64
+        [_build_feature_row(rd) for rd in row_dicts],
+        dtype=np.float64,
     )
 
     # 4. Build targets
@@ -705,10 +705,10 @@ def main() -> int:
 
     # 7. Train
     model, oof_preds, metrics = train_model(
-        X_scaled, y, ts_ms
-        n_splits=args.n_splits
-        purge_ms=args.purge_ms
-        embargo_ms=args.embargo_ms
+        X_scaled, y, ts_ms,
+        n_splits=args.n_splits,
+        purge_ms=args.purge_ms,
+        embargo_ms=args.embargo_ms,
     )
 
     # 8. Guard rails
@@ -731,18 +731,18 @@ def main() -> int:
 
     # 10. Package and save as CANDIDATE (not yet promoted)
     out_pack: Dict[str, Any] = {
-        "schema_version": 2
-        "kind": "ml_scorer_v3"
-        "model": model
-        "feature_names": feature_names
-        "feature_cols_hash": _sha256_16(feature_names)
-        "feature_schema_ver": str(args.feature_schema_ver or "")
-        "robust_scaler_params": scaler_params
+        "schema_version": 2,
+        "kind": "ml_scorer_v3",
+        "model": model,
+        "feature_names": feature_names,
+        "feature_cols_hash": _sha256_16(feature_names),
+        "feature_schema_ver": str(args.feature_schema_ver or ""),
+        "robust_scaler_params": scaler_params,
         "calibrator": calibrator,  # IsotonicRegression or None
-        "metrics": metrics
-        "trained_at_ms": get_ny_time_millis()
-        "n_samples": len(X)
-        "target": "hit_tp"
+        "metrics": metrics,
+        "trained_at_ms": get_ny_time_millis(),
+        "n_samples": len(X),
+        "target": "hit_tp",
     }
 
     # Save as candidate (pending approval)
@@ -754,11 +754,11 @@ def main() -> int:
 
     # Print report JSON for CI / monitoring
     report = {
-        "kind": "ml_scorer_v3"
-        "n_samples": len(X)
-        "metrics": metrics
-        "output": str(candidate_path)
-        "trained_at": int(time.time())
+        "kind": "ml_scorer_v3",
+        "n_samples": len(X),
+        "metrics": metrics,
+        "output": str(candidate_path),
+        "trained_at": int(time.time()),
     }
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
 
@@ -851,27 +851,27 @@ def _format_approval_report(metrics: Dict[str, float], n_samples: int) -> str:
 def _build_approval_buttons(run_id: str) -> list:
     """Build inline keyboard with Approve/Reject buttons."""
     return [[
-        {"text": "✅ Approve (promote)", "callback": f"ml_scorer_approve:{run_id}"}
-        {"text": "❌ Reject (discard)",  "callback": f"ml_scorer_reject:{run_id}"}
+        {"text": "✅ Approve (promote)", "callback": f"ml_scorer_approve:{run_id}"},
+        {"text": "❌ Reject (discard)",  "callback": f"ml_scorer_reject:{run_id}"},
     ]]
 
 
 def _create_pending(
-    r, run_id: str, metrics: Dict, n_samples: int
-    candidate_path: str, production_path: str, report: str
+    r, run_id: str, metrics: Dict, n_samples: int,
+    candidate_path: str, production_path: str, report: str,
 ) -> None:
     """Store pending approval in Redis."""
     key = f"{PENDING_PREFIX}:{run_id}"
     summary = {
-        "run_id": run_id
-        "status": "PENDING"
-        "created_at_ms": get_ny_time_millis()
-        "last_reminder_ms": get_ny_time_millis()
-        "n_samples": n_samples
-        "metrics": metrics
-        "candidate_path": candidate_path
-        "production_path": production_path
-        "report": report
+        "run_id": run_id,
+        "status": "PENDING",
+        "created_at_ms": get_ny_time_millis(),
+        "last_reminder_ms": get_ny_time_millis(),
+        "n_samples": n_samples,
+        "metrics": metrics,
+        "candidate_path": candidate_path,
+        "production_path": production_path,
+        "report": report,
     }
     try:
         r.set(key, json.dumps(summary, ensure_ascii=False), ex=PENDING_TTL)
@@ -883,10 +883,10 @@ def _create_pending(
 def _notify_telegram(r, message: str, buttons: list = None) -> None:
     """Publish message to notify:telegram stream."""
     fields: Dict[str, str] = {
-        "type": "report"
-        "text": message
-        "parse_mode": "HTML"
-        "source": "ml_scorer_v3"
+        "type": "report",
+        "text": message,
+        "parse_mode": "HTML",
+        "source": "ml_scorer_v3",
     }
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
@@ -898,8 +898,8 @@ def _notify_telegram(r, message: str, buttons: list = None) -> None:
 
 
 def _send_approval_request(
-    args, metrics: Dict, n_samples: int
-    candidate_path: str, production_path: str
+    args, metrics: Dict, n_samples: int,
+    candidate_path: str, production_path: str,
 ) -> None:
     """Send Telegram approval request and start reminder loop."""
     r = _get_redis()
@@ -939,16 +939,16 @@ def _save_champion_metrics(
 ) -> None:
     """Сохранить метрики нового чемпиона в Redis после успешного promote."""
     champion = {
-        "metrics": metrics
-        "candidate_path": candidate_path
-        "production_path": production_path
-        "promoted_at_ms": get_ny_time_millis()
+        "metrics": metrics,
+        "candidate_path": candidate_path,
+        "production_path": production_path,
+        "promoted_at_ms": get_ny_time_millis(),
     }
     try:
         r.set(
-            CHAMPION_METRICS_KEY
-            json.dumps(champion, ensure_ascii=False)
-            ex=CHAMPION_METRICS_TTL
+            CHAMPION_METRICS_KEY,
+            json.dumps(champion, ensure_ascii=False),
+            ex=CHAMPION_METRICS_TTL,
         )
         logger.info("Champion metrics saved to Redis (key=%s)", CHAMPION_METRICS_KEY)
     except Exception as e:
@@ -956,13 +956,13 @@ def _save_champion_metrics(
 
 
 def _notify_auto_result(
-    r
-    decision: str
-    reason: str
-    metrics: Dict[str, Any]
-    n_samples: int
-    champ_roc: Optional[float]
-    promoted: bool
+    r,
+    decision: str,
+    reason: str,
+    metrics: Dict[str, Any],
+    n_samples: int,
+    champ_roc: Optional[float],
+    promoted: bool,
 ) -> None:
     """Отправить авто-решение в Telegram без кнопок."""
     roc = metrics.get("roc_auc_oof", 0.0)
@@ -1011,18 +1011,18 @@ def _notify_auto_result(
 
 
 def _auto_promote_or_reject(
-    args
-    metrics: Dict[str, Any]
-    n_samples: int
-    candidate_path: str
-    production_path: str
+    args,
+    metrics: Dict[str, Any],
+    n_samples: int,
+    candidate_path: str,
+    production_path: str,
 ) -> None:
     """Авто-режим: сравнить новую модель с чемпионом, принять или отклонить."""
     r = _get_redis()
     if r is None:
         logger.warning(
-            "Redis unavailable — skipping auto-promote, candidate stays at %s"
-            candidate_path
+            "Redis unavailable — skipping auto-promote, candidate stays at %s",
+            candidate_path,
         )
         return
 
@@ -1042,8 +1042,8 @@ def _auto_promote_or_reject(
             decision = "PROMOTE"
             reason = f"roc_delta={delta:+.4f}_ge_{MIN_ROC_DELTA:.3f}"
             logger.info(
-                "Auto-promote: new ROC=%.4f vs champion=%.4f delta=%+.4f → PROMOTE"
-                new_roc, champ_roc, delta
+                "Auto-promote: new ROC=%.4f vs champion=%.4f delta=%+.4f → PROMOTE",
+                new_roc, champ_roc, delta,
             )
         else:
             decision = "REJECT"
@@ -1052,8 +1052,8 @@ def _auto_promote_or_reject(
                 f"(new={new_roc:.4f} champ={champ_roc:.4f})"
             )
             logger.info(
-                "Auto-reject: new ROC=%.4f vs champion=%.4f delta=%+.4f < %.3f → REJECT"
-                new_roc, champ_roc, delta, MIN_ROC_DELTA
+                "Auto-reject: new ROC=%.4f vs champion=%.4f delta=%+.4f < %.3f → REJECT",
+                new_roc, champ_roc, delta, MIN_ROC_DELTA,
             )
 
     if decision == "PROMOTE":

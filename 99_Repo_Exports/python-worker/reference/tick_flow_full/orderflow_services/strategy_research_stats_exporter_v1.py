@@ -109,12 +109,12 @@ def main() -> None:
         summary = _read_hash(client, summary_key)
         blocker = _read_hash(client, blocker_key)
         state = evaluate_strategy_research_stats_gate(
-            _env('REDIS_URL', 'redis://redis-worker-1:6379/0')
-            blocker_key
-            summary_key
-            max_age_sec=max_age_sec
-            fail_closed_missing=fail_closed_missing
-            client=client
+            _env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+            blocker_key,
+            summary_key,
+            max_age_sec=max_age_sec,
+            fail_closed_missing=fail_closed_missing,
+            client=client,
         )
         REDIS_READ_OK.set(1.0)
         SUMMARY_PRESENT.set(1.0 if summary else 0.0)

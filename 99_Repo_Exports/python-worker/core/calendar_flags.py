@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Calendar-derived deterministic flags for feature engineering (B2).
 
 Goals
@@ -17,7 +18,6 @@ We expose boolean EOM/EOQ flags as well as optional numeric DOM/DOQ:
 These keys are intended to be appended to MLFeatureSchemaV7OF.
 """
 
-from __future__ import annotations
 
 from datetime import datetime, timezone, date
 import calendar

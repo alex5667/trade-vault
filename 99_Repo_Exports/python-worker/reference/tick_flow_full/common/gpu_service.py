@@ -52,17 +52,17 @@ class GPUService:
             import cupy as cp
             device_props = cp.cuda.runtime.getDeviceProperties(self.current_device)
             return {
-                "available": True
-                "device_count": self.device_count
-                "current_device": self.current_device
-                "name": device_props["name"].decode()
-                "total_memory": device_props["totalGlobalMem"]
+                "available": True,
+                "device_count": self.device_count,
+                "current_device": self.current_device,
+                "name": device_props["name"].decode(),
+                "total_memory": device_props["totalGlobalMem"],
                 "compute_capability": f"{device_props['major']}.{device_props['minor']}"
             }
         except Exception as e:
             return {
-                "available": self.available
-                "device_count": self.device_count
+                "available": self.available,
+                "device_count": self.device_count,
                 "error": str(e)
             }
 
@@ -116,7 +116,7 @@ class GPUService:
             
             # Transfer back
             return {
-                'obi_signed': cp.asnumpy(obi_signed)
+                'obi_signed': cp.asnumpy(obi_signed),
                 'obi_ratio': cp.asnumpy(ratio)
             }
         except Exception as e:
@@ -233,13 +233,13 @@ class GPUService:
             z_gpu = (delta_gpu - med) / denom
 
             return {
-                'deltas': cp.asnumpy(delta_gpu).tolist()
-                'buy_vols': cp.asnumpy(tb_gpu).tolist()
-                'sell_vols': cp.asnumpy(v_gpu - tb_gpu).tolist()
-                'cvd': cp.asnumpy(cvd_gpu).tolist()
-                'delta_ratio': cp.asnumpy(ratio_gpu).tolist()
-                'body_atr': cp.asnumpy(body_atr_gpu).tolist()
-                'z_deltas': cp.asnumpy(z_gpu).tolist()
+                'deltas': cp.asnumpy(delta_gpu).tolist(),
+                'buy_vols': cp.asnumpy(tb_gpu).tolist(),
+                'sell_vols': cp.asnumpy(v_gpu - tb_gpu).tolist(),
+                'cvd': cp.asnumpy(cvd_gpu).tolist(),
+                'delta_ratio': cp.asnumpy(ratio_gpu).tolist(),
+                'body_atr': cp.asnumpy(body_atr_gpu).tolist(),
+                'z_deltas': cp.asnumpy(z_gpu).tolist(),
                 'atr': cp.asnumpy(a_gpu).tolist()
             }
         except Exception as e:

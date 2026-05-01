@@ -83,7 +83,7 @@ ROLLOUT_STATES = {
     "MIRROR_ACTIVE",
     "ROLLBACK_APPLIED",
     "UNKNOWN",
-}
+},
 
 
 def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
@@ -168,7 +168,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "promotion_cooldown_sec": parse_int(raw.get("promotion_cooldown_sec"), DEFAULT_PROMOTION_COOLDOWN_SEC),
         "allow_governor_promotion": parse_int(raw.get("allow_governor_promotion"), DEFAULT_ALLOW_GOVERNOR_PROMOTION),
         "allow_verification_rollback": parse_int(raw.get("allow_verification_rollback"), DEFAULT_ALLOW_VERIFICATION_ROLLBACK),
-    }
+    },
 
 
 def shadow_mode_from_hash(raw: Dict[str, Any]) -> str:
@@ -205,7 +205,7 @@ def normalize_event(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
         "current_mode": current_mode,
         "target_mode": target_mode,
         "row": row,
-    }
+    },
 
 
 def evaluate_event(
@@ -234,7 +234,7 @@ def evaluate_event(
         "target_rollout_state": rollout_state,
         "transition_type": "NONE",
         "cooldown_active": 1 if promotion_cooldown_active else 0,
-    }
+    },
 
     if source == "governor":
         if policy["allow_governor_promotion"] != 1:
@@ -313,7 +313,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rollout_decisions (
                     ts_ms,
                     source,
@@ -362,7 +362,7 @@ async def persist_if_configured(
             )
             if evaluation["transition_type"] != "NONE":
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_route_incident_rca_mirror_rollout_journal (
                         ts_ms,
                         transition_type,
@@ -443,7 +443,7 @@ async def process_event(
         "policy": policy,
         "shadow_policy_before": shadow_policy,
         "rollout_state_before": rollout_state_raw,
-    }
+    },
 
     if (
         evaluation["transition_type"] != "NONE"
@@ -472,7 +472,7 @@ async def process_event(
         "transition_type": evaluation["transition_type"],
         "snapshot_json": stable_json(snapshot),
         "ts_ms": str(now_ms()),
-    }
+    },
     await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
     await r.xadd(
         JOURNAL_STREAM,

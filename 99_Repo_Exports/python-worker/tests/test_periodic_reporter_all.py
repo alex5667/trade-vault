@@ -87,7 +87,7 @@ def test_iter_recent_trades_window_all_symbol_aggregated(reporter):
     xau_trade = {
         "id": "ord3",
         "order_id": "ord3",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "source": "CryptoOrderFlow",
         "strategy": "cryptoorderflow",
         "status": "closed",

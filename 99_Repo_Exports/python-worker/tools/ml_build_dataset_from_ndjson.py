@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Build ML-confirm dataset from NDJSON exports.
 
 Inputs
@@ -25,7 +26,6 @@ NDJSON lines, each:
 This completes Step A (Outcome labels) without relying on a DB.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

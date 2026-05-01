@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests: P1.2.2 HA-safe execution projection worker (LeaderLease, fencing, health).
 
 Suite covers:
@@ -13,7 +14,6 @@ Suite covers:
 10. rebuild_all() rebuilds state for multiple SIDs
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -129,31 +129,31 @@ class FakeRedis:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _push_event(r: FakeRedis, sid: str, symbol: str = 'BTCUSDT'
+def _push_event(r: FakeRedis, sid: str, symbol: str = 'BTCUSDT',
                 fsm_state: str = 'ENTRY_ACKED', order_id: int = 100) -> None:
     """Push a minimal state_transition event into orders:exec."""
     now_ms = get_ny_time_millis()
     r.xadd('orders:exec', {
-        'sid': sid
-        'symbol': symbol
-        'event_type': 'state_transition'
-        'action': 'open'
-        'status': 'ok'
-        'fsm_state': fsm_state
-        'binance_order_id': str(order_id)
-        'ts_event_ms': str(now_ms)
+        'sid': sid,
+        'symbol': symbol,
+        'event_type': 'state_transition',
+        'action': 'open',
+        'status': 'ok',
+        'fsm_state': fsm_state,
+        'binance_order_id': str(order_id),
+        'ts_event_ms': str(now_ms),
     })
 
 
 def _mk_worker(r: FakeRedis, *, lease: 'LeaderLease | None' = None) -> ExecutionProjectionWorker:
     return ExecutionProjectionWorker(
-        r
-        exec_stream='orders:exec'
-        state_key_prefix='orders:state:'
-        state_ttl_sec=86400
-        cursor_key='orders:exec:projection:cursor'
-        batch_size=500
-        leader_lease=lease
+        r,
+        exec_stream='orders:exec',
+        state_key_prefix='orders:state:',
+        state_ttl_sec=86400,
+        cursor_key='orders:exec:projection:cursor',
+        batch_size=500,
+        leader_lease=lease,
     )
 
 
@@ -164,9 +164,9 @@ def _mk_worker(r: FakeRedis, *, lease: 'LeaderLease | None' = None) -> Execution
 def test_leader_lease_acquire_sets_redis_key():
     """LeaderLease.acquire() must set the lease key with NX semantics."""
     r = FakeRedis()
-    lease = LeaderLease(r, lease_key='orders:exec:projection:leader'
-                        fence_key='orders:exec:projection:fence'
-                        lease_ttl_ms=5000, renew_interval_ms=100000
+    lease = LeaderLease(r, lease_key='orders:exec:projection:leader',
+                        fence_key='orders:exec:projection:fence',
+                        lease_ttl_ms=5000, renew_interval_ms=100000,
                         worker_id='worker-A')
     result = lease.acquire()
     assert result is True
@@ -183,14 +183,14 @@ def test_non_leader_skips_batch():
     _push_event(r, 'sid-standby')
 
     # Worker B acquires lease
-    lease_a = LeaderLease(r, lease_key='test:leader', fence_key='test:fence'
-                          lease_ttl_ms=5000, renew_interval_ms=100000
+    lease_a = LeaderLease(r, lease_key='test:leader', fence_key='test:fence',
+                          lease_ttl_ms=5000, renew_interval_ms=100000,
                           worker_id='worker-A')
     lease_a.acquire()
 
     # Worker B does NOT acquire — is standby
-    lease_b = LeaderLease(r, lease_key='test:leader', fence_key='test:fence'
-                          lease_ttl_ms=5000, renew_interval_ms=100000
+    lease_b = LeaderLease(r, lease_key='test:leader', fence_key='test:fence',
+                          lease_ttl_ms=5000, renew_interval_ms=100000,
                           worker_id='worker-B')
     lease_b.acquire()  # should fail because A holds it
 
@@ -206,8 +206,8 @@ def test_non_leader_skips_batch():
 def test_fencing_token_monotonically_increments():
     """Each new lease acquisition by a different worker should increment the fence counter."""
     r = FakeRedis()
-    lease_a = LeaderLease(r, lease_key='test:leader2', fence_key='test:fence2'
-                          lease_ttl_ms=5000, renew_interval_ms=100000
+    lease_a = LeaderLease(r, lease_key='test:leader2', fence_key='test:fence2',
+                          lease_ttl_ms=5000, renew_interval_ms=100000,
                           worker_id='worker-A')
     lease_a.acquire()
     token_a = lease_a.fencing_token()
@@ -215,8 +215,8 @@ def test_fencing_token_monotonically_increments():
     lease_a.release()
 
     # Simulate leader failover: B acquires
-    lease_b = LeaderLease(r, lease_key='test:leader2', fence_key='test:fence2'
-                          lease_ttl_ms=5000, renew_interval_ms=100000
+    lease_b = LeaderLease(r, lease_key='test:leader2', fence_key='test:fence2',
+                          lease_ttl_ms=5000, renew_interval_ms=100000,
                           worker_id='worker-B')
     lease_b.acquire()
     token_b = lease_b.fencing_token()
@@ -232,8 +232,8 @@ def test_run_once_idle_when_not_leader():
     # Occupy the lease with another holder
     r.set('test:leader3', 'someone-else', nx=True, px=5000)
 
-    lease = LeaderLease(r, lease_key='test:leader3', fence_key='test:fence3'
-                        lease_ttl_ms=5000, renew_interval_ms=100000
+    lease = LeaderLease(r, lease_key='test:leader3', fence_key='test:fence3',
+                        lease_ttl_ms=5000, renew_interval_ms=100000,
                         worker_id='this-worker')
     lease.acquire()  # fails — someone-else holds it
 
@@ -250,8 +250,8 @@ def test_stale_writer_aborts_batch():
     r = FakeRedis()
     _push_event(r, 'sid-stale')
 
-    lease = LeaderLease(r, lease_key='test:leader4', fence_key='test:fence4'
-                        lease_ttl_ms=5000, renew_interval_ms=100000
+    lease = LeaderLease(r, lease_key='test:leader4', fence_key='test:fence4',
+                        lease_ttl_ms=5000, renew_interval_ms=100000,
                         worker_id='me')
     lease.acquire()  # token = 1, is_leader = True
 
@@ -270,8 +270,8 @@ def test_health_snapshot_leader_fields():
     r = FakeRedis()
     _push_event(r, 'sid-health')
 
-    lease = LeaderLease(r, lease_key='test:leader5', fence_key='test:fence5'
-                        lease_ttl_ms=5000, renew_interval_ms=100000
+    lease = LeaderLease(r, lease_key='test:leader5', fence_key='test:fence5',
+                        lease_ttl_ms=5000, renew_interval_ms=100000,
                         worker_id='health-worker')
     lease.acquire()
 

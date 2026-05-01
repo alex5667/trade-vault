@@ -128,8 +128,8 @@ def main() -> None:
                         f"Switching to stability: <code>{args.fallback_model_json}</code>"
                     )
                     r_state.xadd(args.notify_stream, {
-                        "type": "text"
-                        "text": msg
+                        "type": "text",
+                        "text": msg,
                         "ts": str(get_ny_time_millis())
                     }, maxlen=200000, approximate=True)
                 except Exception as ne:
@@ -150,8 +150,8 @@ def main() -> None:
                     "Resuming prioritized monitoring."
                 )
                 r_state.xadd(args.notify_stream, {
-                    "type": "text"
-                    "text": msg
+                    "type": "text",
+                    "text": msg,
                     "ts": str(get_ny_time_millis())
                 }, maxlen=200000, approximate=True)
             except Exception as ne:
@@ -313,7 +313,7 @@ def main() -> None:
         # If passed -> freeze=0. If failed -> freeze=1.
         
         updates = {
-            args.freeze_key: str(final_decision)
+            args.freeze_key: str(final_decision),
             args.reason_key: final_reason
         }
         r.hset(args.dyn_key, mapping=updates)

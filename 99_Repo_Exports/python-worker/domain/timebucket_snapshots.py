@@ -59,7 +59,7 @@ def maybe_snapshot_time_buckets(pos: Any, *, ts_ms: int, spec: Any) -> None:
 
     IMPORTANT:
     - We do NOT snapshot raw price at T.
-      We snapshot *excursion up to T* (i.e. max favorable / max adverse so far)
+      We snapshot *excursion up to T* (i.e. max favorable / max adverse so far),
       which is what you need for quantile(MFE@T) / quantile(MAE@T).
     - We avoid calling spec.pnl_money unless we must.
       If process_tick already keeps pos.mfe_pnl/pos.mae_pnl updated, we just store those values.
@@ -152,7 +152,7 @@ def maybe_snapshot_time_buckets(pos: Any, *, ts_ms: int, spec: Any) -> None:
 
 def attach_timebucket_snapshots_to_closed(pos: Any, closed: Any) -> None:
     """
-    Copies pos.mfe_pnl_t / pos.mae_pnl_t into TradeClosed object as flat fields
+    Copies pos.mfe_pnl_t / pos.mae_pnl_t into TradeClosed object as flat fields,
     so Redis repo can persist them and StatsAggregator can consume them.
 
     Output fields on closed:

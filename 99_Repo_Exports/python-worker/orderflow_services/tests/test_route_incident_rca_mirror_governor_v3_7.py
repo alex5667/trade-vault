@@ -15,7 +15,7 @@ def _policy():
         "max_comparator_age_ms": 1800000,
         "cooldown_sec": 21600,
         "allow_demotion": 1,
-    }
+    },
 
 
 def test_promote_to_mirror_when_stable():

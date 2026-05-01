@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for prom_rules_loaded_probe_v1 (v18).
 
 Covers:
@@ -6,7 +7,6 @@ Covers:
   - _compute_loaded_expected helper
   - runbook mentions (links P91 section exists)
 """
-from __future__ import annotations
 
 import json
 import os

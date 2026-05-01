@@ -180,15 +180,15 @@ class _NoopMetric:
 TB_JOBS_TOTAL = Counter("tb_label_jobs_total", "TB labeler jobs processed", ["status"]) if TB_METRICS_ENABLE else _NoopMetric()
 TB_INPUT_LOOKUP_TOTAL = Counter("tb_label_input_lookup_total", "OF input lookup mode", ["mode"]) if TB_METRICS_ENABLE else _NoopMetric()
 TB_INPUT_LOOKUP_MS = Histogram(
-    "tb_label_input_lookup_ms", "OF input lookup latency (ms)"
+    "tb_label_input_lookup_ms", "OF input lookup latency (ms)",
     buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000)
 ) if TB_METRICS_ENABLE else _NoopMetric()
 TB_TICK_FETCH_MS = Histogram(
-    "tb_label_tick_fetch_ms", "Tick fetch latency (ms)"
+    "tb_label_tick_fetch_ms", "Tick fetch latency (ms)",
     buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000)
 ) if TB_METRICS_ENABLE else _NoopMetric()
 TB_TICKS_USED = Histogram(
-    "tb_label_ticks_used", "Ticks used per label job"
+    "tb_label_ticks_used", "Ticks used per label job",
     buckets=(50, 100, 200, 500, 1000, 2000, 5000, 10000, 50000)
 ) if TB_METRICS_ENABLE else _NoopMetric()
 TB_LABEL_WRITE_TOTAL = Counter("tb_label_write_total", "TB labels written") if TB_METRICS_ENABLE else _NoopMetric()
@@ -234,8 +234,8 @@ class TBResult:
     side: str
 
 
-def eval_barrier(path: List[Tuple[int, float]], entry_ts_ms: int, horizon_ms: int, side: str
-                tp_bps: float, sl_bps: float, adv_max: float
+def eval_barrier(path: List[Tuple[int, float]], entry_ts_ms: int, horizon_ms: int, side: str,
+                tp_bps: float, sl_bps: float, adv_max: float,
                 spread_bps: float, slip_bps: float, exec_cost_mult: float = 1.0) -> TBResult:
     side = _normalize_direction(side)
     if not path:
@@ -398,12 +398,12 @@ class TBLabelerWorkerV10_2:
         try:
             # returns (next_start_id, [ (id, {fields}), ... ], deleted_ids)
             resp = self.r.xautoclaim(
-                OF_INPUTS_STREAM
-                OF_INPUTS_GROUP
-                OF_INPUTS_CONSUMER
-                min_idle_time=OF_INPUTS_CLAIM_IDLE_MS
-                start_id="0-0"
-                count=OF_INPUTS_CLAIM_COUNT
+                OF_INPUTS_STREAM,
+                OF_INPUTS_GROUP,
+                OF_INPUTS_CONSUMER,
+                min_idle_time=OF_INPUTS_CLAIM_IDLE_MS,
+                start_id="0-0",
+                count=OF_INPUTS_CLAIM_COUNT,
             )
             if resp and len(resp) >= 2:
                 msgs = resp[1]
@@ -418,11 +418,11 @@ class TBLabelerWorkerV10_2:
             # fallback to xpending_range + xclaim
             try:
                 pend = self.r.xpending_range(
-                    OF_INPUTS_STREAM
-                    OF_INPUTS_GROUP
-                    min="-"
-                    max="+"
-                    count=OF_INPUTS_CLAIM_COUNT
+                    OF_INPUTS_STREAM,
+                    OF_INPUTS_GROUP,
+                    min="-",
+                    max="+",
+                    count=OF_INPUTS_CLAIM_COUNT,
                 )
                 ids: List[str] = []
                 for p in pend:
@@ -434,8 +434,8 @@ class TBLabelerWorkerV10_2:
                         ids.append(str(pid))
                 if ids:
                     claimed = self.r.xclaim(
-                        OF_INPUTS_STREAM, OF_INPUTS_GROUP, OF_INPUTS_CONSUMER
-                        min_idle_time=OF_INPUTS_CLAIM_IDLE_MS
+                        OF_INPUTS_STREAM, OF_INPUTS_GROUP, OF_INPUTS_CONSUMER,
+                        min_idle_time=OF_INPUTS_CLAIM_IDLE_MS,
                         message_ids=ids
                     )
                     TB_GROUP_CLAIM_TOTAL.labels("xclaim").inc(len(claimed))
@@ -498,12 +498,12 @@ class TBLabelerWorkerV10_2:
             job_id = f"{sid}:{h}"
             job_key = f"{TB_JOB_KEY_PREFIX}{job_id}"
             job = {
-                "sid": sid
-                "symbol": symbol
-                "ts_ms": ts_ms
-                "direction": direction
-                "h_ms": h
-                "msg_id": msg_id_s
+                "sid": sid,
+                "symbol": symbol,
+                "ts_ms": ts_ms,
+                "direction": direction,
+                "h_ms": h,
+                "msg_id": msg_id_s,
             }
             try:
                 self.r.setex(job_key, TB_JOB_TTL_SEC, json.dumps(job))
@@ -692,11 +692,11 @@ class TBLabelerWorkerV10_2:
                 # atr_bps/stop_bps extraction redundant as they are extracted in infer_tp_sl_bps
                 
                 barriers = infer_tp_sl_bps(
-                    indicators
-                    tp_k_atr=TP_K_ATR
-                    sl_k_atr=SL_K_ATR
-                    fallback_tp_bps=FALLBACK_TP_BPS
-                    fallback_sl_bps=FALLBACK_SL_BPS
+                    indicators,
+                    tp_k_atr=TP_K_ATR,
+                    sl_k_atr=SL_K_ATR,
+                    fallback_tp_bps=FALLBACK_TP_BPS,
+                    fallback_sl_bps=FALLBACK_SL_BPS,
                 )
                 tp_bps = barriers.tp_bps
                 sl_bps = barriers.sl_bps
@@ -705,37 +705,37 @@ class TBLabelerWorkerV10_2:
                 slip_bps = _f(indicators.get("expected_slippage_bps") or indicators.get("slippage_bps") or 0.0, 0.0)
 
                 res = eval_barrier(
-                    path=path
-                    entry_ts_ms=ts_ms
-                    horizon_ms=h_ms
-                    side=direction
-                    tp_bps=tp_bps
-                    sl_bps=sl_bps
-                    adv_max=TB_ADV_MAX
-                    spread_bps=spread_bps
-                    slip_bps=slip_bps
-                    exec_cost_mult=1.0
+                    path=path,
+                    entry_ts_ms=ts_ms,
+                    horizon_ms=h_ms,
+                    side=direction,
+                    tp_bps=tp_bps,
+                    sl_bps=sl_bps,
+                    adv_max=TB_ADV_MAX,
+                    spread_bps=spread_bps,
+                    slip_bps=slip_bps,
+                    exec_cost_mult=1.0,
                 )
 
                 # Build payload for labels stream
                 primary = (h_ms == PRIMARY_H_MS)
                 payload = {
-                    "sid": sid
-                    "symbol": symbol
-                    "ts_ms": ts_ms
-                    "direction": direction
-                    "h_ms": h_ms
-                    "primary": 1 if primary else 0
-                    "y_edge": res.y_edge
-                    "hit_ms": res.hit_ms
-                    "ret_bps": res.ret_bps
-                    "r_mult": res.r_mult
-                    "util_r": res.util_r
-                    "exec_cost_r": res.exec_cost_r
-                    "adv_r": res.adv_r
-                    "tp_bps": tp_bps
-                    "sl_bps": sl_bps
-                    "ticks_used": res.ticks_used
+                    "sid": sid,
+                    "symbol": symbol,
+                    "ts_ms": ts_ms,
+                    "direction": direction,
+                    "h_ms": h_ms,
+                    "primary": 1 if primary else 0,
+                    "y_edge": res.y_edge,
+                    "hit_ms": res.hit_ms,
+                    "ret_bps": res.ret_bps,
+                    "r_mult": res.r_mult,
+                    "util_r": res.util_r,
+                    "exec_cost_r": res.exec_cost_r,
+                    "adv_r": res.adv_r,
+                    "tp_bps": tp_bps,
+                    "sl_bps": sl_bps,
+                    "ticks_used": res.ticks_used,
                 }
                 if TB_STORE_TICKS:
                     payload["ticks"] = sample_ticks(path, TB_TICKS_SAMPLE_EVERY, TB_TICKS_MAX)
@@ -786,11 +786,11 @@ class TBLabelerWorkerV10_2:
                 # ingest new messages
                 try:
                     resp = self.r.xreadgroup(
-                        OF_INPUTS_GROUP
-                        OF_INPUTS_CONSUMER
-                        {OF_INPUTS_STREAM: ">"}
-                        count=OF_INPUTS_COUNT
-                        block=OF_INPUTS_BLOCK_MS
+                        OF_INPUTS_GROUP,
+                        OF_INPUTS_CONSUMER,
+                        {OF_INPUTS_STREAM: ">"},
+                        count=OF_INPUTS_COUNT,
+                        block=OF_INPUTS_BLOCK_MS,
                     )
                     if resp:
                         for _stream, msgs in resp:

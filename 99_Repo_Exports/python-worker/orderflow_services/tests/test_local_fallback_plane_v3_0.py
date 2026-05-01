@@ -21,7 +21,7 @@ def test_evaluate_request_unsupported_task():
     row = {
         "request_id": "req-1",
         "task_type": "invalid_task",
-        "prompt": "Test"
+        "prompt": "Test",
     }
     
     res = evaluate_request(row, policy)

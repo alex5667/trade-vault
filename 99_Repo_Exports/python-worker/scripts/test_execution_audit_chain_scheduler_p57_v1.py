@@ -1,5 +1,5 @@
-"""P5.7 scheduler smoke tests: verify the scheduler loads the P5.6 checker and can run a single iteration."""
 from __future__ import annotations
+"""P5.7 scheduler smoke tests: verify the scheduler loads the P5.6 checker and can run a single iteration."""
 
 import importlib.util
 import sys

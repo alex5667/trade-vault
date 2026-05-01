@@ -90,17 +90,17 @@ class DummyDiagnostics:
 
     def __init__(self, exchange_truth=None, triage_symbol='BTCUSDT', triage_sid='sid-1'):
         self.exchange_truth = exchange_truth or {
-            'symbol': 'BTCUSDT', 'position_amt': 0.0
-            'open_plain_orders': 0, 'open_algo_orders': 0, 'is_reliable': True
+            'symbol': 'BTCUSDT', 'position_amt': 0.0,
+            'open_plain_orders': 0, 'open_algo_orders': 0, 'is_reliable': True,
         }
         self.symbol = triage_symbol
         self.sid = triage_sid
 
     def debug_symbol(self, symbol, include_exchange=False):
         return {
-            'guard_raw': {'symbol': symbol, 'sid': self.sid, 'guard_status': 'active'}
-            'guard_view': {'symbol': symbol, 'sid': self.sid, 'guard_status': 'active'}
-            'exchange_truth': dict(self.exchange_truth)
+            'guard_raw': {'symbol': symbol, 'sid': self.sid, 'guard_status': 'active'},
+            'guard_view': {'symbol': symbol, 'sid': self.sid, 'guard_status': 'active'},
+            'exchange_truth': dict(self.exchange_truth),
         }
 
 
@@ -109,14 +109,14 @@ class DummyPolicy:
 
     def triage_symbol(self, symbol, include_exchange=False):
         return {
-            'summary': {'symbol': symbol, 'sid': 'sid-1', 'severity': 'warning'}
-            'policy': {'fingerprint': f'fp:{symbol}'}
+            'summary': {'symbol': symbol, 'sid': 'sid-1', 'severity': 'warning'},
+            'policy': {'fingerprint': f'fp:{symbol}'},
         }
 
     def triage_sid(self, sid, include_exchange=False):
         return {
-            'summary': {'symbol': 'BTCUSDT', 'sid': sid, 'severity': 'warning'}
-            'policy': {'fingerprint': f'fp:{sid}'}
+            'summary': {'symbol': 'BTCUSDT', 'sid': sid, 'severity': 'warning'},
+            'policy': {'fingerprint': f'fp:{sid}'},
         }
 
 
@@ -127,8 +127,8 @@ def test_apply_and_revoke_hold_record_audit():
     _stub_module('services.active_symbol_guard_semantics', guard_view=lambda doc, **kwargs: dict(doc or {}))
     _stub_module('services.active_symbol_guard_store', ActiveSymbolGuardStore=DummyStore)
     _stub_module('services.binance_futures_client', BinanceFuturesClient=object)
-    _stub_module('services.execution_metrics'
-                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None
+    _stub_module('services.execution_metrics',
+                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None,
                  EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL=None)
 
     mod = _load('services.active_symbol_guard_runbook_p12_test1', 'services/active_symbol_guard_runbook.py')
@@ -155,16 +155,16 @@ def test_guarded_force_release_blocks_when_exchange_not_flat():
     _stub_module('services.active_symbol_guard_semantics', guard_view=lambda doc, **kwargs: dict(doc or {}))
     _stub_module('services.active_symbol_guard_store', ActiveSymbolGuardStore=DummyStore)
     _stub_module('services.binance_futures_client', BinanceFuturesClient=object)
-    _stub_module('services.execution_metrics'
-                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None
+    _stub_module('services.execution_metrics',
+                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None,
                  EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL=None)
 
     mod = _load('services.active_symbol_guard_runbook_p12_test2', 'services/active_symbol_guard_runbook.py')
     r = FakeRedis()
     # position_amt=0.25 → exchange is NOT flat
     diag = DummyDiagnostics(exchange_truth={
-        'symbol': 'BTCUSDT', 'position_amt': 0.25
-        'open_plain_orders': 0, 'open_algo_orders': 0, 'is_reliable': True
+        'symbol': 'BTCUSDT', 'position_amt': 0.25,
+        'open_plain_orders': 0, 'open_algo_orders': 0, 'is_reliable': True,
     })
     store = DummyStore(r)
     store.docs['BTCUSDT'] = {'symbol': 'BTCUSDT', 'sid': 'sid-1', 'guard_status': 'active'}
@@ -184,8 +184,8 @@ def test_escalation_ack_and_renew_require_fingerprint_state():
     _stub_module('services.active_symbol_guard_semantics', guard_view=lambda doc, **kwargs: dict(doc or {}))
     _stub_module('services.active_symbol_guard_store', ActiveSymbolGuardStore=DummyStore)
     _stub_module('services.binance_futures_client', BinanceFuturesClient=object)
-    _stub_module('services.execution_metrics'
-                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None
+    _stub_module('services.execution_metrics',
+                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL=None,
                  EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL=None)
 
     mod = _load('services.active_symbol_guard_runbook_p12_test3', 'services/active_symbol_guard_runbook.py')

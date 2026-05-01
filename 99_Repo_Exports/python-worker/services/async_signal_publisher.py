@@ -71,10 +71,10 @@ def _get_pre_xadd_hist():
         try:
             from services.orderflow.metrics import _get_or_create_prom_histogram
             _signal_emit_pre_xadd_us = _get_or_create_prom_histogram(
-                "signal_emit_pre_xadd_us"
-                "Pre-XADD overhead in AsyncSignalPublisher (invariant/gate/mget) (us). SLO budget: < 2ms."
-                ["symbol", "stream"]
-                buckets=(50, 100, 250, 500, 1_000, 2_000, 5_000, 8_000, 15_000, 30_000)
+                "signal_emit_pre_xadd_us",
+                "Pre-XADD overhead in AsyncSignalPublisher (invariant/gate/mget) (us). SLO budget: < 2ms.",
+                ["symbol", "stream"],
+                buckets=(50, 100, 250, 500, 1_000, 2_000, 5_000, 8_000, 15_000, 30_000),
             )
         except Exception:
             pass
@@ -91,14 +91,14 @@ class AsyncSignalPublisher:
     """
 
     def __init__(
-        self
-        *
-        redis_client: Any
-        source: str
-        metrics_prefix: str = "signals_publish_async"
-        logger: Any = None
-        max_retries: int = 5
-        retry_queue_maxsize: int = 1000
+        self,
+        *,
+        redis_client: Any,
+        source: str,
+        metrics_prefix: str = "signals_publish_async",
+        logger: Any = None,
+        max_retries: int = 5,
+        retry_queue_maxsize: int = 1000,
     ) -> None:
         self.r = redis_client
         self.source = str(source or "na")
@@ -131,7 +131,7 @@ class AsyncSignalPublisher:
 
         # ── Degrade state cache (Signal Emit P99 fix) ──────────────────────
         # Root cause of Signal Emit P99 = 30ms:
-        # The pre-XADD gate performs 3 MGET keys per signal (degrade:symbol
+        # The pre-XADD gate performs 3 MGET keys per signal (degrade:symbol,
         # degrade:venue, degrade:global). With 3660 Redis connections the pool
         # is saturated → each MGET waits 10-25ms for a slot.
         # Fix: cache degrade state in-process with TTL=500ms.
@@ -145,14 +145,14 @@ class AsyncSignalPublisher:
     def _refresh_env_cache(self) -> None:
         """Re-read ENV flags into in-process cache. Called at init and every 30s."""
         self._env = {
-            "raw_fast_xadd_only": os.getenv("ASYNC_PUB_RAW_FAST_XADD_ONLY", "1").lower() in ("1", "true")
-            "freeze_matrix_enable": os.getenv("ATR_FREEZE_MATRIX_RUNTIME_ENABLE", "1").lower() in ("1", "true")
-            "graph_gate_enable": os.getenv("ATR_GRAPH_RUNTIME_GATE_ENABLE", "0").lower() in ("1", "true")
-            "graph_gate_compare": os.getenv("ATR_GRAPH_RUNTIME_GATE_COMPARE", "0").lower() in ("1", "true")
-            "policy_enforce_enable": os.getenv("ATR_POLICY_ENFORCEMENT_ENABLE", "1").lower() in ("1", "true")
-            "bp_enable": os.getenv("ASYNC_PUB_BACKPRESSURE", "1").strip().lower() in ("1", "true", "yes", "on")
-            "bp_timeout": float(os.getenv("ASYNC_PUB_BP_TIMEOUT_SEC", "1.0") or 1.0)
-            "xadd_timeout": float(os.getenv("ASYNC_PUB_TIMEOUT_SEC", "15.0") or 15.0)
+            "raw_fast_xadd_only": os.getenv("ASYNC_PUB_RAW_FAST_XADD_ONLY", "1").lower() in ("1", "true"),
+            "freeze_matrix_enable": os.getenv("ATR_FREEZE_MATRIX_RUNTIME_ENABLE", "1").lower() in ("1", "true"),
+            "graph_gate_enable": os.getenv("ATR_GRAPH_RUNTIME_GATE_ENABLE", "0").lower() in ("1", "true"),
+            "graph_gate_compare": os.getenv("ATR_GRAPH_RUNTIME_GATE_COMPARE", "0").lower() in ("1", "true"),
+            "policy_enforce_enable": os.getenv("ATR_POLICY_ENFORCEMENT_ENABLE", "1").lower() in ("1", "true"),
+            "bp_enable": os.getenv("ASYNC_PUB_BACKPRESSURE", "1").strip().lower() in ("1", "true", "yes", "on"),
+            "bp_timeout": float(os.getenv("ASYNC_PUB_BP_TIMEOUT_SEC", "1.0") or 1.0),
+            "xadd_timeout": float(os.getenv("ASYNC_PUB_TIMEOUT_SEC", "15.0") or 15.0),
         }
         self._env_cache_ts = _wall_time.monotonic()
 
@@ -235,10 +235,10 @@ class AsyncSignalPublisher:
                                 try:
                                     # Пытаемся скинуть в Redis-очередь, если он ожил
                                     retry_rec = _json_dumps_safe({
-                                        "sink": {"name": sink.name, "field": sink.field, "maxlen": sink.maxlen}
-                                        "payload": payload
-                                        "symbol": symbol
-                                        "attempt": attempt + 1
+                                        "sink": {"name": sink.name, "field": sink.field, "maxlen": sink.maxlen},
+                                        "payload": payload,
+                                        "symbol": symbol,
+                                        "attempt": attempt + 1,
                                         "approximate": approximate
                                     })
                                     await self.r.xadd("stream:publisher:retry", fields={"data": retry_rec}, maxlen=10000, approximate=True)
@@ -261,14 +261,14 @@ class AsyncSignalPublisher:
                 await asyncio.sleep(1)
 
     async def xadd_json(
-        self
-        *
-        sink: StreamSink
-        payload: Dict[str, Any]
-        symbol: str
-        approximate: bool = True
-        no_retry: bool = False
-        timeout_sec: Optional[float] = None
+        self,
+        *,
+        sink: StreamSink,
+        payload: Dict[str, Any],
+        symbol: str,
+        approximate: bool = True,
+        no_retry: bool = False,
+        timeout_sec: Optional[float] = None,
     ) -> AsyncPublishResult:
         """
         Public method that guarantees At-Least-Once delivery (via Redis stream or local buffer).
@@ -285,10 +285,10 @@ class AsyncSignalPublisher:
             try:
                 # 1. P0: Попытка атомарного сохранения в Redis (выживает при падении worker-а)
                 retry_rec = _json_dumps_safe({
-                    "sink": {"name": sink.name, "field": sink.field, "maxlen": sink.maxlen}
-                    "payload": payload
-                    "symbol": symbol
-                    "attempt": 1
+                    "sink": {"name": sink.name, "field": sink.field, "maxlen": sink.maxlen},
+                    "payload": payload,
+                    "symbol": symbol,
+                    "attempt": 1,
                     "approximate": approximate
                 })
                 await self.r.xadd("stream:publisher:retry", fields={"data": retry_rec}, maxlen=10000, approximate=True)
@@ -298,7 +298,7 @@ class AsyncSignalPublisher:
                 try:
                     if self._env["bp_enable"]:
                         await asyncio.wait_for(
-                            self._retry_queue.put((sink, payload, symbol, 1, approximate))
+                            self._retry_queue.put((sink, payload, symbol, 1, approximate)),
                             timeout=self._env["bp_timeout"]
                         )
                     else:
@@ -312,13 +312,13 @@ class AsyncSignalPublisher:
         return res
 
     async def xadd_json_internal(
-        self
-        *
-        sink: StreamSink
-        payload: Dict[str, Any]
-        symbol: str
-        approximate: bool = True
-        timeout_sec: Optional[float] = None
+        self,
+        *,
+        sink: StreamSink,
+        payload: Dict[str, Any],
+        symbol: str,
+        approximate: bool = True,
+        timeout_sec: Optional[float] = None,
     ) -> AsyncPublishResult:
         """
         Internal raw XADD logic.
@@ -362,11 +362,11 @@ class AsyncSignalPublisher:
                     # Signal path: Offload heavy ATR/Risk resolution to background thread
                     # to prevent blocking the event loop during signal bursts.
                     await asyncio.to_thread(
-                        preprocess_signal_for_publish
-                        payload
-                        symbol=str(symbol)
-                        source=self.source
-                        logger=self.logger
+                        preprocess_signal_for_publish,
+                        payload,
+                        symbol=str(symbol),
+                        source=self.source,
+                        logger=self.logger,
                         fast_path=False
                     )
             except Exception:
@@ -391,9 +391,9 @@ class AsyncSignalPublisher:
                         # Asynchronous violation log to prevent DB writes in hot paths
                         v_payload = _json_dumps_safe({"signal": payload, "violations": violations})
                         await self.r.xadd(
-                            "events:invariant_violations"
-                            fields={"payload": v_payload}
-                            maxlen=10000
+                            "events:invariant_violations",
+                            fields={"payload": v_payload},
+                            maxlen=10000,
                             approximate=True
                         )
                     except Exception as ve:
@@ -404,12 +404,12 @@ class AsyncSignalPublisher:
                     # Signal blocked by InvariantRuntimeEngine — terminal deny, never retry
                     errors += 1
                     return AsyncPublishResult(
-                        ok=False
-                        raw_written=False
-                        busy_loading=False
-                        errors=errors
-                        retryable=False
-                        status="invariant_denied"
+                        ok=False,
+                        raw_written=False,
+                        busy_loading=False,
+                        errors=errors,
+                        retryable=False,
+                        status="invariant_denied",
                     )
             except Exception as iv_err:
                 if self.logger:
@@ -443,8 +443,8 @@ class AsyncSignalPublisher:
                         highest_precedence, legacy_advisory = _cached[0], _cached[1]
                     else:
                         degrade_keys = [
-                            f"cfg:atr_degrade:symbol:{symbol}"
-                            f"cfg:atr_degrade:venue:{venue}"
+                            f"cfg:atr_degrade:symbol:{symbol}",
+                            f"cfg:atr_degrade:venue:{venue}",
                             "cfg:atr_degrade:global:all"
                         ]
                         degrade_vals = await self.r.mget(degrade_keys)
@@ -490,16 +490,16 @@ class AsyncSignalPublisher:
                         scope_value = symbol
                         loop = asyncio.get_running_loop()
                         graph_decision = await loop.run_in_executor(
-                            None
-                            ATRGraphBackedRuntimeGateService.decide_runtime_from_graph
+                            None,
+                            ATRGraphBackedRuntimeGateService.decide_runtime_from_graph,
                             payload, scope_value
                         )
 
                         if compare_enabled:
                             try:
                                 loop.run_in_executor(
-                                    _COMPARISON_EXECUTOR
-                                    ATRGraphBackedRuntimeGateService.compare_with_legacy_runtime
+                                    _COMPARISON_EXECUTOR,
+                                    ATRGraphBackedRuntimeGateService.compare_with_legacy_runtime,
                                     legacy_decision, graph_decision, scope_value
                                 )
                             except Exception as ce:
@@ -540,17 +540,17 @@ class AsyncSignalPublisher:
                         if self.logger:
                             self.logger.warning(
                                 "🚫 SIGNAL BLOCKED by Runtime/Policy Gate "
-                                "(effective=%s, policy=%s), symbol=%s"
+                                "(effective=%s, policy=%s), symbol=%s",
                                 effective, enforcement_decision, symbol
                             )
                         errors += 1
                         return AsyncPublishResult(
-                            ok=False
-                            raw_written=False
-                            busy_loading=False
-                            errors=errors
-                            retryable=False
-                            status="runtime_policy_denied"
+                            ok=False,
+                            raw_written=False,
+                            busy_loading=False,
+                            errors=errors,
+                            retryable=False,
+                            status="runtime_policy_denied",
                         )
                     elif effective == "clip":
                         import copy
@@ -561,14 +561,14 @@ class AsyncSignalPublisher:
                         payload["risk_pct_original"] = current_risk
                         payload["risk_pct"] = current_risk * clip_factor
                         payload["_risk_clip"] = {
-                            "applied": True
-                            "original_risk": current_risk
+                            "applied": True,
+                            "original_risk": current_risk,
                             "reason": "policy_enforcement"
                         }
                         if self.logger:
                             self.logger.info(
                                 "✂️ SIGNAL RISK CLIPPED by Policy Gate "
-                                "(risk_pct from %s to %s) symbol=%s"
+                                "(risk_pct from %s to %s) symbol=%s",
                                 current_risk, payload["risk_pct"], symbol
                             )
 
@@ -589,10 +589,10 @@ class AsyncSignalPublisher:
         _t0 = _time.monotonic_ns()
         try:
             await self.r.xadd(
-                sink.name
-                fields={str(sink.field or "payload"): ser}
-                maxlen=int(sink.maxlen)
-                approximate=bool(approximate)
+                sink.name,
+                fields={str(sink.field or "payload"): ser},
+                maxlen=int(sink.maxlen),
+                approximate=bool(approximate),
             )
             raw_written = True
             PUB_OK_TOTAL.labels(source=self.source, stream=sink.name).inc()
@@ -606,8 +606,8 @@ class AsyncSignalPublisher:
                 try:
                     is_timeout = (
                         isinstance(
-                            e
-                            (asyncio.TimeoutError, TimeoutError
+                            e,
+                            (asyncio.TimeoutError, TimeoutError,
                              getattr(redis.exceptions, "TimeoutError", type(None)))
                         )
                         or "TimeoutError" in type(e).__name__

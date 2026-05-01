@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Circuit Breaker State Management (P69).
 
 Handles hysteresis (anti-flap) for circuit breaker policy modes.
@@ -18,7 +19,6 @@ Redis Keys:
     - updated_at: int (last tick processed)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 
@@ -33,11 +33,11 @@ except Exception:  # pragma: no cover
 
 class CircuitBreakerState:
     def __init__(
-        self
-        redis: aioredis.Redis
-        symbol: str
-        min_dwell_s: int = 300
-        min_consecutive: int = 3
+        self,
+        redis: aioredis.Redis,
+        symbol: str,
+        min_dwell_s: int = 300,
+        min_consecutive: int = 3,
         change_count_ttl_s: int = 3600
     ):
         self.redis = redis
@@ -53,7 +53,7 @@ class CircuitBreakerState:
         # For now, we read/write Redis to be robust across restarts/workers.
         # But for high-frequency ticks, we might want to optimize.
         # Given "anti-flap" is the goal, reading Redis is safer for consistency.
-        # However, we can perform read-modify-write via Lua or optimistic locking if strict
+        # However, we can perform read-modify-write via Lua or optimistic locking if strict,
         # but for policy modes (rare changes), a simple fetch-update is likely fine 
         # or best-effort. Actually, we should probably cache the 'effective' mode locally
         # and only hit Redis on potential transitions?
@@ -118,10 +118,10 @@ class CircuitBreakerState:
             self._local_ts = changed_at
             
             debug = {
-                "raw": raw_mode
-                "cur": current_mode
-                "pend": pending_mode
-                "cnt": pending_count
+                "raw": raw_mode,
+                "cur": current_mode,
+                "pend": pending_mode,
+                "cnt": pending_count,
                 "dwell_rem": max(0, self.min_dwell_ms - (ts_ms - changed_at))
             }
 
@@ -157,9 +157,9 @@ class CircuitBreakerState:
                 # COMMIT SWITCH
                 pipe = self.redis.pipeline()
                 pipe.hset(self.key, mapping={
-                    "mode": raw_mode
-                    "changed_at": ts_ms
-                    "prev_mode": current_mode
+                    "mode": raw_mode,
+                    "changed_at": ts_ms,
+                    "prev_mode": current_mode,
                     "updated_at": get_ny_time_millis()
                 })
                 pipe.hdel(self.key, "pending_mode", "pending_count")
@@ -175,8 +175,8 @@ class CircuitBreakerState:
                 # Optimization: only update if count changed or mode changed?
                 # Yes, new_count is calc'd.
                 await self.redis.hset(self.key, mapping={
-                    "pending_mode": raw_mode
-                    "pending_count": new_count
+                    "pending_mode": raw_mode,
+                    "pending_count": new_count,
                     "updated_at": get_ny_time_millis()
                 })
                 return current_mode, debug

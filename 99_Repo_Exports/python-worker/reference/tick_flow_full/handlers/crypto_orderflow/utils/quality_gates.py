@@ -12,12 +12,12 @@ from typing import Any, Dict, Optional, Set, Tuple, Literal
 #  A1) Regime/session gating:
 #      - forbid kinds in regimes where they are statistically bad
 #  A1) Liquidity gating:
-#      - avoid bad fills/noisy market: spread too wide, depth too low
+#      - avoid bad fills/noisy market: spread too wide, depth too low,
 #        burst_flip_ratio too high, ATR regime out of bounds
 #  A2) Consistency gate:
 #      - require agreement between key signals for each kind
 #  A3) Data-quality / staleness hard veto:
-#      - non-epoch timestamps, large lag, out-of-order stream, quarantine flags
+#      - non-epoch timestamps, large lag, out-of-order stream, quarantine flags,
 #        ATR staleness (if you provide atr_ts_ms in ctx)
 #
 # Design constraints:
@@ -171,12 +171,12 @@ def _is_epoch_ms(ts: int) -> bool:
 
 
 def _pick_float(
-    prefix: str
-    *
-    symbol: str
-    kind: str
-    regime: str
-    default: float
+    prefix: str,
+    *,
+    symbol: str,
+    kind: str,
+    regime: str,
+    default: float,
 ) -> float:
     """
     Hierarchical override resolver via ENV.
@@ -195,12 +195,11 @@ def _pick_float(
     k = (kind or "").strip().upper()
     r = (regime or "").strip().upper()
     keys = [
-        f"{prefix}__{sym}__{k}__{r}"
-        f"{prefix}__{sym}__{k}"
-        f"{prefix}__{k}__{r}"
-        f"{prefix}__{k}"
-        f"{prefix}_DEFAULT"
-    ]
+        f"{prefix}__{sym}__{k}__{r}",
+        f"{prefix}__{sym}__{k}",
+        f"{prefix}__{k}__{r}",
+        f"{prefix}__{k}",
+        f"{prefix}_DEFAULT"]
     for name in keys:
         if os.getenv(name) is not None:
             return _env_float(name, default)
@@ -257,31 +256,31 @@ class DataQualityGate:
     @classmethod
     def from_env(cls) -> "DataQualityGate":
         return cls(
-            enabled=_env_bool("DATA_QUALITY_GATE_ENABLED", True)
-            require_epoch_ts=_env_bool("DATA_REQUIRE_EPOCH_TS", True)
-            max_event_lag_ms=int(_env_float("DATA_MAX_EVENT_LAG_MS", 2500.0))
-            max_future_skew_ms=int(_env_float("DATA_MAX_FUTURE_SKEW_MS", 200.0))
-            out_of_order_tolerance_ms=int(_env_float("DATA_OUT_OF_ORDER_TOL_MS", 1000.0))
-            quarantine_veto=_env_bool("DATA_QUARANTINE_VETO", True)
-            atr_stale_max_ms=int(_env_float("DATA_ATR_STALE_MAX_MS", 60_000.0))
-            strict_missing_atr_ts=_env_bool("DATA_STRICT_MISSING_ATR_TS", False)
+            enabled=_env_bool("DATA_QUALITY_GATE_ENABLED", True),
+            require_epoch_ts=_env_bool("DATA_REQUIRE_EPOCH_TS", True),
+            max_event_lag_ms=int(_env_float("DATA_MAX_EVENT_LAG_MS", 2500.0)),
+            max_future_skew_ms=int(_env_float("DATA_MAX_FUTURE_SKEW_MS", 200.0)),
+            out_of_order_tolerance_ms=int(_env_float("DATA_OUT_OF_ORDER_TOL_MS", 1000.0)),
+            quarantine_veto=_env_bool("DATA_QUARANTINE_VETO", True),
+            atr_stale_max_ms=int(_env_float("DATA_ATR_STALE_MAX_MS", 60_000.0)),
+            strict_missing_atr_ts=_env_bool("DATA_STRICT_MISSING_ATR_TS", False),
             # Optional: turn existing ctx.data_quality_flags into a hard veto.
             # Example:
             #   DATA_VETO_FLAGS=stale_l2,l3_missing
-            veto_on_quality_flags=_parse_csv_set(_env_str("DATA_VETO_FLAGS", ""))
+            veto_on_quality_flags=_parse_csv_set(_env_str("DATA_VETO_FLAGS", "")),
             # Optional: treat stale touch snapshot as data-quality hard veto (for touch-sensitive kinds).
-            touch_stale_veto=_env_bool("DATA_TOUCH_STALE_VETO", False)
-            touch_stale_apply_kinds=_parse_csv_set(_env_str("DATA_TOUCH_STALE_APPLY_KINDS", ""))
+            touch_stale_veto=_env_bool("DATA_TOUCH_STALE_VETO", False),
+            touch_stale_apply_kinds=_parse_csv_set(_env_str("DATA_TOUCH_STALE_APPLY_KINDS", "")),
         )
 
     def evaluate(
-        self
-        *
-        ctx: Any
-        symbol: str
-        kind: str
-        now_ms: int
-        last_ts_ms: Optional[int]
+        self,
+        *,
+        ctx: Any,
+        symbol: str,
+        kind: str,
+        now_ms: int,
+        last_ts_ms: Optional[int],
     ) -> DataQualityGateDecision:
         if not self.enabled:
             return DataQualityGateDecision(apply=False, veto=False, reason_code="OK", updated_last_ts_ms=last_ts_ms)
@@ -293,9 +292,9 @@ class DataQualityGate:
             bad = _flags_intersect(flags, self.veto_on_quality_flags)
             if bad:
                 return DataQualityGateDecision(
-                    apply=True, veto=True, reason_code="VETO_DATA_FLAGS"
-                    notes=f"flags={sorted(list(bad))}"
-                    updated_last_ts_ms=last_ts_ms
+                    apply=True, veto=True, reason_code="VETO_DATA_FLAGS",
+                    notes=f"flags={sorted(list(bad))}",
+                    updated_last_ts_ms=last_ts_ms,
                 )
         except Exception:
             pass
@@ -311,62 +310,62 @@ class DataQualityGate:
         if ts_i is None:
             # If we cannot even read ts, we fail-open (avoid breaking pipeline).
             return DataQualityGateDecision(
-                apply=True, veto=False, reason_code="OK"
-                notes="missing_ts_fail_open"
-                updated_last_ts_ms=last_ts_ms
+                apply=True, veto=False, reason_code="OK",
+                notes="missing_ts_fail_open",
+                updated_last_ts_ms=last_ts_ms,
             )
 
         if self.require_epoch_ts and not _is_epoch_ms(ts_i):
             return DataQualityGateDecision(
-                apply=True, veto=True, reason_code="VETO_NON_EPOCH_TS"
-                notes=f"ts={ts_i}"
-                updated_last_ts_ms=last_ts_ms
+                apply=True, veto=True, reason_code="VETO_NON_EPOCH_TS",
+                notes=f"ts={ts_i}",
+                updated_last_ts_ms=last_ts_ms,
             )
 
         # Lag and future skew checks
         lag = int(now_ms) - int(ts_i)
         if lag > int(self.max_event_lag_ms):
             return DataQualityGateDecision(
-                apply=True, veto=True, reason_code="VETO_EVENT_LAG"
-                notes=f"lag_ms={lag} max={self.max_event_lag_ms} ts={ts_i} now={now_ms}"
-                updated_last_ts_ms=last_ts_ms
+                apply=True, veto=True, reason_code="VETO_EVENT_LAG",
+                notes=f"lag_ms={lag} max={self.max_event_lag_ms} ts={ts_i} now={now_ms}",
+                updated_last_ts_ms=last_ts_ms,
             )
         if int(ts_i) > int(now_ms) + int(self.max_future_skew_ms):
             return DataQualityGateDecision(
-                apply=True, veto=True, reason_code="VETO_FUTURE_TS"
-                notes=f"ts={ts_i} now={now_ms} skew_max={self.max_future_skew_ms}"
-                updated_last_ts_ms=last_ts_ms
-            )
+                apply=True, veto=True, reason_code="VETO_FUTURE_TS",
+                notes=f"ts={ts_i} now={now_ms} skew_max={self.max_future_skew_ms}",
+                updated_last_ts_ms=last_ts_ms,
+            ),
 
         # Out-of-order detection (best-effort, per handler instance)
-        updated_last = last_ts_ms
+        updated_last = last_ts_ms,
         if last_ts_ms is not None and int(ts_i) + int(self.out_of_order_tolerance_ms) < int(last_ts_ms):
             # We DO NOT update last_ts here to avoid moving the watermark backwards.
             return DataQualityGateDecision(
-                apply=True, veto=True, reason_code="VETO_OUT_OF_ORDER"
-                notes=f"ts={ts_i} last={last_ts_ms} tol={self.out_of_order_tolerance_ms}"
-                updated_last_ts_ms=last_ts_ms
-            )
-        updated_last = int(ts_i) if updated_last is None else max(int(updated_last), int(ts_i))
+                apply=True, veto=True, reason_code="VETO_OUT_OF_ORDER",
+                notes=f"ts={ts_i} last={last_ts_ms} tol={self.out_of_order_tolerance_ms}",
+                updated_last_ts_ms=last_ts_ms,
+            ),
+        updated_last = int(ts_i) if updated_last is None else max(int(updated_last), int(ts_i)),
 
         # Quarantine / bad-time flags (multiple possible attribute names)
         if self.quarantine_veto:
             qflag = _get_metric(
-                ctx
+                ctx,
                 (
-                    "time_quarantine_active"
-                    "bad_time_quarantined"
-                    "is_time_quarantined"
-                    "time_is_quarantined"
-                    "bad_time_freeze_active"
-                )
-                allow_of=True
+                    "time_quarantine_active",
+                    "bad_time_quarantined",
+                    "is_time_quarantined",
+                    "time_is_quarantined",
+                    "bad_time_freeze_active",
+                ),
+                allow_of=True,
             )
             if bool(qflag):
                 return DataQualityGateDecision(
-                    apply=True, veto=True, reason_code="VETO_TIME_QUARANTINE"
-                    notes=f"flag={qflag}"
-                    updated_last_ts_ms=updated_last
+                    apply=True, veto=True, reason_code="VETO_TIME_QUARANTINE",
+                    notes=f"flag={qflag}",
+                    updated_last_ts_ms=updated_last,
                 )
 
         # Optional: touch staleness veto (you have ctx.touch_is_stale).
@@ -377,9 +376,9 @@ class DataQualityGate:
                 tis = getattr(ctx, "touch_is_stale", None)
                 if tis is True:
                     return DataQualityGateDecision(
-                        apply=True, veto=True, reason_code="VETO_TOUCH_STALE"
-                        notes="touch_is_stale=True"
-                        updated_last_ts_ms=updated_last
+                        apply=True, veto=True, reason_code="VETO_TOUCH_STALE",
+                        notes="touch_is_stale=True",
+                        updated_last_ts_ms=updated_last,
                     )
 
         # ATR staleness (only if atr timestamp is available)
@@ -398,22 +397,22 @@ class DataQualityGate:
         if atr_ts_i is None:
             if self.strict_missing_atr_ts:
                 return DataQualityGateDecision(
-                    apply=True, veto=True, reason_code="VETO_MISSING_ATR_TS"
-                    notes="atr_ts_ms not provided"
-                    updated_last_ts_ms=updated_last
+                    apply=True, veto=True, reason_code="VETO_MISSING_ATR_TS",
+                    notes="atr_ts_ms not provided",
+                    updated_last_ts_ms=updated_last,
                 )
             return DataQualityGateDecision(
-                apply=True, veto=False, reason_code="OK"
-                notes="missing_atr_ts_fail_open"
-                updated_last_ts_ms=updated_last
+                apply=True, veto=False, reason_code="OK",
+                notes="missing_atr_ts_fail_open",
+                updated_last_ts_ms=updated_last,
             )
 
         atr_age = int(now_ms) - int(atr_ts_i)
         if atr_age > int(self.atr_stale_max_ms):
             return DataQualityGateDecision(
-                apply=True, veto=True, reason_code="VETO_ATR_STALE"
-                notes=f"atr_age_ms={atr_age} max={self.atr_stale_max_ms} atr_ts={atr_ts_i}"
-                updated_last_ts_ms=updated_last
+                apply=True, veto=True, reason_code="VETO_ATR_STALE",
+                notes=f"atr_age_ms={atr_age} max={self.atr_stale_max_ms} atr_ts={atr_ts_i}",
+                updated_last_ts_ms=updated_last,
             )
 
         return DataQualityGateDecision(apply=True, veto=False, reason_code="OK", updated_last_ts_ms=updated_last)
@@ -435,14 +434,14 @@ class RegimeGate:
     @classmethod
     def from_env(cls) -> "RegimeGate":
         return cls(
-            enabled=_env_bool("REGIME_GATE_ENABLED", True)
-            apply_kinds=_parse_csv_set(_env_str("REGIME_APPLY_KINDS", "breakout,absorption,extreme,obi_spike"))
+            enabled=_env_bool("REGIME_GATE_ENABLED", True),
+            apply_kinds=_parse_csv_set(_env_str("REGIME_APPLY_KINDS", "breakout,absorption,extreme,obi_spike")),
             # Default policy: breakout forbidden in range/squeeze; absorption forbidden in trending/expansion
-            deny_breakout_regimes=_parse_csv_set(_env_str("REGIME_DENY_BREAKOUT", "range,squeeze"))
-            deny_absorption_regimes=_parse_csv_set(_env_str("REGIME_DENY_ABSORPTION", "trending_bull,trending_bear,expansion"))
-            deny_extreme_regimes=_parse_csv_set(_env_str("REGIME_DENY_EXTREME", ""))
-            deny_obi_spike_regimes=_parse_csv_set(_env_str("REGIME_DENY_OBI_SPIKE", ""))
-            require_regime_present=_env_bool("REGIME_REQUIRE_PRESENT", False)
+            deny_breakout_regimes=_parse_csv_set(_env_str("REGIME_DENY_BREAKOUT", "range,squeeze")),
+            deny_absorption_regimes=_parse_csv_set(_env_str("REGIME_DENY_ABSORPTION", "trending_bull,trending_bear,expansion")),
+            deny_extreme_regimes=_parse_csv_set(_env_str("REGIME_DENY_EXTREME", "")),
+            deny_obi_spike_regimes=_parse_csv_set(_env_str("REGIME_DENY_OBI_SPIKE", "")),
+            require_regime_present=_env_bool("REGIME_REQUIRE_PRESENT", False),
         )
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> QualityGateDecision:
@@ -500,14 +499,14 @@ class LiquidityGate:
     @classmethod
     def from_env(cls) -> "LiquidityGate":
         return cls(
-            enabled=_env_bool("LIQ_GATE_ENABLED", True)
-            apply_kinds=_parse_csv_set(_env_str("LIQ_APPLY_KINDS", "breakout,absorption,extreme,obi_spike"))
-            max_spread_bps_default=_env_float("LIQ_MAX_SPREAD_BPS", 15.0)
+            enabled=_env_bool("LIQ_GATE_ENABLED", True),
+            apply_kinds=_parse_csv_set(_env_str("LIQ_APPLY_KINDS", "breakout,absorption,extreme,obi_spike")),
+            max_spread_bps_default=_env_float("LIQ_MAX_SPREAD_BPS", 15.0),
             # IMPORTANT:
             # depth_* units depend on your upstream (qty/usd-normalized/etc).
             # default=0 disables depth veto unless you explicitly set it.
-            min_depth5_default=_env_float("LIQ_MIN_DEPTH_5", 0.0)
-            max_burst_flip_ratio_default=_env_float("LIQ_MAX_BURST_FLIP_RATIO", 0.80)
+            min_depth5_default=_env_float("LIQ_MIN_DEPTH_5", 0.0),
+            max_burst_flip_ratio_default=_env_float("LIQ_MAX_BURST_FLIP_RATIO", 0.80),
         )
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> QualityGateDecision:
@@ -566,9 +565,9 @@ class RegimeSessionLiquidityGate:
     @classmethod
     def from_env(cls) -> "RegimeSessionLiquidityGate":
         return cls(
-            enabled=_env_bool("QUALITY_GATE_ENABLED", True)
-            strict_missing_metrics=_env_bool("QUALITY_STRICT_MISSING_METRICS", False)
-            apply_kinds=_parse_csv_set(_env_str("QUALITY_APPLY_KINDS", ""))
+            enabled=_env_bool("QUALITY_GATE_ENABLED", True),
+            strict_missing_metrics=_env_bool("QUALITY_STRICT_MISSING_METRICS", False),
+            apply_kinds=_parse_csv_set(_env_str("QUALITY_APPLY_KINDS", "")),
         )
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> QualityGateDecision:
@@ -591,16 +590,16 @@ class RegimeSessionLiquidityGate:
         allow_regimes = _pick_allow_set("QUALITY_ALLOW_REGIMES", kind=kind)
         if allow_regimes and regime_s and regime_s not in allow_regimes:
             return QualityGateDecision(
-                apply=True, veto=True, reason_code="VETO_REGIME_NOT_ALLOWED"
-                notes=f"regime={regime_s} allow={sorted(list(allow_regimes))}"
+                apply=True, veto=True, reason_code="VETO_REGIME_NOT_ALLOWED",
+                notes=f"regime={regime_s} allow={sorted(list(allow_regimes))}",
             )
 
         # Session allow-list per kind (optional)
         allow_sessions = _pick_allow_set("QUALITY_ALLOW_SESSIONS", kind=kind)
         if allow_sessions and session_s and session_s not in allow_sessions:
             return QualityGateDecision(
-                apply=True, veto=True, reason_code="VETO_SESSION_NOT_ALLOWED"
-                notes=f"session={session_s} allow={sorted(list(allow_sessions))}"
+                apply=True, veto=True, reason_code="VETO_SESSION_NOT_ALLOWED",
+                notes=f"session={session_s} allow={sorted(list(allow_sessions))}",
             )
 
         # Liquidity metrics (spread/depth/burst flip)
@@ -633,23 +632,23 @@ class RegimeSessionLiquidityGate:
         else:
             if spread_bps > sp_max:
                 return QualityGateDecision(
-                    apply=True, veto=True, reason_code="VETO_SPREAD_TOO_WIDE"
-                    notes=f"spread_bps={spread_bps:.2f} > max={sp_max:.2f} regime={regime_s}"
+                    apply=True, veto=True, reason_code="VETO_SPREAD_TOO_WIDE",
+                    notes=f"spread_bps={spread_bps:.2f} > max={sp_max:.2f} regime={regime_s}",
                 )
 
         if depth_min > 0.0:
             if depth_bid_5 is None or depth_ask_5 is None:
                 if self.strict_missing_metrics:
                     return QualityGateDecision(
-                        apply=True, veto=True, reason_code="VETO_MISSING_DEPTH"
-                        notes="depth_bid_5/depth_ask_5 missing"
+                        apply=True, veto=True, reason_code="VETO_MISSING_DEPTH",
+                        notes="depth_bid_5/depth_ask_5 missing",
                     )
             else:
                 dmin = min(depth_bid_5, depth_ask_5)
                 if dmin < depth_min:
                     return QualityGateDecision(
-                        apply=True, veto=True, reason_code="VETO_DEPTH_TOO_LOW"
-                        notes=f"depth_min_side={dmin:.2f} < min={depth_min:.2f}"
+                        apply=True, veto=True, reason_code="VETO_DEPTH_TOO_LOW",
+                        notes=f"depth_min_side={dmin:.2f} < min={depth_min:.2f}",
                     )
 
         if burst_flip_ratio is None:
@@ -658,15 +657,15 @@ class RegimeSessionLiquidityGate:
         else:
             if burst_flip_ratio > flip_max:
                 return QualityGateDecision(
-                    apply=True, veto=True, reason_code="VETO_BURST_FLIP_HIGH"
-                    notes=f"burst_flip_ratio={burst_flip_ratio:.3f} > max={flip_max:.3f}"
+                    apply=True, veto=True, reason_code="VETO_BURST_FLIP_HIGH",
+                    notes=f"burst_flip_ratio={burst_flip_ratio:.3f} > max={flip_max:.3f}",
                 )
 
         if daily_atr_bps is not None:
             if daily_atr_bps < atr_bps_min or daily_atr_bps > atr_bps_max:
                 return QualityGateDecision(
-                    apply=True, veto=True, reason_code="VETO_DAILY_ATR_BPS_OUT_OF_RANGE"
-                    notes=f"daily_atr_bps={daily_atr_bps:.1f} notin [{atr_bps_min:.1f},{atr_bps_max:.1f}]"
+                    apply=True, veto=True, reason_code="VETO_DAILY_ATR_BPS_OUT_OF_RANGE",
+                    notes=f"daily_atr_bps={daily_atr_bps:.1f} notin [{atr_bps_min:.1f},{atr_bps_max:.1f}]",
                 )
         elif self.strict_missing_metrics and (atr_bps_min > 0.0 or atr_bps_max < 10_000.0):
             return QualityGateDecision(apply=True, veto=True, reason_code="VETO_MISSING_DAILY_ATR_BPS", notes="daily_atr_bps missing")
@@ -674,8 +673,8 @@ class RegimeSessionLiquidityGate:
         if atr_q_14 is not None:
             if atr_q_14 < q_min or atr_q_14 > q_max:
                 return QualityGateDecision(
-                    apply=True, veto=True, reason_code="VETO_ATR_Q14_OUT_OF_RANGE"
-                    notes=f"atr_q_14={atr_q_14:.3f} notin [{q_min:.3f},{q_max:.3f}]"
+                    apply=True, veto=True, reason_code="VETO_ATR_Q14_OUT_OF_RANGE",
+                    notes=f"atr_q_14={atr_q_14:.3f} notin [{q_min:.3f},{q_max:.3f}]",
                 )
         elif self.strict_missing_metrics and (q_min > -1.0 or q_max < 2.0):
             return QualityGateDecision(apply=True, veto=True, reason_code="VETO_MISSING_ATR_Q14", notes="atr_q_14 missing")
@@ -733,37 +732,37 @@ class SignalConsistencyGate:
         extreme_max_cancel_to_trade = _env_float("EXTREME_L3_MAX_CANCEL_TO_TRADE", 1e9)
 
         return cls(
-            enabled=enabled
-            strict_missing_metrics=strict_missing
-            apply_kinds=apply_kinds
+            enabled=enabled,
+            strict_missing_metrics=strict_missing,
+            apply_kinds=apply_kinds,
 
-            breakout_min_z=_env_float("CONS_BREAKOUT_MIN_Z", 2.0)
-            breakout_min_obi=_env_float("CONS_BREAKOUT_MIN_OBI", 0.0)
-            breakout_require_obi=_env_bool("BREAKOUT_REQUIRE_OBI", True)
-            breakout_require_obi20=_env_bool("BREAKOUT_REQUIRE_OBI20", True)
-            breakout_min_microshift_bps=_env_float("BREAKOUT_MIN_MICROPRICE_SHIFT_BPS", 0.0)
+            breakout_min_z=_env_float("CONS_BREAKOUT_MIN_Z", 2.0),
+            breakout_min_obi=_env_float("CONS_BREAKOUT_MIN_OBI", 0.0),
+            breakout_require_obi=_env_bool("BREAKOUT_REQUIRE_OBI", True),
+            breakout_require_obi20=_env_bool("BREAKOUT_REQUIRE_OBI20", True),
+            breakout_min_microshift_bps=_env_float("BREAKOUT_MIN_MICROPRICE_SHIFT_BPS", 0.0),
 
             # Breakout touch confirmation:
             # - use touch_* from services.touch_level_tracker (already attached to ctx)
             # - for breakout we normally want "depletion" on the hit side (ask for LONG, bid for SHORT)
-            breakout_require_touch_fresh=_env_bool("CONS_BREAKOUT_REQUIRE_TOUCH_FRESH", True)
-            breakout_require_touch_tag=_env_bool("CONS_BREAKOUT_REQUIRE_TOUCH_TAG", True)
-            breakout_touch_tag_required=_env_str("CONS_BREAKOUT_TOUCH_TAG_REQUIRED", "depletion").strip().lower()
-            breakout_min_touch_rho=_env_float("CONS_BREAKOUT_MIN_TOUCH_RHO", 0.10)
-            breakout_min_touch_traded_w=_env_float("CONS_BREAKOUT_MIN_TOUCH_TRADED_W", 0.0)
+            breakout_require_touch_fresh=_env_bool("CONS_BREAKOUT_REQUIRE_TOUCH_FRESH", True),
+            breakout_require_touch_tag=_env_bool("CONS_BREAKOUT_REQUIRE_TOUCH_TAG", True),
+            breakout_touch_tag_required=_env_str("CONS_BREAKOUT_TOUCH_TAG_REQUIRED", "depletion").strip().lower(),
+            breakout_min_touch_rho=_env_float("CONS_BREAKOUT_MIN_TOUCH_RHO", 0.10),
+            breakout_min_touch_traded_w=_env_float("CONS_BREAKOUT_MIN_TOUCH_TRADED_W", 0.0),
 
-            absorption_min_z=_env_float("CONS_ABSORPTION_MIN_Z", 2.0)
-            absorption_require_weak_progress=_env_bool("CONS_ABSORPTION_REQUIRE_WEAK_PROGRESS", True)
+            absorption_min_z=_env_float("CONS_ABSORPTION_MIN_Z", 2.0),
+            absorption_require_weak_progress=_env_bool("CONS_ABSORPTION_REQUIRE_WEAK_PROGRESS", True),
 
             # Absorption touch confirmation:
             # - for absorption (meanrev) we normally want "refill" on support/resistance side
-            absorption_require_touch_fresh=_env_bool("CONS_ABSORPTION_REQUIRE_TOUCH_FRESH", True)
-            absorption_touch_tag_required=_env_str("CONS_ABSORPTION_TOUCH_TAG_REQUIRED", "refill").strip().lower()
-            absorption_min_touch_rho=_env_float("CONS_ABSORPTION_MIN_TOUCH_RHO", 0.10)
-            absorption_min_touch_traded_w=_env_float("CONS_ABSORPTION_MIN_TOUCH_TRADED_W", 0.0)
+            absorption_require_touch_fresh=_env_bool("CONS_ABSORPTION_REQUIRE_TOUCH_FRESH", True),
+            absorption_touch_tag_required=_env_str("CONS_ABSORPTION_TOUCH_TAG_REQUIRED", "refill").strip().lower(),
+            absorption_min_touch_rho=_env_float("CONS_ABSORPTION_MIN_TOUCH_RHO", 0.10),
+            absorption_min_touch_traded_w=_env_float("CONS_ABSORPTION_MIN_TOUCH_TRADED_W", 0.0),
 
-            obi_spike_require_sustained=_env_bool("CONS_OBI_SPIKE_REQUIRE_SUSTAINED", True)
-            extreme_max_cancel_to_trade=extreme_max_cancel_to_trade
+            obi_spike_require_sustained=_env_bool("CONS_OBI_SPIKE_REQUIRE_SUSTAINED", True),
+            extreme_max_cancel_to_trade=extreme_max_cancel_to_trade,
         )
 
     def _touch_pick(self, ctx: Any, *, kind_l: str, side: str) -> Tuple[Optional[bool], str, Optional[float], Optional[float]]:
@@ -862,8 +861,8 @@ class SignalConsistencyGate:
                 else:
                     if microshift < float(self.breakout_min_microshift_bps):
                         return QualityGateDecision(
-                            True, True, "VETO_BREAKOUT_MICROSHIFT_TOO_LOW"
-                            f"microshift={microshift:.3f} < {self.breakout_min_microshift_bps:.3f}"
+                            True, True, "VETO_BREAKOUT_MICROSHIFT_TOO_LOW",
+                            f"microshift={microshift:.3f} < {self.breakout_min_microshift_bps:.3f}",
                         )
 
             # Touch confirmation:
@@ -883,8 +882,8 @@ class SignalConsistencyGate:
                 else:
                     if touch_tag != req:
                         return QualityGateDecision(
-                            True, True, "VETO_BREAKOUT_TOUCH_TAG_MISMATCH"
-                            f"touch_tag={touch_tag} required={req}"
+                            True, True, "VETO_BREAKOUT_TOUCH_TAG_MISMATCH",
+                            f"touch_tag={touch_tag} required={req}",
                         )
 
             if touch_rho is None:
@@ -893,8 +892,8 @@ class SignalConsistencyGate:
             else:
                 if touch_rho < float(self.breakout_min_touch_rho):
                     return QualityGateDecision(
-                        True, True, "VETO_BREAKOUT_TOUCH_RHO_LOW"
-                        f"touch_rho={touch_rho:.3f} < {self.breakout_min_touch_rho:.3f}"
+                        True, True, "VETO_BREAKOUT_TOUCH_RHO_LOW",
+                        f"touch_rho={touch_rho:.3f} < {self.breakout_min_touch_rho:.3f}",
                     )
 
             if touch_traded_w is None:
@@ -903,8 +902,8 @@ class SignalConsistencyGate:
             else:
                 if touch_traded_w < float(self.breakout_min_touch_traded_w):
                     return QualityGateDecision(
-                        True, True, "VETO_BREAKOUT_TOUCH_TRADED_W_LOW"
-                        f"touch_traded_w={touch_traded_w:.3f} < {self.breakout_min_touch_traded_w:.3f}"
+                        True, True, "VETO_BREAKOUT_TOUCH_TRADED_W_LOW",
+                        f"touch_traded_w={touch_traded_w:.3f} < {self.breakout_min_touch_traded_w:.3f}",
                     )
 
             return QualityGateDecision(True, False, "OK")
@@ -941,8 +940,8 @@ class SignalConsistencyGate:
             req = str(self.absorption_touch_tag_required or "refill").strip().lower()
             if touch_tag != req:
                 return QualityGateDecision(
-                    True, True, "VETO_ABSORPTION_TOUCH_TAG_MISMATCH"
-                    f"touch_tag={touch_tag} required={req}"
+                    True, True, "VETO_ABSORPTION_TOUCH_TAG_MISMATCH",
+                    f"touch_tag={touch_tag} required={req}",
                 )
 
             if touch_rho is None:
@@ -951,8 +950,8 @@ class SignalConsistencyGate:
             else:
                 if touch_rho < float(self.absorption_min_touch_rho):
                     return QualityGateDecision(
-                        True, True, "VETO_ABSORPTION_TOUCH_RHO_LOW"
-                        f"touch_rho={touch_rho:.3f} < {self.absorption_min_touch_rho:.3f}"
+                        True, True, "VETO_ABSORPTION_TOUCH_RHO_LOW",
+                        f"touch_rho={touch_rho:.3f} < {self.absorption_min_touch_rho:.3f}",
                     )
 
             if touch_traded_w is None:
@@ -961,8 +960,8 @@ class SignalConsistencyGate:
             else:
                 if touch_traded_w < float(self.absorption_min_touch_traded_w):
                     return QualityGateDecision(
-                        True, True, "VETO_ABSORPTION_TOUCH_TRADED_W_LOW"
-                        f"touch_traded_w={touch_traded_w:.3f} < {self.absorption_min_touch_traded_w:.3f}"
+                        True, True, "VETO_ABSORPTION_TOUCH_TRADED_W_LOW",
+                        f"touch_traded_w={touch_traded_w:.3f} < {self.absorption_min_touch_traded_w:.3f}",
                     )
 
             return QualityGateDecision(True, False, "OK")
@@ -987,8 +986,8 @@ class SignalConsistencyGate:
         if kind_l == "extreme":
             if cancel_to_trade is not None and cancel_to_trade > float(self.extreme_max_cancel_to_trade):
                 return QualityGateDecision(
-                    True, True, "VETO_EXTREME_CANCEL_TO_TRADE_HIGH"
-                    f"cancel_to_trade={cancel_to_trade:.3f} > {self.extreme_max_cancel_to_trade:.3f}"
+                    True, True, "VETO_EXTREME_CANCEL_TO_TRADE_HIGH",
+                    f"cancel_to_trade={cancel_to_trade:.3f} > {self.extreme_max_cancel_to_trade:.3f}",
                 )
             return QualityGateDecision(True, False, "OK")
 

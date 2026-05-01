@@ -1,9 +1,9 @@
 # data_extraction_service.py
+from __future__ import annotations
 """
 Data extraction functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Optional, Dict, Any, Tuple, List, Deque
@@ -219,11 +219,11 @@ class DataExtractionService:
         current_obi, obi5_avg, obi5_sustained, obi20_avg, obi20_sustained, _ = self._get_obi(get_ny_time_millis())
 
         return {
-            'current_obi': current_obi
-            'obi5_avg': obi5_avg
-            'obi5_sustained': obi5_sustained
-            'obi20_avg': obi20_avg
-            'obi20_sustained': obi20_sustained
-            'sample_count_obi5': len(self._obi5_samples)
-            'sample_count_obi20': len(self._obi20_samples)
+            'current_obi': current_obi,
+            'obi5_avg': obi5_avg,
+            'obi5_sustained': obi5_sustained,
+            'obi20_avg': obi20_avg,
+            'obi20_sustained': obi20_sustained,
+            'sample_count_obi5': len(self._obi5_samples),
+            'sample_count_obi20': len(self._obi20_samples),
         }

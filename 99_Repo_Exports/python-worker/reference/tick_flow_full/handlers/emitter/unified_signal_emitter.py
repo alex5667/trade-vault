@@ -79,13 +79,13 @@ class UnifiedSignalEmitter:
       - semantic dedup (opt-in): venue+timeframe always, level_key only for selected kinds
     """
     def __init__(
-        self
-        *
-        outbox: Any
-        logger: Any
-        outbox_labels: Optional[Any] = None
-        metrics: Optional[Any] = None
-        analytics: Optional[Any] = None
+        self,
+        *,
+        outbox: Any,
+        logger: Any,
+        outbox_labels: Optional[Any] = None,
+        metrics: Optional[Any] = None,
+        analytics: Optional[Any] = None,
     ) -> None:
         # Publisher'ы (обычно пишут в Redis Stream / outbox)
         self._outbox_pub = outbox
@@ -98,13 +98,13 @@ class UnifiedSignalEmitter:
         self._retry_sleep_ms = int(os.getenv("EMIT_RETRY_SLEEP_MS", "15"))
 
         # Дедуп TTL по signal_id должен переживать рестарты процесса.
-        # Поэтому: 1) Redis-idempotency (если доступен redis у publisher'а)
+        # Поэтому: 1) Redis-idempotency (если доступен redis у publisher'а),
         #          2) локальный hot-dedup как ускоритель (не обязан быть идеальным).
         self._dedup_ttl_ms = int(os.getenv("EMIT_DEDUP_TTL_MS", "60000"))
         self._dedup_pending_ttl_ms = int(os.getenv("EMIT_DEDUP_PENDING_TTL_MS", "60000"))
         self._hot_dedup = _DedupTTL(
-            ttl_ms=int(os.getenv("EMIT_HOT_DEDUP_TTL_MS", str(self._dedup_ttl_ms)))
-            max_items=int(os.getenv("EMIT_HOT_DEDUP_MAX", "20000"))
+            ttl_ms=int(os.getenv("EMIT_HOT_DEDUP_TTL_MS", str(self._dedup_ttl_ms))),
+            max_items=int(os.getenv("EMIT_HOT_DEDUP_MAX", "20000")),
         )
 
         # ---- Semantic dedup configuration (requested "last safe step") ----
@@ -118,8 +118,8 @@ class UnifiedSignalEmitter:
         #   Поэтому: включаем только для "breakout/absorption" (или вашего списка) фичефлагом.
         self._sem_cfg = self._load_sem_cfg()
         self._sem_dedup = _DedupTTL(
-            ttl_ms=self._sem_cfg.ttl_ms
-            max_items=int(os.getenv("OUTBOX_SEM_DEDUP_MAX", "50000"))
+            ttl_ms=self._sem_cfg.ttl_ms,
+            max_items=int(os.getenv("OUTBOX_SEM_DEDUP_MAX", "50000")),
         )
         # Local counters (per-process). Dashboard should aggregate across instances.
         self._sem_counts: dict[tuple[str, str], tuple[int, int]] = {}
@@ -129,22 +129,22 @@ class UnifiedSignalEmitter:
         labels_stream = os.getenv("OUTBOX_LABELS_STREAM", None)
 
         self._writer = OutboxWriter(
-            publisher=self._outbox_pub
-            logger=self._logger
-            retries=self._retries
-            retry_sleep_ms=self._retry_sleep_ms
-            dedup_ttl_ms=self._dedup_ttl_ms
-            dedup_pending_ttl_ms=self._dedup_pending_ttl_ms
-            stream_key=outbox_stream
+            publisher=self._outbox_pub,
+            logger=self._logger,
+            retries=self._retries,
+            retry_sleep_ms=self._retry_sleep_ms,
+            dedup_ttl_ms=self._dedup_ttl_ms,
+            dedup_pending_ttl_ms=self._dedup_pending_ttl_ms,
+            stream_key=outbox_stream,
         )
         self._writer_labels = OutboxWriter(
-            publisher=self._outbox_labels_pub
-            logger=self._logger
-            retries=self._retries
-            retry_sleep_ms=self._retry_sleep_ms
-            dedup_ttl_ms=self._dedup_ttl_ms
-            dedup_pending_ttl_ms=self._dedup_pending_ttl_ms
-            stream_key=labels_stream
+            publisher=self._outbox_labels_pub,
+            logger=self._logger,
+            retries=self._retries,
+            retry_sleep_ms=self._retry_sleep_ms,
+            dedup_ttl_ms=self._dedup_ttl_ms,
+            dedup_pending_ttl_ms=self._dedup_pending_ttl_ms,
+            stream_key=labels_stream,
         )
 
     def _load_sem_cfg(self) -> _SemDedupCfg:
@@ -156,11 +156,11 @@ class UnifiedSignalEmitter:
         # Example: "breakout,absorption"
         level_key_kinds = {k.strip().lower() for k in raw_kinds.split(",") if k.strip()} if raw_kinds else set()
         return _SemDedupCfg(
-            enabled=bool(enabled)
-            bucket_ms=max(1, bucket_ms)
-            ttl_ms=max(1, ttl_ms)
-            level_decimals=max(0, min(8, level_decimals))
-            level_key_kinds=level_key_kinds
+            enabled=bool(enabled),
+            bucket_ms=max(1, bucket_ms),
+            ttl_ms=max(1, ttl_ms),
+            level_decimals=max(0, min(8, level_decimals)),
+            level_key_kinds=level_key_kinds,
         )
 
     def _now_ms(self) -> int:
@@ -327,24 +327,24 @@ class UnifiedSignalEmitter:
         Used by SemDedupReporter to compute interval deltas and send Telegram diagnostics.
         Structure:
           {
-            "enabled": bool
-            "bucket_ms": int
-            "level_decimals": int
-            "ttl_ms": int
-            "hits": { "SYMBOL|KIND": int, ... }
-            "writes": { "SYMBOL|KIND": int, ... }
+            "enabled": bool,
+            "bucket_ms": int,
+            "level_decimals": int,
+            "ttl_ms": int,
+            "hits": { "SYMBOL|KIND": int, ... },
+            "writes": { "SYMBOL|KIND": int, ... },
           }
         """
         with self._sem_stats_lock:
             hits = {f"{k[0]}|{k[1]}": int(v) for k, v in self._sem_hits.items()}
             writes = {f"{k[0]}|{k[1]}": int(v) for k, v in self._sem_writes.items()}
         return {
-            "enabled": bool(self._sem_cfg.enabled)
-            "bucket_ms": int(self._sem_cfg.bucket_ms)
-            "level_decimals": int(self._sem_cfg.level_decimals)
-            "ttl_ms": int(self._sem_cfg.ttl_ms)
-            "hits": hits
-            "writes": writes
+            "enabled": bool(self._sem_cfg.enabled),
+            "bucket_ms": int(self._sem_cfg.bucket_ms),
+            "level_decimals": int(self._sem_cfg.level_decimals),
+            "ttl_ms": int(self._sem_cfg.ttl_ms),
+            "hits": hits,
+            "writes": writes,
         }
 
     def _ensure_signal_id(self, payload: dict[str, Any]) -> str:
@@ -366,12 +366,12 @@ class UnifiedSignalEmitter:
         return key
 
     def emit(
-        self
-        payload: dict[str, Any]
-        *
-        labels: Optional[dict[str, Any]] = None
-        dedup: bool = True
-        meta: Optional[dict[str, Any]] = None
+        self,
+        payload: dict[str, Any],
+        *,
+        labels: Optional[dict[str, Any]] = None,
+        dedup: bool = True,
+        meta: Optional[dict[str, Any]] = None,
     ) -> bool:
         """
         Записывает сигнал в outbox (Redis Stream) через writer.
@@ -380,8 +380,8 @@ class UnifiedSignalEmitter:
         --------------------------------
         payload проходит через пайплайн/валидаторы/дедуп/форматтер — его важно держать компактным.
         meta — "sidecar" данные, которые:
-          - не участвуют в правилах/скоринге/дедупе
-          - но должны быть сохранены в Redis рядом с записью
+          - не участвуют в правилах/скоринге/дедупе,
+          - но должны быть сохранены в Redis рядом с записью,
           - и могут понадобиться downstream (бот/аналитика).
 
         Пример meta:

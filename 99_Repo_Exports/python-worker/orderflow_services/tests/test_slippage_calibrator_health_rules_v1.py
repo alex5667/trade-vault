@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for prometheus_alerts_slippage_calibrator_health_v1.yml (V10).
 
 Validates that the alert YAML in both orderflow_services/ and
@@ -9,7 +10,6 @@ tick_flow_full/orderflow_services/ trees:
 Works without a running Prometheus instance.
 """
 
-from __future__ import annotations
 
 import os
 from pathlib import Path

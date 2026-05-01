@@ -170,7 +170,7 @@ class TestComputeLevels:
         assert len(levels['tp_levels']) == 3  # Default 1,2,3
     
     def test_realistic_gold_scenario(self):
-        """Test realistic XAUUSD scenario."""
+        """Test realistic  scenario."""
         cfg = {
             "STOP_MODE": "ATR",
             "STOP_ATR_MULT": 0.6,

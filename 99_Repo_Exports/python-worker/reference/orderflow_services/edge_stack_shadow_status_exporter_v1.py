@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Prometheus exporter for Edge Stack shadow evaluation status.
 
 Reads a JSON status file produced by `tools.edge_stack_shadow_eval_bundle_v1`
@@ -8,7 +9,6 @@ This keeps monitoring decoupled from the trading runtime. If the status file is 
 or cannot be parsed, `edge_stack_shadow_status_up` will be 0.
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -74,10 +74,10 @@ def _set_model_metrics(blob: Dict[str, Any], model: str) -> None:
 
 def load_cfg() -> Config:
     return Config(
-        status_file=os.environ.get("EDGE_STACK_SHADOW_STATUS_FILE", "/var/lib/trade/of_reports/out/edge_stack/shadow_status.json")
-        port=int(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_PORT", "8012"))
-        interval_s=float(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_INTERVAL_S", "5"))
-        stale_s=float(os.environ.get("EDGE_STACK_SHADOW_STATUS_STALE_S", "900"))
+        status_file=os.environ.get("EDGE_STACK_SHADOW_STATUS_FILE", "/var/lib/trade/of_reports/out/edge_stack/shadow_status.json"),
+        port=int(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_PORT", "8012")),
+        interval_s=float(os.environ.get("EDGE_STACK_SHADOW_EXPORTER_INTERVAL_S", "5")),
+        stale_s=float(os.environ.get("EDGE_STACK_SHADOW_STATUS_STALE_S", "900")),
     )
 
 

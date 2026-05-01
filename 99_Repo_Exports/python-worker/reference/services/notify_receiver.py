@@ -65,10 +65,10 @@ def receive_notification(notification: OBINotification):
     # Send to Telegram
     try:
         r.xadd(
-            NOTIFY_STREAM
+            NOTIFY_STREAM,
             {
-                "text": text
-                "priority": "normal"
+                "text": text,
+                "priority": "normal",
                 "source": "obi_events"
             }
         )
@@ -92,8 +92,8 @@ if __name__ == "__main__":
     print()
     
     uvicorn.run(
-        "services.notify_receiver:app"
-        host="127.0.0.1"
-        port=PORT
+        "services.notify_receiver:app",
+        host="127.0.0.1",
+        port=PORT,
         reload=False
     )

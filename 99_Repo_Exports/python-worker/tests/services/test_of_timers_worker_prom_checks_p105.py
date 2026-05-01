@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for P105 prom smoke-check wiring in of_timers_worker.
 
 Covers:
@@ -15,7 +16,6 @@ Covers:
 
 Both functions live in services.of_timers_worker (canonical P105 runner location).
 """
-from __future__ import annotations
 
 import subprocess
 from unittest.mock import MagicMock, patch, call

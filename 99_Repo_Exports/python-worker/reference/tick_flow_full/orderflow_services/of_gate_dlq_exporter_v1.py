@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_dlq_exporter_v1.py
 
 Prometheus exporter for Redis DLQ streams related to OF-gate metrics.
@@ -42,7 +43,6 @@ Notes
 - DLQ oldest age is more useful than newest age for backlog health.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -131,8 +131,8 @@ class Exporter:
 
         self.streams = _parse_streams(
             os.getenv(
-                "OF_GATE_DLQ_STREAMS"
-                "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine"
+                "OF_GATE_DLQ_STREAMS",
+                "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine",
             )
         )
         if not self.streams:
@@ -151,11 +151,11 @@ class Exporter:
         import redis  # type: ignore
 
         self.redis = redis.Redis.from_url(
-            self.redis_url
-            decode_responses=True
-            socket_timeout=5
-            socket_connect_timeout=5
-            retry_on_timeout=True
+            self.redis_url,
+            decode_responses=True,
+            socket_timeout=5,
+            socket_connect_timeout=5,
+            retry_on_timeout=True,
         )
 
     def _stop(self, *_args) -> None:

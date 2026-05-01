@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Meta auto-ramp / freeze controller (P5).
 
@@ -15,7 +16,6 @@ Safety:
 This script is designed to be run from cron/systemd timer.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

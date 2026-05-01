@@ -1,8 +1,8 @@
+from __future__ import annotations
 """
 Integration тесты для MLConfirmGate с валидатором champion конфига.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

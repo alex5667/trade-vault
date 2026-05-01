@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Repository - Доступ к данным торговых сигналов и ордеров из Redis.
 
@@ -13,7 +14,6 @@ Repository - Доступ к данным торговых сигналов и �
 - Совместим с существующей схемой Redis
 """
 
-from __future__ import annotations
 from typing import Optional, List, Dict, Any, Iterator
 
 from dataclasses import dataclass, field
@@ -28,7 +28,7 @@ from services.trade_closed_hydrator import hydrate_trade_closed_batch
 class RepoConfig:
     """Конфигурация репозитория"""
     redis_url: str = "redis://redis-worker-1:6379/0"
-    default_symbol: str = "XAUUSD"
+    default_symbol=""
     default_strategy: str = "orderflow"
 
 
@@ -96,57 +96,57 @@ class Order:
 def _redis_row_to_order(order_id: str, data: Dict[str, str]) -> Order:
     """Build an Order from a Redis hash (string values)."""
     return Order(
-        order_id=order_id
+        order_id=order_id,
         signal_id=order_id,  # В нашей схеме order_id == signal_id
-        symbol=data.get("symbol", "UNKNOWN")
-        strategy=data.get("strategy", "unknown")
-        direction=data.get("direction", "LONG")
-        lot=float(data.get("lot", 0))
-        entry_price=float(data.get("entry_price", 0))
+        symbol=data.get("symbol", "UNKNOWN"),
+        strategy=data.get("strategy", "unknown"),
+        direction=data.get("direction", "LONG"),
+        lot=float(data.get("lot", 0)),
+        entry_price=float(data.get("entry_price", 0)),
         entry_time=float(data.get("entry_time", 0)) / 1000.0,  # ms → seconds
-        exit_price=float(data["exit_price"]) if data.get("exit_price") else None
-        exit_time=float(data["closed_time"]) / 1000.0 if data.get("closed_time") else None
-        pnl_usd=float(data["pnl"]) if data.get("pnl") else None
-        pnl_pct=float(data["pnl_pct"]) if data.get("pnl_pct") else None
-        result=data.get("result")
-        tp1_price=float(data["tp1"]) if data.get("tp1") else None
-        tp2_price=float(data["tp2"]) if data.get("tp2") else None
-        tp3_price=float(data["tp3"]) if data.get("tp3") else None
-        tp1_hit=bool(int(data.get("tp1_hit", 0)))
-        tp2_hit=bool(int(data.get("tp2_hit", 0)))
-        tp3_hit=bool(int(data.get("tp3_hit", 0)))
-        sl_price=float(data["sl"]) if data.get("sl") else None
-        tp_before_sl=int(data.get("tp_before_sl", 0))
-        timeframe=data.get("tf")
-        source=data.get("source")
-        close_reason=data.get("close_reason")
+        exit_price=float(data["exit_price"]) if data.get("exit_price") else None,
+        exit_time=float(data["closed_time"]) / 1000.0 if data.get("closed_time") else None,
+        pnl_usd=float(data["pnl"]) if data.get("pnl") else None,
+        pnl_pct=float(data["pnl_pct"]) if data.get("pnl_pct") else None,
+        result=data.get("result"),
+        tp1_price=float(data["tp1"]) if data.get("tp1") else None,
+        tp2_price=float(data["tp2"]) if data.get("tp2") else None,
+        tp3_price=float(data["tp3"]) if data.get("tp3") else None,
+        tp1_hit=bool(int(data.get("tp1_hit", 0))),
+        tp2_hit=bool(int(data.get("tp2_hit", 0))),
+        tp3_hit=bool(int(data.get("tp3_hit", 0))),
+        sl_price=float(data["sl"]) if data.get("sl") else None,
+        tp_before_sl=int(data.get("tp_before_sl", 0)),
+        timeframe=data.get("tf"),
+        source=data.get("source"),
+        close_reason=data.get("close_reason"),
     )
 
 
 def _pg_row_to_order(order_id: str, row: Dict[str, Any]) -> Order:
     """Build an Order from a Postgres dict row."""
     return Order(
-        order_id=order_id
-        signal_id=row.get("sid") or order_id
-        symbol=row.get("symbol", "UNKNOWN")
-        strategy=row.get("strategy", "unknown")
-        direction=row.get("direction", "LONG")
-        lot=float(row.get("lot", 0))
-        entry_price=float(row.get("entry_price", 0))
-        entry_time=float(row.get("entry_ts_ms", 0)) / 1000.0
-        exit_price=float(row["exit_price"]) if row.get("exit_price") else None
-        exit_time=float(row["exit_ts_ms"]) / 1000.0 if row.get("exit_ts_ms") else None
-        pnl_usd=float(row["pnl_net"]) if row.get("pnl_net") else None
-        pnl_pct=float(row["pnl_pct"]) if row.get("pnl_pct") else None
+        order_id=order_id,
+        signal_id=row.get("sid") or order_id,
+        symbol=row.get("symbol", "UNKNOWN"),
+        strategy=row.get("strategy", "unknown"),
+        direction=row.get("direction", "LONG"),
+        lot=float(row.get("lot", 0)),
+        entry_price=float(row.get("entry_price", 0)),
+        entry_time=float(row.get("entry_ts_ms", 0)) / 1000.0,
+        exit_price=float(row["exit_price"]) if row.get("exit_price") else None,
+        exit_time=float(row["exit_ts_ms"]) / 1000.0 if row.get("exit_ts_ms") else None,
+        pnl_usd=float(row["pnl_net"]) if row.get("pnl_net") else None,
+        pnl_pct=float(row["pnl_pct"]) if row.get("pnl_pct") else None,
         result=None,  # Derived if needed
-        tp1_hit=bool(row.get("tp1_hit"))
-        tp2_hit=bool(row.get("tp2_hit"))
-        tp3_hit=bool(row.get("tp3_hit"))
-        sl_price=float(row["sl_price"]) if row.get("sl_price") else None
-        tp_before_sl=int(row.get("tp_before_sl", 0))
-        timeframe=row.get("tf")
-        source=row.get("source")
-        close_reason=row.get("close_reason")
+        tp1_hit=bool(row.get("tp1_hit")),
+        tp2_hit=bool(row.get("tp2_hit")),
+        tp3_hit=bool(row.get("tp3_hit")),
+        sl_price=float(row["sl_price"]) if row.get("sl_price") else None,
+        tp_before_sl=int(row.get("tp_before_sl", 0)),
+        timeframe=row.get("tf"),
+        source=row.get("source"),
+        close_reason=row.get("close_reason"),
     )
 
 
@@ -204,18 +204,18 @@ class Repository:
                 return None
 
             return Signal(
-                signal_id=signal_id
-                symbol=data.get("symbol", "UNKNOWN")
-                strategy=data.get("strategy", "unknown")
-                direction=data.get("direction", "LONG")
-                price=float(data.get("price", 0.0))
+                signal_id=signal_id,
+                symbol=data.get("symbol", "UNKNOWN"),
+                strategy=data.get("strategy", "unknown"),
+                direction=data.get("direction", "LONG"),
+                price=float(data.get("price", 0.0)),
                 ts=float(data.get("timestamp", 0)) / 1000.0,  # ms → seconds
-                confidence=float(data["confidence"]) if data.get("confidence") else None
-                score=float(data["score"]) if data.get("score") else None
-                source=data.get("source")
-                atr=float(data["atr"]) if data.get("atr") else None
-                timeframe=data.get("tf")
-                metadata=data
+                confidence=float(data["confidence"]) if data.get("confidence") else None,
+                score=float(data["score"]) if data.get("score") else None,
+                source=data.get("source"),
+                atr=float(data["atr"]) if data.get("atr") else None,
+                timeframe=data.get("tf"),
+                metadata=data,
             )
 
         except Exception as e:
@@ -230,18 +230,18 @@ class Repository:
                 direction = "LONG" if side_val > 0 else "SHORT"
 
                 return Signal(
-                    signal_id=signal_id
-                    symbol=db_row.get("symbol", "UNKNOWN")
-                    strategy=db_row.get("setup_type", "unknown")
-                    direction=direction
-                    price=float(db_row.get("price_at_signal", 0.0))
-                    ts=db_row.get("ts_signal").timestamp() if db_row.get("ts_signal") else 0.0
-                    confidence=float(db_row.get("final_score", 0)) / 100.0
-                    score=float(db_row.get("final_score", 0))
-                    source=None
-                    atr=float(db_row["atr_1m"]) if db_row.get("atr_1m") else None
-                    timeframe=None
-                    metadata=dict(db_row)
+                    signal_id=signal_id,
+                    symbol=db_row.get("symbol", "UNKNOWN"),
+                    strategy=db_row.get("setup_type", "unknown"),
+                    direction=direction,
+                    price=float(db_row.get("price_at_signal", 0.0)),
+                    ts=db_row.get("ts_signal").timestamp() if db_row.get("ts_signal") else 0.0,
+                    confidence=float(db_row.get("final_score", 0)) / 100.0,
+                    score=float(db_row.get("final_score", 0)),
+                    source=None,
+                    atr=float(db_row["atr_1m"]) if db_row.get("atr_1m") else None,
+                    timeframe=None,
+                    metadata=dict(db_row),
                 )
         except Exception as e:
             self.logger.error(f"❌ Ошибка чтения сигнала {signal_id} из Postgres: {e}")
@@ -281,17 +281,17 @@ class Repository:
         return None
 
     def read_closed_trades(
-        self
-        limit: int = 1000
-        strategy: Optional[str] = None
-        symbol: Optional[str] = None
-        tf: Optional[str] = None
+        self,
+        limit: int = 1000,
+        strategy: Optional[str] = None,
+        symbol: Optional[str] = None,
+        tf: Optional[str] = None,
     ) -> List[Order]:
         """
         Читаем trades:closed stream и строим сущности для аналитики.
 
         Важно:
-          - compact-stream режим поддерживается автоматически, потому что order_id всегда есть
+          - compact-stream режим поддерживается автоматически, потому что order_id всегда есть,
             а детали читаем из order:{id}.
           - оптимизация: hash остаётся source-of-truth; hydrate_batch даёт возможность
             корректно прожевать частичные/legacy payload без падений.
@@ -301,10 +301,10 @@ class Repository:
 
             raw_items = [self._norm_map(fields or {}) for _id, fields in messages]
             hydrated = hydrate_trade_closed_batch(
-                self.r
-                raw_items
-                require_closed=False
-                merge_precedence="hash"
+                self.r,
+                raw_items,
+                require_closed=False,
+                merge_precedence="hash",
             )
 
             orders = []
@@ -337,12 +337,12 @@ class Repository:
             return []
 
     def iter_signals(
-        self
-        symbol: Optional[str] = None
-        strategy: Optional[str] = None
-        since_ts: Optional[float] = None
-        until_ts: Optional[float] = None
-        limit: int = 10000
+        self,
+        symbol: Optional[str] = None,
+        strategy: Optional[str] = None,
+        since_ts: Optional[float] = None,
+        until_ts: Optional[float] = None,
+        limit: int = 10000,
     ) -> Iterator[Signal]:
         """
         Итерация по сигналам из Redis.
@@ -359,9 +359,9 @@ class Repository:
         """
         try:
             orders = self.read_closed_trades(
-                limit=limit
-                strategy=strategy
-                symbol=symbol
+                limit=limit,
+                strategy=strategy,
+                symbol=symbol,
             )
 
             for order in orders:

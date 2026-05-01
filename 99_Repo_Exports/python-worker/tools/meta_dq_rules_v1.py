@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 '''
 DQ-aware rules used by nightly quality + ramp + guardrails.
 
@@ -14,7 +15,6 @@ Design:
       3) safe defaults (conservative)
 '''
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple

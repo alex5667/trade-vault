@@ -110,7 +110,7 @@ def build_quality_event(result: RCAResult) -> Dict[str, Any]:
         "findings_n": str(len(findings) if isinstance(findings, list) else 0),
         "recommendations_n": str(len(recs) if isinstance(recs, list) else 0),
         "output_json": json.dumps(result.output_json, separators=(",", ":"), sort_keys=True),
-    }
+    },
 
 
 async def _ensure_group(r: Any) -> None:
@@ -125,7 +125,7 @@ async def _upsert_sql(conn: Any, result: RCAResult) -> None:
         return
     output_json = json.dumps(result.output_json, separators=(",", ":"), sort_keys=True)
     await conn.execute(
-        """
+        """,
         INSERT INTO llm_incident_rca_runs (
             analysis_run_id, recommendation_id, ts_ms, provider, model_name,
             prompt_version, policy_version, status, latency_ms, estimated_cost_usd, output_json
@@ -150,7 +150,7 @@ async def _upsert_sql(conn: Any, result: RCAResult) -> None:
         output_json,
     )
     await conn.execute(
-        """
+        """,
         INSERT INTO llm_incident_rca_results (
             recommendation_id, latest_analysis_run_id, latest_ts_ms, provider, model_name,
             severity, prompt_version, policy_version, output_hash, quality_score,

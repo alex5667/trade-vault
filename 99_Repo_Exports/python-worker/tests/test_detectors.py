@@ -246,7 +246,7 @@ def sample_orderbook():
     """Пример Order Book для тестов."""
     return {
         "ts": 1698765432000,
-        "symbol": "XAUUSD",
+        "symbol": "",
         "bids": [
             [1880.50, 100.0],
             [1880.45, 80.0],

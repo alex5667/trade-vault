@@ -1,5 +1,5 @@
-"""Deterministic rolling windows by event time (ts_ms)."""
 from __future__ import annotations
+"""Deterministic rolling windows by event time (ts_ms)."""
 
 from dataclasses import dataclass
 from collections import deque

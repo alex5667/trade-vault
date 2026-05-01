@@ -1,3 +1,4 @@
+from __future__ import annotations
 """python-worker/core/horizon_metrics.py
 
 Phase 0 — Prometheus metrics для horizon-aware контракта.
@@ -6,7 +7,6 @@ Phase 0 — Prometheus metrics для horizon-aware контракта.
 Включаются через ATR_HORIZON_EMIT_METRICS=1 (default).
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Optional

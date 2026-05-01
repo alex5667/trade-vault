@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 test_exec_health_slo_autoguard_exporter_v1.py
 Unit tests for the P5 AutoGuard Prometheus exporter.
 Uses mock Redis client — no real Redis connection required.
 """
-from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Trailing Edge Analyzer - мини-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга).
 
@@ -10,7 +11,6 @@ Trailing Edge Analyzer - мини-анализатор pnl_if_fixed_exit vs pnl_
 Интегрирован в PeriodicReporter для автоматической отправки отчетов в Telegram.
 """
 
-from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any

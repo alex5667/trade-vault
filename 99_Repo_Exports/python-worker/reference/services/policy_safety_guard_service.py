@@ -4,8 +4,8 @@ from utils.time_utils import get_ny_time_millis
 """
 Policy Safety Guard (container-friendly).
 
-Reads POSITION_CLOSED from events:trades as a consumer group
-maintains rolling stats per (symbol, regime, scenario, group, arm)
+Reads POSITION_CLOSED from events:trades as a consumer group,
+maintains rolling stats per (symbol, regime, scenario, group, arm),
 and triggers immediate rollback to A if active arm underperforms with confidence.
 
 Why:
@@ -195,22 +195,22 @@ class PolicySafetyGuard:
             # 2) optional freeze on this symbol/group/scenario to prevent flapping
             if self.freeze_enable == 1:
                 frz = {
-                    "v": 1
-                    "active": 1
-                    "mode": "shadow"
-                    "until_ts_ms": _now_ms() + int(self.freeze_sec) * 1000
-                    "reason": "safety_rollback"
+                    "v": 1,
+                    "active": 1,
+                    "mode": "shadow",
+                    "until_ts_ms": _now_ms() + int(self.freeze_sec) * 1000,
+                    "reason": "safety_rollback",
                 }
                 self.r.set(self._freeze_key(ctx), json.dumps(frz, ensure_ascii=False, separators=(",", ":")), ex=self.freeze_sec)
             # 3) ledger + telegram
             evt = {
-                "event": "ROLLBACK"
-                "ctx": {"symbol": sym, "regime": rg, "scenario": scn, "group": grp}
-                "from": act
-                "to": "A"
-                "lcb_act": float(lcb_act)
-                "lcb_a": float(lcb_a)
-                "ts_ms": _now_ms()
+                "event": "ROLLBACK",
+                "ctx": {"symbol": sym, "regime": rg, "scenario": scn, "group": grp},
+                "from": act,
+                "to": "A",
+                "lcb_act": float(lcb_act),
+                "lcb_a": float(lcb_a),
+                "ts_ms": _now_ms(),
             }
             self._ledger(evt)
             self._notify("<pre>" + json.dumps(evt, ensure_ascii=False, indent=2).replace("<", "&lt;").replace(">", "&gt;") + "</pre>")

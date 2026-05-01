@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 ML Confirm Config Watchdog.
 
@@ -17,7 +18,6 @@ ENV:
     при каждом restore пишем XADD notify:telegram предупреждение.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

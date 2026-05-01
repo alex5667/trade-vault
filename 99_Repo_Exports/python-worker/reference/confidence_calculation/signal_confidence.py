@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Signal confidence scorer (0..1) for BaseOrderFlowHandler / CryptoOrderFlowHandler.
 
 Confidence = качество сигнала * согласованность подтверждений * (1 - штрафы за микро).
 Работает даже при частично отсутствующих полях (getattr с дефолтами).
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -186,15 +186,15 @@ class ConfidenceConfig:
 
 class ConfidenceScorer:
     def __init__(
-        self
-        *
-        cfg: ConfidenceConfig | None = None
-        main_z_thr: float = 3.0
-        breakout_z_thr: float = 3.5
-        absorption_z_thr: float = 3.5
-        extreme_z_thr: float = 5.0
-        obi_thr: float | None = None
-        obi20_thr: float | None = None
+        self,
+        *,
+        cfg: ConfidenceConfig | None = None,
+        main_z_thr: float = 3.0,
+        breakout_z_thr: float = 3.5,
+        absorption_z_thr: float = 3.5,
+        extreme_z_thr: float = 5.0,
+        obi_thr: float | None = None,
+        obi20_thr: float | None = None,
     ):
         self.cfg = cfg or ConfidenceConfig()
 
@@ -285,9 +285,9 @@ class ConfidenceScorer:
         pen_impact = _ramp(impact, self.cfg.impact_soft, self.cfg.impact_hard)
 
         return {
-            "pen_l2_stale": pen_l2
-            "pen_spread": pen_spread
-            "pen_impact": pen_impact
+            "pen_l2_stale": pen_l2,
+            "pen_spread": pen_spread,
+            "pen_impact": pen_impact,
         }
 
     # ---------- public ----------
@@ -378,15 +378,15 @@ class ConfidenceScorer:
             base = base * (1.0 - 0.45 * pen_wall)
 
             parts.update({
-                "s_z": s_z
-                "s_obi20": s_obi20
-                "s_microprice": s_mp
-                "s_depletion": s_dep
-                "s_refill_good": s_ref_good
-                "s_l3": s_l3
-                "s_mode": s_mode
-                "pen_wall": pen_wall
-                "base": _clamp(base)
+                "s_z": s_z,
+                "s_obi20": s_obi20,
+                "s_microprice": s_mp,
+                "s_depletion": s_dep,
+                "s_refill_good": s_ref_good,
+                "s_l3": s_l3,
+                "s_mode": s_mode,
+                "pen_wall": pen_wall,
+                "base": _clamp(base),
             })
 
         elif kind == "absorption":
@@ -404,7 +404,7 @@ class ConfidenceScorer:
             adv = _f(ctx, "adverse_ratio_ema", 0.0)
             rema = _f(ctx, "realized_ema_bps", 0.0)
             s_micro_block = _clamp(
-                0.6 * _ramp(adv, 0.55, 0.85) + 0.4 * _ramp(-rema, 0.20, 2.00)
+                0.6 * _ramp(adv, 0.55, 0.85) + 0.4 * _ramp(-rema, 0.20, 2.00),
                 0.0, 1.0
             )
 
@@ -441,13 +441,13 @@ class ConfidenceScorer:
             base = _clamp(base + bonus)
 
             parts.update({
-                "s_z": s_z
-                "s_support(L2)": s_support
-                "s_micro_block": s_micro_block
-                "s_l3_pressure": s_l3
-                "s_obi_not_confirm_impulse": s_obi_not_confirm
-                "s_mode": s_mode
-                "base": _clamp(base)
+                "s_z": s_z,
+                "s_support(L2)": s_support,
+                "s_micro_block": s_micro_block,
+                "s_l3_pressure": s_l3,
+                "s_obi_not_confirm_impulse": s_obi_not_confirm,
+                "s_mode": s_mode,
+                "base": _clamp(base),
             })
 
         elif kind == "extreme":
@@ -461,11 +461,11 @@ class ConfidenceScorer:
             base = 0.60 * s_z + 0.15 * s_obi + 0.10 * s_l3 + 0.15 * s_mode
 
             parts.update({
-                "s_z": s_z
-                "s_obi": s_obi
-                "s_l3": s_l3
-                "s_mode": s_mode
-                "base": _clamp(base)
+                "s_z": s_z,
+                "s_obi": s_obi,
+                "s_l3": s_l3,
+                "s_mode": s_mode,
+                "base": _clamp(base),
             })
 
         elif kind == "obi_spike":
@@ -609,9 +609,9 @@ class ConfidenceScorer:
             w = _get_f("obi_stable_bonus_w", 0.04)
             micro_bonus += w * (s_secs * obi_q)
             parts.update({
-                "obi_stable_secs": float(obi_secs)
-                "obi_stability_q": float(obi_q)
-                "s_obi_stable": float(_clamp(s_secs * obi_q, 0.0, 1.0))
+                "obi_stable_secs": float(obi_secs),
+                "obi_stability_q": float(obi_q),
+                "s_obi_stable": float(_clamp(s_secs * obi_q, 0.0, 1.0)),
             })
 
         # --- OFI stability ---
@@ -637,9 +637,9 @@ class ConfidenceScorer:
             w = _get_f("ofi_bonus_w", 0.03)
             micro_bonus += w * (s_secs * ofi_q)
             parts.update({
-                "ofi_stable_secs": float(ofi_secs)
-                "ofi_stability_q": float(ofi_q)
-                "s_ofi_stable": float(_clamp(s_secs * ofi_q, 0.0, 1.0))
+                "ofi_stable_secs": float(ofi_secs),
+                "ofi_stability_q": float(ofi_q),
+                "s_ofi_stable": float(_clamp(s_secs * ofi_q, 0.0, 1.0)),
             })
 
         # --- CVD reclaim ---
@@ -652,8 +652,8 @@ class ConfidenceScorer:
             cap = _get_f("cvd_reclaim_bonus_cap", 0.03)
             micro_bonus += min(cap, w * s_cvd)
             parts.update({
-                "cvdR": float(cvdR)
-                "s_cvdR": float(_clamp(s_cvd, 0.0, 1.0))
+                "cvdR": float(cvdR),
+                "s_cvdR": float(_clamp(s_cvd, 0.0, 1.0)),
             })
         else:
             cvd_q = _ctx_confirm_value(ctx, "cvd_reclaim")
@@ -664,8 +664,8 @@ class ConfidenceScorer:
                 cap = _get_f("cvd_reclaim_bonus_cap", 0.03)
                 micro_bonus += min(cap, w * s_cvd)
                 parts.update({
-                    "cvd_reclaim_q": float(cvd_q)
-                    "s_cvd_reclaim": float(_clamp(s_cvd, 0.0, 1.0))
+                    "cvd_reclaim_q": float(cvd_q),
+                    "s_cvd_reclaim": float(_clamp(s_cvd, 0.0, 1.0)),
                 })
 
         applied_micro = 0.0
@@ -674,9 +674,9 @@ class ConfidenceScorer:
             base = _clamp(base + applied_micro, 0.0, 1.0)
 
         parts.update({
-            "micro_bonus_raw": float(micro_bonus)
-            "micro_bonus_applied": float(applied_micro)
-            "micro_bonus_cap": float(micro_cap)
+            "micro_bonus_raw": float(micro_bonus),
+            "micro_bonus_applied": float(applied_micro),
+            "micro_bonus_cap": float(micro_cap),
         })
 
         pens = self._penalties(ctx)

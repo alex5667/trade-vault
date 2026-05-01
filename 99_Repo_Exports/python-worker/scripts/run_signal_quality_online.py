@@ -27,8 +27,8 @@ def main():
 
     try:
         run_online_quality_job(
-            pg_dsn=pg_dsn
-            horizon=horizon
+            pg_dsn=pg_dsn,
+            horizon=horizon,
             roll_n=roll_n
         )
         print("\n✅ Online quality computation completed successfully!")

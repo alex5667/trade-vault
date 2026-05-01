@@ -84,11 +84,11 @@ class AdxUpdater:
                 continue
 
             payload = {
-                "atr": result["atr"]
-                "plusDI": result["plusDI"]
-                "minusDI": result["minusDI"]
-                "adx": result["adx"]
-                "ts": int(time.time())
+                "atr": result["atr"],
+                "plusDI": result["plusDI"],
+                "minusDI": result["minusDI"],
+                "adx": result["adx"],
+                "ts": int(time.time()),
             }
 
             try:

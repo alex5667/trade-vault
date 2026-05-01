@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for Feature Registry ↔ train_edge_stack_v1_oof integration.
 
 Покрывает:
@@ -16,7 +17,6 @@
         python-worker/ml_analysis/tests/test_train_registry_integration_v1.py -v
 """
 
-from __future__ import annotations
 
 import json
 import os

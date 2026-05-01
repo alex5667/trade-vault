@@ -33,9 +33,9 @@ from typing import List
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    datefmt="%Y-%m-%d %H:%M:%S"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("OpsBundle")
 
@@ -151,19 +151,19 @@ def main() -> None:
 
     # Track metrics for snapshot
     metrics = {
-        "meta_cov_ops_last_run_id": run_id
-        "meta_cov_ops_last_ts_ms": ts_start
-        "meta_cov_ops_last_apply_requested": 1 if should_apply else 0
+        "meta_cov_ops_last_run_id": run_id,
+        "meta_cov_ops_last_ts_ms": ts_start,
+        "meta_cov_ops_last_apply_requested": 1 if should_apply else 0,
         "meta_cov_ops_last_ok": 0,    # Will set to 1 on success
-        "meta_cov_ops_last_exit_code": 0
-        "meta_cov_ops_last_blocked_reasons": []
-        "meta_cov_ops_last_preflight_rc": -1
-        "meta_cov_ops_last_step_rc_validate": -1
-        "meta_cov_ops_last_step_rc_rollout": -1
+        "meta_cov_ops_last_exit_code": 0,
+        "meta_cov_ops_last_blocked_reasons": [],
+        "meta_cov_ops_last_preflight_rc": -1,
+        "meta_cov_ops_last_step_rc_validate": -1,
+        "meta_cov_ops_last_step_rc_rollout": -1,
         "meta_cov_ops_last_step_rc_guard": -1,   # P43
-        "meta_cov_ops_last_step_rc_outcome": -1
-        "meta_cov_ops_last_step_rc_monitor": -1
-        "meta_cov_ops_last_apply_effective": 0
+        "meta_cov_ops_last_step_rc_outcome": -1,
+        "meta_cov_ops_last_step_rc_monitor": -1,
+        "meta_cov_ops_last_apply_effective": 0,
         "meta_cov_ops_last_decision_code": "unknown", # P43
         "meta_cov_ops_last_decision_ts_ms": get_ny_time_millis(), # P43
     }

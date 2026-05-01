@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 Tests for TrailShadowSimulator — virtual P&L A/B test.
 
 These tests use mock data and do NOT require Redis.
 """
-from __future__ import annotations
 
 import pytest
 

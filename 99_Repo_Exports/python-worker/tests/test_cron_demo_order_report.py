@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Tests for cron_demo_order_report.py
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

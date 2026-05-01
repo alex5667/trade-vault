@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for P66 Decision Coverage KPI worker (decision_coverage_kpi_worker_v1).
 
@@ -8,7 +9,6 @@ Covers:
   - _process_one: pipeline writes correct state fields
   - bootstrap_state: aggregates per-minute buckets via pipeline
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time

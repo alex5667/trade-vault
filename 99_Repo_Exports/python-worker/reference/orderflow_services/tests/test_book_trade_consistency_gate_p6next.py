@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for BookTradeConsistencyGate P6next.
 
 Covers:
@@ -10,7 +11,6 @@ Covers:
   7. Combined stale + adverse cross in veto mode → VETO_BOOK_STALE_ADVERSE_CROSS
   8. Monitor mode → flags but no veto even when conditions met
 """
-from __future__ import annotations
 
 import math
 import os
@@ -25,14 +25,14 @@ class _Ctx:
     """Lightweight context object for testing gate."""
 
     def __init__(
-        self
-        *
-        trade_px: float = 0.0
-        best_bid: float = 0.0
-        best_ask: float = 0.0
-        ts_event_ms: Optional[int] = None
-        book_ts_ms: Optional[int] = None
-        stream_type: str = "tick"
+        self,
+        *,
+        trade_px: float = 0.0,
+        best_bid: float = 0.0,
+        best_ask: float = 0.0,
+        ts_event_ms: Optional[int] = None,
+        book_ts_ms: Optional[int] = None,
+        stream_type: str = "tick",
     ) -> None:
         self.trade_px = trade_px
         self.best_bid = best_bid
@@ -49,8 +49,8 @@ class _Ctx:
 # ---------------------------------------------------------------------------
 try:
     from services.orderflow.book_trade_consistency_gate import (
-        BookTradeConsistencyGate
-        BookTradeConsistencyDecision
+        BookTradeConsistencyGate,
+        BookTradeConsistencyDecision,
     )
     _IMPORT_OK = True
 except ImportError:
@@ -63,23 +63,23 @@ pytestmark = pytest.mark.skipif(not _IMPORT_OK, reason="BookTradeConsistencyGate
 # Helpers
 # ---------------------------------------------------------------------------
 def _gate(
-    *
-    enabled: bool = True
-    mode: str = "auto"
-    max_book_staleness_ms: float = 1000.0
-    outside_bbo_eps_bps: float = 1.0
-    adverse_cross_bps: float = 1.5
-    veto_on_stale_book: bool = True
-    veto_on_adverse_cross: bool = True
+    *,
+    enabled: bool = True,
+    mode: str = "auto",
+    max_book_staleness_ms: float = 1000.0,
+    outside_bbo_eps_bps: float = 1.0,
+    adverse_cross_bps: float = 1.5,
+    veto_on_stale_book: bool = True,
+    veto_on_adverse_cross: bool = True,
 ) -> "BookTradeConsistencyGate":
     return BookTradeConsistencyGate(
-        enabled=enabled
-        mode=mode
-        max_book_staleness_ms=max_book_staleness_ms
-        outside_bbo_eps_bps=outside_bbo_eps_bps
-        adverse_cross_bps=adverse_cross_bps
-        veto_on_stale_book=veto_on_stale_book
-        veto_on_adverse_cross=veto_on_adverse_cross
+        enabled=enabled,
+        mode=mode,
+        max_book_staleness_ms=max_book_staleness_ms,
+        outside_bbo_eps_bps=outside_bbo_eps_bps,
+        adverse_cross_bps=adverse_cross_bps,
+        veto_on_stale_book=veto_on_stale_book,
+        veto_on_adverse_cross=veto_on_adverse_cross,
     )
 
 
@@ -102,11 +102,11 @@ class TestBookTradeConsistencyGate:
         g = _gate(max_book_staleness_ms=500.0)
         # Book is 2000 ms old relative to event.
         ctx = _Ctx(
-            ts_event_ms=1_700_000_002_000
-            book_ts_ms=1_700_000_000_000
-            best_bid=100.0
-            best_ask=100.1
-            trade_px=100.05
+            ts_event_ms=1_700_000_002_000,
+            book_ts_ms=1_700_000_000_000,
+            best_bid=100.0,
+            best_ask=100.1,
+            trade_px=100.05,
         )
         dec = g.evaluate(ctx=ctx, symbol="BTCUSDT")
         assert "stale_book" in dec.flags
@@ -118,10 +118,10 @@ class TestBookTradeConsistencyGate:
         """Trade above ask by > eps_bps → adverse_cross flag."""
         g = _gate(outside_bbo_eps_bps=0.0, adverse_cross_bps=0.1)
         ctx = _Ctx(
-            ts_event_ms=1_700_000_001_000
+            ts_event_ms=1_700_000_001_000,
             book_ts_ms=1_700_000_001_000,  # fresh book, no staleness
-            best_bid=100.0
-            best_ask=100.1
+            best_bid=100.0,
+            best_ask=100.1,
             trade_px=100.5,  # clearly above ask
         )
         dec = g.evaluate(ctx=ctx, symbol="ETHUSDT")
@@ -135,11 +135,11 @@ class TestBookTradeConsistencyGate:
         # mode=auto resolves to 'veto' when GATE_PROFILE=hard
         g = _gate(mode="auto", max_book_staleness_ms=500.0)
         ctx = _Ctx(
-            ts_event_ms=1_700_000_002_000
+            ts_event_ms=1_700_000_002_000,
             book_ts_ms=1_700_000_000_000,  # 2000 ms stale
-            best_bid=100.0
-            best_ask=100.1
-            trade_px=100.05
+            best_bid=100.0,
+            best_ask=100.1,
+            trade_px=100.05,
         )
         dec = g.evaluate(ctx=ctx, symbol="BTCUSDT")
         assert dec.veto
@@ -149,11 +149,11 @@ class TestBookTradeConsistencyGate:
         """Fresh book, trade inside spread → no flags, no veto."""
         g = _gate()
         ctx = _Ctx(
-            ts_event_ms=1_700_000_001_000
+            ts_event_ms=1_700_000_001_000,
             book_ts_ms=1_700_000_001_000,  # exactly same time → staleness=0
-            best_bid=100.0
-            best_ask=100.1
-            trade_px=100.05
+            best_bid=100.0,
+            best_ask=100.1,
+            trade_px=100.05,
         )
         dec = g.evaluate(ctx=ctx, symbol="SOLUSDT")
         assert "stale_book" not in dec.flags
@@ -164,11 +164,11 @@ class TestBookTradeConsistencyGate:
         """Missing bid/ask → missing_bbo flag, never veto, no crash."""
         g = _gate(mode="veto")
         ctx = _Ctx(
-            ts_event_ms=1_700_000_001_000
-            book_ts_ms=1_700_000_001_000
-            best_bid=0.0
-            best_ask=0.0
-            trade_px=100.05
+            ts_event_ms=1_700_000_001_000,
+            book_ts_ms=1_700_000_001_000,
+            best_bid=0.0,
+            best_ask=0.0,
+            trade_px=100.05,
         )
         dec = g.evaluate(ctx=ctx, symbol="BTCUSDT")
         assert "missing_bbo" in dec.flags
@@ -179,16 +179,16 @@ class TestBookTradeConsistencyGate:
         """Both stale + adverse cross in veto mode → combined VETO_BOOK_STALE_ADVERSE_CROSS."""
         monkeypatch.setenv("GATE_PROFILE", "hard")
         g = _gate(
-            mode="auto"
-            max_book_staleness_ms=500.0
-            outside_bbo_eps_bps=0.0
-            adverse_cross_bps=0.1
+            mode="auto",
+            max_book_staleness_ms=500.0,
+            outside_bbo_eps_bps=0.0,
+            adverse_cross_bps=0.1,
         )
         ctx = _Ctx(
-            ts_event_ms=1_700_000_002_000
+            ts_event_ms=1_700_000_002_000,
             book_ts_ms=1_700_000_000_000,  # 2000 ms stale
-            best_bid=100.0
-            best_ask=100.1
+            best_bid=100.0,
+            best_ask=100.1,
             trade_px=101.0,  # above ask by >>0.1 bps
         )
         dec = g.evaluate(ctx=ctx, symbol="BTCUSDT")
@@ -199,11 +199,11 @@ class TestBookTradeConsistencyGate:
         """Explicit mode=monitor → never veto even if stale threshold exceeded."""
         g = _gate(mode="monitor", max_book_staleness_ms=100.0)
         ctx = _Ctx(
-            ts_event_ms=1_700_000_002_000
+            ts_event_ms=1_700_000_002_000,
             book_ts_ms=1_700_000_000_000,  # 2000 ms stale
-            best_bid=100.0
-            best_ask=100.1
-            trade_px=100.05
+            best_bid=100.0,
+            best_ask=100.1,
+            trade_px=100.05,
         )
         dec = g.evaluate(ctx=ctx, symbol="BTCUSDT")
         assert "stale_book" in dec.flags

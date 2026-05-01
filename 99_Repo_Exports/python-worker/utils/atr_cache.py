@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR cache / reader for multiple legacy key shapes.
 
 We keep this module read-optimised because production uses many key shapes:
@@ -14,7 +15,6 @@ Public API
 - :class:`ATRCache` — main cache class
 - :func:`get_atr_cache` — module-level singleton factory
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -171,7 +171,7 @@ class ATRCache:
                 out.append({
                     "atr": atr, "src": "atr_tracker", "key": tracker_key,
                     "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age,
-                    "has_ts": int(ts_ms > 0)
+                    "has_ts": int(ts_ms > 0),
                 })
         except Exception:  # noqa: BLE001
             pass
@@ -186,7 +186,7 @@ class ATRCache:
                 out.append({
                     "atr": atr, "src": "atr_string", "key": key2,
                     "tf": tf_norm, "ts_ms": 0, "age_ms": 0,
-                    "has_ts": 0, "pttl_ms": pttl
+                    "has_ts": 0, "pttl_ms": pttl,
                 })
         except Exception:  # noqa: BLE001
             pass
@@ -201,7 +201,7 @@ class ATRCache:
                 out.append({
                     "atr": atr, "src": "atr_val", "key": key2b,
                     "tf": tf_norm, "ts_ms": 0, "age_ms": 0,
-                    "has_ts": 0, "pttl_ms": pttl
+                    "has_ts": 0, "pttl_ms": pttl,
                 })
         except Exception:  # noqa: BLE001
             pass
@@ -219,7 +219,7 @@ class ATRCache:
                     out.append({
                         "atr": atr, "src": "atr_json", "key": key3,
                         "tf": tf_norm, "ts_ms": ts_ms, "age_ms": age,
-                        "has_ts": int(ts_ms > 0)
+                        "has_ts": int(ts_ms > 0),
                     })
         except Exception:  # noqa: BLE001
             pass
@@ -241,7 +241,7 @@ class ATRCache:
                         "tf": src_tf if src_tf else tf_norm,
                         "ts_ms": ts_ms, "age_ms": age,
                         "has_ts": int(ts_ms > 0),
-                        "tf_mismatch": tf_mismatch
+                        "tf_mismatch": tf_mismatch,
                     })
         except Exception:  # noqa: BLE001
             pass
@@ -310,7 +310,7 @@ def _candidate_meta(c: dict[str, Any], requested_tf: str) -> dict[str, Any]:
         "tf": str(c.get("tf", requested_tf)),
         "ts_ms": int(c.get("ts_ms", 0) or 0),
         "age_ms": int(c.get("age_ms", 0) or 0),
-        "tf_mismatch": int(c.get("tf_mismatch", 0))
+        "tf_mismatch": int(c.get("tf_mismatch", 0)),
     }
 
 

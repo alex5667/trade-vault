@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_edge_stack_v1_champion_cfg_preserve.py
 
@@ -7,7 +8,6 @@ Test that champion cfg preserves additional fields (p_min_by_bucket, calibrate_p
 after validation.
 """
 
-from __future__ import annotations
 
 import json
 import pytest

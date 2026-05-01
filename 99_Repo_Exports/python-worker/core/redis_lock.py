@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """core.redis_lock
 
 Redis SETNX lock helper for periodic jobs.
@@ -13,7 +14,6 @@ Notes:
     (redis.asyncio.Redis / aioredis-compatible) via separate APIs.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time

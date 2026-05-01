@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """OFInputs DLQ DB drilldown (P99).
 
 Reads from Timescale/Postgres table `of_inputs_dlq_events` (P98) and prints:
@@ -23,7 +24,6 @@ ENV (notify):
   TELEGRAM_NOTIFY_STREAM / NOTIFY_TELEGRAM_STREAM
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

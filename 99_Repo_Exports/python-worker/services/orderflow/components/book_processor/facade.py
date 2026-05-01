@@ -6,22 +6,22 @@ from typing import Any, Dict, Optional
 from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
 from services.orderflow.configuration import _safe_int, _safe_float
 from services.orderflow.metrics import (
-    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge
-    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge
-    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge
-    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge
-    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge
-    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge
-    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge
+    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge,
+    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
+    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge,
+    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
     # P0/P1 audit: book observability metrics
-    book_parse_errors_total, book_health_state_gauge, book_ts_gap_ms_hist
+    book_parse_errors_total, book_health_state_gauge, book_ts_gap_ms_hist,
 )
 
 # P112: minimal DQ/book-seq metrics live in a dedicated module to avoid
 # duplicate metric registration across SoT/mirror import paths.
 from services.orderflow.metrics_bookseq_dq_p112 import (
-    book_missing_seq_ema_gauge
-    book_seq_last_gap_gauge
+    book_missing_seq_ema_gauge,
+    book_seq_last_gap_gauge,
 )
 
 
@@ -92,7 +92,7 @@ class BookProcessor:
         # Local import to reduce patch conflict risk between SoT/mirror trees.
         try:
             from services.orderflow.components.book_seq_tracker_uu import (
-                decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha
+                decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha,
             )
         except Exception:
             from .book_seq_tracker_uu import decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha
@@ -284,13 +284,13 @@ class BookProcessor:
                     bid_d = float(getattr(runtime, "last_depth_bid_5", 0.0) or 0.0) * max(mid, 1.0)
                     ask_d = float(getattr(runtime, "last_depth_ask_5", 0.0) or 0.0) * max(mid, 1.0)
                     runtime.manip.update_from_book(
-                        ts_ms=int(book_ts_ms)
-                        bid_depth_usd=bid_d
-                        ask_depth_usd=ask_d
-                        book_update_rate_z=float(getattr(runtime, "book_update_rate_z", 0.0))
-                        cancel_rate_z=float(getattr(runtime, "cancel_rate_z", 0.0))
-                        trade_msg_rate_hz=float(getattr(runtime, "trade_msg_rate_hz", 0.0))
-                        mid_px=mid
+                        ts_ms=int(book_ts_ms),
+                        bid_depth_usd=bid_d,
+                        ask_depth_usd=ask_d,
+                        book_update_rate_z=float(getattr(runtime, "book_update_rate_z", 0.0)),
+                        cancel_rate_z=float(getattr(runtime, "cancel_rate_z", 0.0)),
+                        trade_msg_rate_hz=float(getattr(runtime, "trade_msg_rate_hz", 0.0)),
+                        mid_px=mid,
                     )
                     runtime.quote_stuffing_score = float(runtime.manip.quote_stuffing_score)
                     runtime.layering_score = float(runtime.manip.layering_score)
@@ -355,10 +355,10 @@ class BookProcessor:
         if _safe_int(runtime.config.get("liq_enable", 1) or 0) == 1:
             try:
                 liq = runtime.liq_guard.update(
-                    ts_ms=_safe_int(book_ts_ms)
-                    spread_bps=float(runtime.last_spread_bps_l2)
-                    depth_min_5_usd=float(runtime.last_depth_min_5_usd)
-                    book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0)
+                    ts_ms=_safe_int(book_ts_ms),
+                    spread_bps=float(runtime.last_spread_bps_l2),
+                    depth_min_5_usd=float(runtime.last_depth_min_5_usd),
+                    book_rate_hz=float(getattr(runtime, "book_rate_ema", 0.0) or 0.0),
                 )
                 runtime.last_liq_score = float(liq.score)
                 runtime.last_liq_regime = str(liq.regime)

@@ -73,10 +73,10 @@ class BadTimeQuarantine:
     """
 
     def __init__(
-        self
-        policy: Optional[BadTimeQuarantinePolicy] = None
-        *
-        inc: Optional[Callable[[str, int], None]] = None
+        self,
+        policy: Optional[BadTimeQuarantinePolicy] = None,
+        *,
+        inc: Optional[Callable[[str, int], None]] = None,
     ) -> None:
         self.policy = policy or BadTimeQuarantinePolicy()
         self._inc = inc
@@ -85,12 +85,12 @@ class BadTimeQuarantine:
         self._until_ms: int = 0
         self._state_until_ms: int = 0
         self._hard_bucket = TokenBucket(
-            rate_per_sec=float(self.policy.hard_drops_rate_per_sec)
-            burst=float(self.policy.hard_drops_burst)
+            rate_per_sec=float(self.policy.hard_drops_rate_per_sec),
+            burst=float(self.policy.hard_drops_burst),
         )
         self._soft_bucket = TokenBucket(
-            rate_per_sec=float(self.policy.soft_events_rate_per_sec)
-            burst=float(self.policy.soft_events_burst)
+            rate_per_sec=float(self.policy.soft_events_rate_per_sec),
+            burst=float(self.policy.soft_events_burst),
         )
         self._reorder_soft_streak: int = 0
 
@@ -179,7 +179,7 @@ class BadTimeQuarantine:
         self._m("tick.time.hard_drop", 1)
         if reason:
             self._m(f"tick.time.hard_drop.{reason}", 1)
-        # rate-limit hard drops: если overflow — значит время/фид реально сломано (или flood)
+        # rate-limit hard drops: если overflow — значит время/фид реально сломано (или flood),
         # делаем расширенный freeze/quarantine.
         if not self._hard_bucket.allow(int(now_ms), cost=1.0):
             self._until_ms = max(int(self._until_ms), int(now_ms) + int(self.policy.ratelimit_penalty_quarantine_ms))

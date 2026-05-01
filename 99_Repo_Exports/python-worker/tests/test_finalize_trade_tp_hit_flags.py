@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/test_finalize_trade_tp_hit_flags.py
 ─────────────────────────────────────────
@@ -8,7 +9,6 @@ Bug: prior to the fix, these fields were omitted from the TradeClosed
 constructor, so they always defaulted to False/0 — breaking downstream
 stats, calibration, and TP-hit analytics across 170K+ trades.
 """
-from __future__ import annotations
 
 import pytest
 

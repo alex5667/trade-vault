@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Generic Redis Stream → NDJSON archiver (P58).
 
 Goal:
@@ -29,7 +30,6 @@ Continuous:
   python -m ml_analysis.tools.stream_archiver_ndjson_v1 --loop-s 1 --batch 2000
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

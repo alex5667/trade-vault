@@ -22,8 +22,8 @@ def _apply_golden_logic(ctx: "OrderflowSignalContext") -> None:
     3) Подтягиваем вес паттерна (для последующей агрегации, если нужно).
     """
     # from core.config import (
-    #     get_pattern_conf_threshold
-    #     get_pattern_weight
+    #     get_pattern_conf_threshold,
+    #     get_pattern_weight,
     # )
     from core.config import get_pattern_conf_threshold, get_pattern_weight
 
@@ -46,9 +46,9 @@ def _apply_scoring(ctx: "OrderflowSignalContext") -> None:
     всё ограничиваем FINAL_SCORE_MAX.
     """
     # from core.config import (
-    #     CONFIDENCE_SCALE
-    #     GOLDEN_SCORE_MULTIPLIER
-    #     FINAL_SCORE_MAX
+    #     CONFIDENCE_SCALE,
+    #     GOLDEN_SCORE_MULTIPLIER,
+    #     FINAL_SCORE_MAX,
     # )
     from core.config import CONFIDENCE_SCALE, GOLDEN_SCORE_MULTIPLIER, FINAL_SCORE_MAX
 

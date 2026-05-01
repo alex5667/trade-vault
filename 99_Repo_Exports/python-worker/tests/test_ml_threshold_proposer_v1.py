@@ -1,5 +1,5 @@
-"""Tests for ML threshold proposer v1."""
 from __future__ import annotations
+"""Tests for ML threshold proposer v1."""
 
 import json
 import os

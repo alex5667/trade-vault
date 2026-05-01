@@ -62,9 +62,9 @@ def _notify_telegram(r, text: str) -> None:
         return
     try:
         r.xadd(
-            NOTIFY_STREAM
-            {"type": "report", "text": text, "parse_mode": "HTML", "source": "etl_v3"}
-            maxlen=50_000
+            NOTIFY_STREAM,
+            {"type": "report", "text": text, "parse_mode": "HTML", "source": "etl_v3"},
+            maxlen=50_000,
         )
         log.info("Telegram notify sent to %s", NOTIFY_STREAM)
     except Exception as e:
@@ -97,13 +97,13 @@ def run_etl():
         INSERT INTO trade_performance
             (signal_id, ts_open, ts_close, symbol, direction, r, hit, holding_ms)
         SELECT DISTINCT ON (sid)
-            sid
-            to_timestamp(entry_ts_ms / 1000.0) AT TIME ZONE 'UTC'
-            to_timestamp(exit_ts_ms  / 1000.0) AT TIME ZONE 'UTC'
-            symbol
-            CASE WHEN direction = 'LONG' THEN 1 ELSE -1 END
-            r_multiple
-            pnl_net > 0
+            sid,
+            to_timestamp(entry_ts_ms / 1000.0) AT TIME ZONE 'UTC',
+            to_timestamp(exit_ts_ms  / 1000.0) AT TIME ZONE 'UTC',
+            symbol,
+            CASE WHEN direction = 'LONG' THEN 1 ELSE -1 END,
+            r_multiple,
+            pnl_net > 0,
             exit_ts_ms - entry_ts_ms
         FROM trades_closed
         WHERE sid IS NOT NULL AND r_multiple IS NOT NULL
@@ -121,17 +121,17 @@ def run_etl():
     log.info("STEP 2b: Backfill signal_facts (from trades_closed.ind_*)")
     cur.execute("""
         INSERT INTO signal_facts
-            (ts, signal_id, symbol, direction, signal_family
+            (ts, signal_id, symbol, direction, signal_family,
              conf_score, atr_14, delta_spike_z, obi_avg_20, weak_progress_ratio)
         SELECT DISTINCT ON (sid)
-            to_timestamp(entry_ts_ms / 1000.0) AT TIME ZONE 'UTC'
-            sid, symbol
-            CASE WHEN direction = 'LONG' THEN 1 ELSE -1 END
-            COALESCE(source, 'crypto_orderflow')
-            0.0
-            COALESCE(ind_atr_th_bps, 0.0)
-            COALESCE(ind_delta_z, 0.0)
-            COALESCE(ind_obi, 0.0)
+            to_timestamp(entry_ts_ms / 1000.0) AT TIME ZONE 'UTC',
+            sid, symbol,
+            CASE WHEN direction = 'LONG' THEN 1 ELSE -1 END,
+            COALESCE(source, 'crypto_orderflow'),
+            0.0,
+            COALESCE(ind_atr_th_bps, 0.0),
+            COALESCE(ind_delta_z, 0.0),
+            COALESCE(ind_obi, 0.0),
             CASE WHEN ind_weak_progress THEN 1.0 ELSE 0.0 END
         FROM trades_closed
         WHERE sid IS NOT NULL AND r_multiple IS NOT NULL
@@ -146,7 +146,7 @@ def run_etl():
     log.info("STEP 3: Diagnostics")
     cur.execute("""
         SELECT count(*)
-               round(avg(r)::numeric, 4)
+               round(avg(r)::numeric, 4),
                round(avg(CASE WHEN hit THEN 1.0 ELSE 0.0 END)::numeric, 4)
         FROM trade_performance
     """)
@@ -155,10 +155,10 @@ def run_etl():
 
     cur.execute("""
         SELECT count(*)
-               count(DISTINCT symbol)
-               round(avg(delta_spike_z)::numeric, 4)
-               round(stddev(delta_spike_z)::numeric, 4)
-               round(avg(obi_avg_20)::numeric, 4)
+               count(DISTINCT symbol),
+               round(avg(delta_spike_z)::numeric, 4),
+               round(stddev(delta_spike_z)::numeric, 4),
+               round(avg(obi_avg_20)::numeric, 4),
                round(avg(weak_progress_ratio)::numeric, 4)
         FROM signal_facts
     """)
@@ -173,8 +173,8 @@ def run_etl():
 
     # Per-symbol
     cur.execute("""
-        SELECT s.symbol, count(*), round(avg(t.r)::numeric,4)
-               round(avg(CASE WHEN t.hit THEN 1.0 ELSE 0.0 END)::numeric,4)
+        SELECT s.symbol, count(*), round(avg(t.r)::numeric,4),
+               round(avg(CASE WHEN t.hit THEN 1.0 ELSE 0.0 END)::numeric,4),
                round(avg(s.delta_spike_z)::numeric,4)
         FROM signal_facts s
         JOIN trade_performance t ON t.signal_id = s.signal_id
@@ -190,14 +190,14 @@ def run_etl():
     # a regime-collapse event (e.g. 2026-04-09: 12819 rows, hit_rate=0.3%).
     # -----------------------------------------------------------------------
     log.info(
-        "STEP 3.5: Toxic-day scan (min_n=%d, max_hr=%.1f%%)"
-        TOXIC_MIN_N, TOXIC_MAX_HR * 100
+        "STEP 3.5: Toxic-day scan (min_n=%d, max_hr=%.1f%%)",
+        TOXIC_MIN_N, TOXIC_MAX_HR * 100,
     )
     cur.execute("""
         SELECT
-            date_trunc('day', s.ts)::date     AS day
-            COUNT(*)                           AS n
-            ROUND(AVG(CASE WHEN t.r >= 0.3 THEN 1.0 ELSE 0.0 END)::numeric, 4)  AS hit_rate_03
+            date_trunc('day', s.ts)::date     AS day,
+            COUNT(*)                           AS n,
+            ROUND(AVG(CASE WHEN t.r >= 0.3 THEN 1.0 ELSE 0.0 END)::numeric, 4)  AS hit_rate_03,
             ROUND(AVG(t.r)::numeric, 4)        AS avg_r
         FROM signal_facts s
         JOIN trade_performance t ON s.signal_id = t.signal_id
@@ -215,8 +215,8 @@ def run_etl():
         for day, n_day, hr03, ar in toxic_days:
             day_str = str(day)
             log.warning(
-                "  ⚠️  TOXIC DAY detected: %s  N=%d  hit_rate_03=%.2f%%  avg_R=%s — REMOVING"
-                day_str, n_day, float(hr03) * 100, ar
+                "  ⚠️  TOXIC DAY detected: %s  N=%d  hit_rate_03=%.2f%%  avg_R=%s — REMOVING",
+                day_str, n_day, float(hr03) * 100, ar,
             )
             # Remove signal_facts for this day
             cur.execute("""
@@ -256,8 +256,8 @@ def run_etl():
         _notify_telegram(r_notify, tg_text)
     else:
         log.info(
-            "  ✅ No toxic days found (all days pass N≥%d + HR≥%.1f%% check)"
-            TOXIC_MIN_N, TOXIC_MAX_HR * 100
+            "  ✅ No toxic days found (all days pass N≥%d + HR≥%.1f%% check)",
+            TOXIC_MIN_N, TOXIC_MAX_HR * 100,
         )
 
     # Step 4: Logistic Regression (inline)
@@ -290,9 +290,9 @@ def run_etl():
                 log.info("    %-22s coef=%+.4f weight=%+.4f", f, c, wn)
 
             result = {
-                "phase": 2, "version": "1.0.0", "sample_size": len(rows)
-                "accuracy": round(float(mdl.score(X_s, y)), 4)
-                "suggested_weights": {f"w_{f}": round(float(wn), 4) for f, wn in zip(feats, nw)}
+                "phase": 2, "version": "1.0.0", "sample_size": len(rows),
+                "accuracy": round(float(mdl.score(X_s, y)), 4),
+                "suggested_weights": {f"w_{f}": round(float(wn), 4) for f, wn in zip(feats, nw)},
             }
             out = os.getenv("WEIGHTS_OUTPUT", "/var/lib/trade/suggested_weights.json")
             os.makedirs(os.path.dirname(out), exist_ok=True)

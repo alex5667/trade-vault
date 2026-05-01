@@ -23,23 +23,23 @@ def _dummy_archiver():
 def test_post_sl_liqmap_kpi_row_extracts_liqmap_subset_and_scalars():
     a = _dummy_archiver()
     payload = {
-        "trade_id": "t-001"
-        "symbol": "BTCUSDT"
-        "side": "LONG"
-        "regime": "trend"
-        "event_ts_ms": 1700000000123
-        "liqmap_1h_peak_up_usd": 123456.0
-        "liqmap_1h_peak_up_dist_bps": 42.0
-        "liqmap_1h_age_ms": 90000
-        "sl_hit_near_liqmap_peak": 1
-        "sl_liqmap_peak_dist_bps": 7.5
-        "sl_liqmap_peak_usd": 250000.0
-        "tp1_anchored": 1
-        "tp1_anchored_and_hit": 0
-        "liqmap_levels_applied": 1
-        "liqmap_tp1_adj_bps": -5.0
-        "liqmap_levels_reason": "tp1_before_peak"
-        "something_else": "ignored_in_liqmap_kpi"
+        "trade_id": "t-001",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "regime": "trend",
+        "event_ts_ms": 1700000000123,
+        "liqmap_1h_peak_up_usd": 123456.0,
+        "liqmap_1h_peak_up_dist_bps": 42.0,
+        "liqmap_1h_age_ms": 90000,
+        "sl_hit_near_liqmap_peak": 1,
+        "sl_liqmap_peak_dist_bps": 7.5,
+        "sl_liqmap_peak_usd": 250000.0,
+        "tp1_anchored": 1,
+        "tp1_anchored_and_hit": 0,
+        "liqmap_levels_applied": 1,
+        "liqmap_tp1_adj_bps": -5.0,
+        "liqmap_levels_reason": "tp1_before_peak",
+        "something_else": "ignored_in_liqmap_kpi",
     }
 
     row = a.post_sl_liqmap_kpi_row("1700000000123-0", payload)
@@ -97,23 +97,23 @@ def _dummy_archiver():
 def test_post_sl_liqmap_kpi_row_extracts_liqmap_subset_and_scalars():
     a = _dummy_archiver()
     payload = {
-        "trade_id": "t-001"
-        "symbol": "BTCUSDT"
-        "side": "LONG"
-        "regime": "trend"
-        "event_ts_ms": 1700000000123
-        "liqmap_1h_peak_up_usd": 123456.0
-        "liqmap_1h_peak_up_dist_bps": 42.0
-        "liqmap_1h_age_ms": 90000
-        "sl_hit_near_liqmap_peak": 1
-        "sl_liqmap_peak_dist_bps": 7.5
-        "sl_liqmap_peak_usd": 250000.0
-        "tp1_anchored": 1
-        "tp1_anchored_and_hit": 0
-        "liqmap_levels_applied": 1
-        "liqmap_tp1_adj_bps": -5.0
-        "liqmap_levels_reason": "tp1_before_peak"
-        "something_else": "ignored_in_liqmap_kpi"
+        "trade_id": "t-001",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "regime": "trend",
+        "event_ts_ms": 1700000000123,
+        "liqmap_1h_peak_up_usd": 123456.0,
+        "liqmap_1h_peak_up_dist_bps": 42.0,
+        "liqmap_1h_age_ms": 90000,
+        "sl_hit_near_liqmap_peak": 1,
+        "sl_liqmap_peak_dist_bps": 7.5,
+        "sl_liqmap_peak_usd": 250000.0,
+        "tp1_anchored": 1,
+        "tp1_anchored_and_hit": 0,
+        "liqmap_levels_applied": 1,
+        "liqmap_tp1_adj_bps": -5.0,
+        "liqmap_levels_reason": "tp1_before_peak",
+        "something_else": "ignored_in_liqmap_kpi",
     }
 
     row = a.post_sl_liqmap_kpi_row("1700000000123-0", payload)

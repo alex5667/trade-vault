@@ -8,16 +8,16 @@ import urllib.request
 from typing import Dict, Any, List, Iterable
 
 def fetch_cryptopanic(
-    *
-    base_url: str
-    path: str
-    auth_token: str
-    currencies: Iterable[str]
-    filter_: str = "important"
-    kind: str = "news"
-    region: str = "en"
-    timeout: float = 10.0
-    user_agent: str = "trade-standby/1.0"
+    *,
+    base_url: str,
+    path: str,
+    auth_token: str,
+    currencies: Iterable[str],
+    filter_: str = "important",
+    kind: str = "news",
+    region: str = "en",
+    timeout: float = 10.0,
+    user_agent: str = "trade-standby/1.0",
 ) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     now_ms = get_ny_time_millis()
@@ -26,11 +26,11 @@ def fetch_cryptopanic(
     cur = ",".join([c.strip().upper() for c in currencies if (c or "").strip()])
 
     qs = urllib.parse.urlencode({
-        "auth_token": auth_token
-        "currencies": cur
-        "filter": filter_
-        "kind": kind
-        "region": region
+        "auth_token": auth_token,
+        "currencies": cur,
+        "filter": filter_,
+        "kind": kind,
+        "region": region,
     })
     url = f"{base_url.rstrip('/')}{path}?{qs}"
 
@@ -72,16 +72,16 @@ def fetch_cryptopanic(
             continue
 
         out.append({
-            "published_ts_ms": pub_ms
-            "ingested_ts_ms": now_ms
-            "source": "cryptopanic"
-            "title": title
-            "url": link
-            "summary": ""
-            "symbols": syms
-            "importance": float(r.get("importance") or 0.0) if isinstance(r.get("importance"), (int, float)) else 0.0
-            "payload": r
-            "provider_id": provider_id or published_at or link
+            "published_ts_ms": pub_ms,
+            "ingested_ts_ms": now_ms,
+            "source": "cryptopanic",
+            "title": title,
+            "url": link,
+            "summary": "",
+            "symbols": syms,
+            "importance": float(r.get("importance") or 0.0) if isinstance(r.get("importance"), (int, float)) else 0.0,
+            "payload": r,
+            "provider_id": provider_id or published_at or link,
         })
 
     return out

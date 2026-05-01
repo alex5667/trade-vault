@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for of_gate_hardstop_cap_clamp.py
 
 Tests emergency cap-clamp functionality:
@@ -7,7 +8,6 @@ Tests emergency cap-clamp functionality:
 - Rollback compatibility
 """
 
-from __future__ import annotations
 
 import json
 import os

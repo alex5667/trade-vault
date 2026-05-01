@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly bundle: minimal feature selection loop (importance + stability by regime/session).
 
 Goal
@@ -22,7 +23,6 @@ Redis metrics (low-cardinality)
   out_dir, run_dir, summary_path, report_path
 """
 
-from __future__ import annotations
 
 import argparse
 import json

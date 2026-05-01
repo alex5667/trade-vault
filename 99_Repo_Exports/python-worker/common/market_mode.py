@@ -1,3 +1,4 @@
+from __future__ import annotations
 """common.market_mode
 
 Single source of truth for regime / market-mode label normalisation.
@@ -11,7 +12,6 @@ Every boundary that ingests a raw string (Redis, ENV, legacy payload)
 must funnel through :func:`normalize_regime` before passing downstream.
 """
 
-from __future__ import annotations
 
 __all__ = [
     "REGIME_RANGE",

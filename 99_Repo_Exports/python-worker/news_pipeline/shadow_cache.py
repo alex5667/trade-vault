@@ -1,3 +1,4 @@
+from __future__ import annotations
 """news_pipeline.shadow_cache
 
 Shadow cache for news/calendar enrichment.
@@ -11,13 +12,12 @@ Fail-open: any refresher / Redis error results in missing cache entries.
 Redis keys (expected)
 ---------------------
 - news:agg:<SYMBOL> (HASH) fields:
-    ref, risk_ema, surprise_ema, news_grade_id, tags_mask, primary_tag_id
+    ref, risk_ema, surprise_ema, news_grade_id, tags_mask, primary_tag_id,
     confidence, horizon_sec, asof_ts_ms
 - calendar:agg:<asset_class> (HASH) fields (minimal):
     event_tminus_sec, event_grade_id, updated_ts_ms
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time
@@ -38,25 +38,25 @@ log = logging.getLogger("news_shadow_cache")
 
 # Fields we read from news:agg:<symbol>. HMGET is cheaper than HGETALL.
 NEWS_HASH_FIELDS: Tuple[str, ...] = (
-    "ref"
-    "risk_ema"
-    "surprise_ema"
-    "news_grade_id"
-    "tags_mask"
-    "primary_tag_id"
-    "confidence"
-    "horizon_sec"
-    "asof_ts_ms"
+    "ref",
+    "risk_ema",
+    "surprise_ema",
+    "news_grade_id",
+    "tags_mask",
+    "primary_tag_id",
+    "confidence",
+    "horizon_sec",
+    "asof_ts_ms",
 )
 
 # Calendar: keep it fixed-width as well.
 CAL_HASH_FIELDS: Tuple[str, ...] = (
-    "event_tminus_sec"
-    "event_grade_id"
-    "updated_ts_ms"
+    "event_tminus_sec",
+    "event_grade_id",
+    "updated_ts_ms",
     # optional fields (ignored by cache.get merge but useful for debugging)
-    "next_ts_ms"
-    "event_ref"
+    "next_ts_ms",
+    "event_ref",
 )
 
 
@@ -106,7 +106,7 @@ def _ensure_ref(ref: str) -> str:
         return ""
     if ref.startswith("news:analysis:"):
         return ref
-    # If it's already a key-like string with ':' but not the expected prefix
+    # If it's already a key-like string with ':' but not the expected prefix,
     # keep it as-is (fail-open, avoid surprising rewrites).
     if ":" in ref:
         return ref
@@ -245,15 +245,15 @@ class ShadowCache:
             now = _now_ms()
             entry = self._merged_cache.get(key)
             sig_news = (
-                nf.ref
-                int(nf.asof_ts_ms)
-                float(nf.news_risk)
-                float(nf.surprise_score)
-                int(nf.news_grade_id)
-                int(nf.tags_mask)
-                int(nf.primary_tag_id)
-                float(nf.confidence)
-                int(nf.horizon_sec)
+                nf.ref,
+                int(nf.asof_ts_ms),
+                float(nf.news_risk),
+                float(nf.surprise_score),
+                int(nf.news_grade_id),
+                int(nf.tags_mask),
+                int(nf.primary_tag_id),
+                float(nf.confidence),
+                int(nf.horizon_sec),
             )
             if entry is not None:
                 exp_ms, old_sig_news, old_cal, old_nf = entry
@@ -261,34 +261,34 @@ class ShadowCache:
                     return old_nf
 
             merged = NewsFeatures(
-                ref=nf.ref
-                news_risk=nf.news_risk
-                surprise_score=nf.surprise_score
-                news_grade_id=nf.news_grade_id
-                tags_mask=nf.tags_mask
-                primary_tag_id=nf.primary_tag_id
-                confidence=nf.confidence
-                horizon_sec=nf.horizon_sec
-                asof_ts_ms=nf.asof_ts_ms
-                event_tminus_sec=int(event_tminus_sec)
-                event_grade_id=int(event_grade_id)
+                ref=nf.ref,
+                news_risk=nf.news_risk,
+                surprise_score=nf.surprise_score,
+                news_grade_id=nf.news_grade_id,
+                tags_mask=nf.tags_mask,
+                primary_tag_id=nf.primary_tag_id,
+                confidence=nf.confidence,
+                horizon_sec=nf.horizon_sec,
+                asof_ts_ms=nf.asof_ts_ms,
+                event_tminus_sec=int(event_tminus_sec),
+                event_grade_id=int(event_grade_id),
             )
             self._merged_cache[key] = (now + self._per_symbol_cache_ms, sig_news, cal, merged)
             return merged
 
         # No micro-cache
         return NewsFeatures(
-            ref=nf.ref
-            news_risk=nf.news_risk
-            surprise_score=nf.surprise_score
-            news_grade_id=nf.news_grade_id
-            tags_mask=nf.tags_mask
-            primary_tag_id=nf.primary_tag_id
-            confidence=nf.confidence
-            horizon_sec=nf.horizon_sec
-            asof_ts_ms=nf.asof_ts_ms
-            event_tminus_sec=int(event_tminus_sec)
-            event_grade_id=int(event_grade_id)
+            ref=nf.ref,
+            news_risk=nf.news_risk,
+            surprise_score=nf.surprise_score,
+            news_grade_id=nf.news_grade_id,
+            tags_mask=nf.tags_mask,
+            primary_tag_id=nf.primary_tag_id,
+            confidence=nf.confidence,
+            horizon_sec=nf.horizon_sec,
+            asof_ts_ms=nf.asof_ts_ms,
+            event_tminus_sec=int(event_tminus_sec),
+            event_grade_id=int(event_grade_id),
         )
 
     # --- background thread support (called from refresher) ---
@@ -327,13 +327,13 @@ class ShadowRefresher:
     """
 
     def __init__(
-        self
-        *
-        redis
-        cache: ShadowCache
-        cfg: ShadowCacheConfig
-        news_key_prefix: str = "news:agg:"
-        cal_key_prefix: str = "calendar:agg:"
+        self,
+        *,
+        redis,
+        cache: ShadowCache,
+        cfg: ShadowCacheConfig,
+        news_key_prefix: str = "news:agg:",
+        cal_key_prefix: str = "calendar:agg:",
     ) -> None:
         self.r = redis
         self.cache = cache
@@ -397,8 +397,8 @@ class ShadowRefresher:
 
     def refresh_news_once(self) -> None:
         syms = self.cache.active_symbols(
-            ttl_ms=int(self.cfg.symbol_interest_ttl_ms)
-            limit=int(self.cfg.max_symbols_per_refresh)
+            ttl_ms=int(self.cfg.symbol_interest_ttl_ms),
+            limit=int(self.cfg.max_symbols_per_refresh),
         )
         if not syms:
             self.cache.last_refresh_ms = _now_ms()
@@ -421,18 +421,18 @@ class ShadowRefresher:
                 ref = _ensure_ref(str(d.get("ref") or ""))
 
                 nf = NewsFeatures(
-                    ref=ref
-                    news_risk=_f(d.get("risk_ema"), 0.0)
-                    surprise_score=_f(d.get("surprise_ema"), 0.0)
-                    news_grade_id=_i(d.get("news_grade_id"), 0)
-                    tags_mask=_i(d.get("tags_mask"), 0)
-                    primary_tag_id=_i(d.get("primary_tag_id"), 0)
-                    confidence=_f(d.get("confidence"), 0.0)
-                    horizon_sec=_i(d.get("horizon_sec"), 0)
-                    asof_ts_ms=_i(d.get("asof_ts_ms"), 0)
+                    ref=ref,
+                    news_risk=_f(d.get("risk_ema"), 0.0),
+                    surprise_score=_f(d.get("surprise_ema"), 0.0),
+                    news_grade_id=_i(d.get("news_grade_id"), 0),
+                    tags_mask=_i(d.get("tags_mask"), 0),
+                    primary_tag_id=_i(d.get("primary_tag_id"), 0),
+                    confidence=_f(d.get("confidence"), 0.0),
+                    horizon_sec=_i(d.get("horizon_sec"), 0),
+                    asof_ts_ms=_i(d.get("asof_ts_ms"), 0),
                     # calendar fields filled by ShadowCache.get() merge
-                    event_tminus_sec=-1
-                    event_grade_id=0
+                    event_tminus_sec=-1,
+                    event_grade_id=0,
                 )
 
                 self.cache.news_by_symbol[sym] = nf
@@ -443,8 +443,8 @@ class ShadowRefresher:
 
     def refresh_calendar_once(self) -> None:
         assets = self.cache.active_assets(
-            ttl_ms=int(self.cfg.asset_interest_ttl_ms)
-            limit=int(self.cfg.max_assets_per_refresh)
+            ttl_ms=int(self.cfg.asset_interest_ttl_ms),
+            limit=int(self.cfg.max_assets_per_refresh),
         )
         if not assets:
             self.cache.last_calendar_refresh_ms = _now_ms()

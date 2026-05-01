@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Auto-Apply Job Entrypoint (Hard-Guard).
 
 This module is intended to be used by the timer container/service that runs the
@@ -57,7 +58,6 @@ Exit codes
   - custom for skipped can be set via AUTO_APPLY_SKIP_EXIT_CODE
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

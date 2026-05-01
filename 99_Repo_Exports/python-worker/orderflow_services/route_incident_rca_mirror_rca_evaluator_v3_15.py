@@ -86,7 +86,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    }
+    },
 
 def parse_arm_from_request_id(req_id: str) -> str:
     # expect format: bundle_id:arm_name
@@ -149,7 +149,7 @@ class ArmMetrics:
             "score_raw": score_raw,
             "score": score,
             "eligible": eligible
-        }
+        },
 
 def select_winner(scorecards: Dict[str, Dict[str, Any]], incumbent: str, min_margin: float) -> str:
     best_arm = incumbent
@@ -189,7 +189,7 @@ async def persist_scorecard(db_url: str, sc: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_scorecards (
                     arm, exposure_n, result_n, feedback_n, 
                     avg_quality, avg_usefulness, accepted_rate, 
@@ -221,7 +221,7 @@ async def persist_decision(db_url: str, decision: str, scorecards: Dict[str, Any
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_evaluator_decisions (
                     decision, scorecards_json, ts_ms
                 ) VALUES (

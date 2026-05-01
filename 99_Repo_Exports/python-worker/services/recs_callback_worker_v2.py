@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Two-phase callback worker v2 for recs bundles (preview2 -> confirm).
 
 This worker handles:
@@ -9,7 +10,6 @@ This worker handles:
 Reads from bot:callbacks stream, writes to notify:telegram.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

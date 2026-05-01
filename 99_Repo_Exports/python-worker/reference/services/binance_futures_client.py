@@ -20,7 +20,7 @@ Two client classes are provided:
   - BinanceFuturesClient — full execution client (P1 executor)
 
 Both support account/risk read endpoints; BinanceFuturesClient additionally
-has trading endpoints: post_order, delete_order, get_order, get_exchange_info
+has trading endpoints: post_order, delete_order, get_order, get_exchange_info,
 get_mark_price, post_leverage, post_margin_type, sync_time.
 
 Endpoints used:
@@ -157,12 +157,12 @@ class BinanceFuturesREST:
     recv_window_ms: int = 5000
 
     def _request(
-        self
-        *
-        method: str
-        path: str
-        params: Optional[Dict[str, Any]] = None
-        signed: bool = False
+        self,
+        *,
+        method: str,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        signed: bool = False,
     ) -> Any:
         method_u = (method or "GET").upper()
         p: Dict[str, Any] = dict(params or {})
@@ -238,10 +238,10 @@ class BinanceFuturesREST:
         ).strip()
         timeout_s = float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0"))
         return BinanceFuturesREST(
-            api_key=key
-            api_secret=sec
-            base_url=base
-            timeout_s=timeout_s
+            api_key=key,
+            api_secret=sec,
+            base_url=base,
+            timeout_s=timeout_s,
         )
 
 
@@ -295,8 +295,8 @@ class BinanceFuturesClient:
         timeout_s = float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0"))
         recv_window = int(os.getenv("BINANCE_RECV_WINDOW_MS", os.getenv("BINANCE_RECV_WINDOW", "5000")))
         c = BinanceFuturesClient(
-            api_key=key, api_secret=sec
-            base_url=base, timeout_s=timeout_s, recv_window=recv_window
+            api_key=key, api_secret=sec,
+            base_url=base, timeout_s=timeout_s, recv_window=recv_window,
         )
 
         if (os.getenv("BINANCE_TIME_SYNC") or "").strip().lower() in {"1", "true", "yes", "on"}:
@@ -306,14 +306,14 @@ class BinanceFuturesClient:
     # --- core HTTP ---
 
     def _request(
-        self, method: str, path: str
-        *, params: Optional[Dict[str, Any]] = None, signed: bool = False
+        self, method: str, path: str,
+        *, params: Optional[Dict[str, Any]] = None, signed: bool = False,
     ) -> Any:
         method = method.upper()
         params = dict(params or {})
         headers: Dict[str, str] = {
-            "X-MBX-APIKEY": self.api_key
-            "User-Agent": "scanner_infra/binance_client_v2"
+            "X-MBX-APIKEY": self.api_key,
+            "User-Agent": "scanner_infra/binance_client_v2",
         }
 
         qs = ""
@@ -359,9 +359,9 @@ class BinanceFuturesClient:
             # waiting for the response. The executor treats these as
             # reconcile-first conditions instead of naive retry failures.
             payload = {
-                "code": "transport_timeout"
-                "msg": str(e)
-                "ambiguous": True
+                "code": "transport_timeout",
+                "msg": str(e),
+                "ambiguous": True,
             }
             raise BinanceAPIError(0, payload, "Binance transport timeout / ambiguous request state")
 
@@ -499,8 +499,8 @@ class BinanceFuturesClient:
     def post_leverage(self, symbol: str, leverage: int) -> Any:
         """Set account leverage for a symbol. Idempotent — safe to call on each open."""
         return self._request(
-            "POST", "/fapi/v1/leverage"
-            params={"symbol": symbol, "leverage": int(leverage)}, signed=True
+            "POST", "/fapi/v1/leverage",
+            params={"symbol": symbol, "leverage": int(leverage)}, signed=True,
         )
 
     def post_margin_type(self, symbol: str, margin_type: str) -> Any:
@@ -510,8 +510,8 @@ class BinanceFuturesClient:
         swallow that error (idempotent call pattern).
         """
         return self._request(
-            "POST", "/fapi/v1/marginType"
-            params={"symbol": symbol, "marginType": str(margin_type).upper()}, signed=True
+            "POST", "/fapi/v1/marginType",
+            params={"symbol": symbol, "marginType": str(margin_type).upper()}, signed=True,
         )
 
     def post_plain_order(self, params: Dict[str, Any]) -> Any:
@@ -548,9 +548,9 @@ class BinanceFuturesClient:
         return self.post_plain_order(params)
 
     def query_plain_order(
-        self, symbol: str, *
-        order_id: Optional[int] = None
-        client_order_id: Optional[str] = None
+        self, symbol: str, *,
+        order_id: Optional[int] = None,
+        client_order_id: Optional[str] = None,
     ) -> Any:
         p: Dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
@@ -560,9 +560,9 @@ class BinanceFuturesClient:
         return self._request("GET", "/fapi/v1/order", params=p, signed=True)
 
     def query_algo_order(
-        self, symbol: str, *
-        algo_id: Optional[int] = None
-        client_algo_id: Optional[str] = None
+        self, symbol: str, *,
+        algo_id: Optional[int] = None,
+        client_algo_id: Optional[str] = None,
     ) -> Any:
         p: Dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
@@ -572,9 +572,9 @@ class BinanceFuturesClient:
         return self._request("GET", "/fapi/v1/algoOrder", params=p, signed=True)
 
     def get_order(
-        self, symbol: str, *
-        order_id: Optional[int] = None
-        client_order_id: Optional[str] = None
+        self, symbol: str, *,
+        order_id: Optional[int] = None,
+        client_order_id: Optional[str] = None,
         is_algo: bool = False
     ) -> Any:
         """Backward-compatible query wrapper."""
@@ -583,9 +583,9 @@ class BinanceFuturesClient:
         return self.query_plain_order(symbol, order_id=order_id, client_order_id=client_order_id)
 
     def cancel_plain_order(
-        self, symbol: str, *
-        order_id: Optional[int] = None
-        client_order_id: Optional[str] = None
+        self, symbol: str, *,
+        order_id: Optional[int] = None,
+        client_order_id: Optional[str] = None,
     ) -> Any:
         p: Dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
@@ -595,9 +595,9 @@ class BinanceFuturesClient:
         return self._request("DELETE", "/fapi/v1/order", params=p, signed=True)
 
     def cancel_algo_order(
-        self, symbol: str, *
-        algo_id: Optional[int] = None
-        client_algo_id: Optional[str] = None
+        self, symbol: str, *,
+        algo_id: Optional[int] = None,
+        client_algo_id: Optional[str] = None,
     ) -> Any:
         p: Dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
@@ -607,9 +607,9 @@ class BinanceFuturesClient:
         return self._request("DELETE", "/fapi/v1/algoOrder", params=p, signed=True)
 
     def delete_order(
-        self, symbol: str, *
-        order_id: Optional[int] = None
-        client_order_id: Optional[str] = None
+        self, symbol: str, *,
+        order_id: Optional[int] = None,
+        client_order_id: Optional[str] = None,
         is_algo: bool = False
     ) -> Any:
         """Backward-compatible cancel wrapper."""

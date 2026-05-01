@@ -6,7 +6,7 @@ MT5 Tick Streamer - публикует тиковые данные из MetaTrad
 
 ФУНКЦИОНАЛ (только для Windows):
 - Подключение к MT5 терминалу через MetaTrader5 модуль
-- Получение тиковых данных для XAUUSD (или другого символа)
+- Получение тиковых данных для  (или другого символа)
 - Публикация тиков в Redis Stream для дальнейшей обработки
 - Инкрементальное чтение без дублирования
 
@@ -27,7 +27,7 @@ MT5 Tick Streamer - публикует тиковые данные из MetaTrad
 - Прямой доступ к MT5 API
 
 ИНТЕГРАЦИЯ:
-- Публикует в stream:tick_XAUUSD (настраивается через env)
+- Публикует в stream:tick_ (настраивается через env)
 - Использует DualRedisClient для устойчивости к сбоям
 """
 
@@ -75,7 +75,7 @@ class MT5TickStreamer:
     
     def __init__(self):
         """Инициализация стримера с конфигурацией из переменных окружения."""
-        self.symbol = os.getenv("XAU_SYMBOL", "XAUUSD")
+        self.symbol = os.getenv("XAU_SYMBOL")
         self.tick_stream = XAU_TICK_STREAM
         self.maxlen = XAU_TICK_STREAM_MAXLEN
         self.poll_interval = float(os.getenv("XAU_TICK_POLL_INTERVAL", "0.2"))  # 5 Hz
@@ -187,20 +187,20 @@ class MT5TickStreamer:
                     
                     # Формируем payload
                     payload = {
-                        "ts": tick_ts
-                        "bid": float(tick.get('bid', 0))
-                        "ask": float(tick.get('ask', 0))
-                        "last": float(tick.get('last', 0))
-                        "volume": float(tick.get('volume', 0))
+                        "ts": tick_ts,
+                        "bid": float(tick.get('bid', 0)),
+                        "ask": float(tick.get('ask', 0)),
+                        "last": float(tick.get('last', 0)),
+                        "volume": float(tick.get('volume', 0)),
                         "flags": int(tick.get('flags', 0))  # для направления сделки
                     }
                     
                     # Публикуем в Redis Stream
                     try:
                         self.redis_client.xadd(
-                            self.tick_stream
-                            {"data": json.dumps(payload)}
-                            maxlen=self.maxlen
+                            self.tick_stream,
+                            {"data": json.dumps(payload)},
+                            maxlen=self.maxlen,
                             approximate=True
                         )
                         tick_count += 1

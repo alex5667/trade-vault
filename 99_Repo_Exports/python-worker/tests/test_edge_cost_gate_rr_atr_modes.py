@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Unit tests for EdgeCostGate: RR mode and ATR mode.
 
@@ -5,7 +6,6 @@ tp1 mode is covered in test_edge_cost_gate.py and test_edge_cost_gate_integratio
 EV mode is covered in test_edge_cost_gate_ev_mode.py.
 This file fills the gap for rr and atr modes.
 """
-from __future__ import annotations
 
 from types import SimpleNamespace
 

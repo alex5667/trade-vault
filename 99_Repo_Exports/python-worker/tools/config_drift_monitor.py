@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Monitor config drift: detect unexpected changes in config:orderflow:<SYMBOL> keys.
 
 Snapshots critical config keys and compares with previous snapshot.
@@ -7,7 +8,6 @@ Usage:
   python -m tools.config_drift_monitor --symbols BTCUSDT,ETHUSDT
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

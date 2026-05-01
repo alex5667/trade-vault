@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Calibration tool: подбирать w_exec_risk, exec_risk_ref_bps, of_score_min_* по целевой функции (meanR/tail).
 
 Why:
@@ -8,7 +9,6 @@ Usage:
   python -m tools.calibrate_gate_params --dataset /tmp/dataset.ndjson --out /tmp/calib.json --w-exec-grid 0.14,0.18,0.22,0.26 --exec-ref-grid 8,10,12 --score-min-grid 0.62,0.65,0.68,0.70
 """
 
-from __future__ import annotations
 
 import argparse
 import json

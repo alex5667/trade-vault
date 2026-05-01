@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Simple TimescaleDB connector for scanner_analytics.
 
@@ -6,7 +7,6 @@ Usage:
   export TRADES_DB_DSN="postgresql://user:pass@host:5432/scanner_analytics"
   from services.analytics_db import fetch_trades_closed
 """
-from __future__ import annotations
 
 import os
 import json
@@ -83,9 +83,9 @@ def _apply_filters(symbol: Optional[str], source: Optional[str]) -> Tuple[str, L
 
 
 def fetch_trades_closed(
-    limit: int = 1000
-    symbol: Optional[str] = None
-    source: Optional[str] = None
+    limit: int = 1000,
+    symbol: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Fetch recent trades_closed sorted by exit_ts desc.
@@ -128,10 +128,10 @@ def fetch_signal_by_id(signal_id: str) -> Optional[Dict[str, Any]]:
 
 
 def fetch_daily_metrics(
-    date: Optional[str] = None
-    symbol: Optional[str] = None
-    source: Optional[str] = None
-    limit: int = 365
+    date: Optional[str] = None,
+    symbol: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: int = 365,
 ) -> List[Dict[str, Any]]:
     """Fetch recent rows from daily_metrics."""
     where_sql, params = _apply_filters(symbol, source)
@@ -154,11 +154,11 @@ def fetch_daily_metrics(
 
 
 def fetch_entry_tag_metrics(
-    date: Optional[str] = None
-    symbol: Optional[str] = None
-    source: Optional[str] = None
-    entry_tag: Optional[str] = None
-    limit: int = 365
+    date: Optional[str] = None,
+    symbol: Optional[str] = None,
+    source: Optional[str] = None,
+    entry_tag: Optional[str] = None,
+    limit: int = 365,
 ) -> List[Dict[str, Any]]:
     """Fetch rows from entry_tag_metrics."""
     where_sql, params = _apply_filters(symbol, source)
@@ -193,87 +193,87 @@ def save_trade_closed(closed: TradeClosed) -> None:
 
     sql = """
         INSERT INTO trades_closed (
-            order_id, sid, strategy, source, symbol, tf, direction
-            entry_ts_ms, exit_ts_ms, entry_price, exit_price, lot, notional_usd
-            pnl_net, pnl_gross, fees, pnl_pct
-            pnl_if_fixed_exit, baseline_exit_reason, baseline_exit_ts_ms, baseline_exit_price
-            tp1_hit, tp2_hit, tp3_hit, tp_hits, tp_before_sl
-            trailing_started, trailing_active, trailing_moves, trailing_profile
-            mfe_pnl, mae_pnl, giveback, missed_profit
-            one_r_money, r_multiple, duration_ms
-            close_reason, close_reason_raw
-            entry_tag, max_favorable_price, max_favorable_ts
-            is_final_close, remaining_qty, status
-            health_l2_stale_ratio_tick, health_l2_stale_ratio_now
-            health_avg_l2_age_ms, health_avg_l2_age_tick_ms
-            health_signal_emit_rate, health_dlq_rate
-            config_json
-            is_virtual
-            meta_enforce_cov_bucket
-            meta_enforce_applied
+            order_id, sid, strategy, source, symbol, tf, direction,
+            entry_ts_ms, exit_ts_ms, entry_price, exit_price, lot, notional_usd,
+            pnl_net, pnl_gross, fees, pnl_pct,
+            pnl_if_fixed_exit, baseline_exit_reason, baseline_exit_ts_ms, baseline_exit_price,
+            tp1_hit, tp2_hit, tp3_hit, tp_hits, tp_before_sl,
+            trailing_started, trailing_active, trailing_moves, trailing_profile,
+            mfe_pnl, mae_pnl, giveback, missed_profit,
+            one_r_money, r_multiple, duration_ms,
+            close_reason, close_reason_raw,
+            entry_tag, max_favorable_price, max_favorable_ts,
+            is_final_close, remaining_qty, status,
+            health_l2_stale_ratio_tick, health_l2_stale_ratio_now,
+            health_avg_l2_age_ms, health_avg_l2_age_tick_ms,
+            health_signal_emit_rate, health_dlq_rate,
+            config_json,
+            is_virtual,
+            meta_enforce_cov_bucket,
+            meta_enforce_applied,
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s
-            %s, %s, %s, %s, %s, %s
-            %s, %s, %s, %s
-            %s, %s, %s, %s
-            %s, %s, %s, %s, %s
-            %s, %s, %s, %s
-            %s, %s, %s, %s
-            %s, %s, %s
-            %s, %s
-            %s, %s, %s
-            %s, %s, %s
-            %s, %s, %s, %s, %s, %s
-            %s
-            %s
-            %s
-            %s
+            %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s,
+            %s, %s,
+            %s, %s, %s,
+            %s, %s, %s,
+            %s, %s, %s, %s, %s, %s,
+            %s,
+            %s,
+            %s,
+            %s,
         )
         ON CONFLICT (order_id) DO NOTHING
     """
 
     sql_p0 = """
         INSERT INTO trades_closed_p0 (
-            order_id
-            exit_ts
-            exit_ts_ms
-            scenario, regime, session, entry_reason
-            mae_bps, mfe_bps, time_to_mfe_ms, hold_ms
-            spread_bps_at_entry, slippage_bps_est, book_age_ms
-            features_json
-            is_virtual
-            meta_enforce_cov_bucket
-            meta_enforce_applied
+            order_id,
+            exit_ts,
+            exit_ts_ms,
+            scenario, regime, session, entry_reason,
+            mae_bps, mfe_bps, time_to_mfe_ms, hold_ms,
+            spread_bps_at_entry, slippage_bps_est, book_age_ms,
+            features_json,
+            is_virtual,
+            meta_enforce_cov_bucket,
+            meta_enforce_applied,
             updated_at
         ) VALUES (
-            %s
-            to_timestamp(%s / 1000.0)
-            %s
-            %s, %s, %s, %s
-            %s, %s, %s, %s
-            %s, %s, %s
-            %s
-            %s
-            %s, %s
+            %s,
+            to_timestamp(%s / 1000.0),
+            %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s,
+            %s,
+            %s,
+            %s, %s,
             now()
         )
         ON CONFLICT (order_id, exit_ts)
         DO UPDATE SET
-            scenario = EXCLUDED.scenario
-            regime = EXCLUDED.regime
-            session = EXCLUDED.session
-            entry_reason = EXCLUDED.entry_reason
-            mae_bps = EXCLUDED.mae_bps
-            mfe_bps = EXCLUDED.mfe_bps
-            time_to_mfe_ms = EXCLUDED.time_to_mfe_ms
-            hold_ms = EXCLUDED.hold_ms
-            spread_bps_at_entry = EXCLUDED.spread_bps_at_entry
-            slippage_bps_est = EXCLUDED.slippage_bps_est
-            book_age_ms = EXCLUDED.book_age_ms
-            features_json = EXCLUDED.features_json
-            is_virtual = EXCLUDED.is_virtual
-            meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket
-            meta_enforce_applied = EXCLUDED.meta_enforce_applied
+            scenario = EXCLUDED.scenario,
+            regime = EXCLUDED.regime,
+            session = EXCLUDED.session,
+            entry_reason = EXCLUDED.entry_reason,
+            mae_bps = EXCLUDED.mae_bps,
+            mfe_bps = EXCLUDED.mfe_bps,
+            time_to_mfe_ms = EXCLUDED.time_to_mfe_ms,
+            hold_ms = EXCLUDED.hold_ms,
+            spread_bps_at_entry = EXCLUDED.spread_bps_at_entry,
+            slippage_bps_est = EXCLUDED.slippage_bps_est,
+            book_age_ms = EXCLUDED.book_age_ms,
+            features_json = EXCLUDED.features_json,
+            is_virtual = EXCLUDED.is_virtual,
+            meta_enforce_cov_bucket = EXCLUDED.meta_enforce_cov_bucket,
+            meta_enforce_applied = EXCLUDED.meta_enforce_applied,
             updated_at = now()
     """
 
@@ -304,25 +304,25 @@ def save_trade_closed(closed: TradeClosed) -> None:
     health_dlq_rate = getattr(closed, 'health_dlq_rate', 0.0)
 
     params = (
-        closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction
-        closed.entry_ts_ms, closed.exit_ts_ms, closed.entry_price, closed.exit_price, closed.lot, closed.notional_usd
-        closed.pnl_net, closed.pnl_gross, closed.fees, closed.pnl_pct
-        closed.pnl_if_fixed_exit, baseline_exit_reason, baseline_exit_ts_ms, baseline_exit_price
-        closed.tp1_hit, closed.tp2_hit, closed.tp3_hit, closed.tp_hits, closed.tp_before_sl
-        closed.trailing_started, closed.trailing_active, closed.trailing_moves, trailing_profile
-        closed.mfe_pnl, closed.mae_pnl, closed.giveback, closed.missed_profit
-        closed.one_r_money, closed.r_multiple, closed.duration_ms
-        closed.close_reason, getattr(closed, 'close_reason_raw', '')
-        entry_tag, max_favorable_price, max_favorable_ts
-        is_final_close, remaining_qty, status
+        closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
+        closed.entry_ts_ms, closed.exit_ts_ms, closed.entry_price, closed.exit_price, closed.lot, closed.notional_usd,
+        closed.pnl_net, closed.pnl_gross, closed.fees, closed.pnl_pct,
+        closed.pnl_if_fixed_exit, baseline_exit_reason, baseline_exit_ts_ms, baseline_exit_price,
+        closed.tp1_hit, closed.tp2_hit, closed.tp3_hit, closed.tp_hits, closed.tp_before_sl,
+        closed.trailing_started, closed.trailing_active, closed.trailing_moves, trailing_profile,
+        closed.mfe_pnl, closed.mae_pnl, closed.giveback, closed.missed_profit,
+        closed.one_r_money, closed.r_multiple, closed.duration_ms,
+        closed.close_reason, getattr(closed, 'close_reason_raw', ''),
+        entry_tag, max_favorable_price, max_favorable_ts,
+        is_final_close, remaining_qty, status,
         # Health metrics
-        health_l2_stale_ratio_tick, health_l2_stale_ratio_now
-        health_avg_l2_age_ms, health_avg_l2_age_tick_ms
-        health_signal_emit_rate, health_dlq_rate
+        health_l2_stale_ratio_tick, health_l2_stale_ratio_now,
+        health_avg_l2_age_ms, health_avg_l2_age_tick_ms,
+        health_signal_emit_rate, health_dlq_rate,
         # Config Json
-        json.dumps(getattr(closed, "signal_payload", {}).get("config_snapshot", {}))
-        getattr(closed, "is_virtual", False)
-        getattr(closed, "meta_enforce_cov_bucket", "")
+        json.dumps(getattr(closed, "signal_payload", {}).get("config_snapshot", {})),
+        getattr(closed, "is_virtual", False),
+        getattr(closed, "meta_enforce_cov_bucket", ""),
         getattr(closed, "meta_enforce_applied", -1)
     )
 
@@ -353,23 +353,23 @@ def save_trade_closed(closed: TradeClosed) -> None:
 
     # whitelist + cap
     ALLOW = {
-        "delta_z","dn_usd","obi","cvd_slope"
-        "absorption_score","weak_progress","vwap_pos"
-        "atr_bps","liq_scale","confidence"
-        "adverse_bps_t"
-        "spread_bps_at_entry","book_age_ms","slippage_bps_est"
-        "data_health", "expected_slippage_bps"
+        "delta_z","dn_usd","obi","cvd_slope",
+        "absorption_score","weak_progress","vwap_pos",
+        "atr_bps","liq_scale","confidence",
+        "adverse_bps_t",
+        "spread_bps_at_entry","book_age_ms","slippage_bps_est",
+        "data_health", "expected_slippage_bps",
         # Slippage decomp / execution risk (P9x)
-        "expected_slippage_decomp_bps", "impact_proxy"
-        "slip_decomp_coeff_bps", "slip_decomp_spread_bps", "slip_decomp_impact_bps"
-        "exec_regime_bucket", "liq_regime_label", "vol_regime_label"
-        "spread_bps_submit", "mid_px_submit"
-        "taker_flow_imb", "taker_flow_imb_z"
+        "expected_slippage_decomp_bps", "impact_proxy",
+        "slip_decomp_coeff_bps", "slip_decomp_spread_bps", "slip_decomp_impact_bps",
+        "exec_regime_bucket", "liq_regime_label", "vol_regime_label",
+        "spread_bps_submit", "mid_px_submit",
+        "taker_flow_imb", "taker_flow_imb_z",
         # Taker-flow contra gate (P9c) — veto/shadow/soft decisions for QA + slippage attribution
-        "taker_flow_gate_veto"
-        "taker_flow_gate_shadow_veto"
-        "taker_flow_gate_soft"
-        "taker_flow_gate_reason"
+        "taker_flow_gate_veto",
+        "taker_flow_gate_shadow_veto",
+        "taker_flow_gate_soft",
+        "taker_flow_gate_reason",
     }
     features = {k: features[k] for k in ALLOW if k in features}
 
@@ -381,15 +381,15 @@ def save_trade_closed(closed: TradeClosed) -> None:
         features = features2  # уже урезали
 
     params_p0 = (
-        closed.order_id
+        closed.order_id,
         closed.exit_ts_ms,  # for exit_ts (to_timestamp)
         closed.exit_ts_ms,  # for exit_ts_ms
-        scenario, regime, session, entry_reason
-        mae_bps, mfe_bps, time_to_mfe_ms, hold_ms
-        spread_bps_at_entry, slippage_bps_est, book_age_ms
+        scenario, regime, session, entry_reason,
+        mae_bps, mfe_bps, time_to_mfe_ms, hold_ms,
+        spread_bps_at_entry, slippage_bps_est, book_age_ms,
         Json(features),  # psycopg2.extras.Json → jsonb безопасно
-        getattr(closed, "is_virtual", False)
-        getattr(closed, "meta_enforce_cov_bucket", "")
+        getattr(closed, "is_virtual", False),
+        getattr(closed, "meta_enforce_cov_bucket", ""),
         getattr(closed, "meta_enforce_applied", -1)
     )
 
@@ -422,14 +422,14 @@ def save_trade_closed(closed: TradeClosed) -> None:
 
 
 def save_autopilot_proposal(
-    sid: str
-    group: str
-    symbol: str
-    regime: str
-    scenario: str
-    winner_arm: str
-    edge_lcb_r: float
-    proposal_json: str
+    sid: str,
+    group: str,
+    symbol: str,
+    regime: str,
+    scenario: str,
+    winner_arm: str,
+    edge_lcb_r: float,
+    proposal_json: str,
 ) -> None:
     """Persist autopilot proposal to DB for audit and manual approval."""
     sql = """
@@ -437,8 +437,8 @@ def save_autopilot_proposal(
             sid, group_name, symbol, regime, scenario, winner_arm, edge_lcb_r, proposal_json, status
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'proposed')
         ON CONFLICT (sid) DO UPDATE SET
-            edge_lcb_r = EXCLUDED.edge_lcb_r
-            proposal_json = EXCLUDED.proposal_json
+            edge_lcb_r = EXCLUDED.edge_lcb_r,
+            proposal_json = EXCLUDED.proposal_json,
             status = 'proposed'
     """
     params = (sid, group, symbol, regime, scenario, winner_arm, edge_lcb_r, proposal_json)

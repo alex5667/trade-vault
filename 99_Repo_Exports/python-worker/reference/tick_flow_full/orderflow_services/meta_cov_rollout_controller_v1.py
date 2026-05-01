@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """meta_cov_rollout_controller_v1.py
 
 P30: Canary rollout for meta ENFORCE by *feature coverage* buckets.
@@ -27,7 +28,6 @@ python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 0  # d
 python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 1
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -236,29 +236,29 @@ def main() -> int:
     base_share = max(0.0, min(1.0, float(base_share)))
 
     desired = {
-        "meta_enforce_per_cov": 1
-        "meta_cov_bucket_a_ge": float(args.cov_a_ge)
-        "meta_cov_bucket_b_ge": float(args.cov_b_ge)
-        "meta_cov_bucket_c_ge": float(args.cov_c_ge)
-        "meta_enforce_share_cov_a": max(0.0, min(1.0, base_share * float(args.mult_a)))
-        "meta_enforce_share_cov_b": max(0.0, min(1.0, base_share * float(args.mult_b)))
-        "meta_enforce_share_cov_c": max(0.0, min(1.0, base_share * float(args.mult_c)))
-        "meta_enforce_share_cov_d": max(0.0, min(1.0, base_share * float(args.mult_d)))
+        "meta_enforce_per_cov": 1,
+        "meta_cov_bucket_a_ge": float(args.cov_a_ge),
+        "meta_cov_bucket_b_ge": float(args.cov_b_ge),
+        "meta_cov_bucket_c_ge": float(args.cov_c_ge),
+        "meta_enforce_share_cov_a": max(0.0, min(1.0, base_share * float(args.mult_a))),
+        "meta_enforce_share_cov_b": max(0.0, min(1.0, base_share * float(args.mult_b))),
+        "meta_enforce_share_cov_c": max(0.0, min(1.0, base_share * float(args.mult_c))),
+        "meta_enforce_share_cov_d": max(0.0, min(1.0, base_share * float(args.mult_d))),
     }
 
     decision = {
-        "ts_ms": now_ms()
-        "stream": str(args.stream)
-        "lookback_min": int(args.lookback_min)
-        "n": int(len(covs))
-        "p10": float(p10)
-        "p50": float(p50)
-        "bad_rate_lt_c": float(bad_rate)
-        "bucket_counts": bucket_counts
-        "base_share": float(base_share)
-        "desired": desired
-        "min_hold_sec": int(args.min_hold_sec)
-        "too_soon": bool(too_soon)
+        "ts_ms": now_ms(),
+        "stream": str(args.stream),
+        "lookback_min": int(args.lookback_min),
+        "n": int(len(covs)),
+        "p10": float(p10),
+        "p50": float(p50),
+        "bad_rate_lt_c": float(bad_rate),
+        "bucket_counts": bucket_counts,
+        "base_share": float(base_share),
+        "desired": desired,
+        "min_hold_sec": int(args.min_hold_sec),
+        "too_soon": bool(too_soon),
     }
 
     patch = dict(desired)
@@ -268,12 +268,12 @@ def main() -> int:
     ok_to_apply = bool(args.force) or (not too_soon)
 
     report = {
-        "ok": True
-        "apply": bool(int(args.apply) == 1 and ok_to_apply)
-        "ok_to_apply": ok_to_apply
-        "reason": "min_hold" if (too_soon and not args.force) else "ok"
-        "decision": decision
-        "patch": patch
+        "ok": True,
+        "apply": bool(int(args.apply) == 1 and ok_to_apply),
+        "ok_to_apply": ok_to_apply,
+        "reason": "min_hold" if (too_soon and not args.force) else "ok",
+        "decision": decision,
+        "patch": patch,
     }
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=False))
 

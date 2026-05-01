@@ -30,13 +30,13 @@ def _json_dumps_safe(obj: Any) -> str:
 
 
 def _build_iceberg_signal_payload(
-    *
-    symbol: str
-    direction: str
-    price: float
-    state: Any
-    level_info: Dict[str, Any]
-    atr: float = 0.0
+    *,
+    symbol: str,
+    direction: str,
+    price: float,
+    state: Any,
+    level_info: Dict[str, Any],
+    atr: float = 0.0,
 ) -> Dict[str, Any]:
     """
     Build a payload in a strictly JSON-friendly shape.
@@ -76,32 +76,32 @@ def _build_iceberg_signal_payload(
     # We keep it, and also provide confidence_pct for unified consumers (0..100).
     conf01 = 0.8
     payload: Dict[str, Any] = {
-        "sid": sid
+        "sid": sid,
         "signal_id": sid,          # canonical mirror for unified consumers
         "trace_id": sid,           # correlation id for DecisionTrace
-        "symbol": symbol
+        "symbol": symbol,
         "direction": direction,     # legacy
         "side": direction,          # normalized mirror (LONG/SHORT)
         "kind": "iceberg",          # normalized kind for unified pipeline
         "entry": float(price),      # legacy
         "entry_price": float(price),# normalized mirror
         "price": float(price),      # normalized mirror (audit-friendly)
-        "type": "orderflow"
-        "subtype": "iceberg"
+        "type": "orderflow",
+        "subtype": "iceberg",
         "confidence": float(conf01),               # legacy scale 0..1
         "confidence_pct": float(conf01 * 100.0),   # unified scale 0..100
         "ts": ts_ms,     # legacy (ms in this detector)
         "ts_ms": ts_ms,  # explicit epoch ms
-        "sl": sl
-        "tp_levels": [tp1, tp2]
+        "sl": sl,
+        "tp_levels": [tp1, tp2],
         "metadata": {
             "iceberg": {
-                "level_kind": level_info.get("kind")
-                "level_price": level_info.get("price")
-                "refresh_count": getattr(state, "refresh_count", None)
-                "visible_qty": getattr(state, "visible_qty", None)
-                "duration_sec": float(time.time() - float(getattr(state, "since_ts", time.time()) or time.time()))
-                "atr_used": atr_safe
+                "level_kind": level_info.get("kind"),
+                "level_price": level_info.get("price"),
+                "refresh_count": getattr(state, "refresh_count", None),
+                "visible_qty": getattr(state, "visible_qty", None),
+                "duration_sec": float(time.time() - float(getattr(state, "since_ts", time.time()) or time.time())),
+                "atr_used": atr_safe,
             }
         }
     }
@@ -111,10 +111,10 @@ def _build_iceberg_signal_payload(
 
 
 def create_redis_client_with_retry(
-    redis_url: str
-    decode_responses: bool = False
-    max_retries: int = 40
-    retry_delay: float = 2.0
+    redis_url: str,
+    decode_responses: bool = False,
+    max_retries: int = 40,
+    retry_delay: float = 2.0,
     client_name: str = "redis"
 ) -> redis.Redis:
     """
@@ -123,10 +123,10 @@ def create_redis_client_with_retry(
     for attempt in range(max_retries):
         try:
             client = redis.Redis.from_url(
-                redis_url
-                decode_responses=decode_responses
-                socket_connect_timeout=30
-                socket_timeout=120
+                redis_url,
+                decode_responses=decode_responses,
+                socket_connect_timeout=30,
+                socket_timeout=120,
                 health_check_interval=30
             )
             client.ping()
@@ -508,12 +508,12 @@ class BinanceIcebergDetector:
 
         # Сконцентрируем контракт в одном месте (у вас уже есть helper сверху файла)
         signal_payload = _build_iceberg_signal_payload(
-            symbol=str(self.symbol)
-            direction=str(direction or "").upper()
-            price=float(price)
-            state=state
-            level_info=level_info
-            atr=atr_val
+            symbol=str(self.symbol),
+            direction=str(direction or "").upper(),
+            price=float(price),
+            state=state,
+            level_info=level_info,
+            atr=atr_val,
         )
 
         # Outbox envelope (notify/raw + optional snapshot signals:{sid})
@@ -555,14 +555,14 @@ class BinanceIcebergDetector:
                     meta_obj = None
 
                 atomic_xadd_sync(
-                    self.r_core
-                    stream_key=str(outbox_stream)
-                    signal_id=str(sid)
+                    self.r_core,
+                    stream_key=str(outbox_stream),
+                    signal_id=str(sid),
                     payload_obj=env,  # envelope dict
-                    kind=str(env.get("kind") or "iceberg")
-                    symbol=str(env.get("symbol") or "")
-                    ts=str(env.get("ts_ms") or "")
-                    meta_obj=meta_obj
+                    kind=str(env.get("kind") or "iceberg"),
+                    symbol=str(env.get("symbol") or ""),
+                    ts=str(env.get("ts_ms") or ""),
+                    meta_obj=meta_obj,
                 )
                 log.info("🧊 Iceberg outbox env: %s %s @ %.2f", self.symbol, direction, price)
             except Exception as e:
@@ -581,15 +581,15 @@ class BinanceIcebergDetector:
             pub = SyncSignalPublisher(redis_client=self.r_core, source="IcebergDetector", metrics_prefix="iceberg_publish", logger=log)
             if RAW_SIGNAL_STREAM:
                 pub.xadd_json(
-                    sink=StreamSink(name=str(RAW_SIGNAL_STREAM), field="payload", maxlen=2000)
-                    payload=signal_payload
-                    symbol=str(self.symbol)
+                    sink=StreamSink(name=str(RAW_SIGNAL_STREAM), field="payload", maxlen=2000),
+                    payload=signal_payload,
+                    symbol=str(self.symbol),
                 )
             if NOTIFY_STREAM:
                 pub.xadd_json(
-                    sink=StreamSink(name=str(NOTIFY_STREAM), field="payload", maxlen=1000)
-                    payload=signal_payload
-                    symbol=str(self.symbol)
+                    sink=StreamSink(name=str(NOTIFY_STREAM), field="payload", maxlen=1000),
+                    payload=signal_payload,
+                    symbol=str(self.symbol),
                 )
             order_payload = self.order_builder.build_order_from_signal(signal_payload)
             self.r_core.lpush(ORDERS_QUEUE, json.dumps(order_payload, ensure_ascii=False, default=str))
@@ -625,17 +625,17 @@ def main():
 
     try:
         r_core = create_redis_client_with_retry(
-            redis_core_url
-            decode_responses=False
-            max_retries=40
-            retry_delay=2.0
+            redis_core_url,
+            decode_responses=False,
+            max_retries=40,
+            retry_delay=2.0,
             client_name="Redis-core"
         )
         r_ticks = create_redis_client_with_retry(
-            redis_ticks_url
-            decode_responses=False
-            max_retries=40
-            retry_delay=2.0
+            redis_ticks_url,
+            decode_responses=False,
+            max_retries=40,
+            retry_delay=2.0,
             client_name="Redis-ticks"
         )
     except Exception as e:

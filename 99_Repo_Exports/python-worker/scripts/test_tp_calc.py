@@ -19,10 +19,10 @@ atr = 31.73
 
 print("\n--- Testing ROCKET_V1 regime override ---")
 sl, tps, lot, out_atr, atr_meta = pipeline._calculate_levels(
-    runtime=runtime
-    entry=entry
-    side=direction
-    indicators=indicators
+    runtime=runtime,
+    entry=entry,
+    side=direction,
+    indicators=indicators,
     trail_profile="rocket_v1"
 )
 

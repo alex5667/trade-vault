@@ -65,11 +65,11 @@ def test_reconcile_uses_user_stream_cache_first():
     ex = _mk_exec()
     ex.r.set('orders:user_stream:order:cid-1', json.dumps({'order': {'i': 55, 'c': 'cid-1', 'X': 'FILLED', 'z': '1'}}))
     out = ex._reconcile_execution_status(
-        sid='sid-1'
-        symbol='BTCUSDT'
-        action='open'
-        client=DummyClient()
-        plain_client_id='cid-1'
+        sid='sid-1',
+        symbol='BTCUSDT',
+        action='open',
+        client=DummyClient(),
+        plain_client_id='cid-1',
     )
     assert out['orderId'] == 55
     assert out['clientOrderId'] == 'cid-1'

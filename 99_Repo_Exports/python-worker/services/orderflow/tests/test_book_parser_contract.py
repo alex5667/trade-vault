@@ -22,8 +22,8 @@ class TestBookParserContract(unittest.TestCase):
 
     def test_wrapper_accepts_symbol_arg(self):
         book = OrderFlowParsing.parse_book_payload(
-            {"ts": 1700000000000, "bids": [["50000.0", "1.0"]], "asks": [["50001.0", "1.0"]]}
-            "BTCUSDT"
+            {"ts": 1700000000000, "bids": [["50000.0", "1.0"]], "asks": [["50001.0", "1.0"]]},
+            "BTCUSDT",
         )
         self.assertIsNotNone(book)
         self.assertEqual(book["symbol"], "BTCUSDT")
@@ -31,11 +31,11 @@ class TestBookParserContract(unittest.TestCase):
 
     def test_wrapper_propagates_ts_from_redis_payload(self):
         raw = {
-            "symbol": "BTCUSDT"
-            "ts": "1776510205261"
-            "bids": '[["76020.00","78.145"]]'
-            "asks": '[["76020.10","8.762"]]'
-            "u": "10355273119130"
+            "symbol": "BTCUSDT",
+            "ts": "1776510205261",
+            "bids": '[["76020.00","78.145"]]',
+            "asks": '[["76020.10","8.762"]]',
+            "u": "10355273119130",
         }
         book = OrderFlowParsing.parse_book_payload(raw, "BTCUSDT")
         self.assertIsNotNone(book)
@@ -65,8 +65,8 @@ class TestBookParserContract(unittest.TestCase):
             util_sig = inspect.signature(util_func)
 
             self.assertEqual(
-                len(wrapper_sig.parameters)
-                len(util_sig.parameters)
+                len(wrapper_sig.parameters),
+                len(util_sig.parameters),
                 f"Arity drift! OrderFlowParsing.{name} has {len(wrapper_sig.parameters)} but utils.{util_name} has {len(util_sig.parameters)}"
             )
 

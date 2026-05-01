@@ -1,3 +1,4 @@
+from __future__ import annotations
 """atr_horizon_trailing_canary.py — Phase 2.6: canary router for trailing offset surface.
 
 Separate from the gate canary (atr_horizon_canary.py / ATR_HORIZON_GATE_MODE).
@@ -16,7 +17,6 @@ ENV:
 
 Rollback: ATR_HORIZON_TRAILING_MODE=shadow  →  instant, no code deploy.
 """
-from __future__ import annotations
 
 import hashlib
 import os

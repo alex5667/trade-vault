@@ -237,9 +237,9 @@ class FundingDataHandler:
                     continue
             
             return {
-                'total': total_count
-                'positive': positive_count
-                'negative': negative_count
+                'total': total_count,
+                'positive': positive_count,
+                'negative': negative_count,
                 'neutral': total_count - positive_count - negative_count
             }
             

@@ -23,16 +23,16 @@ except Exception as e:
 
 
 BASE_ROW = {
-    "sid": "test-sid-001"
-    "decision_ts_ms": 1_700_000_000_000
-    "symbol": "BTCUSDT"
-    "venue": "binance"
-    "session": "london"
-    "tf": "5m"
-    "kind": "breakout"
-    "side": "LONG"
-    "direction": "LONG"
-    "tca_ready": True
+    "sid": "test-sid-001",
+    "decision_ts_ms": 1_700_000_000_000,
+    "symbol": "BTCUSDT",
+    "venue": "binance",
+    "session": "london",
+    "tf": "5m",
+    "kind": "breakout",
+    "side": "LONG",
+    "direction": "LONG",
+    "tca_ready": True,
 }
 
 

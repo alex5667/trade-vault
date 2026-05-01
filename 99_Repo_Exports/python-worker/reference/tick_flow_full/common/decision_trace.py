@@ -16,7 +16,7 @@ DecisionTrace v2 (сквозной, fail-open)
 
 Контракт безопасности:
   - build_outbox_envelope(...) должен возвращать env без trace/events.
-  - dispatcher может держать bounded trace в env["trace"] ТОЛЬКО для ретраев/DLQ
+  - dispatcher может держать bounded trace в env["trace"] ТОЛЬКО для ретраев/DLQ,
     но bounded (max_events/max_bytes) и не для трейдинга.
 """
 
@@ -549,7 +549,7 @@ class DecisionTrace:
     trace_id: str = ""
     created_ts_ms: int = 0
     sid: str = ""
-    symbol: str = ""
+    symbol=""
     kind: str = ""
     tags: Dict[str, Any] = field(default_factory=dict)
     events: List[EventDict] = field(default_factory=list)
@@ -558,9 +558,9 @@ class DecisionTrace:
     def new(*, sid: str = "", trace_id: str = "") -> "DecisionTrace":
         tid = str(trace_id or "").strip() or uuid.uuid4().hex
         return DecisionTrace(
-            trace_id=tid
-            created_ts_ms=_now_ms()
-            sid=str(sid or "")
+            trace_id=tid,
+            created_ts_ms=_now_ms(),
+            sid=str(sid or ""),
         )
 
     @staticmethod
@@ -587,17 +587,17 @@ class DecisionTrace:
             return DecisionTrace.new(sid=str(env.get("sid") or ""), trace_id=str(env.get("trace_id") or ""))
 
     def add(
-        self
-        *
-        where: str
-        name: str
-        ok: bool
-        veto: bool = False
-        reason_code: str = ""
-        metrics: Optional[Dict[str, Any]] = None
-        duration_ms: Optional[float] = None
-        etype: str = "gate"
-        extra: Optional[Dict[str, Any]] = None
+        self,
+        *,
+        where: str,
+        name: str,
+        ok: bool,
+        veto: bool = False,
+        reason_code: str = "",
+        metrics: Optional[Dict[str, Any]] = None,
+        duration_ms: Optional[float] = None,
+        etype: str = "gate",
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Универсальный event.
@@ -605,10 +605,10 @@ class DecisionTrace:
         """
         try:
             ev: Dict[str, Any] = {
-                "type": str(etype or "")
-                "stage": str(where or "")
-                "name": str(name or "")
-                "t_ms": _now_ms()
+                "type": str(etype or ""),
+                "stage": str(where or ""),
+                "name": str(name or ""),
+                "t_ms": _now_ms(),
             }
             if etype == "gate":
                 ev["passed"] = bool(ok) and (not bool(veto))
@@ -655,13 +655,13 @@ class DecisionTrace:
             mx = int(max_events) if isinstance(max_events, int) and max_events > 0 else int(_cfg_refresh_if_needed().get("max_events", 400))
             evs = _cap_events([e for e in self.events if isinstance(e, dict)], mx)
             return {
-                "trace_id": str(self.trace_id or "")
-                "created_ts_ms": int(self.created_ts_ms or 0)
-                "sid": str(self.sid or "")
-                "symbol": str(self.symbol or "")
-                "kind": str(self.kind or "")
-                "tags": dict(self.tags or {})
-                "events": evs
+                "trace_id": str(self.trace_id or ""),
+                "created_ts_ms": int(self.created_ts_ms or 0),
+                "sid": str(self.sid or ""),
+                "symbol": str(self.symbol or ""),
+                "kind": str(self.kind or ""),
+                "tags": dict(self.tags or {}),
+                "events": evs,
             }
         except Exception:
             return {"trace_id": str(self.trace_id or ""), "sid": str(self.sid or ""), "events": []}
@@ -919,10 +919,10 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def to_dict_bounded(
-    trace: Union[DecisionTrace, Dict[str, Any], None]
-    *
-    max_events: int = 64
-    max_bytes: int = 16_000
+    trace: Union[DecisionTrace, Dict[str, Any], None],
+    *,
+    max_events: int = 64,
+    max_bytes: int = 16_000,
 ) -> Dict[str, Any]:
     """
     Bounded trace dict for retry/DLQ context.
@@ -954,10 +954,10 @@ def to_dict_bounded(
         s = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
         if len(s.encode("utf-8", "ignore")) > max_bytes:
             return {
-                "trace_id": d.get("trace_id", "")
-                "sid": d.get("sid", "")
-                "trace_too_large": True
-                "events_truncated": len(d.get("events") or [])
+                "trace_id": d.get("trace_id", ""),
+                "sid": d.get("sid", ""),
+                "trace_too_large": True,
+                "events_truncated": len(d.get("events") or []),
             }
     except Exception:
         return
@@ -1028,10 +1028,10 @@ def build_sidecar_meta(trace: Union[DecisionTrace, Dict[str, Any]]) -> Dict[str,
     """
     Canonical sidecar meta (diagnostics-only):
       {
-        "schema": "..."
-        "trace_id": "..."
-        "trace_summary": "..."
-        "decision_trace": { ... full trace/events ... }
+        "schema": "...",
+        "trace_id": "...",
+        "trace_summary": "...",
+        "decision_trace": { ... full trace/events ... },
         "updated_ms": ...
       }
     """
@@ -1045,14 +1045,14 @@ def build_sidecar_meta(trace: Union[DecisionTrace, Dict[str, Any]]) -> Dict[str,
             d = trace if isinstance(trace, dict) else {}
 
         meta: Dict[str, Any] = {
-            "schema": "decision_trace_sidecar:v1"
-            "trace_id": str(d.get("trace_id") or "")
-            "trace_summary": make_trace_summary(d)
+            "schema": "decision_trace_sidecar:v1",
+            "trace_id": str(d.get("trace_id") or ""),
+            "trace_summary": make_trace_summary(d),
             # COMPAT: dispatcher historically expects "trace" key.
             # Keep BOTH to avoid breaking mixed deployments/tests.
-            "trace": d
-            "decision_trace": d
-            "updated_ms": _now_ms()
+            "trace": d,
+            "decision_trace": d,
+            "updated_ms": _now_ms(),
         }
 
         # hard size guard
@@ -1086,7 +1086,7 @@ def _sanitize_event_dict(ev: Dict[str, Any]) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         # keep predictable subset first (common keys for target/gate)
         preferred = (
-            "type","stage","name","ok","passed","veto","reason_code"
+            "type","stage","name","ok","passed","veto","reason_code",
             "duration_ms","t_ms","target","err","error","attempt"
         )
         for k in preferred:
@@ -1176,16 +1176,16 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def env_trace_append(
-    env: Dict[str, Any]
-    *
-    trace_id: str
-    stage: str
-    name: str
-    passed: bool
-    veto: bool
-    reason_code: str = ""
-    metrics: Optional[Dict[str, Any]] = None
-    duration_ms: Optional[float] = None
+    env: Dict[str, Any],
+    *,
+    trace_id: str,
+    stage: str,
+    name: str,
+    passed: bool,
+    veto: bool,
+    reason_code: str = "",
+    metrics: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[float] = None,
 ) -> None:
     """
     Dispatcher-friendly helper: дописывает event в env["trace"] (bounded later).
@@ -1203,13 +1203,13 @@ def env_trace_append(
             evs = []
             tr["events"] = evs
         ev: Dict[str, Any] = {
-            "type": "gate"
-            "stage": str(stage or "")
-            "name": str(name or "")
-            "passed": bool(passed) and (not bool(veto))
-            "veto": bool(veto)
-            "reason_code": str(reason_code or ("OK" if passed else "VETO"))
-            "t_ms": _now_ms()
+            "type": "gate",
+            "stage": str(stage or ""),
+            "name": str(name or ""),
+            "passed": bool(passed) and (not bool(veto)),
+            "veto": bool(veto),
+            "reason_code": str(reason_code or ("OK" if passed else "VETO")),
+            "t_ms": _now_ms(),
         }
         if duration_ms is not None:
             ev["duration_ms"] = float(duration_ms)
@@ -1280,27 +1280,27 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def append_env_trace_event(
-    env: Dict[str, Any]
-    *
-    stage: str
-    name: str
-    passed: bool
-    veto: bool
-    reason_code: str = ""
-    metrics: Optional[Dict[str, Any]] = None
+    env: Dict[str, Any],
+    *,
+    stage: str,
+    name: str,
+    passed: bool,
+    veto: bool,
+    reason_code: str = "",
+    metrics: Optional[Dict[str, Any]] = None,
 ) -> None:
     # alias for existing call sites
     try:
         tid = str(env.get("trace_id") or env.get("corr_id") or env.get("correlation_id") or env.get("sid") or "")
         env_trace_append(
-            env
-            trace_id=tid
-            stage=stage
-            name=name
-            passed=passed
-            veto=veto
-            reason_code=reason_code
-            metrics=metrics
+            env,
+            trace_id=tid,
+            stage=stage,
+            name=name,
+            passed=passed,
+            veto=veto,
+            reason_code=reason_code,
+            metrics=metrics,
         )
     except Exception:
         return
@@ -1366,29 +1366,29 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def trace_gate(
-    ctx: Any
-    *
-    stage: str
-    name: str
-    passed: bool
-    veto: bool
-    reason_code: str = ""
-    metrics: Optional[Dict[str, Any]] = None
-    duration_ms: Optional[float] = None
+    ctx: Any,
+    *,
+    stage: str,
+    name: str,
+    passed: bool,
+    veto: bool,
+    reason_code: str = "",
+    metrics: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[float] = None,
 ) -> None:
     if not trace_enabled():
         return
     try:
         tr = ensure_trace(ctx)
         tr.add(
-            where=stage
-            name=name
-            ok=bool(passed) and (not bool(veto))
-            veto=bool(veto)
-            reason_code=reason_code
-            metrics=metrics
-            duration_ms=duration_ms
-            etype="gate"
+            where=stage,
+            name=name,
+            ok=bool(passed) and (not bool(veto)),
+            veto=bool(veto),
+            reason_code=reason_code,
+            metrics=metrics,
+            duration_ms=duration_ms,
+            etype="gate",
         )
     except Exception:
         return
@@ -1454,29 +1454,29 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def trace_target(
-    ctx: Any
-    *
-    stage: str
-    target: str
-    ok: bool
-    reason_code: str = ""
-    metrics: Optional[Dict[str, Any]] = None
-    duration_ms: Optional[float] = None
+    ctx: Any,
+    *,
+    stage: str,
+    target: str,
+    ok: bool,
+    reason_code: str = "",
+    metrics: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[float] = None,
 ) -> None:
     if not trace_enabled():
         return
     try:
         tr = ensure_trace(ctx)
         tr.add(
-            where=stage
-            name=str(target)
-            ok=bool(ok)
-            veto=False
-            reason_code=reason_code
-            metrics=metrics
-            duration_ms=duration_ms
-            etype="target"
-            extra={"target": str(target)}
+            where=stage,
+            name=str(target),
+            ok=bool(ok),
+            veto=False,
+            reason_code=reason_code,
+            metrics=metrics,
+            duration_ms=duration_ms,
+            etype="target",
+            extra={"target": str(target)},
         )
     except Exception:
         return
@@ -1697,53 +1697,53 @@ def build_trace_summary(tr: Union[DecisionTrace, Dict[str, Any]]) -> str:
     return make_trace_summary(tr)
 
 def trace_gate(
-    ctx: Any
-    *
-    stage: str
-    name: str
-    passed: bool
-    veto: bool = False
-    reason_code: str = ""
-    metrics: Optional[Dict[str, Any]] = None
-    duration_ms: Optional[float] = None
+    ctx: Any,
+    *,
+    stage: str,
+    name: str,
+    passed: bool,
+    veto: bool = False,
+    reason_code: str = "",
+    metrics: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[float] = None,
 ) -> None:
     ensure_trace(ctx).add(
-        where=stage
-        name=name
-        ok=passed
-        veto=veto
-        reason_code=reason_code
-        metrics=metrics
-        duration_ms=duration_ms
-        etype="gate"
+        where=stage,
+        name=name,
+        ok=passed,
+        veto=veto,
+        reason_code=reason_code,
+        metrics=metrics,
+        duration_ms=duration_ms,
+        etype="gate",
     )
 
 def emit_trace_event(
-    ctx: Any
-    *
-    where: str
-    name: str
-    ok: bool
-    veto: bool = False
-    reason_code: str = ""
-    metrics: Optional[Dict[str, Any]] = None
-    duration_ms: Optional[float] = None
-    etype: str = "generic"
+    ctx: Any,
+    *,
+    where: str,
+    name: str,
+    ok: bool,
+    veto: bool = False,
+    reason_code: str = "",
+    metrics: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[float] = None,
+    etype: str = "generic",
 ) -> None:
     ensure_trace(ctx).add(
-        where=where
-        name=name
-        ok=ok
-        veto=veto
-        reason_code=reason_code
-        metrics=metrics
-        duration_ms=duration_ms
-        etype=etype
+        where=where,
+        name=name,
+        ok=ok,
+        veto=veto,
+        reason_code=reason_code,
+        metrics=metrics,
+        duration_ms=duration_ms,
+        etype=etype,
     )
 
 def merge_trace_events(
-    trace: Dict[str, Any]
-    patch_events: List[Dict[str, Any]]
+    trace: Dict[str, Any],
+    patch_events: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     # Simple merge for tests
     out = dict(trace)

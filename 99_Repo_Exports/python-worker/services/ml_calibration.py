@@ -46,7 +46,7 @@ class PlattLogitCalibrator:
     Calibrator on probability space using logit(p):
       p_cal = sigmoid(a * logit(p_raw) + b)
 
-    Это эквивалент "temperature scaling" (если b=0) и Platt scaling (если a,b оба обучаемые)
+    Это эквивалент "temperature scaling" (если b=0) и Platt scaling (если a,b оба обучаемые),
     но работает напрямую по p_raw (не требуя доступа к исходным logits модели).
 
     Parameters:
@@ -83,9 +83,9 @@ class PlattLogitCalibrator:
         Deserialize calibrator from dict (loaded from Redis cfg).
         """
         return PlattLogitCalibrator(
-            a=float(d.get("a", 1.0) or 1.0)
-            b=float(d.get("b", 0.0) or 0.0)
-            eps=float(d.get("eps", 1e-6) or 1e-6)
+            a=float(d.get("a", 1.0) or 1.0),
+            b=float(d.get("b", 0.0) or 0.0),
+            eps=float(d.get("eps", 1e-6) or 1e-6),
         )
 
 
@@ -168,7 +168,7 @@ def fit_platt_logit(probs: List[float], y: List[int], *, l2: float = 1e-3, max_i
     
     Minimizes: NLL + 0.5*l2*(a^2+b^2)
     
-    Uses L-BFGS-B optimization on feature x=logit(p_raw) to predict y
+    Uses L-BFGS-B optimization on feature x=logit(p_raw) to predict y,
     avoiding the divergence risks of unbounded Newton iteration on highly separated data.
     
     Parameters:

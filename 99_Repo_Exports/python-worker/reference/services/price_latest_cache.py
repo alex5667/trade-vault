@@ -18,15 +18,15 @@ def _safe_float(x: Any, d: float = 0.0) -> float:
 
 
 def write_price_latest(
-    redis_client: Any
-    *
-    symbol: str
-    ts_ms: Any
-    bid: Any = None
-    ask: Any = None
-    last: Any = None
-    mid: Optional[Any] = None
-    venue: str = "na"
+    redis_client: Any,
+    *,
+    symbol: str,
+    ts_ms: Any,
+    bid: Any = None,
+    ask: Any = None,
+    last: Any = None,
+    mid: Optional[Any] = None,
+    venue: str = "na",
 ) -> None:
     """
     Fail-open latest price cache for cross-symbol features (SMT/coherence, drift alarm).
@@ -86,9 +86,9 @@ def write_price_latest(
             spread_bps = 0.0
 
         mapping: Dict[str, str] = {
-            "mid": f"{float(m):.10f}"
-            "ts_ms": str(int(tsm))
-            "venue": str(venue or "na")
+            "mid": f"{float(m):.10f}",
+            "ts_ms": str(int(tsm)),
+            "venue": str(venue or "na"),
         }
 
         # Optional raw fields for debugging/audit. Controlled via env (default on).

@@ -24,10 +24,10 @@ class ScoringConfig:
     # веса метрик в комбинированном q
     metric_weights: Dict[str, float] = field(
         default_factory=lambda: {
-            "delta_spike_z": 1.0
-            "obi": 0.7
-            "weak_progress": 0.5
-            "atr_quantile": 0.3
+            "delta_spike_z": 1.0,
+            "obi": 0.7,
+            "weak_progress": 0.5,
+            "atr_quantile": 0.3,
         }
     )
 

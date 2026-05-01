@@ -6,7 +6,7 @@ Tick Ingest Server v2 - FastAPI сервис для приема тиков и D
 - Прием POST запросов от MQL5 EA с тиковыми данными (/tick)
 - Прием POST запросов с Order Book данными (/book) - NEW v2
 - Валидация структуры данных
-- Публикация в Redis Streams (stream:tick_XAUUSD, stream:book_XAUUSD)
+- Публикация в Redis Streams (stream:tick_ stream:book_)
 - Кеширование последнего DOM snapshot (book:latest:<SYMBOL>)
 - Поддержка DualRedisClient для устойчивости
 - Метрики и мониторинг
@@ -62,7 +62,7 @@ BOOK_STREAM = XAU_BOOK_STREAM
 MAXLEN = XAU_TICK_STREAM_MAXLEN
 BOOK_MAXLEN = XAU_BOOK_STREAM_MAXLEN
 USE_MAXLEN = os.getenv("XAU_TICK_USE_MAXLEN", "true").lower() in ("true", "1", "yes")
-ALLOW_SYMBOLS = {sym.strip().upper() for sym in os.getenv("ALLOW_SYMBOLS", "XAUUSD,BTCUSDT,ETHUSDT").split(",") if sym.strip()}
+ALLOW_SYMBOLS = {sym.strip().upper() for sym in os.getenv("ALLOW_SYMBOLS", ",BTCUSDT,ETHUSDT").split(",") if sym.strip()}
 
 
 
@@ -182,7 +182,7 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
         "last": 1880.60,          // last цена сделки
         "volume": 10.5,           // объем
         "flags": 2,               // флаги направления
-        "symbol": "XAUUSD"        // символ
+        "symbol": ""        // символ
     }
     """
     global stats
@@ -335,7 +335,7 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
                 "last": float(data["last"]),
                 "volume": float(data["volume"]),
                 "flags": int(data["flags"]),
-                "symbol": symbol
+                "symbol": symbol,
             }
         except (ValueError, TypeError) as e:
             stats["errors"] += 1
@@ -359,9 +359,9 @@ async def receive_tick(request: Request) -> Dict[str, Any]:
             )
         
         try:
-            # 🎯 Для XAUUSD используем ticks_redis_client для записи в redis-ticks
+            # 🎯 Для  используем ticks_redis_client для записи в redis-ticks
             # Формируем stream name динамически для поддержки разных символов
-            tick_stream_name = f"stream:tick_{symbol}" if symbol != "XAUUSD" else STREAM
+            tick_stream_name = f"stream:tick_{symbol}" if symbol != "" else STREAM
             payload = {"data": json.dumps(tick_data)}
             
             if USE_MAXLEN:
@@ -459,7 +459,7 @@ async def receive_book(request: Request) -> Dict[str, Any]:
     Ожидаемый JSON:
     {
         "ts": 1698765432000,      // timestamp в миллисекундах
-        "symbol": "XAUUSD",       // символ
+        "symbol":       // символ
         "bids": [                 // bid уровни (сортированы по убыванию цены)
             [1880.50, 100.5],     // [price, volume]
             [1880.45, 50.0],
@@ -635,7 +635,7 @@ async def receive_book(request: Request) -> Dict[str, Any]:
             get_ticks_client().set(cache_key, book_json)
             
             # Формируем stream name динамически для поддержки разных символов
-            book_stream = f"stream:book_{symbol}" if symbol != "XAUUSD" else BOOK_STREAM
+            book_stream = f"stream:book_{symbol}" if symbol != "" else BOOK_STREAM
             payload = {"data": book_json}
             
             if USE_MAXLEN:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Replay OFC capture (NDJSON) to validate determinism and snapshot completeness.
 
@@ -9,7 +10,6 @@ Notes:
 - Expects each NDJSON row to contain: symbol, tf, direction, tick_ts_ms, price, delta_z, indicators, absorption, runtime_snapshot, cfg
 - Produces rows with: ofc (dict), ok (int), reason (str), missing_snapshot (list)
 """
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Execution Router — Variant B intent→queue pre-processor.
 
 Reads from ``orders:intent:binance`` (BLPOP), applies routing logic:
@@ -29,7 +30,6 @@ ENV (P1-8 additions):
       If owner has been in PROTECTION_ARMING longer than this (ms), block
       scale-in regardless of reconcile_first flag — position may be unprotected.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Drop-group ablation for E-block (Hawkes/VPIN/limit-add) + auto-denylist.
 
 Offline only (no runtime changes).
@@ -10,7 +11,6 @@ Outputs (out_dir)
   - denylist_autogen.txt
 """
 
-from __future__ import annotations
 
 import argparse
 import csv
@@ -106,15 +106,15 @@ def _fit_model(model_name: str, random_state: int) -> Pipeline:
     if m in ("lr", "logreg", "logit"):
         return Pipeline(
             steps=[
-                ("imp", SimpleImputer(strategy="median"))
-                ("scaler", StandardScaler(with_mean=True))
+                ("imp", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler(with_mean=True)),
                 (
-                    "clf"
+                    "clf",
                     LogisticRegression(
-                        solver="lbfgs"
-                        max_iter=800
-                        class_weight="balanced"
-                        random_state=random_state
+                        solver="lbfgs",
+                        max_iter=800,
+                        class_weight="balanced",
+                        random_state=random_state,
                     )
                 )
             ]
@@ -122,15 +122,15 @@ def _fit_model(model_name: str, random_state: int) -> Pipeline:
     if m in ("gbdt", "hgb", "hist"):
         return Pipeline(
             steps=[
-                ("imp", SimpleImputer(strategy="median"))
+                ("imp", SimpleImputer(strategy="median")),
                 (
-                    "clf"
+                    "clf",
                     HistGradientBoostingClassifier(
-                        max_depth=6
-                        max_leaf_nodes=31
-                        learning_rate=0.06
-                        max_iter=300
-                        random_state=random_state
+                        max_depth=6,
+                        max_leaf_nodes=31,
+                        learning_rate=0.06,
+                        max_iter=300,
+                        random_state=random_state,
                     )
                 )
             ]
@@ -217,9 +217,9 @@ def main() -> int:
     ap.add_argument("--top_frac", type=float, default=0.05)
 
     ap.add_argument(
-        "--groups"
-        default="E_vpin,E_limit_add,E_hawkes_split,E_hawkes_legacy,E_lambda_alias"
-        help="comma-separated group names to ablate"
+        "--groups",
+        default="E_vpin,E_limit_add,E_hawkes_split,E_hawkes_legacy,E_lambda_alias",
+        help="comma-separated group names to ablate",
     )
 
     ap.add_argument("--perm_max_rows_per_fold", type=int, default=50_000)
@@ -326,12 +326,12 @@ def main() -> int:
             baseline_fold_cols = list(cols)
 
         row = {
-            "variant": v_name
-            "n": int(mask.sum())
-            "auc": m["auc"]
-            "logloss": m["logloss"]
-            "brier": m["brier"]
-            "prec_top": m["prec_top"]
+            "variant": v_name,
+            "n": int(mask.sum()),
+            "auc": m["auc"],
+            "logloss": m["logloss"],
+            "brier": m["brier"],
+            "prec_top": m["prec_top"],
         }
         if baseline_metrics is not None:
             row["d_auc"] = m["auc"] - baseline_metrics["auc"]
@@ -348,13 +348,13 @@ def main() -> int:
             if v_name == "full":
                 baseline_by_regime[g] = dict(mg)
             rr = {
-                "variant": v_name
-                "regime": g
-                "n": int(msk_g.sum())
-                "auc": mg["auc"]
-                "logloss": mg["logloss"]
-                "brier": mg["brier"]
-                "prec_top": mg["prec_top"]
+                "variant": v_name,
+                "regime": g,
+                "n": int(msk_g.sum()),
+                "auc": mg["auc"],
+                "logloss": mg["logloss"],
+                "brier": mg["brier"],
+                "prec_top": mg["prec_top"],
             }
             if g in baseline_by_regime:
                 rr["d_auc"] = mg["auc"] - baseline_by_regime[g]["auc"]
@@ -364,14 +364,14 @@ def main() -> int:
             by_regime_rows.append(rr)
 
     _write_csv(
-        os.path.join(out_dir, "ablation_overall.csv")
-        overall_rows
-        ["variant", "n", "auc", "d_auc", "logloss", "d_logloss", "brier", "d_brier", "prec_top", "d_prec_top"]
+        os.path.join(out_dir, "ablation_overall.csv"),
+        overall_rows,
+        ["variant", "n", "auc", "d_auc", "logloss", "d_logloss", "brier", "d_brier", "prec_top", "d_prec_top"],
     )
     _write_csv(
-        os.path.join(out_dir, "ablation_by_regime.csv")
-        by_regime_rows
-        ["variant", "regime", "n", "auc", "d_auc", "logloss", "d_logloss", "brier", "d_brier", "prec_top", "d_prec_top"]
+        os.path.join(out_dir, "ablation_by_regime.csv"),
+        by_regime_rows,
+        ["variant", "regime", "n", "auc", "d_auc", "logloss", "d_logloss", "brier", "d_brier", "prec_top", "d_prec_top"],
     )
 
     if baseline_fold_cols is None or not baseline_fold_models:
@@ -431,9 +431,9 @@ def main() -> int:
 
     imp_rows.sort(key=lambda r: float(r.get("perm_auc_drop_mean", 0.0)))
     _write_csv(
-        os.path.join(out_dir, "importance_e_features.csv")
-        imp_rows
-        ["feature", "column", "perm_auc_drop_mean", "perm_auc_drop_std", "n_folds"]
+        os.path.join(out_dir, "importance_e_features.csv"),
+        imp_rows,
+        ["feature", "column", "perm_auc_drop_mean", "perm_auc_drop_std", "n_folds"],
     )
 
     deny_keys: List[str] = []
@@ -444,11 +444,11 @@ def main() -> int:
             deny_keys.append(str(r.get("feature")))
 
     deny_obj = {
-        "ver": "v1"
-        "updated_utc": _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-        "deny_num": deny_keys
-        "deny_bool": []
-        "notes": "autogen from ablation_groups_e_v1 perm AUC-drop (E block)"
+        "ver": "v1",
+        "updated_utc": _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "deny_num": deny_keys,
+        "deny_bool": [],
+        "notes": "autogen from ablation_groups_e_v1 perm AUC-drop (E block)",
     }
     with open(os.path.join(out_dir, "denylist_autogen.json"), "w", encoding="utf-8") as f:
         json.dump(deny_obj, f, ensure_ascii=False, indent=2)

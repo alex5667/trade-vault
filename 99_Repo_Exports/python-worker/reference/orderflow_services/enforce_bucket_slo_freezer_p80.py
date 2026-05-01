@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """enforce_bucket_slo_freezer_p80.py
 
 P80: Freeze auto-apply for enforce-bucket promoter if SLO degrades on enforced buckets.
@@ -35,9 +36,8 @@ Status/notify:
 
 Audit:
   ENFORCE_FREEZER_EVENTS_STREAM (default events:enforce_bucket_slo_freezer)
-"""
+""",
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -137,16 +137,16 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
     try:
         cur.execute(
             f"""
-            select exec_regime_bucket
-                   sum(n)::bigint as n
-                   max(resid_p95_bps) as resid_p95_bps
-                   max(resid_p99_bps) as resid_p99_bps
+            select exec_regime_bucket,
+                   sum(n)::bigint as n,
+                   max(resid_p95_bps) as resid_p95_bps,
+                   max(resid_p99_bps) as resid_p99_bps,
                    max(edge_neg_share) as edge_neg_share
             from {mv}
             where sym=%s and t >= now() - (%s || ' hours')::interval
             group by 1
-            """
-            (sym, int(lookback_h))
+            """,
+            (sym, int(lookback_h)),
         )
         rows = cur.fetchall()
         for b, n, p95, p99, neg in rows:
@@ -155,16 +155,16 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
     except Exception:
         cur.execute(
             f"""
-            select exec_regime_bucket
-                   count(*)::bigint as n
-                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps
-                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps
+            select exec_regime_bucket,
+                   count(*)::bigint as n,
+                   percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
+                   percentile_cont(0.99) within group (order by slippage_residual_bps) as resid_p99_bps,
                    avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
             from {view}
             where sym=%s and ts >= now() - (%s || ' hours')::interval
             group by 1
-            """
-            (sym, int(lookback_h))
+            """,
+            (sym, int(lookback_h)),
         )
         rows = cur.fetchall()
         for b, n, p95, p99, neg in rows:
@@ -219,12 +219,12 @@ def _xadd_event(r: Any, *, sym: str, bucket: str, meta: dict) -> None:
     now = _now_ms()
     try:
         fields = {
-            "type": "freeze"
-            "ts_ms": str(now)
-            "sym": str(sym)
-            "bucket": str(bucket)
-            "meta": json.dumps(meta, separators=(",", ":"))[:3500]
-        }
+            "type": "freeze",
+            "ts_ms": str(now),
+            "sym": str(sym),
+            "bucket": str(bucket),
+            "meta": json.dumps(meta, separators=(",", ":"))[:3500],
+        },
         r.xadd(stream, fields)
     except Exception:
         return
@@ -232,8 +232,8 @@ def _xadd_event(r: Any, *, sym: str, bucket: str, meta: dict) -> None:
 
 def main() -> int:
     status_path = os.getenv(
-        "ENFORCE_FREEZER_STATUS_PATH"
-        "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json"
+        "ENFORCE_FREEZER_STATUS_PATH",
+        "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json",
     )
 
     if _env_int("ENABLE_ENFORCE_BUCKET_SLO_FREEZER", "0") != 1:
@@ -265,15 +265,15 @@ def main() -> int:
 
     # default status
     _write_status(
-        status_path
+        status_path,
         {
-            "ok": True
-            "ts_ms": now
-            "enabled": True
-            "blocked": False
-            "symbols": syms
-            "lookback_h": lookback_h
-        }
+            "ok": True,
+            "ts_ms": now,
+            "enabled": True,
+            "blocked": False,
+            "symbols": syms,
+            "lookback_h": lookback_h,
+        },
     )
 
     for sym in syms:
@@ -294,17 +294,17 @@ def main() -> int:
                 meta_key = f"{block_prefix}:{block_reason}:meta"
                 ts_key = f"{block_prefix}:{block_reason}:ts_ms"
                 meta = {
-                    "blocked": True
-                    "reason": "slo_freeze"
-                    "ts_ms": now
-                    "sym": sym
-                    "bucket": bucket
-                    "lookback_h": lookback_h
-                    "n": n
-                    "resid_p95_bps": p95
-                    "resid_p99_bps": p99
-                    "edge_neg_share": neg
-                }
+                    "blocked": True,
+                    "reason": "slo_freeze",
+                    "ts_ms": now,
+                    "sym": sym,
+                    "bucket": bucket,
+                    "lookback_h": lookback_h,
+                    "n": n,
+                    "resid_p95_bps": p95,
+                    "resid_p99_bps": p99,
+                    "edge_neg_share": neg,
+                },
                 pipe = r.pipeline(transaction=False)
                 pipe.set(block_key, "1")
                 pipe.set(meta_key, json.dumps(meta, separators=(",", ":")))
@@ -316,7 +316,7 @@ def main() -> int:
 
                 _xadd_event(r, sym=sym, bucket=bucket, meta=meta)
                 _notify_freeze(
-                    r
+                    r,
                     text=(
                         f"ENFORCE SLO FREEZE: sym={sym} bucket={bucket} lookback_h={lookback_h} "
                         f"n={n} resid_p95={p95:.2f} resid_p99={p99:.2f} edge_neg_share={neg:.3f} "
@@ -325,16 +325,16 @@ def main() -> int:
                 )
 
                 _write_status(
-                    status_path
+                    status_path,
                     {
-                        "ok": True
-                        "ts_ms": now
-                        "enabled": True
-                        "blocked": True
-                        "sym": sym
-                        "bucket": bucket
-                        "meta": meta
-                    }
+                        "ok": True,
+                        "ts_ms": now,
+                        "enabled": True,
+                        "blocked": True,
+                        "sym": sym,
+                        "bucket": bucket,
+                        "meta": meta,
+                    },
                 )
                 return 0
 

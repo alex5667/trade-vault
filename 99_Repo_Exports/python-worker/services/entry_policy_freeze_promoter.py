@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 FreezePromotionService — shadow→hard auto-promotion for EntryPolicyFreezeV1.
 
@@ -34,7 +35,6 @@ ENV:
   OPS_EVENT_STREAM          ops:eventlog
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio

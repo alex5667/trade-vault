@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Tests for TickCVDState Redis metrics integration.
 """
-from __future__ import annotations
 
 import os
 from datetime import datetime, timezone

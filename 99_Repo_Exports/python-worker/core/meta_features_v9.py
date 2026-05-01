@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Meta-features schema v9.
 
 v9 = v8 + liquidation-map (liqmap) compact scalars + liqmap gate scalars.
@@ -11,7 +12,6 @@ Notes:
   - liqmap gate scalars are computed inside OFConfirmEngine and exported
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 

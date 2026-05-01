@@ -149,30 +149,30 @@ def _registry_key() -> str:
 
 def _build_hash(state: _LocalScopeState) -> Dict[str, str]:
     return {
-        "schema_name": "exec_health_scope_state"
-        "schema_version": "1"
-        "scope": str(state.scope)
-        "instance_id": str(state.instance_id)
-        "deploy_id": str(state.deploy_id)
-        "service_name": str(state.service_name)
-        "process_pid": str(int(state.process_pid))
-        "started_ts_ms": str(int(state.started_ts_ms))
-        "updated_ts_ms": str(int(state.updated_ts_ms))
-        "last_flush_ts_ms": str(int(state.last_flush_ts_ms))
-        "last_event_ts_ms": str(int(state.last_event_ts_ms))
-        "last_profile": str(state.last_profile)
-        "last_mode": str(state.last_mode)
-        "last_symbol": str(state.last_symbol)
-        "last_reason_code": str(state.last_reason_code)
-        "last_flags_csv": str(state.last_flags_csv)
-        "threshold_is_p95_bps": f"{float(state.threshold_is_p95_bps):.9f}"
-        "threshold_perm_impact_p95_bps": f"{float(state.threshold_perm_impact_p95_bps):.9f}"
-        "threshold_realized_spread_p50_bps": f"{float(state.threshold_realized_spread_p50_bps):.9f}"
-        "total_n": str(int(state.total_n))
-        "apply_n": str(int(state.apply_n))
-        "veto_n": str(int(state.veto_n))
-        "pass_n": str(int(state.pass_n))
-        "reader_error_n": str(int(state.reader_error_n))
+        "schema_name": "exec_health_scope_state",
+        "schema_version": "1",
+        "scope": str(state.scope),
+        "instance_id": str(state.instance_id),
+        "deploy_id": str(state.deploy_id),
+        "service_name": str(state.service_name),
+        "process_pid": str(int(state.process_pid)),
+        "started_ts_ms": str(int(state.started_ts_ms)),
+        "updated_ts_ms": str(int(state.updated_ts_ms)),
+        "last_flush_ts_ms": str(int(state.last_flush_ts_ms)),
+        "last_event_ts_ms": str(int(state.last_event_ts_ms)),
+        "last_profile": str(state.last_profile),
+        "last_mode": str(state.last_mode),
+        "last_symbol": str(state.last_symbol),
+        "last_reason_code": str(state.last_reason_code),
+        "last_flags_csv": str(state.last_flags_csv),
+        "threshold_is_p95_bps": f"{float(state.threshold_is_p95_bps):.9f}",
+        "threshold_perm_impact_p95_bps": f"{float(state.threshold_perm_impact_p95_bps):.9f}",
+        "threshold_realized_spread_p50_bps": f"{float(state.threshold_realized_spread_p50_bps):.9f}",
+        "total_n": str(int(state.total_n)),
+        "apply_n": str(int(state.apply_n)),
+        "veto_n": str(int(state.veto_n)),
+        "pass_n": str(int(state.pass_n)),
+        "reader_error_n": str(int(state.reader_error_n)),
     }
 
 
@@ -184,15 +184,15 @@ def _get_state(scope: str) -> _LocalScopeState:
         st = _STATE.get(sc)
         if st is None:
             st = _LocalScopeState(
-                scope=sc
-                instance_id=_instance_id()
-                deploy_id=_deploy_id()
-                service_name=_service_name(sc)
-                process_pid=os.getpid()
-                started_ts_ms=now
-                updated_ts_ms=now
-                last_flush_ts_ms=0
-                last_event_ts_ms=0
+                scope=sc,
+                instance_id=_instance_id(),
+                deploy_id=_deploy_id(),
+                service_name=_service_name(sc),
+                process_pid=os.getpid(),
+                started_ts_ms=now,
+                updated_ts_ms=now,
+                last_flush_ts_ms=0,
+                last_event_ts_ms=0,
             )
             _STATE[sc] = st
         return st
@@ -205,12 +205,12 @@ def _should_flush(st: _LocalScopeState, now_ms: int) -> bool:
 
 
 def record_exec_health_contract_state(
-    *
-    scope: str
-    profile: str
-    symbol: str
-    decision: Optional[ExecHealthDecision]
-    now_ms: Optional[int] = None
+    *,
+    scope: str,
+    profile: str,
+    symbol: str,
+    decision: Optional[ExecHealthDecision],
+    now_ms: Optional[int] = None,
 ) -> None:
     """Update in-memory counters/state from the already computed SoT decision."""
     ts = int(now_ms or _now_ms())
@@ -321,8 +321,8 @@ async def flush_exec_health_contract_state_async(*, redis_client: Any, scope: st
 
 
 __all__ = [
-    "record_exec_health_contract_state"
-    "record_exec_health_contract_reader_error"
-    "flush_exec_health_contract_state_sync"
-    "flush_exec_health_contract_state_async"
+    "record_exec_health_contract_state",
+    "record_exec_health_contract_reader_error",
+    "flush_exec_health_contract_state_sync",
+    "flush_exec_health_contract_state_async",
 ]

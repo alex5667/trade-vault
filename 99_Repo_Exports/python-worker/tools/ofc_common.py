@@ -57,7 +57,7 @@ class _PressureStub:
 
 class ReplayRuntime:
 
-    symbol: str = ""
+    symbol=""
 
     # evidence
 

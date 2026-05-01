@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """bucket2_v1.py
 
 Bucket2 — дополнительная (не ломающая текущий bucket:) категоризация режима/сценария,
@@ -22,7 +23,6 @@ Determinism:
   - Логика intentionally conservative: лучше "не классифицировать", чем ошибиться.
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, Optional
 

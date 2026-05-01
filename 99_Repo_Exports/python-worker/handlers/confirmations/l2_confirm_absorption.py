@@ -29,8 +29,8 @@ class L2ConfirmAbsorption:
     def __init__(self, cfg: Optional[AbsorptionConfirmCfg] = None, **kwargs: Any) -> None:
         if cfg is None and kwargs:
             cfg = AbsorptionConfirmCfg(
-                min_wall_notional=kwargs.get("min_wall_notional", 30_000.0)
-                level_band_bps=kwargs.get("wall_within_bps", 1.5)
+                min_wall_notional=kwargs.get("min_wall_notional", 30_000.0),
+                level_band_bps=kwargs.get("wall_within_bps", 1.5),
             )
         self.cfg = cfg or AbsorptionConfirmCfg()
 
@@ -48,14 +48,14 @@ class L2ConfirmAbsorption:
         return (ts - l2_ts) > float(self.cfg.l2_stale_ms)
 
     def confirm(
-        self
-        *
-        ctx: Any
-        side: int | str
-        level_price: float
-        l2: Optional[L2Snapshot] = None
-        require_2ofn: bool = True
-        **_: Any
+        self,
+        *,
+        ctx: Any,
+        side: int | str,
+        level_price: float,
+        l2: Optional[L2Snapshot] = None,
+        require_2ofn: bool = True,
+        **_: Any,
     ) -> ConfirmResult:
         if isinstance(side, int):
             side = "buy" if side > 0 else "sell"
@@ -75,14 +75,14 @@ class L2ConfirmAbsorption:
             parts["l2_stale_ms"] = float(self.cfg.l2_stale_ms)
             rc, u16 = normalize_and_u16("VETO_L2_STALE")
             return ConfirmResult(
-                passed=False
-                veto=True
-                score01=0.0
-                reason_code=rc
-                reason_u16=u16
-                parts=parts
-                flags=flags
-                reasons=reasons
+                passed=False,
+                veto=True,
+                score01=0.0,
+                reason_code=rc,
+                reason_u16=u16,
+                parts=parts,
+                flags=flags,
+                reasons=reasons,
             )
 
         if l2 is None:
@@ -151,28 +151,28 @@ class L2ConfirmAbsorption:
             if taker < self.cfg.min_taker_rate:
                 rc, u16 = normalize_and_u16("VETO_TAKER_RATE_LOW")
                 return ConfirmResult(
-                    passed=False, veto=True
-                    parts={}, flags=flags, reasons=reasons
-                    score01=0.0
-                    reason_code=rc, reason_u16=u16
+                    passed=False, veto=True,
+                    parts={}, flags=flags, reasons=reasons,
+                    score01=0.0,
+                    reason_code=rc, reason_u16=u16,
                 )
 
         if require_2ofn:
             if not src_a:
                 rc, u16 = normalize_and_u16("VETO_NO_WALL_OR_REFILL")
                 return ConfirmResult(
-                    passed=False, veto=True
-                    parts={}, flags=flags, reasons=reasons
-                    score01=0.0
-                    reason_code=rc, reason_u16=u16
+                    passed=False, veto=True,
+                    parts={}, flags=flags, reasons=reasons,
+                    score01=0.0,
+                    reason_code=rc, reason_u16=u16,
                 )
             if not src_b:
                 rc, u16 = normalize_and_u16("VETO_NO_BLOCKING_CONFIRM")
                 return ConfirmResult(
-                    passed=False, veto=True
-                    parts={}, flags=flags, reasons=reasons
-                    score01=0.0
-                    reason_code=rc, reason_u16=u16
+                    passed=False, veto=True,
+                    parts={}, flags=flags, reasons=reasons,
+                    score01=0.0,
+                    reason_code=rc, reason_u16=u16,
                 )
 
         # score01: детерминированная агрегация
@@ -196,8 +196,8 @@ class L2ConfirmAbsorption:
         score01 = max(0.0, min(1.0, float(score01)))
         rc, u16 = normalize_and_u16("OK")
         return ConfirmResult(
-            passed=True, veto=False
-            parts={}, flags=flags, reasons=reasons
-            score01=float(score01)
-            reason_code=rc, reason_u16=u16
+            passed=True, veto=False,
+            parts={}, flags=flags, reasons=reasons,
+            score01=float(score01),
+            reason_code=rc, reason_u16=u16,
         )

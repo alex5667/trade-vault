@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_eval_meta_ramp_outcomes.py
 
 Unit tests for eval_meta_ramp_outcomes.py
 """
 
-from __future__ import annotations
 
 import json
 import tempfile

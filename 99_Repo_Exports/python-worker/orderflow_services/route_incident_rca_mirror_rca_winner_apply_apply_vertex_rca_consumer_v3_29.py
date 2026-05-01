@@ -71,7 +71,7 @@ async def persist_result(db_url: str, request_id: str, bundle_id: str, result_js
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_vertex_rca_results (
                     request_id, bundle_id, result_json, ts_ms
                 ) VALUES (

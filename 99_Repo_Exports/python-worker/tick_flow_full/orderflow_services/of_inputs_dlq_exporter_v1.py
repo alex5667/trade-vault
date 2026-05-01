@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OF Inputs DLQ/Quarantine exporter (P96).
 
 Purpose:
@@ -18,7 +19,6 @@ Run:
   python -m orderflow_services.of_inputs_dlq_exporter_v1
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Plot Reliability Calibration Curves
 
@@ -6,7 +7,6 @@ Creates visualizations of confidence vs hit-rate calibration curves.
 Requires matplotlib and pandas.
 """
 
-from __future__ import annotations
 
 import os
 import sys
@@ -59,16 +59,16 @@ def plot_calibration_curves(curves: Dict[str, pd.DataFrame], output_file: str = 
         color = colors[i % len(colors)]
         marker = markers[i % len(markers)]
 
-        plt.plot(df['confidence_pct'], df['avg_hit_rate']
-                marker=marker, color=color, linewidth=2, markersize=6
+        plt.plot(df['confidence_pct'], df['avg_hit_rate'],
+                marker=marker, color=color, linewidth=2, markersize=6,
                 label=f'{outcome} (n={df["sample_count"].sum()})')
 
         # Add sample size annotations for buckets with significant data
         for _, row in df.iterrows():
             if row['sample_count'] >= 10:  # Only annotate buckets with decent samples
-                plt.annotate(f'{int(row["sample_count"])}'
-                           (row['confidence_pct'], row['avg_hit_rate'])
-                           xytext=(5, 5), textcoords='offset points'
+                plt.annotate(f'{int(row["sample_count"])}',
+                           (row['confidence_pct'], row['avg_hit_rate']),
+                           xytext=(5, 5), textcoords='offset points',
                            fontsize=8, alpha=0.7)
 
     # Perfect calibration line
@@ -155,7 +155,7 @@ def plot_outcome_comparison(curves: Dict[str, pd.DataFrame], output_file: str = 
 
     # Add value labels on bars
     for bar, samples in zip(bars, total_samples):
-        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
                 f'{int(samples)}', ha='center', va='bottom')
 
     # Subplot 4: Average hit rates
@@ -176,7 +176,7 @@ def plot_outcome_comparison(curves: Dict[str, pd.DataFrame], output_file: str = 
 
     # Add value labels
     for bar, rate in zip(bars, avg_hit_rates):
-        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
                 f'{rate:.1%}', ha='center', va='bottom')
 
     plt.tight_layout()

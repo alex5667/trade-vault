@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: StreamRetention (Go) ↔ STREAM_RETENTION (Python) parity (merge-blocker).
 
@@ -13,7 +14,6 @@ Validates that:
 Run:
     cd python-worker && python -m pytest tests/test_stream_retention_parity.py -v
 """
-from __future__ import annotations
 
 import os
 import re

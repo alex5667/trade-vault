@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Signal Publisher
 
@@ -5,7 +6,6 @@ Signal Publisher
 и возвращает PublishResult (чтобы upstream корректно делал ACK/метрики).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Dict, Any, Optional

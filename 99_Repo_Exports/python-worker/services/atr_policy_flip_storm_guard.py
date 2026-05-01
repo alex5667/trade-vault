@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Flip-Storm Guard — Phase 3.8 (Disaster Layer).
 
 Detects when a single cohort receives too many APPROVE/REVOKE state changes
@@ -18,7 +19,6 @@ ENV:
   ANALYTICS_DB_DSN / TRADES_DB_DSN
   REDIS_URL
 """
-from __future__ import annotations
 
 import json
 import logging

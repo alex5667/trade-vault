@@ -29,8 +29,8 @@ for i, line in enumerate(lines):
                 break
         
         except_blocks.append({
-            'line': i + 1
-            'function': func_name
+            'line': i + 1,
+            'function': func_name,
             'context': context
         })
 

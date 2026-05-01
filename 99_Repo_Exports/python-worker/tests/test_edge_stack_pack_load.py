@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_edge_stack_pack_load.py
 
@@ -7,7 +8,6 @@ Unit test for edge_stack_v1 model pack loading and prediction.
 Tests that model.joblib can be loaded and predict_proba works on synthetic data.
 """
 
-from __future__ import annotations
 
 import json
 import os

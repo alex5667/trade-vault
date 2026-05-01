@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 Модуль для корректного расчета P&L с учетом спецификаций символов.
 
 Устраняет хардкод *100 и другие несоответствия в расчетах P&L.
 Поддерживает как линейную модель (contract_size), так и тиковую модель (tick_size/tick_value).
 """
-from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
@@ -38,7 +38,7 @@ class SymbolSpec:
     tick_value: Optional[float] = None
 
     # Для "пунктов" в метриках/трейлинге (если нужно)
-    point_size: Optional[float] = None  # напр., XAUUSD=0.01
+    point_size: Optional[float] = None  # напр., =0.01
 
     # Fallback множитель на случай, если ничего нет (НЕЖЕЛАТЕЛЕН)
     legacy_multiplier: Optional[float] = None
@@ -90,9 +90,9 @@ class SymbolSpec:
         # Это эквивалентно: diff * lot (без умножения на contract_size)
         # ✅ ИСПРАВЛЕНИЕ: Используем суффиксы для определения крипты (исключая XAU)
         # ✅ ИСПРАВЛЕНИЕ: Инструменты типа XAUUSDT на крипто-биржах являются линейными (1 unit = 1 Oz)
-        # Раньше XAU исключался безусловно. Теперь исключаем только XAUUSD (Forex).
+        # Раньше XAU исключался безусловно. Теперь исключаем только  (Forex).
         is_crypto = symbol and symbol.upper().endswith(('USDT', 'USDC', 'BUSD'))
-        if is_crypto and symbol.upper() == 'XAUUSD': # На всякий случай, если есть такой кросс-символ
+        if is_crypto and symbol.upper() == '': # На всякий случай, если есть такой кросс-символ
              is_crypto = False
         
         if is_crypto:
@@ -276,7 +276,7 @@ def calculate_position_size(
     Автоматически определяет specs инструмента и рассчитывает lot.
     
     Args:
-        symbol: Символ инструмента (XAUUSD, BTCUSDT, etc)
+        symbol: Символ инструмента ( BTCUSDT, etc)
         entry_price: Цена входа
         sl_price: Цена стоп-лосса
         side: "LONG" или "SHORT"
@@ -322,7 +322,7 @@ def calculate_position_size(
         spec = SymbolSpec()
     
     # Определяем тип инструмента (крипта или нет)
-    is_crypto = symbol.upper().endswith(('USDT', 'USDC', 'BUSD')) and symbol.upper() != 'XAUUSD'
+    is_crypto = symbol.upper().endswith(('USDT', 'USDC', 'BUSD')) and symbol.upper() != ''
     
     # Риск в USD
     risk_usd = deposit * (risk_percent / 100.0)
@@ -444,7 +444,7 @@ def calculate_position_size(
         
         return lot, position_size_usd, deposit, leverage
     
-    # Для остальных инструментов (XAUUSD, Forex)
+    # Для остальных инструментов ( Forex)
     lot = spec.calculate_risk_lot(
         entry_price=entry_price,
         sl_price=sl_price,
@@ -634,7 +634,7 @@ def get_symbol_info(symbol: str, redis_client=None) -> dict:
     Получить информацию о символе из Redis или вернуть defaults.
     
     Args:
-        symbol: Торговый символ (например, "XAUUSD", "BTCUSDT")
+        symbol: Торговый символ (например, "BTCUSDT")
         redis_client: Опциональный Redis клиент (если None, будет создан новый)
     
     Returns:
@@ -699,8 +699,8 @@ def _get_default_symbol_info(symbol: str) -> dict:
         except Exception:
             return default
     
-    # XAUUSD (золото)
-    if symbol_upper == "XAUUSD" or symbol_upper.startswith("XAU"):
+    #  (золото)
+    if symbol_upper == "" or symbol_upper.startswith("XAU"):
         return {
             "point": 0.01,
             "tick_value_per_lot": 1.0,  # $1 за 0.01 на 1 lot

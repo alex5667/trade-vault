@@ -1,5 +1,5 @@
 """
-Advanced Features Module - Extended feature engineering for XAUUSD.
+Advanced Features Module - Extended feature engineering for .
 
 Provides bar-based features (delta series, ATR, weak progress) complementing
 the existing tick-based features in signals/featurizer.py.

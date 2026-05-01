@@ -1,18 +1,18 @@
+from __future__ import annotations
 """
 Pure unit tests for signal_quality.offline_job — no DB required.
 
 Tests cover _var_cvar, compute_quality_score, and the public API.
 """
 
-from __future__ import annotations
 
 import pytest
 
 from signal_quality.offline_job import (
-    ALPHA
-    MIN_N
-    LOOKBACK_DAYS
-    _var_cvar
+    ALPHA,
+    MIN_N,
+    LOOKBACK_DAYS,
+    _var_cvar,
     compute_quality_score,  # re-exported from stdlib statistics
 )
 

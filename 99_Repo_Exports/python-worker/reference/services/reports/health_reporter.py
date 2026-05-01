@@ -56,8 +56,8 @@ def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> List[str]:
     cursor = 0
     while True:
         cursor, batch = retry_redis_operation(
-            lambda: r.sscan(key, cursor=cursor, count=10000)
-            operation_name=f"sscan {key}"
+            lambda: r.sscan(key, cursor=cursor, count=10000),
+            operation_name=f"sscan {key}",
         )
         for s in batch or []:
             sym = _decode(s)
@@ -98,8 +98,8 @@ def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
         for s in active_syms:
             pipe.get(f"cfg:atr_sel_meta:{s}")
         metas = retry_redis_operation(
-            lambda: pipe.execute()
-            operation_name="pipeline get atr_sel_meta"
+            lambda: pipe.execute(),
+            operation_name="pipeline get atr_sel_meta",
         )
         for s, raw in zip(active_syms, metas):
             if not raw:
@@ -124,8 +124,8 @@ def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
         for s in jump_syms:
             pipe.get(f"cfg:atr_jump_count:{s}")
         vals = retry_redis_operation(
-            lambda: pipe.execute()
-            operation_name="pipeline get atr_jump_count"
+            lambda: pipe.execute(),
+            operation_name="pipeline get atr_jump_count",
         )
         for s, v in zip(jump_syms, vals):
             try:
@@ -142,8 +142,8 @@ def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
         for s in sw_syms:
             pipe.get(f"cfg:atr_switch_count:{s}")
         vals = retry_redis_operation(
-            lambda: pipe.execute()
-            operation_name="pipeline get atr_switch_count"
+            lambda: pipe.execute(),
+            operation_name="pipeline get atr_switch_count",
         )
         for s, v in zip(sw_syms, vals):
             try:
@@ -190,8 +190,8 @@ def _report_cvd(r: redis.Redis, top_n: int) -> Tuple[str, int]:
         for s in cvd_syms:
             pipe.get(f"cfg:cvd_quarantine_meta:{s}")
         metas = retry_redis_operation(
-            lambda: pipe.execute()
-            operation_name="pipeline get cvd_quarantine_meta"
+            lambda: pipe.execute(),
+            operation_name="pipeline get cvd_quarantine_meta",
         )
         now_ms = _now_ms()
         for s, raw in zip(cvd_syms, metas):
@@ -229,22 +229,22 @@ def _report_streams(r: redis.Redis, top_n: int) -> Tuple[str, int]:
 
     try:
         legacy_len = retry_redis_operation(
-            lambda: r.xlen(legacy_key)
-            operation_name=f"xlen {legacy_key}"
+            lambda: r.xlen(legacy_key),
+            operation_name=f"xlen {legacy_key}",
         )
     except Exception:
         legacy_len = None
     try:
         majors_len = retry_redis_operation(
-            lambda: r.xlen(majors_key)
-            operation_name=f"xlen {majors_key}"
+            lambda: r.xlen(majors_key),
+            operation_name=f"xlen {majors_key}",
         )
     except Exception:
         majors_len = None
     try:
         sym_count = retry_redis_operation(
-            lambda: r.scard(os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols"))
-            operation_name="scard symbols_set"
+            lambda: r.scard(os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")),
+            operation_name="scard symbols_set",
         )
     except Exception:
         sym_count = None
@@ -261,8 +261,8 @@ def _report_streams(r: redis.Redis, top_n: int) -> Tuple[str, int]:
             pipe.xlen(k)
         try:
             lens = retry_redis_operation(
-                lambda: pipe.execute()
-                operation_name="pipeline xlen per_symbol"
+                lambda: pipe.execute(),
+                operation_name="pipeline xlen per_symbol",
             )
             for (s, _k), ln in zip(keys, lens):
                 try:

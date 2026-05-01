@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for P5 book sanity + BookSanityGate.
 
 Covers:
@@ -6,7 +7,6 @@ Covers:
 - BookSanityGate: monitor / veto modes
 """
 
-from __future__ import annotations
 
 import math
 import pytest
@@ -21,10 +21,10 @@ class TestCheckBookSanity:
         if asks is None:
             asks = [(ba, 10.0), (ba + 0.1, 5.0)]
         return type("Book", (), {
-            "best_bid_px": bb
-            "best_ask_px": ba
-            "top5_bids": bids
-            "top5_asks": asks
+            "best_bid_px": bb,
+            "best_ask_px": ba,
+            "top5_bids": bids,
+            "top5_asks": asks,
         })()
 
     def test_ok_book(self):
@@ -144,8 +144,8 @@ class TestBookSanityGate:
         """When veto_trade_outside_bbo=True, a trade outside BBO in veto mode must veto."""
         g = self._gate(mode="veto", veto_trade_outside_bbo=True, outside_bbo_max_dist_bps=0.0)
         dec = g.evaluate(
-            indicators={"trade_outside_bbo": 1, "trade_outside_bbo_dist_bps": 5.0}
-            symbol="BTCUSDT"
+            indicators={"trade_outside_bbo": 1, "trade_outside_bbo_dist_bps": 5.0},
+            symbol="BTCUSDT",
         )
         assert dec.veto
         assert dec.reason_code == "VETO_TRADE_OUTSIDE_BBO"
@@ -154,8 +154,8 @@ class TestBookSanityGate:
         """When distance is below threshold, no veto should fire."""
         g = self._gate(mode="veto", veto_trade_outside_bbo=True, outside_bbo_max_dist_bps=10.0)
         dec = g.evaluate(
-            indicators={"trade_outside_bbo": 1, "trade_outside_bbo_dist_bps": 2.0}
-            symbol="BTCUSDT"
+            indicators={"trade_outside_bbo": 1, "trade_outside_bbo_dist_bps": 2.0},
+            symbol="BTCUSDT",
         )
         # dist_bps (2.0) < threshold (10.0) → no veto
         assert not dec.veto

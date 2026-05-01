@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 v10_of — Feature schema v10 (OrderFlow), pinned snapshot + stream-proven extensions.
 
@@ -23,7 +24,6 @@ Design notes
 - Append-only: new schema versions always add keys, never remove.
 """
 
-from __future__ import annotations
 
 from typing import List
 

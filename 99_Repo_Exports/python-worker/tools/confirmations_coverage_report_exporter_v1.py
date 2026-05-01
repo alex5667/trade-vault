@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Confirmations coverage report exporter (v1).
 
 Exposes Prometheus metrics from confirmations coverage JSON report.
@@ -7,7 +8,6 @@ Env:
   CONFIRMATIONS_COVERAGE_REPORT_STALE_SEC      stale threshold (default 36h)
 """
 
-from __future__ import annotations
 
 import argparse
 import json

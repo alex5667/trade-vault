@@ -25,7 +25,7 @@ from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 
 
 class _FakeSpec:
-    def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol: str = "") -> float:
+    def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
         sign = 1.0 if str(direction).upper() == "LONG" else -1.0
         return (float(price) - float(entry_price)) * sign * float(lot)
 

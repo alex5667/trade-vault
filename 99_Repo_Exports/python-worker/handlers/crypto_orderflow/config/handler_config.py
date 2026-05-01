@@ -229,23 +229,23 @@ class CryptoOrderFlowConfigManager:
             return {}
         
         raw = {
-            "delta_window_ticks": getattr(cfg, "delta_window_ticks", None)
-            "delta_z_threshold": getattr(cfg, "delta_z_threshold", None)
-            "weak_progress_atr": getattr(cfg, "weak_progress_atr", None)
-            "obi_threshold": getattr(cfg, "obi_threshold", None)
-            "obi_min_duration": getattr(cfg, "obi_min_duration", None)
-            "iceberg_refresh_count": getattr(cfg, "iceberg_refresh_count", None)
-            "iceberg_min_duration": getattr(cfg, "iceberg_min_duration", None)
-            "iceberg_refresh_min_abs": getattr(cfg, "iceberg_refresh_min_abs", None)
-            "dist_atr_threshold": getattr(cfg, "dist_atr_threshold", None)
-            "min_signal_interval_sec": getattr(cfg, "min_signal_interval_sec", None)
-            "stop_mode": getattr(cfg, "stop_mode", None)
-            "stop_atr_mult": getattr(cfg, "stop_atr_mult", None)
-            "stop_pct": getattr(cfg, "stop_pct", None)
-            "stop_points": getattr(cfg, "stop_points", None)
-            "tp_mode": getattr(cfg, "tp_mode", None)
-            "tp_rr": getattr(cfg, "tp_rr", None)
-            "tp_atr_mults": getattr(cfg, "tp_atr_mults", None)
+            "delta_window_ticks": getattr(cfg, "delta_window_ticks", None),
+            "delta_z_threshold": getattr(cfg, "delta_z_threshold", None),
+            "weak_progress_atr": getattr(cfg, "weak_progress_atr", None),
+            "obi_threshold": getattr(cfg, "obi_threshold", None),
+            "obi_min_duration": getattr(cfg, "obi_min_duration", None),
+            "iceberg_refresh_count": getattr(cfg, "iceberg_refresh_count", None),
+            "iceberg_min_duration": getattr(cfg, "iceberg_min_duration", None),
+            "iceberg_refresh_min_abs": getattr(cfg, "iceberg_refresh_min_abs", None),
+            "dist_atr_threshold": getattr(cfg, "dist_atr_threshold", None),
+            "min_signal_interval_sec": getattr(cfg, "min_signal_interval_sec", None),
+            "stop_mode": getattr(cfg, "stop_mode", None),
+            "stop_atr_mult": getattr(cfg, "stop_atr_mult", None),
+            "stop_pct": getattr(cfg, "stop_pct", None),
+            "stop_points": getattr(cfg, "stop_points", None),
+            "tp_mode": getattr(cfg, "tp_mode", None),
+            "tp_rr": getattr(cfg, "tp_rr", None),
+            "tp_atr_mults": getattr(cfg, "tp_atr_mults", None),
         }
         # Minimize size: remove None
         return {k: v for k, v in raw.items() if v is not None}

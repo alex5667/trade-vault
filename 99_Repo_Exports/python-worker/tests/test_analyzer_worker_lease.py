@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Tests for analyzer_worker lease-based idempotency.
 """
-from __future__ import annotations
 
 import json
 import os

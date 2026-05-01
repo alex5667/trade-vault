@@ -76,7 +76,7 @@ PERIODIC_REPORT_USE_ZSET = os.getenv("PERIODIC_REPORT_USE_ZSET", "1").strip().lo
 
 # Полный список TF в проде (по вашим данным). Можно переопределить env'ом.
 PERIODIC_REPORT_TFS_ENV = os.getenv(
-    "PERIODIC_REPORT_TFS"
+    "PERIODIC_REPORT_TFS",
     "tick,1m,5m,15m,1h,4h,1d,1w,1month,M1,M5"
 )
 
@@ -163,28 +163,27 @@ def check_and_trigger_report(source: str, symbol: str, counter_type: str = "trad
     try:
         get_reporter_instance()._check_and_trigger_report(source, symbol, counter_type, order_id=order_id)
     except Exception as e:
-        logger.debug("trigger check failed: %s", e)
+        logger.debug("trigger check failed: %s", e),
 
 
 class PeriodicReporter:
     def __init__(self):
-        self.reporting = ReportingService(redis_url=REDIS_URL)
+        self.reporting = ReportingService(redis_url=REDIS_URL),
         # Используем decode_responses=True для автоматической конвертации bytes→str
         import redis as redis_lib
         if REDIS_URL:
             _pool = redis_lib.ConnectionPool.from_url(
-                REDIS_URL
-                decode_responses=True
-                socket_timeout=120
-                socket_connect_timeout=30
-                socket_keepalive=True
-                health_check_interval=30
-                retry_on_timeout=True
+                REDIS_URL,
+                decode_responses=True,
+                socket_timeout=120,
+                socket_connect_timeout=30,
+                socket_keepalive=True,
+                health_check_interval=30,
+                retry_on_timeout=True,
                 retry_on_error=[
-                    redis_lib.exceptions.ConnectionError
-                    redis_lib.exceptions.TimeoutError
-                ]
-                max_connections=int(os.getenv("REDIS_MAX_CONNECTIONS", "20"))
+                    redis_lib.exceptions.ConnectionError,
+                    redis_lib.exceptions.TimeoutError],
+                max_connections=int(os.getenv("REDIS_MAX_CONNECTIONS", "20")),
             )
             self.redis = redis_lib.Redis(connection_pool=_pool)
         else:
@@ -246,13 +245,13 @@ class PeriodicReporter:
             return None
 
     def _iter_recent_trades_window(
-        self
-        *
-        strategy: str
-        symbol: str
-        tf: str
-        source: str
-        window_seconds: Optional[int] = None
+        self,
+        *,
+        strategy: str,
+        symbol: str,
+        tf: str,
+        source: str,
+        window_seconds: Optional[int] = None,
     ) -> List[Dict[str, str]]:
         """
         Возвращает список сделок для окна отчёта.
@@ -590,8 +589,8 @@ class PeriodicReporter:
         sym = canon_symbol(symbol)
 
         sampled_info(
-            logger
-            "PERIODIC_REPORTER_FORMATION"
+            logger,
+            "PERIODIC_REPORTER_FORMATION",
             f"📤 Формирование отчета для {src}/{sym}"
         )
 
@@ -603,11 +602,11 @@ class PeriodicReporter:
 
             # Попытка использовать новый метод (если ZSET доступен)
             trades = self._iter_recent_trades_window(
-                strategy=strategy
-                symbol=sym
-                tf=tf
-                source=src
-                window_seconds=window_seconds
+                strategy=strategy,
+                symbol=sym,
+                tf=tf,
+                source=src,
+                window_seconds=window_seconds,
             )
 
             if trades:
@@ -747,8 +746,8 @@ class PeriodicReporter:
                 metrics["opened_in_window"] = _opened_in_window
 
                 sampled_info(
-                    logger
-                    "PERIODIC_REPORTER_METRICS_ZSET"
+                    logger,
+                    "PERIODIC_REPORTER_METRICS_ZSET",
                     f"📊 Собрано метрик для {src}/{sym} через ZSET: сделок={len(trades)}, открыто в окне={_opened_in_window}"
                 )
             else:
@@ -756,12 +755,12 @@ class PeriodicReporter:
                 metrics = self._gather_window_metrics_stream(src, sym, window_seconds=window_seconds)
                 total_trades = int(metrics.get("total_trades", 0))
                 sampled_info(
-                    logger
-                    "PERIODIC_REPORTER_METRICS_STREAM"
+                    logger,
+                    "PERIODIC_REPORTER_METRICS_STREAM",
                     f"📊 Собрано метрик для {src}/{sym} через stream: сделок={total_trades}"
                 )
                 # FIX: Inject shadow buckets into fallback metrics.
-                # _gather_window_metrics_stream() collects only real trades (no virtual split)
+                # _gather_window_metrics_stream() collects only real trades (no virtual split),
                 # so shadow_all == shadow_passed == m_real for this path.
                 # Without this, "Все сигналы" section shows 0 in the report.
                 if "shadow_all" not in metrics and total_trades > 0:
@@ -769,8 +768,8 @@ class PeriodicReporter:
                     _scalar_stub = {
                         k: v for k, v in metrics.items()
                         if isinstance(v, (int, float)) and k not in (
-                            "shadow_all", "shadow_passed", "smt_passed"
-                            "shadow_all_gates", "virtual_all", "symbol_breakdown", "health_metrics"
+                            "shadow_all", "shadow_passed", "smt_passed",
+                            "shadow_all_gates", "virtual_all", "symbol_breakdown", "health_metrics",
                         )
                     }
                     metrics["shadow_all"] = _scalar_stub
@@ -837,8 +836,8 @@ class PeriodicReporter:
         # Тогда берём order_id из ZSET и читаем order hash.
         #
         # Это:
-        #   - стабильнее, чем скан XREVRANGE по min_id
-        #   - быстрее при больших stream'ах
+        #   - стабильнее, чем скан XREVRANGE по min_id,
+        #   - быстрее при больших stream'ах,
         #   - идеально сочетается с compact-stream.
         if (
             (not trade_window_count)
@@ -981,7 +980,7 @@ class PeriodicReporter:
             entries = []
 
         # Важно: hydrate делаем batch'ем, чтобы:
-        #   - в compact режиме выполнить HGETALL пачкой через pipeline
+        #   - в compact режиме выполнить HGETALL пачкой через pipeline,
         #   - в non-compact режиме почти всегда обойтись без hash.
         rows = []
         for _, fields in entries:
@@ -1152,8 +1151,8 @@ class PeriodicReporter:
 
         window_label = f"{trade_window_count} trades" if trade_window_count else f"{target_window}s"
         sampled_info(
-            logger
-            "PERIODIC_REPORTER_SUMMARY"
+            logger,
+            "PERIODIC_REPORTER_SUMMARY",
             f"📊 Итого собрано {m['total_trades']} сделок для {source}/{symbol} "
             f"(окно {window_label}, matched={matched_count} из {len(entries)}, processed_order_ids={len(processed_order_ids)})"
         )
@@ -1161,8 +1160,8 @@ class PeriodicReporter:
         # Диагностика: если сделок нет, логируем больше информации
         if m['total_trades'] == 0:
             sampled_warning(
-                logger
-                "PERIODIC_REPORTER_NO_TRADES"
+                logger,
+                "PERIODIC_REPORTER_NO_TRADES",
                 f"⚠️ Нет сделок для {source}/{symbol} в окне {window_label}. "
                 f"Проверьте: trades:closed stream (найдено {len(entries)} записей, matched={matched_count}), "
                 f"closed lists, order:* hashes. "
@@ -1255,11 +1254,10 @@ class PeriodicReporter:
             
             # Формируем строки отчета
             lines = [
-                ""
-                "<b>🔍 Gate Diagnostics (Replay Analysis)</b>"
-                f"Replay: <b>{os.path.basename(latest_run)}</b>"
-                f"Total rows: <b>{total}</b> | ok=1: <b>{ok1}</b> ({ok1/total*100:.1f}%) | ok=0: <b>{ok0}</b> ({ok0/total*100:.1f}%)"
-            ]
+                "",
+                "<b>🔍 Gate Diagnostics (Replay Analysis)</b>",
+                f"Replay: <b>{os.path.basename(latest_run)}</b>",
+                f"Total rows: <b>{total}</b> | ok=1: <b>{ok1}</b> ({ok1/total*100:.1f}%) | ok=0: <b>{ok0}</b> ({ok0/total*100:.1f}%)"]
             
             if scores:
                 lines.append(
@@ -1450,20 +1448,20 @@ class PeriodicReporter:
 
             # Добавляем в метрики
             health_metrics = {
-                "health_snapshot": health_snapshot
-                "l2_stale_ratio_tick": float(l2_stale_ratio_tick or 0.0)
-                "l2_stale_ratio_now": float(l2_stale_ratio_now or 0.0)
-                "signal_emit_rate": float(signal_emit_rate or 0.0)
-                "dlq_rate": float(dlq_rate or 0.0)
+                "health_snapshot": health_snapshot,
+                "l2_stale_ratio_tick": float(l2_stale_ratio_tick or 0.0),
+                "l2_stale_ratio_now": float(l2_stale_ratio_now or 0.0),
+                "signal_emit_rate": float(signal_emit_rate or 0.0),
+                "dlq_rate": float(dlq_rate or 0.0),
             }
 
             # Извлекаем ключевые метрики из snapshot для удобства
             if health_snapshot:
                 health_metrics.update({
-                    "avg_l2_age_ms": float(health_snapshot.get("avg_l2_age_ms", 0.0))
-                    "avg_l2_age_tick_ms": float(health_snapshot.get("avg_l2_age_tick_ms", 0.0))
-                    "ticks_total": int(health_snapshot.get("ticks_total", 0))
-                    "ticks_with_l2": int(health_snapshot.get("ticks_with_l2", 0))
+                    "avg_l2_age_ms": float(health_snapshot.get("avg_l2_age_ms", 0.0)),
+                    "avg_l2_age_tick_ms": float(health_snapshot.get("avg_l2_age_tick_ms", 0.0)),
+                    "ticks_total": int(health_snapshot.get("ticks_total", 0)),
+                    "ticks_with_l2": int(health_snapshot.get("ticks_with_l2", 0)),
                 })
 
             m["health_metrics"] = health_metrics
@@ -1485,13 +1483,13 @@ class PeriodicReporter:
             send_empty = os.getenv("PERIODIC_REPORT_SEND_EMPTY", "false").lower() == "true"
             
             sampled_info(
-                logger
-                "PERIODIC_REPORTER_SEND_REPORT"
+                logger,
+                "PERIODIC_REPORTER_SEND_REPORT",
                 f"📨 _send_report вызван для {source}/{symbol}: total_trades={total}, send_empty={send_empty}"
             )
             
             # Guard: не отправляем пустые отчеты (по просьбе пользователя)
-            # Если это не плановый отчет (window_seconds=3600 или 86400)
+            # Если это не плановый отчет (window_seconds=3600 или 86400),
             # то проверяем минимальное количество сделок.
             is_scheduled = window_seconds in (3600, 86400)
             if total <= 0 and not send_empty:
@@ -1512,8 +1510,8 @@ class PeriodicReporter:
 
             if total < min_trades_for_report:
                 sampled_info(
-                    logger
-                    "PERIODIC_REPORTER_SKIP_INSUFFICIENT"
+                    logger,
+                    "PERIODIC_REPORTER_SKIP_INSUFFICIENT",
                     f"⏭️ Пропуск отчета для {source}/{symbol}: недостаточно сделок ({total} < {min_trades_for_report})"
                 )
                 return
@@ -1554,9 +1552,9 @@ class PeriodicReporter:
                             psycopg2_conn = psycopg2.connect(dsn)
 
                             trades = load_trades_from_postgres(
-                                conn=psycopg2_conn
-                                source=source
-                                symbol=symbol
+                                conn=psycopg2_conn,
+                                source=source,
+                                symbol=symbol,
                                 limit=min(total, 500),  # ограничиваем для производительности
                                 since_days=None
                             )
@@ -1567,7 +1565,7 @@ class PeriodicReporter:
                                 strong_gate_analysis = analyze_by_strong_gate(trades, min_trades=5)  # NEW
 
                                 trailing_vs_baseline_results = {
-                                    "global": global_analysis
+                                    "global": global_analysis,
                                     "by_tag": tag_analysis[:3],  # топ 3 тега
                                     "by_strong_gate": strong_gate_analysis,  # NEW: Strong/Weak разбивка
                                     "total_trades_analyzed": len(trades)
@@ -1793,25 +1791,23 @@ class PeriodicReporter:
 
             if report_virtual_only:
                 signal_shadow_lines = [
-                    "<b>📊 Signal &amp; Shadow Analytics</b>"
-                    f"Виртуальные сделки: <b>{v_all_c}</b> | WR: <b>{v_all_wr:.1f}%</b> | PnL: <b>{v_all_pnl:+.2f}</b>"
-                    f"Все сигналы (>conf): <b>{int(shadow_all.get('total_trades',0))}</b> | WR: <b>{float(shadow_all.get('wins',0))/max(1,int(shadow_all.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_all.get('total_pnl',0)):+.2f}</b>"
-                    f"Прошедшие гейты: <b>{int(shadow_passed.get('total_trades',0))}</b> | WR: <b>{float(shadow_passed.get('wins',0))/max(1,int(shadow_passed.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_passed.get('total_pnl',0)):+.2f}</b>"
-                    f"All Gates (Sim): <b>{ag_c}</b> | WR: <b>{ag_wr:.1f}%</b> | PnL: <b>{ag_pnl:+.2f}</b>"
-                    _smt_line_virt
-                    f"Virtual Trades Only (No Real): <b>{total}</b> | WR: <b>{wr:.1f}%</b> | PnL: <b>{total_pnl:+.2f}</b>"
-                    f"Реальные сделки: <b>{real_total}</b> | WR: <b>{0.0:.1f}%</b> | PnL: <b>{0.0:+.2f}</b>"
-                ]
+                    "<b>📊 Signal &amp; Shadow Analytics</b>",
+                    f"Виртуальные сделки: <b>{v_all_c}</b> | WR: <b>{v_all_wr:.1f}%</b> | PnL: <b>{v_all_pnl:+.2f}</b>",
+                    f"Все сигналы (>conf): <b>{int(shadow_all.get('total_trades',0))}</b> | WR: <b>{float(shadow_all.get('wins',0))/max(1,int(shadow_all.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_all.get('total_pnl',0)):+.2f}</b>",
+                    f"Прошедшие гейты: <b>{int(shadow_passed.get('total_trades',0))}</b> | WR: <b>{float(shadow_passed.get('wins',0))/max(1,int(shadow_passed.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_passed.get('total_pnl',0)):+.2f}</b>",
+                    f"All Gates (Sim): <b>{ag_c}</b> | WR: <b>{ag_wr:.1f}%</b> | PnL: <b>{ag_pnl:+.2f}</b>",
+                    _smt_line_virt,
+                    f"Virtual Trades Only (No Real): <b>{total}</b> | WR: <b>{wr:.1f}%</b> | PnL: <b>{total_pnl:+.2f}</b>",
+                    f"Реальные сделки: <b>{real_total}</b> | WR: <b>{0.0:.1f}%</b> | PnL: <b>{0.0:+.2f}</b>"]
             else:
                 signal_shadow_lines = [
-                    "<b>📊 Signal &amp; Shadow Analytics</b>"
-                    f"Виртуальные сделки: <b>{v_all_c}</b> | WR: <b>{v_all_wr:.1f}%</b> | PnL: <b>{v_all_pnl:+.2f}</b>"
-                    f"Все сигналы (>conf): <b>{int(shadow_all.get('total_trades',0))}</b> | WR: <b>{float(shadow_all.get('wins',0))/max(1,int(shadow_all.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_all.get('total_pnl',0)):+.2f}</b>"
-                    f"Прошедшие гейты: <b>{int(shadow_passed.get('total_trades',0))}</b> | WR: <b>{float(shadow_passed.get('wins',0))/max(1,int(shadow_passed.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_passed.get('total_pnl',0)):+.2f}</b>"
-                    f"All Gates (Sim): <b>{ag_c}</b> | WR: <b>{ag_wr:.1f}%</b> | PnL: <b>{ag_pnl:+.2f}</b>"
-                    _smt_line_real
-                    f"Реальные сделки: <b>{total}</b> | WR: <b>{wr:.1f}%</b> | PnL: <b>{total_pnl:+.2f}</b>"
-                ]
+                    "<b>📊 Signal &amp; Shadow Analytics</b>",
+                    f"Виртуальные сделки: <b>{v_all_c}</b> | WR: <b>{v_all_wr:.1f}%</b> | PnL: <b>{v_all_pnl:+.2f}</b>",
+                    f"Все сигналы (>conf): <b>{int(shadow_all.get('total_trades',0))}</b> | WR: <b>{float(shadow_all.get('wins',0))/max(1,int(shadow_all.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_all.get('total_pnl',0)):+.2f}</b>",
+                    f"Прошедшие гейты: <b>{int(shadow_passed.get('total_trades',0))}</b> | WR: <b>{float(shadow_passed.get('wins',0))/max(1,int(shadow_passed.get('total_trades',0)))*100.0:.1f}%</b> | PnL: <b>{float(shadow_passed.get('total_pnl',0)):+.2f}</b>",
+                    f"All Gates (Sim): <b>{ag_c}</b> | WR: <b>{ag_wr:.1f}%</b> | PnL: <b>{ag_pnl:+.2f}</b>",
+                    _smt_line_real,
+                    f"Реальные сделки: <b>{total}</b> | WR: <b>{wr:.1f}%</b> | PnL: <b>{total_pnl:+.2f}</b>"]
 
                 # --- NEW: Strong (High Conf) Lines ---
                 shc_stats = m.get("strong_high_conf_stats") or {}
@@ -1827,34 +1823,34 @@ class PeriodicReporter:
                         signal_shadow_lines.append(line)
             display_symbol = "ALLSYMBOLS" if str(symbol) == "ALL" else str(symbol)
             sections: list[str] = [
-                f"📊 <b>Отчет: {html.escape(str(source))} / {html.escape(display_symbol)}</b>"
-                f"🕐 {now_utc}"
-                f"🪟 Окно: {window_label}"
-                *( [header_note] if header_note else [] )
-                "========================================"
-                ""
-                "<b>📈 ОСНОВНОЕ (net по PnL)</b>"
-                f"{trade_label}: <b>{total}</b>"
-                f"W/L/BE: <b>{wins}({rate(wins):.1f}%)</b>/<b>{losses}({rate(losses):.1f}%)</b>/<b>{be}({rate(be):.1f}%)</b> | WR: <b>{wr:.1f}%</b>"
-                f"P/L net: <b>{total_pnl:+.2f}</b> | Avg: <b>{avg_pnl:+.2f}</b>"
-                f"Avg P/L %: <b>{avg_pct:+.3f}</b>"
-                f"Fees: <b>{fees:+.2f}</b>"
-                f"Turnover (entry): <b>{total_notional:.2f}</b> USDT"
-                f"PF(gross): <b>{pf_str}</b> | PF(net): <b>{pf_net_str}</b>"
-                f"Avg duration: <b>{avg_dur_s:.1f}s</b>"
+                f"📊 <b>Отчет: {html.escape(str(source))} / {html.escape(display_symbol)}</b>",
+                f"🕐 {now_utc}",
+                f"🪟 Окно: {window_label}",
+                *( [header_note] if header_note else [] ),
+                "========================================",
+                "",
+                "<b>📈 ОСНОВНОЕ (net по PnL)</b>",
+                f"{trade_label}: <b>{total}</b>",
+                f"W/L/BE: <b>{wins}({rate(wins):.1f}%)</b>/<b>{losses}({rate(losses):.1f}%)</b>/<b>{be}({rate(be):.1f}%)</b> | WR: <b>{wr:.1f}%</b>",
+                f"P/L net: <b>{total_pnl:+.2f}</b> | Avg: <b>{avg_pnl:+.2f}</b>",
+                f"Avg P/L %: <b>{avg_pct:+.3f}</b>",
+                f"Fees: <b>{fees:+.2f}</b>",
+                f"Turnover (entry): <b>{total_notional:.2f}</b> USDT",
+                f"PF(gross): <b>{pf_str}</b> | PF(net): <b>{pf_net_str}</b>",
+                f"Avg duration: <b>{avg_dur_s:.1f}s</b>",
                 f"Opened in window: <b>{int(m.get('opened_in_window', 0))}</b> | Closed in window: <b>{total}</b> | Δ: <b>{int(m.get('opened_in_window', 0)) - total:+d}</b>"
-                + (" ℹ️ <i>(avg_dur &gt; window)</i>" if int(m.get('opened_in_window', 0)) == 0 and avg_dur_s > effective_window_sec * 0.8 else "")
-                ""
-                "<b>📐 Edge / Risk (must-have)</b>"
-                f"Expectancy: <b>{avg_pnl:+.2f}$</b> | <b>{expectancy_r:+.3f}R</b>"
-                f"Median R: <b>{med_r:+.3f}</b> | TrimMean R(10%): <b>{trim_r:+.3f}</b>"
-                f"StdDev: <b>{std_r:.3f}R</b> | Sharpe-like: <b>{sharpe_like:.2f}</b> | Sortino-like: <b>{sortino_like:.2f}</b>"
-                f"Payoff(R): <b>{payoff_r:.2f}</b> | Kelly(f): <b>{kelly:.2f}</b>"
-                f"Max DD: <b>{mdd:.2f}$</b> | Streaks W/L: <b>{max_w_streak}</b>/<b>{max_l_streak}</b>"
-                ""
-                *signal_shadow_lines
-                ""
-                f"<b>👮 Validation Stats</b>"
+                + (" ℹ️ <i>(avg_dur &gt; window)</i>" if int(m.get('opened_in_window', 0)) == 0 and avg_dur_s > effective_window_sec * 0.8 else ""),
+                "",
+                "<b>📐 Edge / Risk (must-have)</b>",
+                f"Expectancy: <b>{avg_pnl:+.2f}$</b> | <b>{expectancy_r:+.3f}R</b>",
+                f"Median R: <b>{med_r:+.3f}</b> | TrimMean R(10%): <b>{trim_r:+.3f}</b>",
+                f"StdDev: <b>{std_r:.3f}R</b> | Sharpe-like: <b>{sharpe_like:.2f}</b> | Sortino-like: <b>{sortino_like:.2f}</b>",
+                f"Payoff(R): <b>{payoff_r:.2f}</b> | Kelly(f): <b>{kelly:.2f}</b>",
+                f"Max DD: <b>{mdd:.2f}$</b> | Streaks W/L: <b>{max_w_streak}</b>/<b>{max_l_streak}</b>",
+                "",
+                *signal_shadow_lines,
+                "",
+                f"<b>👮 Validation Stats</b>",
                 # Show breakdown: X passed, Y failed, Z bypassed
                 # Pass rate is only over decided (passed+failed), bypassed = gate not evaluated (Shadow)
                 *(
@@ -1872,24 +1868,24 @@ class PeriodicReporter:
                 # "230 (100%)" means 100% of REJECTED signals had score<0.65 — different pool from trades.
                 *(
                     [
-                        ""
-                        "<b>❌ Почему ok=0? (breakdown сигналов в сигнал-стриме)</b>"
-                        f"<i>Источник: signals:of:inputs за окно отчёта — пул сигналов (не сделок)</i>"
-                        f"Отклонено сигналов (ok=0): <b>{v_failed_count}</b> из <b>{total_signals_val}</b> total | pass_rate: <b>{v_pass_rate:.1f}%</b>"
-                        "Условия, заблокировавшие ok (% от отклонённых):"
+                        "",
+                        "<b>❌ Почему ok=0? (breakdown сигналов в сигнал-стриме)</b>",
+                        f"<i>Источник: signals:of:inputs за окно отчёта — пул сигналов (не сделок)</i>",
+                        f"Отклонено сигналов (ok=0): <b>{v_failed_count}</b> из <b>{total_signals_val}</b> total | pass_rate: <b>{v_pass_rate:.1f}%</b>",
+                        "Условия, заблокировавшие ok (% от отклонённых):",
                         *[
                             f"  • <code>{html.escape(c)}</code>: {n_} ({n_ / v_failed_count * 100:.1f}%)"
                             for c, n_ in sorted(v_ok_fail_breakdown.items(), key=lambda kv: -kv[1])[:10]
-                        ]
-                        "<i>Один сигнал может нарушать несколько условий. Пул сигналов ≠ пул сделок.</i>"
+                        ],
+                        "<i>Один сигнал может нарушать несколько условий. Пул сигналов ≠ пул сделок.</i>",
                     ]
                     if v_ok_fail_breakdown and v_pass_rate < 25.0 and v_failed_count > 0 else []
                 )
                 # ── score threshold breakdown (only when score_veto is dominant) ────────────
                 *(
                     [
-                        ""
-                        "<b>🎯 Score Threshold Breakdown (сигналы с score ≥ порога):</b>"
+                        "",
+                        "<b>🎯 Score Threshold Breakdown (сигналы с score ≥ порога):</b>",
                         *[
                             f"  score ≥ {thr}: <b>{st['count']}</b> ({st['count'] / max(total_signals_val, 1) * 100:.1f}%) "
                             f"| pass: <b>{st['passed']}</b> "
@@ -1902,30 +1898,30 @@ class PeriodicReporter:
                     and any(st["count"] > 0 for st in v_score_by_threshold.values())
                     and any(k.startswith("score_veto") and n > 0 for k, n in v_ok_fail_breakdown.items())
                     else []
-                )
+                ),
                 # ───────────────────────────────────────────────────
                 ""
-                "<b>🎛️ Exit Quality</b>"
-                f"ExitEff(win): <b>{exit_eff:.2f}</b> | Giveback(win): <b>{giveback_avg:.2f}</b> | Missed(SL_AFTER_TP): <b>{missed_avg:.2f}</b>"
-                ""
-                "<b>📐 Setup Stats (ATR)</b>"
-                f"Avg SL: <b>{float(m.get('avg_sl_atr', 0.0)):.2f} ATR</b> | Avg TP: <b>{float(m.get('avg_tp_atr', 0.0)):.2f} ATR</b>"
-                ""
-                "<b>🧷 Data Quality</b>"
-                f"bad_ts(sec/us): <b>{bad_ts_sec}</b>/<b>{bad_ts_us}</b> | bad_time: <b>{bad_time}</b> | neg_dur: <b>{neg_dur}</b>"
-                f"tp_hit_but_zero_pnl:: <b>{tp_zero}</b> | close_reason_inconsistent: <b>{cr_incon}</b> | fees_huge: <b>{fees_huge}</b>"
-                ""
-                "<b>🏥 Health Metrics</b>"
-                f"L2 stale tick/now: <b>{l2_stale_ratio_tick:.1%}</b>/<b>{l2_stale_ratio_now:.1%}</b>"
-                f"Avg L2 age: <b>{avg_l2_age_ms:.0f}ms</b> | Tick age: <b>{avg_l2_age_tick_ms:.0f}ms</b>"
-                f"Ticks total/with L2: <b>{ticks_total}</b>/<b>{ticks_with_l2}</b>"
-                f"Signal/DLQ rate: <b>{signal_emit_rate:.2f}</b>/<b>{dlq_rate:.2f}</b> per sec"
-                ""
-                "<b>🎯 TP Targets (Price Action)</b>"
-                f"TP1/TP2/TP3 hits: <b>{int(m['tp1_hits'])}</b>/<b>{int(m['tp2_hits'])}</b>/<b>{int(m['tp3_hits'])}</b>"
-                f"TP→SL: TP1 <b>{int(m['tp1_then_sl'])}</b> ({rate(int(m['tp1_then_sl'])):.1f}%) | TP2 <b>{int(m['tp2_then_sl'])}</b> ({rate(int(m['tp2_then_sl'])):.1f}%) | TP3 <b>{int(m['tp3_then_sl'])}</b> ({rate(int(m['tp3_then_sl'])):.1f}%)"
-                ""
-                "<b>🧬 PnL Sign x Reason</b>"
+                "<b>🎛️ Exit Quality</b>",
+                f"ExitEff(win): <b>{exit_eff:.2f}</b> | Giveback(win): <b>{giveback_avg:.2f}</b> | Missed(SL_AFTER_TP): <b>{missed_avg:.2f}</b>",
+                "",
+                "<b>📐 Setup Stats (ATR)</b>",
+                f"Avg SL: <b>{float(m.get('avg_sl_atr', 0.0)):.2f} ATR</b> | Avg TP: <b>{float(m.get('avg_tp_atr', 0.0)):.2f} ATR</b>",
+                "",
+                "<b>🧷 Data Quality</b>",
+                f"bad_ts(sec/us): <b>{bad_ts_sec}</b>/<b>{bad_ts_us}</b> | bad_time: <b>{bad_time}</b> | neg_dur: <b>{neg_dur}</b>",
+                f"tp_hit_but_zero_pnl:: <b>{tp_zero}</b> | close_reason_inconsistent: <b>{cr_incon}</b> | fees_huge: <b>{fees_huge}</b>",
+                "",
+                "<b>🏥 Health Metrics</b>",
+                f"L2 stale tick/now: <b>{l2_stale_ratio_tick:.1%}</b>/<b>{l2_stale_ratio_now:.1%}</b>",
+                f"Avg L2 age: <b>{avg_l2_age_ms:.0f}ms</b> | Tick age: <b>{avg_l2_age_tick_ms:.0f}ms</b>",
+                f"Ticks total/with L2: <b>{ticks_total}</b>/<b>{ticks_with_l2}</b>",
+                f"Signal/DLQ rate: <b>{signal_emit_rate:.2f}</b>/<b>{dlq_rate:.2f}</b> per sec",
+                "",
+                "<b>🎯 TP Targets (Price Action)</b>",
+                f"TP1/TP2/TP3 hits: <b>{int(m['tp1_hits'])}</b>/<b>{int(m['tp2_hits'])}</b>/<b>{int(m['tp3_hits'])}</b>",
+                f"TP→SL: TP1 <b>{int(m['tp1_then_sl'])}</b> ({rate(int(m['tp1_then_sl'])):.1f}%) | TP2 <b>{int(m['tp2_then_sl'])}</b> ({rate(int(m['tp2_then_sl'])):.1f}%) | TP3 <b>{int(m['tp3_then_sl'])}</b> ({rate(int(m['tp3_then_sl'])):.1f}%)",
+                "",
+                "<b>🧬 PnL Sign x Reason</b>",
             ]
 
             def _fmt_reason_map(d: Dict[str, int], total_count: int) -> str:
@@ -1938,9 +1934,8 @@ class PeriodicReporter:
                 return ", ".join(parts)
 
             sections.extend([
-                f"Wins: {_fmt_reason_map(m.get('wins_by_reason', {}), total)}"
-                f"Losses: {_fmt_reason_map(m.get('losses_by_reason', {}), total)}"
-            ])
+                f"Wins: {_fmt_reason_map(m.get('wins_by_reason', {}), total)}",
+                f"Losses: {_fmt_reason_map(m.get('losses_by_reason', {}), total)}"])
             if m.get('breakeven_by_reason'):
                 sections.append(f"BE: {_fmt_reason_map(m.get('breakeven_by_reason', {}), total)}")
 
@@ -1990,11 +1985,10 @@ class PeriodicReporter:
             exp_entry = float(m.get("expectancy_entry_usd", 0.0))
             exp_mgmt = float(m.get("expectancy_mgmt_usd", 0.0))
             sections.extend([
-                ""
-                "<b>⚖️ Разделение edge</b>"
-                f"Entry-edge (baseline P/L): <b>{exp_entry:+.2f}</b> USD/сделка"
-                f"Mgmt-edge (pnl_net - baseline): <b>{exp_mgmt:+.2f}</b> USD/сделка"
-            ])
+                "",
+                "<b>⚖️ Разделение edge</b>",
+                f"Entry-edge (baseline P/L): <b>{exp_entry:+.2f}</b> USD/сделка",
+                f"Mgmt-edge (pnl_net - baseline): <b>{exp_mgmt:+.2f}</b> USD/сделка"])
 
             # === Baseline vs Managed ===
             n_fixed = int(m.get("n_fixed", 0))
@@ -2014,12 +2008,11 @@ class PeriodicReporter:
                 delta_exp_r = exp_managed_r - exp_fixed_r
 
                 baseline_lines = [
-                    ""
-                    "<b>📊 Baseline vs Managed</b>"
-                    f"WR(baseline): <b>{wr_fixed:.1f}%</b> | Exp_R(baseline): <b>{exp_fixed_r:+.3f}</b>"
-                    f"WR(managed):  <b>{wr_managed:.1f}%</b> | Exp_R(managed): <b>{exp_managed_r:+.3f}</b>"
-                    f"ΔExp_R (managed - baseline): <b>{delta_exp_r:+.3f}</b>"
-                ]
+                    "",
+                    "<b>📊 Baseline vs Managed</b>",
+                    f"WR(baseline): <b>{wr_fixed:.1f}%</b> | Exp_R(baseline): <b>{exp_fixed_r:+.3f}</b>",
+                    f"WR(managed):  <b>{wr_managed:.1f}%</b> | Exp_R(managed): <b>{exp_managed_r:+.3f}</b>",
+                    f"ΔExp_R (managed - baseline): <b>{delta_exp_r:+.3f}</b>"]
 
                 # Добавляем Payoff baseline если есть
                 if payoff_fixed_r > 0 or payoff_fixed_usd > 0:
@@ -2056,11 +2049,10 @@ class PeriodicReporter:
                 pnl_veto = float(m.get("sum_pnl_shadow_veto", 0.0))
                 
                 gate_lines = [
-                    ""
-                    "<b>⛩️ Gate & Scenarios</b>"
-                    f"Reversal: <b>{cnt_rev}</b> ({pnl_rev:+.2f}$) | Continuation: <b>{cnt_cont}</b> ({pnl_cont:+.2f}$)"
-                    f"Gate Mode: Enforce(<b>{cnt_enforce}</b>) vs Shadow(<b>{cnt_shadow}</b>)"
-                ]
+                    "",
+                    "<b>⛩️ Gate & Scenarios</b>",
+                    f"Reversal: <b>{cnt_rev}</b> ({pnl_rev:+.2f}$) | Continuation: <b>{cnt_cont}</b> ({pnl_cont:+.2f}$)",
+                    f"Gate Mode: Enforce(<b>{cnt_enforce}</b>) vs Shadow(<b>{cnt_shadow}</b>)"]
                 if cnt_veto > 0:
                     gate_lines.append(f"Shadow Veto: <b>{cnt_veto}</b> rejected (Impact: <b>{pnl_veto:+.2f}$</b>)")
                 
@@ -2085,31 +2077,30 @@ class PeriodicReporter:
                 try:
                     # Собираем сделки для разбивки
                     trades_for_breakdown = self._iter_recent_trades_window(
-                        strategy=strategy_from_source(source)
-                        symbol=symbol
-                        tf="tick"
-                        source=source
+                        strategy=strategy_from_source(source),
+                        symbol=symbol,
+                        tf="tick",
+                        source=source,
                         window_seconds=effective_window_sec
                     )
                     
                     if trades_for_breakdown:
                         session_breakdown = self._calculate_session_pnl_breakdown(
-                            trades_for_breakdown
+                            trades_for_breakdown,
                             window_hours=min(24, effective_window_sec // 3600)
                         )
 
                         if session_breakdown:
                             breakdown_lines = [
-                                ""
-                                "<b>📊 Разбивка PnL по торговым сессиям (последние 24ч)</b>"
-                            ]
+                                "",
+                                "<b>📊 Разбивка PnL по торговым сессиям (последние 24ч)</b>"]
 
                             # Определяем порядок сессий (от более свежих к старым)
                             # NYC (16:00-00:00) -> London (08:00-16:00) -> Asia (00:00-08:00)
                             session_order = ["nyc", "london", "asia"]
                             session_names = {
-                                "nyc": "Нью-Йорк (16:00-00:00 UTC)"
-                                "london": "Лондон (08:00-16:00 UTC)"
+                                "nyc": "Нью-Йорк (16:00-00:00 UTC)",
+                                "london": "Лондон (08:00-16:00 UTC)",
                                 "asia": "Азия (00:00-08:00 UTC)"
                             }
 
@@ -2139,9 +2130,9 @@ class PeriodicReporter:
                     logger.warning(f"⚠️ Ошибка расчета hourly PnL breakdown: {e}")
 
             sections.extend([
-                ""
-                "<b>🧪 Диагностика (strict по close_reason)</b>"
-                f"W/L/BE(strict): <b>{ws}</b>/<b>{ls}</b>/<b>{bs}</b> | WR(strict): <b>{wrs:.1f}%</b>"
+                "",
+                "<b>🧪 Диагностика (strict по close_reason)</b>",
+                f"W/L/BE(strict): <b>{ws}</b>/<b>{ls}</b>/<b>{bs}</b> | WR(strict): <b>{wrs:.1f}%</b>",
                 *(
                     ["⚠️ <i>WR(net) &gt; 95% при N&gt;=10: проверьте корректность данных (pnl/close_reason).</i>"]
                     if total >= MIN_TRADES_FOR_WR_WARN and wr > 95.0 else []
@@ -2149,13 +2140,13 @@ class PeriodicReporter:
                 *(
                     ["⚠️ <i>WR(strict) &gt; 95% при N&gt;=10: проверьте нормализацию close_reason.</i>"]
                     if total >= MIN_TRADES_FOR_WR_WARN and wrs > 95.0 else []
-                )
+                ),
                 f"🧾 <i>Top close_reason: {top_str}</i>"
-                ""
-                "<b>🔍 Диагностика данных</b>"
-                f"Убыточных сделок (pnl &lt; 0): <b>{int(m['neg_pnl_count'])}</b>"
-                f"Min PnL: <b>{min_pnl_str}</b> | Max PnL: <b>{max_pnl_str}</b>"
-                f"Пропущено fees: <b>{int(m['missing_fees_count'])}</b> | Пропущено duration: <b>{int(m['missing_duration_count'])}</b>"
+                "",
+                "<b>🔍 Диагностика данных</b>",
+                f"Убыточных сделок (pnl &lt; 0): <b>{int(m['neg_pnl_count'])}</b>",
+                f"Min PnL: <b>{min_pnl_str}</b> | Max PnL: <b>{max_pnl_str}</b>",
+                f"Пропущено fees: <b>{int(m['missing_fees_count'])}</b> | Пропущено duration: <b>{int(m['missing_duration_count'])}</b>",
                 *(
                     [f"💰 P/L gross: <b>{total_pnl_gross:+.2f}</b> | Fees ratio: <b>{fees_ratio:.2f}x</b>"]
                     if total_pnl_gross != 0.0 or fees_ratio > 0.5 else []
@@ -2169,7 +2160,7 @@ class PeriodicReporter:
             # === OF Confirm Stats (NEW) ===
             of_confirm_stats = m.get("of_confirm_stats", {})
             of_lines = [
-                ""
+                "",
                 "<b>✅ OF Confirm Stats</b>"
             ]
             
@@ -2182,8 +2173,8 @@ class PeriodicReporter:
             
             # Sort by count descending
             sorted_stats = sorted(
-                of_confirm_stats.items()
-                key=lambda x: x[1]["count"]
+                of_confirm_stats.items(),
+                key=lambda x: x[1]["count"],
                 reverse=True
             )
             
@@ -2206,13 +2197,13 @@ class PeriodicReporter:
             ml_cond_stats = m.get("ml_condition_stats", {})
             
             ml_lines = [
-                ""
+                "",
                 "<b>🤖 ML Performance (Shadow Mode)</b>"
             ]
             
             if not ml_stats:
                 ml_stats = {
-                    "pass": {"count": 0, "wins": 0, "pnl": 0.0}
+                    "pass": {"count": 0, "wins": 0, "pnl": 0.0},
                     "veto": {"count": 0, "wins": 0, "pnl": 0.0}
                 }
             
@@ -2239,10 +2230,9 @@ class PeriodicReporter:
             med_p = ml_cond_stats.get("median_p_edge", 0.0)
             
             ml_lines.extend([
-                ""
-                f"<b>📊 ML Condition Analysis ({total_eval} signals evaluated)</b>"
-                f"Avg p_edge: <b>{avg_p:.3f}</b> | Median: <b>{med_p:.3f}</b>"
-            ])
+                "",
+                f"<b>📊 ML Condition Analysis ({total_eval} signals evaluated)</b>",
+                f"Avg p_edge: <b>{avg_p:.3f}</b> | Median: <b>{med_p:.3f}</b>"])
             # ⚠️ Warn if ML model returns constant 0.5 for all signals (default / untrained)
             if total_eval >= 50 and abs(avg_p - 0.5) < 0.001 and abs(med_p - 0.5) < 0.001:
                 ml_lines.append(
@@ -2340,7 +2330,7 @@ class PeriodicReporter:
                     )
                     
                     sb_lines = [
-                        ""
+                        "",
                         "<b>🪙 PnL по символам</b>"
                     ]
                     
@@ -2361,33 +2351,30 @@ class PeriodicReporter:
                 trades_analyzed = trailing_vs_baseline_results["total_trades_analyzed"]
 
                 trailing_sections = [
-                    ""
-                    f"<b>🎯 Trailing vs Baseline (анализ {trades_analyzed} сделок)</b>"
-                    f"WR(managed): <b>{global_analysis.get('wr', 0)*100:.1f}%</b> | WR(baseline): <b>{global_analysis.get('wr_fixed', 0)*100:.1f}%</b>"
-                    f"Exp_R(managed): <b>{global_analysis.get('expectancy_managed_r', 0):+.3f}</b> | Exp_R(baseline): <b>{global_analysis.get('expectancy_baseline_r', 0):+.3f}</b>"
-                    f"ΔExp_R: <b>{global_analysis.get('delta_expectancy_r', 0):+.3f}</b>"
-                    f"Sharpe(R): <b>{global_analysis.get('sharpe_r', 0):+.2f}</b> | Sortino(R): <b>{global_analysis.get('sortino_r', 0):+.2f}</b>"
-                    f"MDD(managed): <b>{global_analysis.get('mdd_net_usd', 0):.2f}$</b> | MDD(baseline): <b>{global_analysis.get('mdd_baseline_usd', 0):.2f}$</b>"
-                ]
+                    "",
+                    f"<b>🎯 Trailing vs Baseline (анализ {trades_analyzed} сделок)</b>",
+                    f"WR(managed): <b>{global_analysis.get('wr', 0)*100:.1f}%</b> | WR(baseline): <b>{global_analysis.get('wr_fixed', 0)*100:.1f}%</b>",
+                    f"Exp_R(managed): <b>{global_analysis.get('expectancy_managed_r', 0):+.3f}</b> | Exp_R(baseline): <b>{global_analysis.get('expectancy_baseline_r', 0):+.3f}</b>",
+                    f"ΔExp_R: <b>{global_analysis.get('delta_expectancy_r', 0):+.3f}</b>",
+                    f"Sharpe(R): <b>{global_analysis.get('sharpe_r', 0):+.2f}</b> | Sortino(R): <b>{global_analysis.get('sortino_r', 0):+.2f}</b>",
+                    f"MDD(managed): <b>{global_analysis.get('mdd_net_usd', 0):.2f}$</b> | MDD(baseline): <b>{global_analysis.get('mdd_baseline_usd', 0):.2f}$</b>"]
 
                 # Добавляем информацию о trailing trades
                 trailing_share = global_analysis.get('trailing_share', 0)
                 trailing_close_share = global_analysis.get('trailing_close_share', 0)
                 if trailing_share > 0:
                     trailing_sections.extend([
-                        f"Trailing запущен: <b>{trailing_share*100:.1f}%</b> | Закрыт по трейлу: <b>{trailing_close_share*100:.1f}%</b>"
-                        f"Trailing WR: <b>{global_analysis.get('trailing_wr', 0)*100:.1f}%</b>"
-                        f"Trailing Exp_R: <b>{global_analysis.get('trailing_expectancy_r', 0):+.3f}</b> (Δ: <b>{global_analysis.get('trailing_delta_expectancy_r', 0):+.3f}</b>)"
-                    ])
+                        f"Trailing запущен: <b>{trailing_share*100:.1f}%</b> | Закрыт по трейлу: <b>{trailing_close_share*100:.1f}%</b>",
+                        f"Trailing WR: <b>{global_analysis.get('trailing_wr', 0)*100:.1f}%</b>",
+                        f"Trailing Exp_R: <b>{global_analysis.get('trailing_expectancy_r', 0):+.3f}</b> (Δ: <b>{global_analysis.get('trailing_delta_expectancy_r', 0):+.3f}</b>)"])
 
                 # Добавляем giveback/missed stats
                 giveback_avg_r = global_analysis.get('giveback_avg_r', 0)
                 missed_avg_r = global_analysis.get('missed_avg_r', 0)
                 if giveback_avg_r != 0 or missed_avg_r != 0:
                     trailing_sections.extend([
-                        f"Giveback: <b>{giveback_avg_r:+.3f}R</b> ({global_analysis.get('giveback_share', 0)*100:.1f}%) | Missed: <b>{missed_avg_r:+.3f}R</b> ({global_analysis.get('missed_share', 0)*100:.1f}%)"
-                        f"MFE/MAE: <b>{global_analysis.get('mfe_avg_r', 0):+.3f}R</b> / <b>{global_analysis.get('mae_avg_r', 0):+.3f}R</b>"
-                    ])
+                        f"Giveback: <b>{giveback_avg_r:+.3f}R</b> ({global_analysis.get('giveback_share', 0)*100:.1f}%) | Missed: <b>{missed_avg_r:+.3f}R</b> ({global_analysis.get('missed_share', 0)*100:.1f}%)",
+                        f"MFE/MAE: <b>{global_analysis.get('mfe_avg_r', 0):+.3f}R</b> / <b>{global_analysis.get('mae_avg_r', 0):+.3f}R</b>"])
 
                 # Добавляем топ тегов (если есть)
                 if by_tag_analysis:
@@ -2448,10 +2435,9 @@ class PeriodicReporter:
                 
                 # Ищем маркеры для разбиения
                 split_markers = [
-                    "<b>🎯 Trailing vs Baseline"
-                    "<b>🧠 РЕКОМЕНДАЦИИ ПО НАСТРОЙКАМ:"
-                    "<b>💪 По силе сигнала"
-                ]
+                    "<b>🎯 Trailing vs Baseline",
+                    "<b>🧠 РЕКОМЕНДАЦИИ ПО НАСТРОЙКАМ:",
+                    "<b>💪 По силе сигнала"]
                 
                 split_index = None
                 for i, line in enumerate(msg_lines):
@@ -2508,8 +2494,8 @@ class PeriodicReporter:
                 logger.info(f"🎯 Выполнение анализа trailing edge для {source}/{symbol} (отчет #{self.report_counter[pair_key]})")
 
                 trailing_edge_result = self.trailing_analyzer.analyze_last_trades(
-                    source=source
-                    symbol=symbol
+                    source=source,
+                    symbol=symbol,
                     limit=200,  # Анализируем последние 200 сделок (согласуется с REPORT_TRIGGER_COUNT * trailing_analysis_reports_interval)
                     since_hours=None  # Без ограничения по времени
                 )
@@ -2528,14 +2514,14 @@ class PeriodicReporter:
                             # Сохраняем рекомендации в Redis для применения
                             rec_key = f"trailing_recommendations:{source}:{symbol}"
                             rec_data = {
-                                "timestamp": recommendations["analysis_timestamp"]
-                                "confidence": recommendations["confidence_level"]
-                                "actions": recommendations["actions"]
+                                "timestamp": recommendations["analysis_timestamp"],
+                                "confidence": recommendations["confidence_level"],
+                                "actions": recommendations["actions"],
                                 "analysis": {
-                                    "delta_exp_r": trailing_edge_result.delta_exp_r
-                                    "share_better": trailing_edge_result.share_better
-                                    "share_worse": trailing_edge_result.share_worse
-                                    "total_trades": trailing_edge_result.total_trades
+                                    "delta_exp_r": trailing_edge_result.delta_exp_r,
+                                    "share_better": trailing_edge_result.share_better,
+                                    "share_worse": trailing_edge_result.share_worse,
+                                    "total_trades": trailing_edge_result.total_trades,
                                     "trailing_trades": trailing_edge_result.trailing_trades
                                 }
                             }
@@ -2651,22 +2637,22 @@ class PeriodicReporter:
 
             # Генерируем рекомендации по всем выигрышным сделкам
             rec_all = recommend_trailing_size(
-                trades
-                stop_atr_mult=stop_atr_mult
-                min_trades=50
-                winners_only=True
-                mfe_quantile=0.33
-                trailing_only=False
+                trades,
+                stop_atr_mult=stop_atr_mult,
+                min_trades=50,
+                winners_only=True,
+                mfe_quantile=0.33,
+                trailing_only=False,
             )
 
             # Генерируем рекомендации только по trailing-сделкам
             rec_trailing = recommend_trailing_size(
-                trades
-                stop_atr_mult=stop_atr_mult
+                trades,
+                stop_atr_mult=stop_atr_mult,
                 min_trades=25,  # меньше требований для trailing-сделок
-                winners_only=True
-                mfe_quantile=0.33
-                trailing_only=True
+                winners_only=True,
+                mfe_quantile=0.33,
+                trailing_only=True,
             )
 
             if not rec_all and not rec_trailing:
@@ -2757,10 +2743,10 @@ class PeriodicReporter:
                 return "OrderFlow"
 
         mapping = {
-            "ta": "TechnicalAnalysis"
+            "ta": "TechnicalAnalysis",
             "orderflow": "CryptoOrderFlow",  # default for crypto-heavy context
-            "cryptoorderflow": "CryptoOrderFlow"
-            "aggregated": "AggregatedHub-V2"
+            "cryptoorderflow": "CryptoOrderFlow",
+            "aggregated": "AggregatedHub-V2",
         }
         source_raw = mapping.get(s, strategy)
         return canon_source(source_raw)
@@ -2843,8 +2829,8 @@ class PeriodicReporter:
             # Проверяем сигналы в streams
             of_inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
             streams_to_check = [
-                of_inputs_stream
-                f"signals:cryptoorderflow:{symbol}"
+                of_inputs_stream,
+                f"signals:cryptoorderflow:{symbol}",
                 "signals:crypto:raw"
             ]
 

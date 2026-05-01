@@ -15,14 +15,14 @@ def test_extract_world_practice_indicators_defaults() -> None:
 
 def test_extract_world_practice_indicators_sanitizes_non_finite() -> None:
     dc = {
-        "vol_fast_bps": float("nan")
-        "vol_slow_bps": float("inf")
+        "vol_fast_bps": float("nan"),
+        "vol_slow_bps": float("inf"),
         "vol_ratio": -1.23,  # allowed
-        "vol_ratio_z": float("-inf")
-        "vol_regime_label": "shock"
-        "res_recovery_ms": "1500"
-        "res_speed_per_s": float("nan")
-        "res_recovered": 1
+        "vol_ratio_z": float("-inf"),
+        "vol_regime_label": "shock",
+        "res_recovery_ms": "1500",
+        "res_speed_per_s": float("nan"),
+        "res_recovered": 1,
     }
     out = extract_world_practice_indicators(dc)
     assert out["vol_fast_bps"] == 0.0

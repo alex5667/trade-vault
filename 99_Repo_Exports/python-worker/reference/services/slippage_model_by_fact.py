@@ -130,16 +130,16 @@ def _read_ema(redis_client: Any, key: str, *, min_samples: int) -> Tuple[int, fl
 
 
 def estimate_slippage_bps_ctx(
-    ctx: Any
-    *
-    redis_client: Any
-    symbol: str
-    venue: str
-    ts_ms: Any
-    tf: str = "na"
-    kind: str = "na"
-    default_bps: float
-    use_spread_half: bool
+    ctx: Any,
+    *,
+    redis_client: Any,
+    symbol: str,
+    venue: str,
+    ts_ms: Any,
+    tf: str = "na",
+    kind: str = "na",
+    default_bps: float,
+    use_spread_half: bool,
 ) -> float:
     """
     HARDENED estimator (single entrypoint for gates):

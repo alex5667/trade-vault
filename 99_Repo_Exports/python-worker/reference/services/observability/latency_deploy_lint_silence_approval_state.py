@@ -82,14 +82,14 @@ def _csv_tokens(value: Any, *, default: str = 'none') -> str:
 def _details_payload(raw: dict[str, str] | None) -> dict[str, Any]:
     raw = dict(raw or {})
     return {
-        'compose_file': _s(raw.get('compose_file'))
-        'wrapper_file': _s(raw.get('wrapper_file'))
-        'unit_file': _s(raw.get('unit_file'))
-        'env_file': _s(raw.get('env_file'))
-        'missing_runtime_env': _csv_tokens(raw.get('missing_runtime_env'), default='none')
-        'missing_env_file_vars': _csv_tokens(raw.get('missing_env_file_vars'), default='none')
-        'warning_codes': _csv_tokens(raw.get('warning_codes'), default='none')
-        'warnings_count': _i(raw.get('warnings_count'), 0)
+        'compose_file': _s(raw.get('compose_file')),
+        'wrapper_file': _s(raw.get('wrapper_file')),
+        'unit_file': _s(raw.get('unit_file')),
+        'env_file': _s(raw.get('env_file')),
+        'missing_runtime_env': _csv_tokens(raw.get('missing_runtime_env'), default='none'),
+        'missing_env_file_vars': _csv_tokens(raw.get('missing_env_file_vars'), default='none'),
+        'warning_codes': _csv_tokens(raw.get('warning_codes'), default='none'),
+        'warnings_count': _i(raw.get('warnings_count'), 0),
     }
 
 
@@ -197,63 +197,63 @@ def latest_key(prefix: str, purpose: str) -> str:
 def parse_approval_state(raw: dict[str, str] | None) -> DeployLintSilenceApprovalState:
     raw = dict(raw or {})
     return DeployLintSilenceApprovalState(
-        request_id=_s(raw.get('request_id'))
-        purpose=_s(raw.get('purpose'))
-        status=_s(raw.get('status'), 'none')
-        present=bool(raw)
-        prepared_by=_s(raw.get('prepared_by'))
-        prepared_ticket=_s(raw.get('prepared_ticket'))
-        prepared_reason=_s(raw.get('prepared_reason'))
-        escalation_ticket=_s(raw.get('escalation_ticket'))
-        requested_minutes=_i(raw.get('requested_minutes'), 0)
-        prepared_ts_ms=_i(raw.get('prepared_ts_ms'), 0)
-        approved_by=_s(raw.get('approved_by'))
-        approved_reason=_s(raw.get('approved_reason'))
-        approved_ts_ms=_i(raw.get('approved_ts_ms'), 0)
-        consumed_by=_s(raw.get('consumed_by'))
-        consumed_ts_ms=_i(raw.get('consumed_ts_ms'), 0)
+        request_id=_s(raw.get('request_id')),
+        purpose=_s(raw.get('purpose')),
+        status=_s(raw.get('status'), 'none'),
+        present=bool(raw),
+        prepared_by=_s(raw.get('prepared_by')),
+        prepared_ticket=_s(raw.get('prepared_ticket')),
+        prepared_reason=_s(raw.get('prepared_reason')),
+        escalation_ticket=_s(raw.get('escalation_ticket')),
+        requested_minutes=_i(raw.get('requested_minutes'), 0),
+        prepared_ts_ms=_i(raw.get('prepared_ts_ms'), 0),
+        approved_by=_s(raw.get('approved_by')),
+        approved_reason=_s(raw.get('approved_reason')),
+        approved_ts_ms=_i(raw.get('approved_ts_ms'), 0),
+        consumed_by=_s(raw.get('consumed_by')),
+        consumed_ts_ms=_i(raw.get('consumed_ts_ms'), 0),
         # P4.11 freshness
-        freshness_deadline_ts_ms=_i(raw.get('freshness_deadline_ts_ms'), 0)
-        expired_ts_ms=_i(raw.get('expired_ts_ms'), 0)
-        expired_reason=_s(raw.get('expired_reason'))
-        cancelled_by=_s(raw.get('cancelled_by'))
-        cancelled_reason=_s(raw.get('cancelled_reason'))
-        cancelled_ts_ms=_i(raw.get('cancelled_ts_ms'), 0)
+        freshness_deadline_ts_ms=_i(raw.get('freshness_deadline_ts_ms'), 0),
+        expired_ts_ms=_i(raw.get('expired_ts_ms'), 0),
+        expired_reason=_s(raw.get('expired_reason')),
+        cancelled_by=_s(raw.get('cancelled_by')),
+        cancelled_reason=_s(raw.get('cancelled_reason')),
+        cancelled_ts_ms=_i(raw.get('cancelled_ts_ms'), 0),
         # P4.12 binding (coarse)
-        binding_schema_version=max(1, _i(raw.get('binding_schema_version'), 1))
-        bound_snapshot_ts_ms=_i(raw.get('bound_snapshot_ts_ms'), 0)
-        bound_error_codes=_s(raw.get('bound_error_codes'), 'ok')
-        bound_error_codes_hash=_s(raw.get('bound_error_codes_hash'))
-        bound_active_purposes_csv=_s(raw.get('bound_active_purposes_csv'), 'none')
-        bound_active_purposes_hash=_s(raw.get('bound_active_purposes_hash'))
+        binding_schema_version=max(1, _i(raw.get('binding_schema_version'), 1)),
+        bound_snapshot_ts_ms=_i(raw.get('bound_snapshot_ts_ms'), 0),
+        bound_error_codes=_s(raw.get('bound_error_codes'), 'ok'),
+        bound_error_codes_hash=_s(raw.get('bound_error_codes_hash')),
+        bound_active_purposes_csv=_s(raw.get('bound_active_purposes_csv'), 'none'),
+        bound_active_purposes_hash=_s(raw.get('bound_active_purposes_hash')),
         # P4.13 semantic binding
-        bound_gate_reason_code=_s(raw.get('bound_gate_reason_code'), 'ok')
-        bound_errors_count=_i(raw.get('bound_errors_count'), 0)
-        bound_details_json=_s(raw.get('bound_details_json'), '{}')
-        bound_details_fingerprint=_s(raw.get('bound_details_fingerprint'))
+        bound_gate_reason_code=_s(raw.get('bound_gate_reason_code'), 'ok'),
+        bound_errors_count=_i(raw.get('bound_errors_count'), 0),
+        bound_details_json=_s(raw.get('bound_details_json'), '{}'),
+        bound_details_fingerprint=_s(raw.get('bound_details_fingerprint')),
         # P4.14 warning-policy binding
-        bound_warning_codes=_s(raw.get('bound_warning_codes'), 'none')
-        bound_warning_codes_hash=_s(raw.get('bound_warning_codes_hash'))
-        bound_warning_severity_policy=_s(raw.get('bound_warning_severity_policy'), 'none')
-        bound_notifier_route_class=_s(raw.get('bound_notifier_route_class'), 'notify')
+        bound_warning_codes=_s(raw.get('bound_warning_codes'), 'none'),
+        bound_warning_codes_hash=_s(raw.get('bound_warning_codes_hash')),
+        bound_warning_severity_policy=_s(raw.get('bound_warning_severity_policy'), 'none'),
+        bound_notifier_route_class=_s(raw.get('bound_notifier_route_class'), 'notify'),
         # P4.12 invalidation (coarse)
-        invalidated_ts_ms=_i(raw.get('invalidated_ts_ms'), 0)
-        invalidated_reason=_s(raw.get('invalidated_reason'))
-        invalidated_stage=_s(raw.get('invalidated_stage'))
-        invalidated_error_codes=_s(raw.get('invalidated_error_codes'), 'ok')
-        invalidated_error_codes_hash=_s(raw.get('invalidated_error_codes_hash'))
-        invalidated_active_purposes_csv=_s(raw.get('invalidated_active_purposes_csv'), 'none')
-        invalidated_active_purposes_hash=_s(raw.get('invalidated_active_purposes_hash'))
+        invalidated_ts_ms=_i(raw.get('invalidated_ts_ms'), 0),
+        invalidated_reason=_s(raw.get('invalidated_reason')),
+        invalidated_stage=_s(raw.get('invalidated_stage')),
+        invalidated_error_codes=_s(raw.get('invalidated_error_codes'), 'ok'),
+        invalidated_error_codes_hash=_s(raw.get('invalidated_error_codes_hash')),
+        invalidated_active_purposes_csv=_s(raw.get('invalidated_active_purposes_csv'), 'none'),
+        invalidated_active_purposes_hash=_s(raw.get('invalidated_active_purposes_hash')),
         # P4.13 invalidation (semantic)
-        invalidated_gate_reason_code=_s(raw.get('invalidated_gate_reason_code'), 'ok')
-        invalidated_errors_count=_i(raw.get('invalidated_errors_count'), 0)
-        invalidated_details_json=_s(raw.get('invalidated_details_json'), '{}')
-        invalidated_details_fingerprint=_s(raw.get('invalidated_details_fingerprint'))
+        invalidated_gate_reason_code=_s(raw.get('invalidated_gate_reason_code'), 'ok'),
+        invalidated_errors_count=_i(raw.get('invalidated_errors_count'), 0),
+        invalidated_details_json=_s(raw.get('invalidated_details_json'), '{}'),
+        invalidated_details_fingerprint=_s(raw.get('invalidated_details_fingerprint')),
         # P4.14 invalidation warning-policy snapshot
-        invalidated_warning_codes=_s(raw.get('invalidated_warning_codes'), 'none')
-        invalidated_warning_codes_hash=_s(raw.get('invalidated_warning_codes_hash'))
-        invalidated_warning_severity_policy=_s(raw.get('invalidated_warning_severity_policy'), 'none')
-        invalidated_notifier_route_class=_s(raw.get('invalidated_notifier_route_class'), 'notify')
+        invalidated_warning_codes=_s(raw.get('invalidated_warning_codes'), 'none'),
+        invalidated_warning_codes_hash=_s(raw.get('invalidated_warning_codes_hash')),
+        invalidated_warning_severity_policy=_s(raw.get('invalidated_warning_severity_policy'), 'none'),
+        invalidated_notifier_route_class=_s(raw.get('invalidated_notifier_route_class'), 'notify'),
     )
 
 
@@ -275,15 +275,15 @@ def _deadline_for_status(*, now_ms: int, status: str, prepared_freshness_s: int,
 
 
 def refresh_approval_state(
-    r: Any
-    *
-    prefix: str
-    request_id: str
-    prepared_freshness_s: int
-    approved_freshness_s: int
-    ttl_s: int
-    ops_stream: str | None = None
-    now_ms: int | None = None
+    r: Any,
+    *,
+    prefix: str,
+    request_id: str,
+    prepared_freshness_s: int,
+    approved_freshness_s: int,
+    ttl_s: int,
+    ops_stream: str | None = None,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     """Auto-transition stale prepared/approved requests to expired/cancelled."""
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
@@ -297,10 +297,10 @@ def refresh_approval_state(
     deadline_ts_ms = st.freshness_deadline_ts_ms
     if deadline_ts_ms <= 0:
         deadline_ts_ms = _deadline_for_status(
-            now_ms=st.prepared_ts_ms if st.status == 'prepared' else st.approved_ts_ms or now_ms
-            status=st.status
-            prepared_freshness_s=prepared_freshness_s
-            approved_freshness_s=approved_freshness_s
+            now_ms=st.prepared_ts_ms if st.status == 'prepared' else st.approved_ts_ms or now_ms,
+            status=st.status,
+            prepared_freshness_s=prepared_freshness_s,
+            approved_freshness_s=approved_freshness_s,
         )
         prev = {**prev, 'freshness_deadline_ts_ms': str(deadline_ts_ms)}
         r.hset(skey, mapping={'freshness_deadline_ts_ms': str(deadline_ts_ms)})
@@ -312,28 +312,28 @@ def refresh_approval_state(
         return prev
     if st.status == 'prepared':
         mapping = {
-            **prev
-            'status': 'expired'
-            'expired_ts_ms': str(now_ms)
-            'expired_reason': 'prepared_freshness_elapsed'
-            'bound_error_codes_hash': st.bound_error_codes_hash
-            'bound_active_purposes_hash': st.bound_active_purposes_hash
-            'bound_gate_reason_code': st.bound_gate_reason_code
-            'bound_errors_count': str(st.bound_errors_count)
-            'bound_details_fingerprint': st.bound_details_fingerprint
+            **prev,
+            'status': 'expired',
+            'expired_ts_ms': str(now_ms),
+            'expired_reason': 'prepared_freshness_elapsed',
+            'bound_error_codes_hash': st.bound_error_codes_hash,
+            'bound_active_purposes_hash': st.bound_active_purposes_hash,
+            'bound_gate_reason_code': st.bound_gate_reason_code,
+            'bound_errors_count': str(st.bound_errors_count),
+            'bound_details_fingerprint': st.bound_details_fingerprint,
         }
     else:
         mapping = {
-            **prev
-            'status': 'cancelled'
-            'cancelled_ts_ms': str(now_ms)
-            'cancelled_by': ''
-            'cancelled_reason': 'approved_freshness_elapsed'
-            'bound_error_codes_hash': st.bound_error_codes_hash
-            'bound_active_purposes_hash': st.bound_active_purposes_hash
-            'bound_gate_reason_code': st.bound_gate_reason_code
-            'bound_errors_count': str(st.bound_errors_count)
-            'bound_details_fingerprint': st.bound_details_fingerprint
+            **prev,
+            'status': 'cancelled',
+            'cancelled_ts_ms': str(now_ms),
+            'cancelled_by': '',
+            'cancelled_reason': 'approved_freshness_elapsed',
+            'bound_error_codes_hash': st.bound_error_codes_hash,
+            'bound_active_purposes_hash': st.bound_active_purposes_hash,
+            'bound_gate_reason_code': st.bound_gate_reason_code,
+            'bound_errors_count': str(st.bound_errors_count),
+            'bound_details_fingerprint': st.bound_details_fingerprint,
         }
     r.hset(skey, mapping=mapping)
     try:
@@ -346,20 +346,20 @@ def refresh_approval_state(
         'latency_deploy_lint_override_approval_cancelled'
     )
     event_id = _xadd_best_effort(r, ops_stream, {
-        'ts_ms': str(now_ms)
-        'kind': event_kind
-        'purpose': st.purpose
-        'request_id': st.request_id
-        'prepared_by': st.prepared_by
-        'ticket': st.prepared_ticket
-        'escalation_ticket': st.escalation_ticket
-        'requested_minutes': str(st.requested_minutes)
-        'expired_reason': 'prepared_freshness_elapsed'
-        'bound_error_codes_hash': st.bound_error_codes_hash
-        'bound_active_purposes_hash': st.bound_active_purposes_hash
-        'bound_gate_reason_code': st.bound_gate_reason_code
-        'bound_errors_count': str(st.bound_errors_count)
-        'bound_details_fingerprint': st.bound_details_fingerprint
+        'ts_ms': str(now_ms),
+        'kind': event_kind,
+        'purpose': st.purpose,
+        'request_id': st.request_id,
+        'prepared_by': st.prepared_by,
+        'ticket': st.prepared_ticket,
+        'escalation_ticket': st.escalation_ticket,
+        'requested_minutes': str(st.requested_minutes),
+        'expired_reason': 'prepared_freshness_elapsed',
+        'bound_error_codes_hash': st.bound_error_codes_hash,
+        'bound_active_purposes_hash': st.bound_active_purposes_hash,
+        'bound_gate_reason_code': st.bound_gate_reason_code,
+        'bound_errors_count': str(st.bound_errors_count),
+        'bound_details_fingerprint': st.bound_details_fingerprint,
     })
     if event_id:
         r.hset(skey, mapping={'last_event_id': event_id})
@@ -367,28 +367,28 @@ def refresh_approval_state(
 
 
 def read_latest_approval(
-    r: Any
-    *
-    prefix: str
-    purpose: str
-    prepared_freshness_s: int = 7200
-    approved_freshness_s: int = 1800
-    ttl_s: int = 604800
-    ops_stream: str | None = None
-    now_ms: int | None = None
+    r: Any,
+    *,
+    prefix: str,
+    purpose: str,
+    prepared_freshness_s: int = 7200,
+    approved_freshness_s: int = 1800,
+    ttl_s: int = 604800,
+    ops_stream: str | None = None,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     rid = _s(r.get(latest_key(prefix, purpose)) if hasattr(r, 'get') else '')
     if not rid:
         return {}
     return refresh_approval_state(
-        r
-        prefix=prefix
-        request_id=rid
-        prepared_freshness_s=prepared_freshness_s
-        approved_freshness_s=approved_freshness_s
-        ttl_s=ttl_s
-        ops_stream=ops_stream
-        now_ms=now_ms
+        r,
+        prefix=prefix,
+        request_id=rid,
+        prepared_freshness_s=prepared_freshness_s,
+        approved_freshness_s=approved_freshness_s,
+        ttl_s=ttl_s,
+        ops_stream=ops_stream,
+        now_ms=now_ms,
     )
 
 
@@ -398,11 +398,11 @@ def _policy_set(raw: str) -> set[str]:
 
 
 def resolve_warning_severity_policy(
-    warning_codes_csv: str
-    *
-    warn_codes_warn_csv: str = ''
-    warn_codes_crit_csv: str = ''
-    warn_codes_page_csv: str = ''
+    warning_codes_csv: str,
+    *,
+    warn_codes_warn_csv: str = '',
+    warn_codes_crit_csv: str = '',
+    warn_codes_page_csv: str = '',
 ) -> str:
     """Map a set of warning codes to a severity policy label.
 
@@ -426,14 +426,14 @@ def resolve_notifier_route_class(*, warning_severity_policy: str) -> str:
 
 
 def build_drift_binding(
-    r: Any
-    *
-    state_prefix: str
-    purpose: str
-    now_ms: int | None = None
-    warn_codes_warn_csv: str = ''
-    warn_codes_crit_csv: str = ''
-    warn_codes_page_csv: str = ''
+    r: Any,
+    *,
+    state_prefix: str,
+    purpose: str,
+    now_ms: int | None = None,
+    warn_codes_warn_csv: str = '',
+    warn_codes_crit_csv: str = '',
+    warn_codes_page_csv: str = '',
 ) -> dict[str, str]:
     """Build the current deploy-lint drift snapshot for binding.
 
@@ -454,30 +454,30 @@ def build_drift_binding(
     # P4.14: warning codes from current lint state
     warning_codes_csv = _csv_tokens(current.get('warning_codes'), default='none')
     warning_policy = resolve_warning_severity_policy(
-        warning_codes_csv
-        warn_codes_warn_csv=warn_codes_warn_csv
-        warn_codes_crit_csv=warn_codes_crit_csv
-        warn_codes_page_csv=warn_codes_page_csv
+        warning_codes_csv,
+        warn_codes_warn_csv=warn_codes_warn_csv,
+        warn_codes_crit_csv=warn_codes_crit_csv,
+        warn_codes_page_csv=warn_codes_page_csv,
     )
     notifier_route_class = resolve_notifier_route_class(warning_severity_policy=warning_policy)
     return {
-        'binding_schema_version': '2'
-        'purpose': str(purpose)
-        'bound_snapshot_ts_ms': str(now_ms)
-        'bound_error_codes': error_codes
-        'bound_error_codes_hash': _codes_hash(error_codes)
-        'bound_active_purposes_csv': active_csv
-        'bound_active_purposes_hash': purposes_hash(active_purposes)
+        'binding_schema_version': '2',
+        'purpose': str(purpose),
+        'bound_snapshot_ts_ms': str(now_ms),
+        'bound_error_codes': error_codes,
+        'bound_error_codes_hash': _codes_hash(error_codes),
+        'bound_active_purposes_csv': active_csv,
+        'bound_active_purposes_hash': purposes_hash(active_purposes),
         # P4.13 semantic fields
-        'bound_gate_reason_code': _s(current.get('gate_reason_code'), 'ok')
-        'bound_errors_count': str(_i(current.get('errors_count'), 0))
-        'bound_details_json': details_json
-        'bound_details_fingerprint': hashlib.sha1(details_json.encode('utf-8')).hexdigest()
+        'bound_gate_reason_code': _s(current.get('gate_reason_code'), 'ok'),
+        'bound_errors_count': str(_i(current.get('errors_count'), 0)),
+        'bound_details_json': details_json,
+        'bound_details_fingerprint': hashlib.sha1(details_json.encode('utf-8')).hexdigest(),
         # P4.14 warning-policy fields
-        'bound_warning_codes': warning_codes_csv
-        'bound_warning_codes_hash': hashlib.sha1(warning_codes_csv.encode('utf-8')).hexdigest()
-        'bound_warning_severity_policy': warning_policy
-        'bound_notifier_route_class': notifier_route_class
+        'bound_warning_codes': warning_codes_csv,
+        'bound_warning_codes_hash': hashlib.sha1(warning_codes_csv.encode('utf-8')).hexdigest(),
+        'bound_warning_severity_policy': warning_policy,
+        'bound_notifier_route_class': notifier_route_class,
     }
 
 
@@ -520,88 +520,88 @@ def _binding_mismatch_reason(st: DeployLintSilenceApprovalState, current_binding
 
 
 def prepare_override_approval(
-    r: Any
-    *
-    prefix: str
-    purpose: str
-    operator: str
-    ticket: str
-    escalation_ticket: str
-    reason: str
-    minutes: int
-    ttl_s: int
-    prepared_freshness_s: int = 7200
-    ops_stream: str | None = None
-    request_id: str = ''
-    drift_binding: dict[str, str] | None = None
-    now_ms: int | None = None
+    r: Any,
+    *,
+    prefix: str,
+    purpose: str,
+    operator: str,
+    ticket: str,
+    escalation_ticket: str,
+    reason: str,
+    minutes: int,
+    ttl_s: int,
+    prepared_freshness_s: int = 7200,
+    ops_stream: str | None = None,
+    request_id: str = '',
+    drift_binding: dict[str, str] | None = None,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     rid = _s(request_id) or uuid.uuid4().hex
     freshness_deadline_ts_ms = _deadline_for_status(
-        now_ms=now_ms
-        status='prepared'
-        prepared_freshness_s=prepared_freshness_s
-        approved_freshness_s=1
+        now_ms=now_ms,
+        status='prepared',
+        prepared_freshness_s=prepared_freshness_s,
+        approved_freshness_s=1,
     )
     binding = dict(drift_binding or {})
     mapping = {
-        'schema_version': '4'
-        'binding_schema_version': _s(binding.get('binding_schema_version'), '2')
-        'request_id': rid
-        'purpose': str(purpose)
-        'status': 'prepared'
-        'prepared_by': str(operator)
-        'prepared_ticket': str(ticket)
-        'prepared_reason': str(reason)
-        'escalation_ticket': str(escalation_ticket)
-        'requested_minutes': str(max(1, int(minutes)))
-        'prepared_ts_ms': str(now_ms)
-        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms)
-        'approved_by': ''
-        'approved_reason': ''
-        'approved_ts_ms': '0'
-        'consumed_by': ''
-        'consumed_ts_ms': '0'
-        'expired_ts_ms': '0'
-        'expired_reason': ''
-        'cancelled_by': ''
-        'cancelled_reason': ''
-        'cancelled_ts_ms': '0'
+        'schema_version': '4',
+        'binding_schema_version': _s(binding.get('binding_schema_version'), '2'),
+        'request_id': rid,
+        'purpose': str(purpose),
+        'status': 'prepared',
+        'prepared_by': str(operator),
+        'prepared_ticket': str(ticket),
+        'prepared_reason': str(reason),
+        'escalation_ticket': str(escalation_ticket),
+        'requested_minutes': str(max(1, int(minutes))),
+        'prepared_ts_ms': str(now_ms),
+        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
+        'approved_by': '',
+        'approved_reason': '',
+        'approved_ts_ms': '0',
+        'consumed_by': '',
+        'consumed_ts_ms': '0',
+        'expired_ts_ms': '0',
+        'expired_reason': '',
+        'cancelled_by': '',
+        'cancelled_reason': '',
+        'cancelled_ts_ms': '0',
         # P4.12 drift binding
-        'bound_snapshot_ts_ms': _s(binding.get('bound_snapshot_ts_ms'), str(now_ms))
-        'bound_error_codes': _s(binding.get('bound_error_codes'), 'ok')
-        'bound_error_codes_hash': _s(binding.get('bound_error_codes_hash'), _codes_hash('ok'))
-        'bound_active_purposes_csv': _s(binding.get('bound_active_purposes_csv'), 'none')
-        'bound_active_purposes_hash': _s(binding.get('bound_active_purposes_hash'), purposes_hash([]))
+        'bound_snapshot_ts_ms': _s(binding.get('bound_snapshot_ts_ms'), str(now_ms)),
+        'bound_error_codes': _s(binding.get('bound_error_codes'), 'ok'),
+        'bound_error_codes_hash': _s(binding.get('bound_error_codes_hash'), _codes_hash('ok')),
+        'bound_active_purposes_csv': _s(binding.get('bound_active_purposes_csv'), 'none'),
+        'bound_active_purposes_hash': _s(binding.get('bound_active_purposes_hash'), purposes_hash([])),
         # P4.13 semantic binding
-        'bound_gate_reason_code': _s(binding.get('bound_gate_reason_code'), 'ok')
-        'bound_errors_count': _s(binding.get('bound_errors_count'), '0')
-        'bound_details_json': _s(binding.get('bound_details_json'), '{}')
-        'bound_details_fingerprint': _s(binding.get('bound_details_fingerprint'), _details_fingerprint(None))
+        'bound_gate_reason_code': _s(binding.get('bound_gate_reason_code'), 'ok'),
+        'bound_errors_count': _s(binding.get('bound_errors_count'), '0'),
+        'bound_details_json': _s(binding.get('bound_details_json'), '{}'),
+        'bound_details_fingerprint': _s(binding.get('bound_details_fingerprint'), _details_fingerprint(None)),
         # P4.14 warning-policy binding
-        'bound_warning_codes': _s(binding.get('bound_warning_codes'), 'none')
-        'bound_warning_codes_hash': _s(binding.get('bound_warning_codes_hash'))
-        'bound_warning_severity_policy': _s(binding.get('bound_warning_severity_policy'), 'none')
-        'bound_notifier_route_class': _s(binding.get('bound_notifier_route_class'), 'notify')
+        'bound_warning_codes': _s(binding.get('bound_warning_codes'), 'none'),
+        'bound_warning_codes_hash': _s(binding.get('bound_warning_codes_hash')),
+        'bound_warning_severity_policy': _s(binding.get('bound_warning_severity_policy'), 'none'),
+        'bound_notifier_route_class': _s(binding.get('bound_notifier_route_class'), 'notify'),
         # P4.12 invalidation fields (reset on prepare)
-        'invalidated_ts_ms': '0'
-        'invalidated_reason': ''
-        'invalidated_stage': ''
-        'invalidated_error_codes': 'ok'
-        'invalidated_error_codes_hash': ''
-        'invalidated_active_purposes_csv': 'none'
-        'invalidated_active_purposes_hash': ''
+        'invalidated_ts_ms': '0',
+        'invalidated_reason': '',
+        'invalidated_stage': '',
+        'invalidated_error_codes': 'ok',
+        'invalidated_error_codes_hash': '',
+        'invalidated_active_purposes_csv': 'none',
+        'invalidated_active_purposes_hash': '',
         # P4.13 invalidation semantic (reset on prepare)
-        'invalidated_gate_reason_code': 'ok'
-        'invalidated_errors_count': '0'
-        'invalidated_details_json': '{}'
-        'invalidated_details_fingerprint': ''
+        'invalidated_gate_reason_code': 'ok',
+        'invalidated_errors_count': '0',
+        'invalidated_details_json': '{}',
+        'invalidated_details_fingerprint': '',
         # P4.14 invalidation warning-policy (reset on prepare)
-        'invalidated_warning_codes': 'none'
-        'invalidated_warning_codes_hash': ''
-        'invalidated_warning_severity_policy': 'none'
-        'invalidated_notifier_route_class': 'notify'
+        'invalidated_warning_codes': 'none',
+        'invalidated_warning_codes_hash': '',
+        'invalidated_warning_severity_policy': 'none',
+        'invalidated_notifier_route_class': 'notify',
     }
     skey = state_key(prefix, rid)
     r.hset(skey, mapping=mapping)
@@ -614,23 +614,23 @@ def prepare_override_approval(
     except Exception:
         pass
     event_id = _xadd_best_effort(r, ops_stream, {
-        'ts_ms': str(now_ms)
-        'kind': 'latency_deploy_lint_override_approval_prepared'
-        'purpose': str(purpose)
-        'request_id': rid
-        'operator': str(operator)
-        'ticket': str(ticket)
-        'escalation_ticket': str(escalation_ticket)
-        'reason': str(reason)
-        'requested_minutes': str(max(1, int(minutes)))
-        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms)
-        'bound_error_codes': mapping['bound_error_codes']
-        'bound_error_codes_hash': mapping['bound_error_codes_hash']
-        'bound_active_purposes_csv': mapping['bound_active_purposes_csv']
-        'bound_active_purposes_hash': mapping['bound_active_purposes_hash']
-        'bound_gate_reason_code': mapping['bound_gate_reason_code']
-        'bound_errors_count': mapping['bound_errors_count']
-        'bound_details_fingerprint': mapping['bound_details_fingerprint']
+        'ts_ms': str(now_ms),
+        'kind': 'latency_deploy_lint_override_approval_prepared',
+        'purpose': str(purpose),
+        'request_id': rid,
+        'operator': str(operator),
+        'ticket': str(ticket),
+        'escalation_ticket': str(escalation_ticket),
+        'reason': str(reason),
+        'requested_minutes': str(max(1, int(minutes))),
+        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
+        'bound_error_codes': mapping['bound_error_codes'],
+        'bound_error_codes_hash': mapping['bound_error_codes_hash'],
+        'bound_active_purposes_csv': mapping['bound_active_purposes_csv'],
+        'bound_active_purposes_hash': mapping['bound_active_purposes_hash'],
+        'bound_gate_reason_code': mapping['bound_gate_reason_code'],
+        'bound_errors_count': mapping['bound_errors_count'],
+        'bound_details_fingerprint': mapping['bound_details_fingerprint'],
     })
     if event_id:
         r.hset(skey, mapping={'last_event_id': event_id})
@@ -638,17 +638,17 @@ def prepare_override_approval(
 
 
 def approve_override_approval(
-    r: Any
-    *
-    prefix: str
-    request_id: str
-    operator: str
-    reason: str
-    ttl_s: int
-    prepared_freshness_s: int = 7200
-    approved_freshness_s: int = 1800
-    ops_stream: str | None = None
-    now_ms: int | None = None
+    r: Any,
+    *,
+    prefix: str,
+    request_id: str,
+    operator: str,
+    reason: str,
+    ttl_s: int,
+    prepared_freshness_s: int = 7200,
+    approved_freshness_s: int = 1800,
+    ops_stream: str | None = None,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     skey = state_key(prefix, request_id)
@@ -661,18 +661,18 @@ def approve_override_approval(
     if operator == st.prepared_by:
         raise ValueError('second approver must be different from requester')
     freshness_deadline_ts_ms = _deadline_for_status(
-        now_ms=now_ms
-        status='approved'
-        prepared_freshness_s=prepared_freshness_s
-        approved_freshness_s=approved_freshness_s
+        now_ms=now_ms,
+        status='approved',
+        prepared_freshness_s=prepared_freshness_s,
+        approved_freshness_s=approved_freshness_s,
     )
     mapping = {
-        **prev
-        'status': 'approved'
-        'approved_by': str(operator)
-        'approved_reason': str(reason)
-        'approved_ts_ms': str(now_ms)
-        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms)
+        **prev,
+        'status': 'approved',
+        'approved_by': str(operator),
+        'approved_reason': str(reason),
+        'approved_ts_ms': str(now_ms),
+        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
     }
     r.hset(skey, mapping=mapping)
     try:
@@ -680,22 +680,22 @@ def approve_override_approval(
     except Exception:
         pass
     event_id = _xadd_best_effort(r, ops_stream, {
-        'ts_ms': str(now_ms)
-        'kind': 'latency_deploy_lint_override_approval_approved'
-        'purpose': st.purpose
-        'request_id': st.request_id
-        'prepared_by': st.prepared_by
-        'operator': str(operator)
-        'ticket': st.prepared_ticket
-        'escalation_ticket': st.escalation_ticket
-        'reason': str(reason)
-        'requested_minutes': str(st.requested_minutes)
-        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms)
-        'bound_error_codes_hash': st.bound_error_codes_hash
-        'bound_active_purposes_hash': st.bound_active_purposes_hash
-        'bound_gate_reason_code': st.bound_gate_reason_code
-        'bound_errors_count': str(st.bound_errors_count)
-        'bound_details_fingerprint': st.bound_details_fingerprint
+        'ts_ms': str(now_ms),
+        'kind': 'latency_deploy_lint_override_approval_approved',
+        'purpose': st.purpose,
+        'request_id': st.request_id,
+        'prepared_by': st.prepared_by,
+        'operator': str(operator),
+        'ticket': st.prepared_ticket,
+        'escalation_ticket': st.escalation_ticket,
+        'reason': str(reason),
+        'requested_minutes': str(st.requested_minutes),
+        'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
+        'bound_error_codes_hash': st.bound_error_codes_hash,
+        'bound_active_purposes_hash': st.bound_active_purposes_hash,
+        'bound_gate_reason_code': st.bound_gate_reason_code,
+        'bound_errors_count': str(st.bound_errors_count),
+        'bound_details_fingerprint': st.bound_details_fingerprint,
     })
     if event_id:
         r.hset(skey, mapping={'last_event_id': event_id})
@@ -703,16 +703,16 @@ def approve_override_approval(
 
 
 def invalidate_approval(
-    r: Any
-    *
-    prefix: str
-    request_id: str
-    reason: str
-    stage: str
-    current_binding: dict[str, str] | None
-    ttl_s: int
-    ops_stream: str | None = None
-    now_ms: int | None = None
+    r: Any,
+    *,
+    prefix: str,
+    request_id: str,
+    reason: str,
+    stage: str,
+    current_binding: dict[str, str] | None,
+    ttl_s: int,
+    ops_stream: str | None = None,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     """Transition a prepared/approved request to invalidated when drift snapshot changed.
 
@@ -729,26 +729,26 @@ def invalidate_approval(
         return prev
     binding = dict(current_binding or {})
     mapping = {
-        **prev
-        'status': 'invalidated'
-        'invalidated_ts_ms': str(now_ms)
-        'invalidated_reason': str(reason)
-        'invalidated_stage': str(stage)
+        **prev,
+        'status': 'invalidated',
+        'invalidated_ts_ms': str(now_ms),
+        'invalidated_reason': str(reason),
+        'invalidated_stage': str(stage),
         # P4.12: coarse snapshot of current drift (for audit)
-        'invalidated_error_codes': _s(binding.get('bound_error_codes'), 'ok')
-        'invalidated_error_codes_hash': _s(binding.get('bound_error_codes_hash'))
-        'invalidated_active_purposes_csv': _s(binding.get('bound_active_purposes_csv'), 'none')
-        'invalidated_active_purposes_hash': _s(binding.get('bound_active_purposes_hash'))
+        'invalidated_error_codes': _s(binding.get('bound_error_codes'), 'ok'),
+        'invalidated_error_codes_hash': _s(binding.get('bound_error_codes_hash')),
+        'invalidated_active_purposes_csv': _s(binding.get('bound_active_purposes_csv'), 'none'),
+        'invalidated_active_purposes_hash': _s(binding.get('bound_active_purposes_hash')),
         # P4.13: semantic snapshot of current drift
-        'invalidated_gate_reason_code': _s(binding.get('bound_gate_reason_code'), 'ok')
-        'invalidated_errors_count': _s(binding.get('bound_errors_count'), '0')
-        'invalidated_details_json': _s(binding.get('bound_details_json'), '{}')
-        'invalidated_details_fingerprint': _s(binding.get('bound_details_fingerprint'))
+        'invalidated_gate_reason_code': _s(binding.get('bound_gate_reason_code'), 'ok'),
+        'invalidated_errors_count': _s(binding.get('bound_errors_count'), '0'),
+        'invalidated_details_json': _s(binding.get('bound_details_json'), '{}'),
+        'invalidated_details_fingerprint': _s(binding.get('bound_details_fingerprint')),
         # P4.14: warning-policy snapshot of current drift
-        'invalidated_warning_codes': _s(binding.get('bound_warning_codes'), 'none')
-        'invalidated_warning_codes_hash': _s(binding.get('bound_warning_codes_hash'))
-        'invalidated_warning_severity_policy': _s(binding.get('bound_warning_severity_policy'), 'none')
-        'invalidated_notifier_route_class': _s(binding.get('bound_notifier_route_class'), 'notify')
+        'invalidated_warning_codes': _s(binding.get('bound_warning_codes'), 'none'),
+        'invalidated_warning_codes_hash': _s(binding.get('bound_warning_codes_hash')),
+        'invalidated_warning_severity_policy': _s(binding.get('bound_warning_severity_policy'), 'none'),
+        'invalidated_notifier_route_class': _s(binding.get('bound_notifier_route_class'), 'notify'),
     }
     r.hset(skey, mapping=mapping)
     try:
@@ -756,27 +756,27 @@ def invalidate_approval(
     except Exception:
         pass
     event_id = _xadd_best_effort(r, ops_stream, {
-        'ts_ms': str(now_ms)
-        'kind': 'latency_deploy_lint_override_approval_invalidated'
-        'purpose': st.purpose
-        'request_id': st.request_id
-        'prepared_by': st.prepared_by
-        'approved_by': st.approved_by
-        'ticket': st.prepared_ticket
-        'escalation_ticket': st.escalation_ticket
-        'requested_minutes': str(st.requested_minutes)
-        'invalidate_stage': str(stage)
-        'invalidate_reason': str(reason)
-        'bound_error_codes_hash': st.bound_error_codes_hash
-        'bound_active_purposes_hash': st.bound_active_purposes_hash
-        'bound_gate_reason_code': st.bound_gate_reason_code
-        'bound_errors_count': str(st.bound_errors_count)
-        'bound_details_fingerprint': st.bound_details_fingerprint
-        'current_error_codes_hash': _s(binding.get('bound_error_codes_hash'))
-        'current_active_purposes_hash': _s(binding.get('bound_active_purposes_hash'))
-        'current_gate_reason_code': _s(binding.get('bound_gate_reason_code'), 'ok')
-        'current_errors_count': _s(binding.get('bound_errors_count'), '0')
-        'current_details_fingerprint': _s(binding.get('bound_details_fingerprint'))
+        'ts_ms': str(now_ms),
+        'kind': 'latency_deploy_lint_override_approval_invalidated',
+        'purpose': st.purpose,
+        'request_id': st.request_id,
+        'prepared_by': st.prepared_by,
+        'approved_by': st.approved_by,
+        'ticket': st.prepared_ticket,
+        'escalation_ticket': st.escalation_ticket,
+        'requested_minutes': str(st.requested_minutes),
+        'invalidate_stage': str(stage),
+        'invalidate_reason': str(reason),
+        'bound_error_codes_hash': st.bound_error_codes_hash,
+        'bound_active_purposes_hash': st.bound_active_purposes_hash,
+        'bound_gate_reason_code': st.bound_gate_reason_code,
+        'bound_errors_count': str(st.bound_errors_count),
+        'bound_details_fingerprint': st.bound_details_fingerprint,
+        'current_error_codes_hash': _s(binding.get('bound_error_codes_hash')),
+        'current_active_purposes_hash': _s(binding.get('bound_active_purposes_hash')),
+        'current_gate_reason_code': _s(binding.get('bound_gate_reason_code'), 'ok'),
+        'current_errors_count': _s(binding.get('bound_errors_count'), '0'),
+        'current_details_fingerprint': _s(binding.get('bound_details_fingerprint')),
     })
     if event_id:
         r.hset(skey, mapping={'last_event_id': event_id})
@@ -784,15 +784,15 @@ def invalidate_approval(
 
 
 def validate_approval_for_ack(
-    raw: dict[str, str] | None
-    *
-    purpose: str
-    operator: str
-    ticket: str
-    escalation_ticket: str
-    minutes: int
-    current_binding: dict[str, str] | None = None
-    now_ms: int | None = None
+    raw: dict[str, str] | None,
+    *,
+    purpose: str,
+    operator: str,
+    ticket: str,
+    escalation_ticket: str,
+    minutes: int,
+    current_binding: dict[str, str] | None = None,
+    now_ms: int | None = None,
 ) -> ApprovalValidation:
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     st = parse_approval_state(raw)
@@ -828,14 +828,14 @@ def validate_approval_for_ack(
 
 
 def consume_approval(
-    r: Any
-    *
-    prefix: str
-    request_id: str
-    operator: str
-    ttl_s: int
-    ops_stream: str | None = None
-    now_ms: int | None = None
+    r: Any,
+    *,
+    prefix: str,
+    request_id: str,
+    operator: str,
+    ttl_s: int,
+    ops_stream: str | None = None,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     skey = state_key(prefix, request_id)
@@ -844,10 +844,10 @@ def consume_approval(
     if not st.present:
         return {}
     mapping = {
-        **prev
-        'status': 'consumed'
-        'consumed_by': str(operator)
-        'consumed_ts_ms': str(now_ms)
+        **prev,
+        'status': 'consumed',
+        'consumed_by': str(operator),
+        'consumed_ts_ms': str(now_ms),
     }
     r.hset(skey, mapping=mapping)
     try:
@@ -855,21 +855,21 @@ def consume_approval(
     except Exception:
         pass
     event_id = _xadd_best_effort(r, ops_stream, {
-        'ts_ms': str(now_ms)
-        'kind': 'latency_deploy_lint_override_approval_consumed'
-        'purpose': st.purpose
-        'request_id': st.request_id
-        'prepared_by': st.prepared_by
-        'approved_by': st.approved_by
-        'operator': str(operator)
-        'ticket': st.prepared_ticket
-        'escalation_ticket': st.escalation_ticket
-        'requested_minutes': str(st.requested_minutes)
-        'bound_error_codes_hash': st.bound_error_codes_hash
-        'bound_active_purposes_hash': st.bound_active_purposes_hash
-        'bound_gate_reason_code': st.bound_gate_reason_code
-        'bound_errors_count': str(st.bound_errors_count)
-        'bound_details_fingerprint': st.bound_details_fingerprint
+        'ts_ms': str(now_ms),
+        'kind': 'latency_deploy_lint_override_approval_consumed',
+        'purpose': st.purpose,
+        'request_id': st.request_id,
+        'prepared_by': st.prepared_by,
+        'approved_by': st.approved_by,
+        'operator': str(operator),
+        'ticket': st.prepared_ticket,
+        'escalation_ticket': st.escalation_ticket,
+        'requested_minutes': str(st.requested_minutes),
+        'bound_error_codes_hash': st.bound_error_codes_hash,
+        'bound_active_purposes_hash': st.bound_active_purposes_hash,
+        'bound_gate_reason_code': st.bound_gate_reason_code,
+        'bound_errors_count': str(st.bound_errors_count),
+        'bound_details_fingerprint': st.bound_details_fingerprint,
     })
     if event_id:
         r.hset(skey, mapping={'last_event_id': event_id})

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 TickProcessor — обрабатывает один тик: parse → DQ → timestamp → lag → dedup →
 side-policy → strategy → burst → publish → latency histogram.
@@ -6,10 +7,9 @@ side-policy → strategy → burst → publish → latency histogram.
 Теперь каждый этап — отдельный метод; зависимости инжектируются в конструктор.
 
 Публичный API:
-    processed_ok = await proc.process_tick(runtime, msg_id, fields, symbol
+    processed_ok = await proc.process_tick(runtime, msg_id, fields, symbol,
                                            lag_tracker_max_ms=60_000)
 """
-from __future__ import annotations
 
 import json
 import logging
@@ -23,23 +23,23 @@ from common.metrics2 import LagTracker
 from core.dq_policy import TickDQPolicy
 from services.observability.latency_contract import stamp_feature_ready, observe_feature_ready_async
 from services.orderflow.metrics import (
-    ticks_read_total, ticks_processed_total, ticks_dropped_total
-    tick_dedup_drop_total, ticks_unknown_side_policy_total
-    ticks_unknown_side_quarantine_published_total
-    ticks_ts_source_total
-    tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge
-    tick_ts_source_stream_id_ema_gauge
-    tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge
-    worker_lag_ms_gauge, worker_lag_ms_p50_gauge, worker_lag_ms_p95_gauge
-    worker_lag_ms_p99_gauge, worker_lag_ms_hist, processing_time_us
-    signals_published_total, tick_ingest_process_ms, tick_ingest_e2e_delay_ms
-    redis_entry_lag_ms_gauge, redis_entry_lag_ms_p50_gauge
-    redis_entry_lag_ms_p99_gauge, redis_entry_lag_ms_hist
-    market_inactivity_lag_ms_gauge, market_inactivity_lag_ms_hist
+    ticks_read_total, ticks_processed_total, ticks_dropped_total,
+    tick_dedup_drop_total, ticks_unknown_side_policy_total,
+    ticks_unknown_side_quarantine_published_total,
+    ticks_ts_source_total,
+    tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge,
+    tick_ts_source_stream_id_ema_gauge,
+    tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge,
+    worker_lag_ms_gauge, worker_lag_ms_p50_gauge, worker_lag_ms_p95_gauge,
+    worker_lag_ms_p99_gauge, worker_lag_ms_hist, processing_time_us,
+    signals_published_total, tick_ingest_process_ms, tick_ingest_e2e_delay_ms,
+    redis_entry_lag_ms_gauge, redis_entry_lag_ms_p50_gauge,
+    redis_entry_lag_ms_p99_gauge, redis_entry_lag_ms_hist,
+    market_inactivity_lag_ms_gauge, market_inactivity_lag_ms_hist,
 )
 from services.orderflow.metric_labels import TickMetricLimiter, _parse_allowlist, should_emit
 from services.orderflow.side_policy import (
-    is_unknown_side_tick, normalize_unknown_side_policy, deterministic_sample
+    is_unknown_side_tick, normalize_unknown_side_policy, deterministic_sample,
 )
 from services.orderflow.tick_quality_ema import TickQualityEMA
 from services.orderflow.utils import _fields_to_dict, _parse_tick_payload, _compute_tick_uid
@@ -61,11 +61,11 @@ def _msgid_to_ms(msg_id: str) -> int:
 
 
 def coerce_event_ts_ms(
-    *
-    msg_id: str
-    payload_ts_ms: int
-    now_ms: int
-    max_ts_skew_ms: int
+    *,
+    msg_id: str,
+    payload_ts_ms: int,
+    now_ms: int,
+    max_ts_skew_ms: int,
 ) -> Tuple[int, str]:
     """Детерминированный выбор event_time:
     1) tick.ts_ms если в пределах max_ts_skew_ms от wall-clock
@@ -91,28 +91,28 @@ class TickProcessor:
     """
 
     def __init__(
-        self
-        *
-        tick_dq_policy: TickDQPolicy
-        strategy_fn: Callable[[], Optional[Any]]
+        self,
+        *,
+        tick_dq_policy: TickDQPolicy,
+        strategy_fn: Callable[[], Optional[Any]],
         gate: Any,                          # SignalGate
         flusher: Any,                       # BurstFlusher
-        health_metrics: Optional[Any]
-        main_redis: aioredis.Redis
-        ticks_redis: aioredis.Redis
+        health_metrics: Optional[Any],
+        main_redis: aioredis.Redis,
+        ticks_redis: aioredis.Redis,
         # tick config (из TickCfg)
-        drop_on_lag: bool
-        max_lag_ms: int
-        max_ts_skew_ms: int
-        unknown_side_policy: str
-        unknown_side_quarantine_stream: str
-        unknown_side_quarantine_sample: float
-        unknown_side_quarantine_maxlen: int
-        exec_quarantine_enable: bool
-        quarantine_stream: str
+        drop_on_lag: bool,
+        max_lag_ms: int,
+        max_ts_skew_ms: int,
+        unknown_side_policy: str,
+        unknown_side_quarantine_stream: str,
+        unknown_side_quarantine_sample: float,
+        unknown_side_quarantine_maxlen: int,
+        exec_quarantine_enable: bool,
+        quarantine_stream: str,
         # shared mutable state (dict-refs из сервиса)
-        lag_trackers: Dict[str, LagTracker]
-        lag_export_counters: Dict[str, int]
+        lag_trackers: Dict[str, LagTracker],
+        lag_export_counters: Dict[str, int],
     ) -> None:
         self._dq_policy = tick_dq_policy
         self._strategy_fn = strategy_fn
@@ -146,36 +146,36 @@ class TickProcessor:
         """Фабрика: строит TickProcessor из атрибутов CryptoOrderflowService."""
         cfg = svc._svc_cfg.tick
         return cls(
-            tick_dq_policy=svc.tick_dq_policy
-            strategy_fn=lambda: svc.strategy
-            gate=svc._gate
-            flusher=svc._flusher
-            health_metrics=getattr(svc, "health_metrics", None)
-            main_redis=svc.main
-            ticks_redis=svc.ticks
-            drop_on_lag=cfg.drop_on_lag
-            max_lag_ms=cfg.max_lag_ms
-            max_ts_skew_ms=cfg.max_ts_skew_ms
-            unknown_side_policy=cfg.unknown_side_policy
-            unknown_side_quarantine_stream=cfg.unknown_side_quarantine_stream
-            unknown_side_quarantine_sample=cfg.unknown_side_quarantine_sample
-            unknown_side_quarantine_maxlen=cfg.unknown_side_quarantine_maxlen
-            exec_quarantine_enable=svc.exec_quarantine_denylist_enable
-            quarantine_stream=svc.quarantine_stream
-            lag_trackers=svc._lag_trackers
-            lag_export_counters=svc._lag_export_counters
+            tick_dq_policy=svc.tick_dq_policy,
+            strategy_fn=lambda: svc.strategy,
+            gate=svc._gate,
+            flusher=svc._flusher,
+            health_metrics=getattr(svc, "health_metrics", None),
+            main_redis=svc.main,
+            ticks_redis=svc.ticks,
+            drop_on_lag=cfg.drop_on_lag,
+            max_lag_ms=cfg.max_lag_ms,
+            max_ts_skew_ms=cfg.max_ts_skew_ms,
+            unknown_side_policy=cfg.unknown_side_policy,
+            unknown_side_quarantine_stream=cfg.unknown_side_quarantine_stream,
+            unknown_side_quarantine_sample=cfg.unknown_side_quarantine_sample,
+            unknown_side_quarantine_maxlen=cfg.unknown_side_quarantine_maxlen,
+            exec_quarantine_enable=svc.exec_quarantine_denylist_enable,
+            quarantine_stream=svc.quarantine_stream,
+            lag_trackers=svc._lag_trackers,
+            lag_export_counters=svc._lag_export_counters,
         )
 
     # ── Public ────────────────────────────────────────────────────────────────
 
     async def process_tick(
-        self
-        runtime: Any
-        msg_id: str
-        fields: Any
-        symbol: str
-        *
-        lag_tracker_max_ms: int = 60_000
+        self,
+        runtime: Any,
+        msg_id: str,
+        fields: Any,
+        symbol: str,
+        *,
+        lag_tracker_max_ms: int = 60_000,
     ) -> bool:
         """Полный цикл обработки одного тика. Возвращает True если ACK следует отправить."""
         _t0 = _time.perf_counter()
@@ -200,10 +200,10 @@ class TickProcessor:
             now_ms = ingest_ts_ms
             payload_ts_ms = _safe_int(tick.get("ts_ms") or tick.get("event_ts_ms") or 0)
             event_ts_ms, ts_source = coerce_event_ts_ms(
-                msg_id=msg_id
-                payload_ts_ms=payload_ts_ms
-                now_ms=now_ms
-                max_ts_skew_ms=self._max_ts_skew_ms
+                msg_id=msg_id,
+                payload_ts_ms=payload_ts_ms,
+                now_ms=now_ms,
+                max_ts_skew_ms=self._max_ts_skew_ms,
             )
             # exchange_ts_ms is immutable — always reflects the original exchange timestamp.
             # redis_stream_ts_ms is the ingestion timestamp from the Redis stream entry id.
@@ -334,10 +334,10 @@ class TickProcessor:
             async def _xadd():
                 try:
                     await self._main.xadd(
-                        q_stream
-                        {"data": tick_payload, "reason": reason}
-                        maxlen=20_000
-                        approximate=True
+                        q_stream,
+                        {"data": tick_payload, "reason": reason},
+                        maxlen=20_000,
+                        approximate=True,
                     )
                 except Exception:
                     pass
@@ -346,14 +346,14 @@ class TickProcessor:
             pass
 
     def _update_quality_ema(
-        self
-        symbol: str
-        tick: Dict
-        now_ms: int
-        unknown_side: bool
-        ts_source: str
-        event_ts_ms: int
-        raw: Dict
+        self,
+        symbol: str,
+        tick: Dict,
+        now_ms: int,
+        unknown_side: bool,
+        ts_source: str,
+        event_ts_ms: int,
+        raw: Dict,
     ) -> None:
         try:
             if self._quality_ema is None:
@@ -365,12 +365,12 @@ class TickProcessor:
             abs_age = abs(int(now_ms) - int(event_ts_ms)) if event_ts_ms else 0
 
             ema = self._quality_ema.update(
-                symbol=str(symbol)
-                ts_ms=int(now_ms)
-                unknown_side=1.0 if unknown_side else 0.0
-                ts_source=str(ts_source)
-                abs_skew_ms=float(abs_skew)
-                abs_age_ms=float(abs_age)
+                symbol=str(symbol),
+                ts_ms=int(now_ms),
+                unknown_side=1.0 if unknown_side else 0.0,
+                ts_source=str(ts_source),
+                abs_skew_ms=float(abs_skew),
+                abs_age_ms=float(abs_age),
             )
 
             if self._metric_limiter is None:
@@ -486,13 +486,13 @@ class TickProcessor:
                 # which Redis stream entry carried it).
                 exchange_ts = _safe_int(tick.get("exchange_ts_ms") or tick.get("payload_ts_ms") or tick.get("ts_ms") or 0)
                 uid = _compute_tick_uid(
-                    symbol=str(tick.get("symbol") or symbol)
-                    trade_id=tick.get("trade_id")
-                    ts_ms=exchange_ts
-                    price_src=raw.get("price") or raw.get("last") or raw.get("mid")
-                    qty_src=raw.get("qty") or raw.get("volume")
-                    side=str(tick.get("side") or "")
-                    is_buyer_maker=tick.get("is_buyer_maker")
+                    symbol=str(tick.get("symbol") or symbol),
+                    trade_id=tick.get("trade_id"),
+                    ts_ms=exchange_ts,
+                    price_src=raw.get("price") or raw.get("last") or raw.get("mid"),
+                    qty_src=raw.get("qty") or raw.get("volume"),
+                    side=str(tick.get("side") or ""),
+                    is_buyer_maker=tick.get("is_buyer_maker"),
                     stream_id=None,  # excluded from market-level dedupe UID
                 )
                 tick["tick_uid"] = uid
@@ -550,30 +550,30 @@ class TickProcessor:
             if not deterministic_sample(int(key_ms), float(self._side_quarantine_sample)):
                 return
             payload = {
-                "symbol": str(symbol)
-                "reason": "unknown_side"
-                "policy": str(self._side_policy)
-                "msg_id": str(msg_id)
-                "tick_uid": str(tick.get("tick_uid") or "")
-                "event_ts_ms": str(_safe_int(tick.get("event_ts_ms") or 0))
-                "ts_source": str(tick.get("ts_source") or "")
-                "side": str(tick.get("side") or "")
-                "side_conf": str(tick.get("side_conf") or "")
-                "side_raw": str(tick.get("side_raw") or "")
-                "is_buyer_maker": str(tick.get("is_buyer_maker") if tick.get("is_buyer_maker") is not None else "")
-                "trade_id": str(tick.get("trade_id") or "")
-                "price": str(tick.get("price") or "")
-                "qty": str(tick.get("qty") or tick.get("volume") or "")
-            }
+                "symbol": str(symbol),
+                "reason": "unknown_side",
+                "policy": str(self._side_policy),
+                "msg_id": str(msg_id),
+                "tick_uid": str(tick.get("tick_uid") or ""),
+                "event_ts_ms": str(_safe_int(tick.get("event_ts_ms") or 0)),
+                "ts_source": str(tick.get("ts_source") or ""),
+                "side": str(tick.get("side") or ""),
+                "side_conf": str(tick.get("side_conf") or ""),
+                "side_raw": str(tick.get("side_raw") or ""),
+                "is_buyer_maker": str(tick.get("is_buyer_maker") if tick.get("is_buyer_maker") is not None else ""),
+                "trade_id": str(tick.get("trade_id") or ""),
+                "price": str(tick.get("price") or ""),
+                "qty": str(tick.get("qty") or tick.get("volume") or ""),
+            },
             try:
                 payload["raw_keys"] = ",".join(sorted(list(raw_fields.keys()))[:32])
             except Exception:
                 pass
             await self._ticks.xadd(
-                self._side_quarantine_stream
-                payload
-                maxlen=int(self._side_quarantine_maxlen)
-                approximate=True
+                self._side_quarantine_stream,
+                payload,
+                maxlen=int(self._side_quarantine_maxlen),
+                approximate=True,
             )
             try:
                 ticks_unknown_side_quarantine_published_total.labels(
@@ -594,11 +594,11 @@ class TickProcessor:
             if book and book.timestamp_ms:
                 age = max(0, event_ts_ms - book.timestamp_ms)
                 self._health_metrics.on_tick(
-                    symbol=str(symbol)
-                    l2_age_ms=float(age)
-                    l2_age_ms_tick=float(age)
-                    l2_is_stale=(age > 1500)
-                    l2_is_stale_now=(max(0, now_ms - book.timestamp_ms) > 1500)
+                    symbol=str(symbol),
+                    l2_age_ms=float(age),
+                    l2_age_ms_tick=float(age),
+                    l2_is_stale=(age > 1500),
+                    l2_is_stale_now=(max(0, now_ms - book.timestamp_ms) > 1500),
                 )
         except Exception:
             pass
@@ -609,20 +609,20 @@ class TickProcessor:
         try:
             stamp_feature_ready(signal, tick=tick, now_ms=get_ny_time_millis())
             await observe_feature_ready_async(
-                signal
-                redis_client=self._main
-                service="python_worker"
-                symbol=str(symbol)
+                signal,
+                redis_client=self._main,
+                service="python_worker",
+                symbol=str(symbol),
             )
         except Exception as exc:
             logger.debug("(%s) latency contract feature-ready failed: %s", symbol, exc)
         try:
             preprocess_signal_for_publish(
-                signal
-                symbol=str(getattr(runtime, "symbol", "") or symbol)
-                source="CryptoOrderFlow"
-                logger=logger
-                fast_path=False
+                signal,
+                symbol=str(getattr(runtime, "symbol", "") or symbol),
+                source="CryptoOrderFlow",
+                logger=logger,
+                fast_path=False,
             )
         except Exception:
             pass
@@ -638,14 +638,14 @@ class TickProcessor:
     ) -> bool:
         try:
             await self._ticks.xadd(
-                self._quarantine_stream
+                self._quarantine_stream,
                 {
-                    "symbol": symbol
-                    "msg_id": str(msg_id)
-                    "error": str(exc)[:200]
-                    "payload": json.dumps(fields, default=str)[:1000]
-                }
-                maxlen=5000
+                    "symbol": symbol,
+                    "msg_id": str(msg_id),
+                    "error": str(exc)[:200],
+                    "payload": json.dumps(fields, default=str)[:1000],
+                },
+                maxlen=5000,
             )
             logger.warning("☣️ (%s) Message %s quarantined", symbol, msg_id)
             return True
@@ -654,12 +654,12 @@ class TickProcessor:
             return False
 
     def _observe_latency(
-        self
-        processed_ok: bool
-        tick: Optional[Dict]
-        msg_id: str
-        symbol: str
-        t0: float
+        self,
+        processed_ok: bool,
+        tick: Optional[Dict],
+        msg_id: str,
+        symbol: str,
+        t0: float,
     ) -> None:
         try:
             if not (processed_ok and tick):

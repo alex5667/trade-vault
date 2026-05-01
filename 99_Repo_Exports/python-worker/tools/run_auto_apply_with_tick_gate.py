@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Run a command only if auto-apply is NOT blocked (by tick gate).
 
 This is a tiny helper wrapper for existing ApplyRunner / auto-apply jobs.
@@ -11,7 +12,6 @@ Usage:
   python -m tools.run_auto_apply_with_tick_gate -- <your apply cmd>
 """
 
-from __future__ import annotations
 
 import json
 import os

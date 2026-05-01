@@ -22,11 +22,11 @@ class TestPromote(unittest.TestCase):
     def test_health_gates_clean(self):
         now = get_ny_time_millis()
         state = {
-            "ts_ms": now
-            "degrade": 0
+            "ts_ms": now,
+            "degrade": 0,
             "metrics": {
-                "ece_cal": 0.005
-                "brier_cal": 0.005
+                "ece_cal": 0.005,
+                "brier_cal": 0.005,
                 "n": 500
             }
         }
@@ -46,7 +46,7 @@ class TestPromote(unittest.TestCase):
         now = get_ny_time_millis()
         state = {
             "ts_ms": now - 70000, # 70s old
-            "degrade": 0
+            "degrade": 0,
             "metrics": {"n": 500}
         }
         self.write_state(state)
@@ -58,7 +58,7 @@ class TestPromote(unittest.TestCase):
     def test_health_gates_degraded(self):
         now = get_ny_time_millis()
         state = {
-            "ts_ms": now
+            "ts_ms": now,
             "degrade": 1, 
             "metrics": {"n": 500}
         }
@@ -71,7 +71,7 @@ class TestPromote(unittest.TestCase):
     def test_health_gates_ece_fail(self):
         now = get_ny_time_millis()
         state = {
-            "ts_ms": now
+            "ts_ms": now,
             "degrade": 0, 
             "metrics": {
                 "ece_cal": 0.02, # > 0.01
@@ -87,7 +87,7 @@ class TestPromote(unittest.TestCase):
     def test_health_gates_min_n_fail(self):
         now = get_ny_time_millis()
         state = {
-            "ts_ms": now
+            "ts_ms": now,
             "degrade": 0, 
             "metrics": {
                 "ece_cal": 0.001, 
@@ -107,7 +107,7 @@ class TestPromote(unittest.TestCase):
         mock_redis_cls.from_url.return_value = mock_r
         
         bundle = {
-            "ts_ms": 1234567890
+            "ts_ms": 1234567890,
             "decisions": {
                 "BTCUSDT": {"freeze": 1, "scale": 0.8}
             }

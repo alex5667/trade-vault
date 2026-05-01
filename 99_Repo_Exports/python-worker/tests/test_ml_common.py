@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Тесты для tools/_ml_common.py - общие утилиты для ML инструментов.
 """
-from __future__ import annotations
 
 import json
 import sys

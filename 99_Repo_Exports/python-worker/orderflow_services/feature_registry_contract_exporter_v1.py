@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Prometheus exporter for Feature Registry contract status (P94).
 
 Reads Redis hash `metrics:feature_registry_contract:last` and exposes gauges:
@@ -24,7 +25,6 @@ ENV:
   FEATURE_REGISTRY_CONTRACT_EXPORTER_STALE_S    (default: 21600 = 6h)
 """
 
-from __future__ import annotations
 
 import os
 import time

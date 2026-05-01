@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for preflight_baseline_v1.py.
 
 Covers:
@@ -7,7 +8,6 @@ Covers:
 - run(): fail-open behavior when URLs are unreachable
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -135,7 +135,7 @@ PROM_RULES_JSON = json.dumps({
                         "state": "",
                     },
                 ],
-            }
+            },
         ]
     },
 })

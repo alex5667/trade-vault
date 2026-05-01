@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ATR floor tier selection (deterministic)
 Fixes the "broken chain": floors(t0/t1/t2) must be mapped to atr_bps_th by regime.
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, Tuple
 

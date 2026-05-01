@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Distribution and ROC Plotting for XAUUSD Features.
+Distribution and ROC Plotting for  Features.
 
 Generates visualization reports:
 - Histograms of delta_z and OBI distributions
@@ -63,8 +63,8 @@ def plot_hist(series: pd.Series, title: str, out_png: str):
 
 
 def make_labels_from_forward(
-    mid: pd.Series
-    horizon: int = 60
+    mid: pd.Series,
+    horizon: int = 60,
     side_series: Optional[pd.Series] = None
 ) -> np.ndarray:
     """
@@ -92,9 +92,9 @@ def make_labels_from_forward(
 
 
 def plot_roc(
-    feature: np.ndarray
-    labels: np.ndarray
-    title: str
+    feature: np.ndarray,
+    labels: np.ndarray,
+    title: str,
     out_png: str
 ):
     """
@@ -131,8 +131,8 @@ def plot_roc(
 def main():
     """Main entry point."""
     ap = argparse.ArgumentParser(
-        description="Generate distribution and ROC plots from features"
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Generate distribution and ROC plots from features",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Basic usage
@@ -149,7 +149,7 @@ Examples:
     )
     ap.add_argument("--data", required=True, help="Features file (parquet/csv)")
     ap.add_argument("--outdir", required=True, help="Output directory for plots")
-    ap.add_argument("--horizon", type=int, default=60
+    ap.add_argument("--horizon", type=int, default=60,
                     help="Forward horizon in samples (default: 60)")
     args = ap.parse_args()
     
@@ -175,15 +175,15 @@ Examples:
     
     if 'delta_z' in df.columns:
         plot_hist(
-            df['delta_z']
-            "Delta Z-Score Distribution"
+            df['delta_z'],
+            "Delta Z-Score Distribution",
             os.path.join(args.outdir, "hist_delta_z.png")
         )
     
     if 'obi' in df.columns:
         plot_hist(
-            df['obi'].fillna(0.0)
-            "Order Book Imbalance (OBI) Distribution"
+            df['obi'].fillna(0.0),
+            "Order Book Imbalance (OBI) Distribution",
             os.path.join(args.outdir, "hist_obi.png")
         )
     
@@ -201,9 +201,9 @@ Examples:
         feature = np.abs(df['delta_z']).values
         
         plot_roc(
-            feature
-            labels
-            f"ROC: |ΔZ| Predicting Success @ {args.horizon}s Horizon"
+            feature,
+            labels,
+            f"ROC: |ΔZ| Predicting Success @ {args.horizon}s Horizon",
             os.path.join(args.outdir, "roc_abs_dz.png")
         )
     
@@ -214,9 +214,9 @@ Examples:
         feature = (np.sign(df['delta_z']) * df['obi'].fillna(0.0)).values
         
         plot_roc(
-            feature
-            labels
-            f"ROC: sign(ΔZ) × OBI @ {args.horizon}s Horizon"
+            feature,
+            labels,
+            f"ROC: sign(ΔZ) × OBI @ {args.horizon}s Horizon",
             os.path.join(args.outdir, "roc_sign_dz_obi.png")
         )
     

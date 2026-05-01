@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Process runtime clock (monotonic uptime + derived start timestamp).
 
 Why this exists:
@@ -9,7 +10,6 @@ The `runtime_start_ts_ms` is *derived* from the provided event timestamp to
 avoid relying on wall-clock time.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 import time

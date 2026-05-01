@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: Signal Ensemble Degraded Modes (Before Canary 2.5)
 
 Tests that the Signal Ensemble gracefully handles external component failures,
 such as Redis outages, missing dynamic weights, or complete source timeouts.
 """
-from __future__ import annotations
 
 import pytest
 from unittest.mock import MagicMock

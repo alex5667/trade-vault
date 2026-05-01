@@ -33,11 +33,11 @@ def decision_to_legacy_tuple(dec: Any) -> Tuple[bool, Dict[str, float]]:
 
     # keep keys stable for dashboards/log parsing
     details: Dict[str, float] = {
-        "expected_move_bps": safe_float(getattr(dec, "expected_move_bps", None))
-        "threshold_bps": safe_float(getattr(dec, "threshold_bps", None))
-        "fees_bps": safe_float(getattr(dec, "fees_bps", None))
-        "slippage_bps": safe_float(getattr(dec, "slippage_bps", None))
-        "k": safe_float(getattr(dec, "k", None))
+        "expected_move_bps": safe_float(getattr(dec, "expected_move_bps", None)),
+        "threshold_bps": safe_float(getattr(dec, "threshold_bps", None)),
+        "fees_bps": safe_float(getattr(dec, "fees_bps", None)),
+        "slippage_bps": safe_float(getattr(dec, "slippage_bps", None)),
+        "k": safe_float(getattr(dec, "k", None)),
     }
     return ok_edge, details
 
@@ -63,11 +63,11 @@ def attach_cost_edge_veto_fields(ctx: Any, dec: Any) -> None:
 
         # Optional fields (only if present on decision object)
         for name in (
-            "delay_ms"
-            "spread_bps"
-            "spread_ema_bps"
-            "burst_flip_ratio"
-            "cancel_to_trade"
+            "delay_ms",
+            "spread_bps",
+            "spread_ema_bps",
+            "burst_flip_ratio",
+            "cancel_to_trade",
         ):
             if hasattr(dec, name):
                 try:

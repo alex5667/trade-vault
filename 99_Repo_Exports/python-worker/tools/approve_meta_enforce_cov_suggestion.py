@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 approve_meta_enforce_cov_suggestion.py
 
@@ -14,7 +15,6 @@ ENV
   APPROVER_ID (default manual)
 """
 
-from __future__ import annotations
 
 import argparse
 import os

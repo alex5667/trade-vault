@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Evaluate meta model thresholds for ENFORCE mode.
 
 Evaluates different meta_p_min thresholds on a dataset to find the best one
@@ -15,7 +16,6 @@ Usage:
     --meanr-drop-max 0.05
 """
 
-from __future__ import annotations
 
 import argparse
 import json

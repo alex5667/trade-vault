@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 StreamWorker - единый каркас для обработки Redis Streams с поддержкой retry/pending-claim.
 
@@ -35,7 +36,6 @@ StreamWorker - единый каркас для обработки Redis Streams
     worker.run_loop(lambda: running_flag)
 """
 
-from __future__ import annotations
 
 import time
 import json

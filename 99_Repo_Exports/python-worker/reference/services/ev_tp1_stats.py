@@ -43,9 +43,9 @@ class EvTp1StatsConfig:
     @classmethod
     def from_env(cls) -> "EvTp1StatsConfig":
         return cls(
-            enabled=_env_bool("EV_TP1_STATS_ENABLED", True)
-            alpha=float(os.getenv("EV_TP1_EMA_ALPHA", "0.05") or 0.05)
-            ttl_sec=int(os.getenv("EV_TP1_STATS_TTL_SEC", str(60 * 60 * 24 * 30)) or (60 * 60 * 24 * 30))
+            enabled=_env_bool("EV_TP1_STATS_ENABLED", True),
+            alpha=float(os.getenv("EV_TP1_EMA_ALPHA", "0.05") or 0.05),
+            ttl_sec=int(os.getenv("EV_TP1_STATS_TTL_SEC", str(60 * 60 * 24 * 30)) or (60 * 60 * 24 * 30)),
         )
 
 
@@ -93,15 +93,15 @@ def _key(kind: str, symbol: str, tf: str, regime: str) -> str:
 
 
 def update_tp1_hit_ema(
-    redis_client: Any
-    *
-    cfg: EvTp1StatsConfig
-    kind: str
-    symbol: str
-    tf: str
-    regime: str
-    tp1_hit: int
-    now_ms: Optional[int] = None
+    redis_client: Any,
+    *,
+    cfg: EvTp1StatsConfig,
+    kind: str,
+    symbol: str,
+    tf: str,
+    regime: str,
+    tp1_hit: int,
+    now_ms: Optional[int] = None,
 ) -> Tuple[int, float]:
     """
     Update TP1 hit-rate stats.
@@ -156,13 +156,13 @@ def update_tp1_hit_ema(
 
 
 def get_tp1_hit_prob(
-    redis_client: Any
-    *
-    kind: str
-    symbol: str
-    tf: str
-    regime: str
-    cfg: EvTp1StatsConfig
+    redis_client: Any,
+    *,
+    kind: str,
+    symbol: str,
+    tf: str,
+    regime: str,
+    cfg: EvTp1StatsConfig,
 ) -> Optional[float]:
     """
     Retrieve TP1 hit probability from Redis.
@@ -205,13 +205,13 @@ def extract_regime_label_from_ctx(ctx: Any) -> str:
 
 
 def attach_tp1_hit_prob_to_ctx(
-    ctx: Any
-    *
-    redis_client: Any
-    kind: str
-    symbol: str
-    tf: str
-    cfg: EvTp1StatsConfig
+    ctx: Any,
+    *,
+    redis_client: Any,
+    kind: str,
+    symbol: str,
+    tf: str,
+    cfg: EvTp1StatsConfig,
 ) -> None:
     """
     Attach TP1 hit probability to context for EV gate evaluation.
@@ -220,12 +220,12 @@ def attach_tp1_hit_prob_to_ctx(
     """
     regime = extract_regime_label_from_ctx(ctx)
     p_hit = get_tp1_hit_prob(
-        redis_client
-        kind=kind
-        symbol=symbol
-        tf=tf
-        regime=regime
-        cfg=cfg
+        redis_client,
+        kind=kind,
+        symbol=symbol,
+        tf=tf,
+        regime=regime,
+        cfg=cfg,
     )
     if p_hit is not None:
         try:

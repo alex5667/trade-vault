@@ -1,4 +1,4 @@
 """
-Reports module for XAUUSD order flow analysis.
+Reports module for  order flow analysis.
 """
 

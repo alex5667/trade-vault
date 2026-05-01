@@ -43,30 +43,30 @@ from services.orderflow.exec_health_rollups import aread_exec_health_rollups, de
 from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
 # P4: SLO contract state writer (fail-open, rate-limited flush)
 from services.orderflow.exec_health_slo_contract import (
-    record_exec_health_contract_state
-    record_exec_health_contract_reader_error as _contract_reader_err_pipeline
-    flush_exec_health_contract_state_async as _flush_contract_pipeline
+    record_exec_health_contract_state,
+    record_exec_health_contract_reader_error as _contract_reader_err_pipeline,
+    flush_exec_health_contract_state_async as _flush_contract_pipeline,
 )
 # P4 latency contract: stamp emit time and observe feature_to_emit + end_to_end_event
 from services.observability.latency_contract import stamp_emit_and_observe_async
 from services.observability.latency_semconv import ensure_epoch_ms_fields, FIELD_TS_EVENT_MS, FIELD_TS_FEATURE_MS, FIELD_TS_EMIT_MS
 # P6: hard consumer hook — convert P5 autoguard freeze key into real publish stop
 from services.orderflow.exec_health_freeze_hook import (
-    aread_exec_health_auto_freeze
-    build_exec_health_auto_freeze_decision
+    aread_exec_health_auto_freeze,
+    build_exec_health_auto_freeze_decision,
 )
 
 from services.orderflow.derivatives_context import aread_derivatives_context
 from services.orderflow.derivatives_context_gate import evaluate_derivatives_context
 from services.orderflow.metrics_derivatives_context import (
-    deriv_ctx_snapshot_age_ms
-    deriv_ctx_funding_rate_z
-    deriv_ctx_basis_bps
-    deriv_ctx_oi_notional_usd
-    deriv_ctx_gate_monitor_hit_total
-    deriv_ctx_gate_tighten_total
-    deriv_ctx_gate_veto_total
-    deriv_ctx_tighten_add_bps
+    deriv_ctx_snapshot_age_ms,
+    deriv_ctx_funding_rate_z,
+    deriv_ctx_basis_bps,
+    deriv_ctx_oi_notional_usd,
+    deriv_ctx_gate_monitor_hit_total,
+    deriv_ctx_gate_tighten_total,
+    deriv_ctx_gate_veto_total,
+    deriv_ctx_tighten_add_bps,
 )
 
 _book_sanity_gate = BookSanityGate.from_env()
@@ -194,19 +194,19 @@ class SignalPipeline:
 
         # Allow-list a few high-value numeric evidence keys from indicators
         allow = {
-            "rsi_agree"
-            "div_match"
-            "div_strength"
-            "sweep"
-            "sweep_eqh"
-            "sweep_eql"
-            "iceberg_strict"
-            "ice_strict"
-            "reclaim"
-            "obi_stable"
-            "data_health"
-            "spread_bps"
-            "book_stale_ms"
+            "rsi_agree",
+            "div_match",
+            "div_strength",
+            "sweep",
+            "sweep_eqh",
+            "sweep_eql",
+            "iceberg_strict",
+            "ice_strict",
+            "reclaim",
+            "obi_stable",
+            "data_health",
+            "spread_bps",
+            "book_stale_ms",
         }
         for k in list(allow):
             if k in indicators:
@@ -256,15 +256,15 @@ class SignalPipeline:
         return float(raw_f), float(final_f) if final_f is not None else None
 
     async def _maybe_publish_confidence_scores(
-        self
-        *
-        symbol: str
-        sid: str
-        ts_event_ms: int
-        signal: dict
-        confirmations: list
-        indicators: dict
-        evidence_dict: dict
+        self,
+        *,
+        symbol: str,
+        sid: str,
+        ts_event_ms: int,
+        signal: dict,
+        confirmations: list,
+        indicators: dict,
+        evidence_dict: dict,
     ) -> None:
         if not self._conf_scores_enabled():
             return
@@ -274,38 +274,38 @@ class SignalPipeline:
             raw, final = self._extract_conf_scores(signal=signal, indicators=indicators)
 
             evt = {
-                "schema_version": int(self.conf_scores_schema_version)
-                "producer": str(os.getenv("SERVICE_NAME", "python-worker"))
-                "sid": str(sid)
-                "symbol": str(symbol)
-                "ts_event_ms": int(ts_event_ms)
-                "confidence_raw": float(raw)
-                "confidence_final": float(final) if final is not None else None
-                "evidence_map": evidence_map
+                "schema_version": int(self.conf_scores_schema_version),
+                "producer": str(os.getenv("SERVICE_NAME", "python-worker")),
+                "sid": str(sid),
+                "symbol": str(symbol),
+                "ts_event_ms": int(ts_event_ms),
+                "confidence_raw": float(raw),
+                "confidence_final": float(final) if final is not None else None,
+                "evidence_map": evidence_map,
             }
             if self.conf_scores_include_evidence_json:
                 # Full evidence (heavy) - keep disabled unless needed.
                 evt["evidence_json"] = evidence_dict
 
             await self.publisher.xadd_json(
-                sink=StreamSink(name=self.conf_scores_stream, field="payload", maxlen=self.conf_scores_stream_maxlen)
-                payload=evt
-                symbol=str(symbol)
+                sink=StreamSink(name=self.conf_scores_stream, field="payload", maxlen=self.conf_scores_stream_maxlen),
+                payload=evt,
+                symbol=str(symbol),
             )
 
         except Exception as e:
             # Best-effort quarantine - never block signal publishing.
             try:
                 q = {
-                    "ts_event_ms": int(ts_event_ms)
-                    "sid": str(sid)
-                    "symbol": str(symbol)
-                    "error": str(e)
+                    "ts_event_ms": int(ts_event_ms),
+                    "sid": str(sid),
+                    "symbol": str(symbol),
+                    "error": str(e),
                 }
                 await self.publisher.xadd_json(
-                    sink=StreamSink(name=self.conf_scores_quarantine_stream, field="payload", maxlen=self.conf_scores_quarantine_maxlen)
-                    payload=q
-                    symbol=str(symbol)
+                    sink=StreamSink(name=self.conf_scores_quarantine_stream, field="payload", maxlen=self.conf_scores_quarantine_maxlen),
+                    payload=q,
+                    symbol=str(symbol),
                 )
             except Exception:
                 pass
@@ -351,27 +351,27 @@ class SignalPipeline:
 
         # Minimal OF-like object: expose depth_bid_5/ask_5 if runtime has them
         of = SimpleNamespace(
-            depth_bid_5=float(getattr(runtime, "last_depth_bid_5", 0.0) or 0.0)
-            depth_ask_5=float(getattr(runtime, "last_depth_ask_5", 0.0) or 0.0)
-            atr_ts_ms=int(indicators.get("atr_ts_ms") or signal.get("atr_ts_ms") or 0)
-            regime=str(indicators.get("regime") or signal.get("regime") or "unknown")
-            spread_bps=float(micro.get("spread_bps") or 0.0)
+            depth_bid_5=float(getattr(runtime, "last_depth_bid_5", 0.0) or 0.0),
+            depth_ask_5=float(getattr(runtime, "last_depth_ask_5", 0.0) or 0.0),
+            atr_ts_ms=int(indicators.get("atr_ts_ms") or signal.get("atr_ts_ms") or 0),
+            regime=str(indicators.get("regime") or signal.get("regime") or "unknown"),
+            spread_bps=float(micro.get("spread_bps") or 0.0),
         )
 
         # Main ctx expected by gates
         ctx = SimpleNamespace(
-            ts_event_ms=int(sig_ts_ms)
-            ts_ms=int(sig_ts_ms)
-            ts=int(sig_ts_ms)
-            spread_bps=float(micro.get("spread_bps") or getattr(runtime, "last_spread_bps", 0.0) or 0.0)
-            regime=str(indicators.get("regime") or signal.get("regime") or "unknown")
-            session=str(signal.get("session") or indicators.get("session") or "na")
-            tf=str(signal.get("tf") or indicators.get("tf") or "na")
-            venue=str(signal.get("venue") or indicators.get("venue") or "binance")
-            touch_is_stale=bool(signal.get("touch_is_stale") or indicators.get("touch_is_stale") or False)
-            data_quality_flags=dq_flags
-            of=of
-            redis=getattr(runtime, "redis_client", None)
+            ts_event_ms=int(sig_ts_ms),
+            ts_ms=int(sig_ts_ms),
+            ts=int(sig_ts_ms),
+            spread_bps=float(micro.get("spread_bps") or getattr(runtime, "last_spread_bps", 0.0) or 0.0),
+            regime=str(indicators.get("regime") or signal.get("regime") or "unknown"),
+            session=str(signal.get("session") or indicators.get("session") or "na"),
+            tf=str(signal.get("tf") or indicators.get("tf") or "na"),
+            venue=str(signal.get("venue") or indicators.get("venue") or "binance"),
+            touch_is_stale=bool(signal.get("touch_is_stale") or indicators.get("touch_is_stale") or False),
+            data_quality_flags=dq_flags,
+            of=of,
+            redis=getattr(runtime, "redis_client", None),
         )
         return ctx
 
@@ -463,18 +463,18 @@ class SignalPipeline:
             signal.setdefault("sid", sid0)
         signal.setdefault("ts_emit_ms", int(sig_ts))
         signal.setdefault(
-            "decision_mid_at_emit"
+            "decision_mid_at_emit",
             signal.get("decision_mid")
             or signal.get("decision_price")
             or indicators.get("decision_mid")
             or indicators.get("mid")
-            or signal.get("entry")
+            or signal.get("entry"),
         )
         signal.setdefault(
-            "expected_slippage_bps_at_emit"
+            "expected_slippage_bps_at_emit",
             signal.get("decision_expected_slippage_bps")
             or indicators.get("expected_slippage_bps")
-            or signal.get("expected_slippage_bps")
+            or signal.get("expected_slippage_bps"),
         )
         
         # A1 Decision Context Enrichment (hot-path, fail-open)
@@ -500,17 +500,17 @@ class SignalPipeline:
             try:
                 from services.orderflow.decision_snapshot import build_decision_snapshot, publish_decision_snapshot
                 snap = build_decision_snapshot(
-                    signal
-                    runtime=runtime
-                    indicators=indicators
-                    schema_version=int(self.decision_snapshot_schema_version)
+                    signal,
+                    runtime=runtime,
+                    indicators=indicators,
+                    schema_version=int(self.decision_snapshot_schema_version),
                 )
                 await publish_decision_snapshot(
-                    publisher=self.publisher
-                    snapshot=snap
-                    stream=self.decision_snapshot_stream
-                    maxlen=int(self.decision_snapshot_stream_maxlen)
-                    symbol=str(symbol)
+                    publisher=self.publisher,
+                    snapshot=snap,
+                    stream=self.decision_snapshot_stream,
+                    maxlen=int(self.decision_snapshot_stream_maxlen),
+                    symbol=str(symbol),
                 )
             except Exception as e:
                 # Never block signal publishing.
@@ -523,11 +523,11 @@ class SignalPipeline:
             if not gate_ok:
                 # Log veto (sampled)
                 logger.info(
-                    "🛡️ [GATE-PIPELINE-SHADOW] RequireStrongConfirmation: signal=%s vetoed by strong gate. need=%s have=%s legs=%s"
-                    signal.get("signal_id")
-                    indicators.get("strong_gate_need")
-                    indicators.get("strong_gate_have")
-                    indicators.get("strong_gate_legs")
+                    "🛡️ [GATE-PIPELINE-SHADOW] RequireStrongConfirmation: signal=%s vetoed by strong gate. need=%s have=%s legs=%s",
+                    signal.get("signal_id"),
+                    indicators.get("strong_gate_need"),
+                    indicators.get("strong_gate_have"),
+                    indicators.get("strong_gate_legs"),
                 )
                 strong_gate_veto_total.labels(symbol=runtime.symbol, scenario="unknown", reason="require_strong", mode="SHADOW").inc()
                 # DO NOT return here - bookkeeping and publishing continue (handled by strategy ENFORCE)
@@ -583,17 +583,17 @@ class SignalPipeline:
                 indicators["oi_accel"] = int(snap.oi_accel)
 
                 decd = evaluate_derivatives_context(
-                    profile=deriv_profile
-                    funding_rate_z=float(snap.funding_rate_z)
-                    basis_bps=float(snap.basis_bps)
-                    funding_extreme=int(snap.funding_extreme)
-                    basis_extreme=int(snap.basis_extreme)
-                    oi_accel=int(snap.oi_accel)
-                    thr_funding_z=float(os.getenv("DERIV_CTX_FUNDING_Z_MAX", "3.0") or 3.0)
-                    thr_basis_bps=float(os.getenv("DERIV_CTX_BASIS_BPS_MAX", "10.0") or 10.0)
-                    require_oi_for_veto=bool(int(os.getenv("DERIV_CTX_REQUIRE_OI_FOR_VETO", "1") or 1))
-                    tighten_mult=float(os.getenv("DERIV_CTX_TIGHTEN_ADD_MULT", "1.0") or 1.0)
-                    tighten_cap_bps=float(os.getenv("DERIV_CTX_TIGHTEN_ADD_CAP_BPS", "8.0") or 8.0)
+                    profile=deriv_profile,
+                    funding_rate_z=float(snap.funding_rate_z),
+                    basis_bps=float(snap.basis_bps),
+                    funding_extreme=int(snap.funding_extreme),
+                    basis_extreme=int(snap.basis_extreme),
+                    oi_accel=int(snap.oi_accel),
+                    thr_funding_z=float(os.getenv("DERIV_CTX_FUNDING_Z_MAX", "3.0") or 3.0),
+                    thr_basis_bps=float(os.getenv("DERIV_CTX_BASIS_BPS_MAX", "10.0") or 10.0),
+                    require_oi_for_veto=bool(int(os.getenv("DERIV_CTX_REQUIRE_OI_FOR_VETO", "1") or 1)),
+                    tighten_mult=float(os.getenv("DERIV_CTX_TIGHTEN_ADD_MULT", "1.0") or 1.0),
+                    tighten_cap_bps=float(os.getenv("DERIV_CTX_TIGHTEN_ADD_CAP_BPS", "8.0") or 8.0),
                 )
 
                 indicators["deriv_ctx_flags"] = ",".join(decd.flags) if decd.flags else ""
@@ -637,12 +637,12 @@ class SignalPipeline:
                     except Exception:
                         pass
                     logger.info(
-                        "🛡️ [GATE] DerivativesContext VETO (%s): %s | funding_z=%.2f basis_bps=%.2f oi_accel=%s"
-                        symbol
-                        deriv_reason
-                        float(snap.funding_rate_z)
-                        float(snap.basis_bps)
-                        int(snap.oi_accel)
+                        "🛡️ [GATE] DerivativesContext VETO (%s): %s | funding_z=%.2f basis_bps=%.2f oi_accel=%s",
+                        symbol,
+                        deriv_reason,
+                        float(snap.funding_rate_z),
+                        float(snap.basis_bps),
+                        int(snap.oi_accel),
                     )
                     strong_gate_veto_total.labels(symbol=symbol, scenario="deriv_ctx", reason=deriv_reason, mode="ENFORCE").inc()
                     passed = False
@@ -687,16 +687,16 @@ class SignalPipeline:
         try:
             from services.orderflow.liquidity_geom_policy import evaluate_liq_geom
             decg = evaluate_liq_geom(
-                profile=liq_profile
-                slope_bid=slope_bid
-                slope_ask=slope_ask
-                dws_bps=dws_bps_val
-                recovery_ms=rec_ms
-                thr_slope=thr_slope
-                thr_dws=thr_dws
-                thr_recovery_ms=thr_rec
-                tighten_cap_bps=cap
-                tighten_mult=mult
+                profile=liq_profile,
+                slope_bid=slope_bid,
+                slope_ask=slope_ask,
+                dws_bps=dws_bps_val,
+                recovery_ms=rec_ms,
+                thr_slope=thr_slope,
+                thr_dws=thr_dws,
+                thr_recovery_ms=thr_rec,
+                tighten_cap_bps=cap,
+                tighten_mult=mult,
             )
 
             # Always annotate for observability/debugging
@@ -747,15 +747,15 @@ class SignalPipeline:
                 except Exception:
                     pass
                 logger.info(
-                    "🛡️ [GATE] Liquidity-Geometry VETO (%s): %s | slope_min=%.1f thr=%.1f dws=%.2f thr=%.2f rec_ms=%d thr=%d"
-                    symbol
-                    geom_reason
-                    float(decg.slope_min)
-                    thr_slope
-                    dws_bps_val
-                    thr_dws
-                    rec_ms
-                    thr_rec
+                    "🛡️ [GATE] Liquidity-Geometry VETO (%s): %s | slope_min=%.1f thr=%.1f dws=%.2f thr=%.2f rec_ms=%d thr=%d",
+                    symbol,
+                    geom_reason,
+                    float(decg.slope_min),
+                    thr_slope,
+                    dws_bps_val,
+                    thr_dws,
+                    rec_ms,
+                    thr_rec,
                 )
                 strong_gate_veto_total.labels(symbol=symbol, scenario="liq_geom", reason=geom_reason, mode="ENFORCE").inc()
                 passed = False
@@ -807,18 +807,18 @@ class SignalPipeline:
             thr_imp = float(os.getenv("EXEC_MAX_PERM_IMPACT_P95_BPS", "0") or 0.0)
 
             decf = evaluate_flow_toxicity(
-                profile=flow_profile
-                ofi_norm_z=ofi_z
-                thr_ofi_norm_z=thr_z
-                vpin_cdf=vpin_cdf
-                thr_vpin_cdf=thr_vpin
-                tca_is_p95_bps=tca_is
-                tca_perm_impact_p95_bps=tca_imp
-                thr_is_p95_bps=thr_is
-                thr_perm_impact_p95_bps=thr_imp
-                tighten_mult=mult
-                tighten_cap_bps=cap
-                veto_without_tca=veto_wo_tca
+                profile=flow_profile,
+                ofi_norm_z=ofi_z,
+                thr_ofi_norm_z=thr_z,
+                vpin_cdf=vpin_cdf,
+                thr_vpin_cdf=thr_vpin,
+                tca_is_p95_bps=tca_is,
+                tca_perm_impact_p95_bps=tca_imp,
+                thr_is_p95_bps=thr_is,
+                thr_perm_impact_p95_bps=thr_imp,
+                tighten_mult=mult,
+                tighten_cap_bps=cap,
+                veto_without_tca=veto_wo_tca,
             )
 
             # annotate always
@@ -859,17 +859,17 @@ class SignalPipeline:
                 except Exception:
                     pass
                 logger.info(
-                    "🛡️ [GATE] FlowToxicity VETO (%s): flags=%s ofi_z=%.2f thr=%.2f vpin_cdf=%.3f thr=%.3f tca_is_p95=%.2f thr=%.2f tca_imp_p95=%.2f thr=%.2f"
-                    symbol
-                    indicators.get("flow_toxic_flags", "")
-                    ofi_z
-                    thr_z
-                    vpin_cdf
-                    thr_vpin
-                    tca_is
-                    thr_is
-                    tca_imp
-                    thr_imp
+                    "🛡️ [GATE] FlowToxicity VETO (%s): flags=%s ofi_z=%.2f thr=%.2f vpin_cdf=%.3f thr=%.3f tca_is_p95=%.2f thr=%.2f tca_imp_p95=%.2f thr=%.2f",
+                    symbol,
+                    indicators.get("flow_toxic_flags", ""),
+                    ofi_z,
+                    thr_z,
+                    vpin_cdf,
+                    thr_vpin,
+                    tca_is,
+                    thr_is,
+                    tca_imp,
+                    thr_imp,
                 )
                 strong_gate_veto_total.labels(symbol=symbol, scenario="flow_toxic", reason="VETO_FLOW_TOXIC", mode="ENFORCE").inc()
                 passed = False
@@ -959,8 +959,8 @@ class SignalPipeline:
             if hit_any and manip_profile in {"hard", "veto"}:
                 veto_reason = "VETO_QUOTE_STUFFING" if hit_qs else ("VETO_LAYERING" if hit_lay else "VETO_OTR_SPIKE")
                 logger.info(
-                    "🛡️ [GATE] Manipulation VETO (%s): %s | qs_score=%.3f lay_score=%.3f otr_z=%.2f flags=%s"
-                    symbol, veto_reason, qs_score, lay_score, otr_z_val, manip_flags_val
+                    "🛡️ [GATE] Manipulation VETO (%s): %s | qs_score=%.3f lay_score=%.3f otr_z=%.2f flags=%s",
+                    symbol, veto_reason, qs_score, lay_score, otr_z_val, manip_flags_val,
                 )
                 try:
                     manip_gate_events_total.labels(symbol=symbol, mode="veto", reason=veto_reason).inc()
@@ -1059,10 +1059,10 @@ class SignalPipeline:
              strong_gate_sampler = LogSamplerFactory.get_sampler("STRONG_GATE", 10000)
              if strong_gate_sampler.should_log(f"strong_gate_{symbol}"):
                  logger.info(
-                     "🛡️ [GATE] Strong Gate: scn=%s have=%s need=%s"
-                     indicators.get("strong_gate_scn")
-                     indicators.get("strong_gate_have")
-                     indicators.get("strong_gate_need")
+                     "🛡️ [GATE] Strong Gate: scn=%s have=%s need=%s",
+                     indicators.get("strong_gate_scn"),
+                     indicators.get("strong_gate_have"),
+                     indicators.get("strong_gate_need"),
                  )
 
 
@@ -1093,14 +1093,14 @@ class SignalPipeline:
         gate_decision = None
         if indicators.get("strong_gate_ok") is not None:
              gate_decision = StrongGateDecision(
-                 ok=bool(int(indicators.get("strong_gate_ok", 0)))
-                 scenario=str(indicators.get("strong_gate_scn", "na"))
-                 need=int(indicators.get("strong_gate_need", 0))
-                 have=int(indicators.get("strong_gate_have", 0))
-                 a=int(indicators.get("strong_gate_legs", {}).get("A", 0) if isinstance(indicators.get("strong_gate_legs"), dict) else 0)
-                 b=int(indicators.get("strong_gate_legs", {}).get("B", 0) if isinstance(indicators.get("strong_gate_legs"), dict) else 0)
-                 c=int(indicators.get("strong_gate_legs", {}).get("C", 0) if isinstance(indicators.get("strong_gate_legs"), dict) else 0)
-                 reason="gate_decision"
+                 ok=bool(int(indicators.get("strong_gate_ok", 0))),
+                 scenario=str(indicators.get("strong_gate_scn", "na")),
+                 need=int(indicators.get("strong_gate_need", 0)),
+                 have=int(indicators.get("strong_gate_have", 0)),
+                 a=int(indicators.get("strong_gate_legs", {}).get("A", 0) if isinstance(indicators.get("strong_gate_legs"), dict) else 0),
+                 b=int(indicators.get("strong_gate_legs", {}).get("B", 0) if isinstance(indicators.get("strong_gate_legs"), dict) else 0),
+                 c=int(indicators.get("strong_gate_legs", {}).get("C", 0) if isinstance(indicators.get("strong_gate_legs"), dict) else 0),
+                 reason="gate_decision",
                  legs=indicators.get("strong_gate_legs") if isinstance(indicators.get("strong_gate_legs"), dict) else None
              )
 
@@ -1109,14 +1109,14 @@ class SignalPipeline:
 
         # 3. Create Typed Payload
         sig_payload = SignalPayload(
-            confirmations={c.split("=")[0]: c.split("=")[1] for c in confirmations if "=" in c}
-            indicators=indicators
-            gate=gate_decision
-            confidence_parts=conf_parts
-            rejection_reason=reason
-            ts_ms=ts_ms
-            symbol=symbol
-            signal_id=str(signal.get("signal_id", ""))
+            confirmations={c.split("=")[0]: c.split("=")[1] for c in confirmations if "=" in c},
+            indicators=indicators,
+            gate=gate_decision,
+            confidence_parts=conf_parts,
+            rejection_reason=reason,
+            ts_ms=ts_ms,
+            symbol=symbol,
+            signal_id=str(signal.get("signal_id", "")),
         )
         
         # Export back to dict for legacy compatibility
@@ -1125,39 +1125,39 @@ class SignalPipeline:
 
         # Build final stream payload (legacy structure + new evidence)
         payload = {
-            "signal_id": str(signal.get("signal_id", ""))
-            "symbol": runtime.symbol
-            "direction": direction
-            "entry": float(entry)
-            "sl": float(sl)
-            "tp_levels": [float(x) for x in tp_levels]
-            "lot": float(lot)
-            "atr": float(atr)
+            "signal_id": str(signal.get("signal_id", "")),
+            "symbol": runtime.symbol,
+            "direction": direction,
+            "entry": float(entry),
+            "sl": float(sl),
+            "tp_levels": [float(x) for x in tp_levels],
+            "lot": float(lot),
+            "atr": float(atr),
             "confidence": float(signal.get("confidence", 0.0) or 0.0), # Will be re-calculated or passed
-            "reason": str(signal.get("reason", "unknown"))
-            "ts_ms": int(ts_ms)
-            "generated_at": int(ts_ms)
-            "written_at": get_ny_time_millis()
+            "reason": str(signal.get("reason", "unknown")),
+            "ts_ms": int(ts_ms),
+            "generated_at": int(ts_ms),
+            "written_at": get_ny_time_millis(),
             "evidence": evidence_dict, # <--- NEW FIELD
             
             # --- Fields kept for backward compatibility with raw consumers ---
-            "delta": delta
-            "delta_z": delta_z
-            "tick_qty": indicators.get("tick_qty")
-            "confirmations": confirmations
-            "indicators": indicators
+            "delta": delta,
+            "delta_z": delta_z,
+            "tick_qty": indicators.get("tick_qty"),
+            "confirmations": confirmations,
+            "indicators": indicators,
         }
         
         
         # Optional: publish compact confidence score event to high-frequency stream
         await self._maybe_publish_confidence_scores(
-            symbol=str(symbol)
-            sid=str(payload.get("signal_id", ""))
-            ts_event_ms=int(payload.get("ts_ms", 0))
-            signal=signal
-            confirmations=confirmations
-            indicators=indicators
-            evidence_dict=evidence_dict
+            symbol=str(symbol),
+            sid=str(payload.get("signal_id", "")),
+            ts_event_ms=int(payload.get("ts_ms", 0)),
+            signal=signal,
+            confirmations=confirmations,
+            indicators=indicators,
+            evidence_dict=evidence_dict,
         )
         # ------------------------------------------------------------------
         # ✅ FIX "BROKEN CHAIN": expose ATR-floor tier selection into indicators
@@ -1209,10 +1209,10 @@ class SignalPipeline:
             tp1_share_actual = float(tp_ratios[0] if tp_ratios else 0.5)
             rocket_mult = float(self._get_rocket_multiplier(runtime.symbol) or 0.0)
             fees_th, fees_meta = fees_aware_min_atr_bps(
-                fees_bps_rt=float(self.FEES_BPS_RT)
-                tp_bps_buffer=float(self.TP_BPS_BUFFER)
-                tp1_share=tp1_share_actual
-                rocket_mult=rocket_mult
+                fees_bps_rt=float(self.FEES_BPS_RT),
+                tp_bps_buffer=float(self.TP_BPS_BUFFER),
+                tp1_share=tp1_share_actual,
+                rocket_mult=rocket_mult,
             )
             indicators["atr_fees_th_bps"] = float(fees_th)
             indicators["atr_fees_tp1_share"] = float(tp1_share_actual)
@@ -1265,10 +1265,10 @@ class SignalPipeline:
                 tp1_share_actual = float(tp_ratios[0] if tp_ratios else 0.5)
                 rocket_mult = float(self._get_rocket_multiplier(runtime.symbol) or 0.0)
                 fees_th, _ = fees_aware_min_atr_bps(
-                    fees_bps_rt=float(self.FEES_BPS_RT)
-                    tp_bps_buffer=float(self.TP_BPS_BUFFER)
-                    tp1_share=tp1_share_actual
-                    rocket_mult=rocket_mult
+                    fees_bps_rt=float(self.FEES_BPS_RT),
+                    tp_bps_buffer=float(self.TP_BPS_BUFFER),
+                    tp1_share=tp1_share_actual,
+                    rocket_mult=rocket_mult,
                 )
                 
                 unified_th = float(max(atr_floor_th, fees_th))
@@ -1295,7 +1295,7 @@ class SignalPipeline:
                     msg_mode = "[AUDIT-ONLY]" if gate_mode == "SHADOW" else "[GATE-ENFORCE]"
                     
                     if gate_mode in {"SHADOW", "ENFORCE"}:
-                         logger.info("ℹ️ %s ATR unified VETO triggered (%s): atr_bps=%.2f < th=%.2f (relaxed_th=%.2f) | %s"
+                         logger.info("ℹ️ %s ATR unified VETO triggered (%s): atr_bps=%.2f < th=%.2f (relaxed_th=%.2f) | %s",
                                       msg_mode, dominant, atr_bps_exec, unified_th, effective_th, symbol)
 
                     indicators["gate_shadow_veto"] = True
@@ -1344,7 +1344,7 @@ class SignalPipeline:
             
             if diff > hard_tol:
                  logger.warning(
-                     "⚠️ TP1 mismatch: calc=%.4f vs levels=%.4f (diff=%.6f > %.6f) symbol=%s"
+                     "⚠️ TP1 mismatch: calc=%.4f vs levels=%.4f (diff=%.6f > %.6f) symbol=%s",
                      expected_tp1, actual_tp1, diff, hard_tol, symbol
                  )
                  # Force correct TP1 if deviation is significant
@@ -1375,7 +1375,7 @@ class SignalPipeline:
             
             if confidence < min_conf:
                 logger.info(
-                    "🚫 [GATE] Confidence VETO (%s): %.2f < %.2f (Signal DROPPED)"
+                    "🚫 [GATE] Confidence VETO (%s): %.2f < %.2f (Signal DROPPED)",
                     symbol, confidence, min_conf
                 )
                 from services.orderflow.metrics import strong_gate_veto_total
@@ -1389,40 +1389,40 @@ class SignalPipeline:
         enriched_signal = dict(signal)
         enriched_signal.update(
             {
-                "strategy": enriched_signal.get("strategy", "cryptoorderflow")
-                "source": "CryptoOrderFlow"
-                "tf": enriched_signal.get("tf", "tick")
-                "symbol": symbol
+                "strategy": enriched_signal.get("strategy", "cryptoorderflow"),
+                "source": "CryptoOrderFlow",
+                "tf": enriched_signal.get("tf", "tick"),
+                "symbol": symbol,
                 "direction": direction,         # legacy
                 "side": direction,              # normalized mirror for contract
-                "entry": entry
-                "sl": sl
-                "tp_levels": tp_levels
-                "lot": lot
-                "atr": atr
+                "entry": entry,
+                "sl": sl,
+                "tp_levels": tp_levels,
+                "lot": lot,
+                "atr": atr,
                 "timestamp": ts_ms,             # legacy mirror
                 "ts": ts_ms,                    # common downstream
                 "ts_ms": ts_ms,                 # contract
-                "trail_after_tp1": self._normalize_trailing_flag(enriched_signal.get("trail_after_tp1"), symbol)
-                "trail_profile": trail_profile
+                "trail_after_tp1": self._normalize_trailing_flag(enriched_signal.get("trail_after_tp1"), symbol),
+                "trail_profile": trail_profile,
                 # Full configuration snapshot for reproducibility
                 "config_snapshot": {
-                    "config": cfg
-                    "calibrated_specs": getattr(runtime, "calibrated_specs", {})
-                    "indicators": indicators
+                    "config": cfg,
+                    "calibrated_specs": getattr(runtime, "calibrated_specs", {}),
+                    "indicators": indicators,
                     "runtime_meta": {
-                        "spec_update_ts_ms": getattr(runtime, "spec_update_ts_ms", 0)
-                        "gate_meta": enriched_signal.get("gate_meta", {})
+                        "spec_update_ts_ms": getattr(runtime, "spec_update_ts_ms", 0),
+                        "gate_meta": enriched_signal.get("gate_meta", {}),
                     }
-                }
+                },
                 # Evidence package for downstream analysis
                 "evidence": {
-                    "obi_stable_secs": float(indicators.get("obi_stable_secs", 0.0) or 0.0)
-                    "obi_stability_score": float(indicators.get("obi_stability_score", 0.0) or 0.0)
-                    "strong_gate_legs": int(indicators.get("strong_gate_legs", 0) or 0)
-                    "strong_gate_scn": str(indicators.get("strong_gate_scn", "") or "")
-                    "weak_recent_cnt": int(indicators.get("weak_recent_cnt", 0) or 0)
-                    "weak_recent_frac": float(indicators.get("weak_recent_frac", 0.0) or 0.0)
+                    "obi_stable_secs": float(indicators.get("obi_stable_secs", 0.0) or 0.0),
+                    "obi_stability_score": float(indicators.get("obi_stability_score", 0.0) or 0.0),
+                    "strong_gate_legs": int(indicators.get("strong_gate_legs", 0) or 0),
+                    "strong_gate_scn": str(indicators.get("strong_gate_scn", "") or ""),
+                    "weak_recent_cnt": int(indicators.get("weak_recent_cnt", 0) or 0),
+                    "weak_recent_frac": float(indicators.get("weak_recent_frac", 0.0) or 0.0),
                 }
             }
         )
@@ -1492,20 +1492,20 @@ class SignalPipeline:
         try:
             kind = str(indicators.get("kind") or signal.get("kind") or "")
             pp_ctx = SimpleNamespace(
-                ts_event_ms=int(enriched_signal.get("ts_ms") or 0)
-                ts=int(enriched_signal.get("ts_ms") or 0)
-                data_quality_flags=enriched_signal.get("data_quality_flags") or {}
-                atr_ts_ms=int(enriched_signal.get("atr_ts_ms") or 0)
-                touch_is_stale=bool(enriched_signal.get("touch_is_stale") or False)
-                l2_is_stale=bool(enriched_signal.get("l2_is_stale") or False)
-                spread_bps=float(enriched_signal.get("spread_bps") or indicators.get("spread_bps") or 0.0)
-                depth_bid_20=float(indicators.get("depth_bid_20") or 0.0)
-                depth_ask_20=float(indicators.get("depth_ask_20") or 0.0)
-                regime=str(indicators.get("liq_regime") or indicators.get("regime") or signal.get("liq_regime") or "")
+                ts_event_ms=int(enriched_signal.get("ts_ms") or 0),
+                ts=int(enriched_signal.get("ts_ms") or 0),
+                data_quality_flags=enriched_signal.get("data_quality_flags") or {},
+                atr_ts_ms=int(enriched_signal.get("atr_ts_ms") or 0),
+                touch_is_stale=bool(enriched_signal.get("touch_is_stale") or False),
+                l2_is_stale=bool(enriched_signal.get("l2_is_stale") or False),
+                spread_bps=float(enriched_signal.get("spread_bps") or indicators.get("spread_bps") or 0.0),
+                depth_bid_20=float(indicators.get("depth_bid_20") or 0.0),
+                depth_ask_20=float(indicators.get("depth_ask_20") or 0.0),
+                regime=str(indicators.get("liq_regime") or indicators.get("regime") or signal.get("liq_regime") or ""),
                 of=SimpleNamespace(
-                    depth_bid_5=float(indicators.get("depth_bid_5") or 0.0)
-                    depth_ask_5=float(indicators.get("depth_ask_5") or 0.0)
-                    burst_flip_ratio=float(indicators.get("burst_flip_ratio") or indicators.get("burst_flip_ratio_60s") or 0.0)
+                    depth_bid_5=float(indicators.get("depth_bid_5") or 0.0),
+                    depth_ask_5=float(indicators.get("depth_ask_5") or 0.0),
+                    burst_flip_ratio=float(indicators.get("burst_flip_ratio") or indicators.get("burst_flip_ratio_60s") or 0.0),
                 )
             )
 
@@ -1531,9 +1531,9 @@ class SignalPipeline:
             try:
                 redis_client = getattr(self.publisher, "r", None) if self.publisher is not None else None
                 freeze_state = await aread_exec_health_auto_freeze(
-                    redis=redis_client
-                    scope="pipeline"
-                    now_ms=int(enriched_signal.get("ts_ms") or 0)
+                    redis=redis_client,
+                    scope="pipeline",
+                    now_ms=int(enriched_signal.get("ts_ms") or 0),
                 )
                 indicators["exec_health_auto_freeze_active"] = int(1 if freeze_state.active else 0)
                 indicators["exec_health_auto_freeze_until_ts_ms"] = int(freeze_state.freeze_until_ts_ms or 0)
@@ -1546,11 +1546,11 @@ class SignalPipeline:
                     # rejected stream + audit stay active for triage.
                     fr_dec = build_exec_health_auto_freeze_decision(scope="pipeline", state=freeze_state)
                     veto_dec = SimpleNamespace(
-                        apply=True
-                        veto=True
-                        gate=str(fr_dec.gate)
-                        reason_code=str(fr_dec.reason_code)
-                        notes=str(fr_dec.notes)
+                        apply=True,
+                        veto=True,
+                        gate=str(fr_dec.gate),
+                        reason_code=str(fr_dec.reason_code),
+                        notes=str(fr_dec.notes),
                     )
             except Exception:
                 pass
@@ -1571,13 +1571,13 @@ class SignalPipeline:
                 if redis_client is not None:
                     try:
                         exec_roll = await aread_exec_health_rollups(
-                            redis=redis_client
-                            sym=str(symbol)
-                            venue=exec_venue
-                            session=exec_session
-                            tf=exec_tf
-                            kind=exec_kind
-                            side=exec_side
+                            redis=redis_client,
+                            sym=str(symbol),
+                            venue=exec_venue,
+                            session=exec_session,
+                            tf=exec_tf,
+                            kind=exec_kind,
+                            side=exec_side,
                         )
                     except Exception:
                         record_exec_health_reader_error(scope="pipeline", where="read_rollups")
@@ -1585,25 +1585,25 @@ class SignalPipeline:
                         raise
                 exec_dec = decide_exec_health_from_env(profile=exec_profile, rollups=exec_roll, scope="pipeline") if exec_roll else None
                 record_exec_health_observability(
-                    symbol=str(symbol)
-                    scope="pipeline"
-                    profile=exec_profile
-                    rollups=exec_roll
-                    decision=exec_dec
-                    now_ms=int(enriched_signal.get("ts_ms") or 0)
+                    symbol=str(symbol),
+                    scope="pipeline",
+                    profile=exec_profile,
+                    rollups=exec_roll,
+                    decision=exec_dec,
+                    now_ms=int(enriched_signal.get("ts_ms") or 0),
                 )
                 # P4 SLO contract: record decision outcome (fail-open)
                 try:
                     record_exec_health_contract_state(
-                        scope="pipeline"
-                        profile=str(exec_profile)
-                        symbol=str(symbol)
-                        decision=exec_dec
-                        now_ms=int(enriched_signal.get("ts_ms") or 0)
+                        scope="pipeline",
+                        profile=str(exec_profile),
+                        symbol=str(symbol),
+                        decision=exec_dec,
+                        now_ms=int(enriched_signal.get("ts_ms") or 0),
                     )
                     await _flush_contract_pipeline(
-                        redis_client=redis_client
-                        scope="pipeline"
+                        redis_client=redis_client,
+                        scope="pipeline",
                     )
                 except Exception:
                     pass  # never block signal publishing on contract write failure
@@ -1633,11 +1633,11 @@ class SignalPipeline:
                     # hard/veto: create veto decision object
                     if exec_dec.veto:
                         veto_dec = SimpleNamespace(
-                            apply=True
-                            veto=True
-                            gate="ExecutionHealthGate"
-                            reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH")
-                            notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}"
+                            apply=True,
+                            veto=True,
+                            gate="ExecutionHealthGate",
+                            reason_code=str(exec_dec.reason_code or "VETO_EXEC_HEALTH"),
+                            notes=f"flags={','.join(exec_dec.flags)} is_p95={exec_roll.get('is_p95_bps', 0.0)} perm_impact_p95={exec_roll.get('perm_impact_p95_bps', 0.0)} realized_spread_p50={exec_roll.get('realized_spread_p50_bps', 0.0)}",
                         )
             except Exception:
                 pass
@@ -1662,15 +1662,15 @@ class SignalPipeline:
             if self.publisher and self.publisher.r:
                 try:
                     await self.publisher.r.xadd(
-                        self._rejected_signal_stream
+                        self._rejected_signal_stream,
                         fields={
-                            "symbol": str(symbol)
-                            "gate": str(veto_dec.gate)
-                            "reason": str(veto_dec.reason_code)
-                            "ts_ms": str(int(enriched_signal.get("ts_ms") or 0))
-                            "payload": json.dumps(enriched_signal, ensure_ascii=False)
-                        }
-                        maxlen=200000
+                            "symbol": str(symbol),
+                            "gate": str(veto_dec.gate),
+                            "reason": str(veto_dec.reason_code),
+                            "ts_ms": str(int(enriched_signal.get("ts_ms") or 0)),
+                            "payload": json.dumps(enriched_signal, ensure_ascii=False),
+                        },
+                        maxlen=200000,
                     )
                 except Exception:
                     pass
@@ -1679,51 +1679,51 @@ class SignalPipeline:
             try:
                 signal_stream = self.cryptoorderflow_signal_stream_template.format(symbol=symbol)
                 audit_payload = {
-                    "sid": enriched_signal.get("sid") or enriched_signal.get("signal_id") or ""
-                    "signal_id": enriched_signal.get("signal_id") or ""
-                    "symbol": symbol
-                    "side": enriched_signal.get("side") or direction
-                    "entry": entry
-                    "sl": sl
-                    "tp_levels": tp_levels
-                    "lot": lot
-                    "source": "CryptoOrderFlow"
-                    "reason": signal.get("reason") or "delta_spike"
-                    "confidence": confidence
-                    "confidence01": confidence
-                    "confidence_pct": confidence * 100.0
-                    "atr": atr
-                    "ts": ts_ms
-                    "ts_ms": ts_ms
-                    "pre_publish_veto": True
-                    "pre_publish_gate": str(veto_dec.gate)
-                    "pre_publish_reason": str(veto_dec.reason_code)
-                    "indicators": indicators
-                    "strategy": "cryptoorderflow"
-                    "tf": "tick"
+                    "sid": enriched_signal.get("sid") or enriched_signal.get("signal_id") or "",
+                    "signal_id": enriched_signal.get("signal_id") or "",
+                    "symbol": symbol,
+                    "side": enriched_signal.get("side") or direction,
+                    "entry": entry,
+                    "sl": sl,
+                    "tp_levels": tp_levels,
+                    "lot": lot,
+                    "source": "CryptoOrderFlow",
+                    "reason": signal.get("reason") or "delta_spike",
+                    "confidence": confidence,
+                    "confidence01": confidence,
+                    "confidence_pct": confidence * 100.0,
+                    "atr": atr,
+                    "ts": ts_ms,
+                    "ts_ms": ts_ms,
+                    "pre_publish_veto": True,
+                    "pre_publish_gate": str(veto_dec.gate),
+                    "pre_publish_reason": str(veto_dec.reason_code),
+                    "indicators": indicators,
+                    "strategy": "cryptoorderflow",
+                    "tf": "tick",
                 }
                 preprocess_signal_for_publish(audit_payload, symbol=str(symbol), source="CryptoOrderFlow", logger=logger)
                 await self.publisher.xadd_json(
-                    sink=StreamSink(name=str(signal_stream), field="data", maxlen=1000)
-                    payload=audit_payload
-                    symbol=str(symbol)
+                    sink=StreamSink(name=str(signal_stream), field="data", maxlen=1000),
+                    payload=audit_payload,
+                    symbol=str(symbol),
                 )
             except Exception:
                 pass
 
             try:
                 await self._push_virtual_to_binance_queue(
-                    sid=enriched_signal.get("sid") or enriched_signal.get("signal_id") or signal.get("signal_id") or ""
-                    symbol=symbol
-                    direction=direction
-                    entry=entry
-                    sl=sl
-                    tp_levels=tp_levels
-                    lot=lot
-                    ts_ms=ts_ms
-                    confidence=confidence
-                    enriched_signal=enriched_signal
-                    indicators=indicators
+                    sid=enriched_signal.get("sid") or enriched_signal.get("signal_id") or signal.get("signal_id") or "",
+                    symbol=symbol,
+                    direction=direction,
+                    entry=entry,
+                    sl=sl,
+                    tp_levels=tp_levels,
+                    lot=lot,
+                    ts_ms=ts_ms,
+                    confidence=confidence,
+                    enriched_signal=enriched_signal,
+                    indicators=indicators,
                     is_rejected_signal=True
                 )
             except Exception as e:
@@ -1751,11 +1751,11 @@ class SignalPipeline:
         effective_risk_pct = base_risk_pct * risk_factor
 
         lot_risk, position_size_usd, deposit, leverage = calculate_position_size(
-            symbol=symbol
-            entry_price=entry
-            sl_price=sl
-            side=str(direction or "").upper()
-            risk_percent=effective_risk_pct
+            symbol=symbol,
+            entry_price=entry,
+            sl_price=sl,
+            side=str(direction or "").upper(),
+            risk_percent=effective_risk_pct,
         )
         lot = lot_risk
         if lot <= 0:
@@ -1800,28 +1800,28 @@ class SignalPipeline:
 
 
         crypto_signal = CryptoSignal(
-            sid=signal["signal_id"]
-            symbol=symbol
-            side=str(direction or "").upper()
-            entry=entry
-            sl=sl
-            tp_levels=tp_levels
-            lot=lot
-            position_size_usd=position_size_usd
-            deposit=deposit
-            leverage=leverage
-            atr=atr
-            confidence=confidence
-            ts=int(signal.get("tick_ts") or signal.get("generated_at"))
-            source="CryptoOrderFlow"
-            reason_mix=mix_dict
-            confirmations=confirmations
-            indicators=indicators
-            trail_profile=trail_profile
-            trail_after_tp1=self._normalize_trailing_flag(enriched_signal.get("trail_after_tp1"), symbol)
-            config_params=signal.get("config_params") or {"strong_gate_ok": signal.get("indicators", {}).get("strong_gate_ok", 0)}
-            validation_status=enriched_signal.get("validation_status")
-            validation_reason=enriched_signal.get("validation_reason")
+            sid=signal["signal_id"],
+            symbol=symbol,
+            side=str(direction or "").upper(),
+            entry=entry,
+            sl=sl,
+            tp_levels=tp_levels,
+            lot=lot,
+            position_size_usd=position_size_usd,
+            deposit=deposit,
+            leverage=leverage,
+            atr=atr,
+            confidence=confidence,
+            ts=int(signal.get("tick_ts") or signal.get("generated_at")),
+            source="CryptoOrderFlow",
+            reason_mix=mix_dict,
+            confirmations=confirmations,
+            indicators=indicators,
+            trail_profile=trail_profile,
+            trail_after_tp1=self._normalize_trailing_flag(enriched_signal.get("trail_after_tp1"), symbol),
+            config_params=signal.get("config_params") or {"strong_gate_ok": signal.get("indicators", {}).get("strong_gate_ok", 0)},
+            validation_status=enriched_signal.get("validation_status"),
+            validation_reason=enriched_signal.get("validation_reason"),
         )
 
         # Определяем, является ли сигнал слабым (Не проходит Gate и уверенность < 70%)
@@ -1836,37 +1836,37 @@ class SignalPipeline:
         elif is_validation_failed:
             telegram_payload = None
             logger.info(
-                "🚫 [TELEGRAM] (%s) Signal validation FAILED (%s). Skipping Telegram notify."
-                symbol
-                enriched_signal.get("validation_reason", "unknown")
+                "🚫 [TELEGRAM] (%s) Signal validation FAILED (%s). Skipping Telegram notify.",
+                symbol,
+                enriched_signal.get("validation_reason", "unknown"),
             )
         else:
             telegram_payload = {
-                "text": CryptoSignalFormatter.format_telegram_message(crypto_signal)
-                "symbol": symbol
-                "direction": crypto_signal.side
-                "entry": f"{entry:.2f}"
-                "stop": f"{sl:.2f}"
-                "tp": ",".join(f"{tp:.2f}" for tp in tp_levels)
-                "source": crypto_signal.source
-                "reason": signal.get("reason") or "delta_spike"
-                "timestamp": str(crypto_signal.ts)
+                "text": CryptoSignalFormatter.format_telegram_message(crypto_signal),
+                "symbol": symbol,
+                "direction": crypto_signal.side,
+                "entry": f"{entry:.2f}",
+                "stop": f"{sl:.2f}",
+                "tp": ",".join(f"{tp:.2f}" for tp in tp_levels),
+                "source": crypto_signal.source,
+                "reason": signal.get("reason") or "delta_spike",
+                "timestamp": str(crypto_signal.ts),
             }
 
         # P4 latency contract: ensure canonical timestamp fields are present, then stamp emit time.
         # This is the true publish boundary – done once, immediately before the outbox write.
         try:
             ensure_epoch_ms_fields(
-                enriched_signal
-                default_event_ms=int(enriched_signal.get("ts_ms") or ts_ms)
-                default_feature_ms=int(enriched_signal.get("ts_feature_ms") or enriched_signal.get("ts_ms") or ts_ms)
+                enriched_signal,
+                default_event_ms=int(enriched_signal.get("ts_ms") or ts_ms),
+                default_feature_ms=int(enriched_signal.get("ts_feature_ms") or enriched_signal.get("ts_ms") or ts_ms),
             )
             redis_client_lc = getattr(self.publisher, "r", None) if self.publisher is not None else None
             await stamp_emit_and_observe_async(
-                enriched_signal
-                redis_client=redis_client_lc
-                service="python_worker"
-                symbol=str(symbol)
+                enriched_signal,
+                redis_client=redis_client_lc,
+                service="python_worker",
+                symbol=str(symbol),
             )
         except Exception as _lc_err:
             logger.debug("(%s) latency contract emit stamp failed: %s", symbol, _lc_err)
@@ -1875,42 +1875,42 @@ class SignalPipeline:
         try:
             signal_stream = self.cryptoorderflow_signal_stream_template.format(symbol=symbol)
             audit_payload = {
-                "sid": crypto_signal.sid
+                "sid": crypto_signal.sid,
                 "signal_id": crypto_signal.sid,   # canonical mirror
-                "symbol": symbol
-                "side": crypto_signal.side
-                "entry": entry
-                "sl": sl
-                "tp_levels": tp_levels
-                "lot": lot
-                "source": "CryptoOrderFlow"
-                "reason": signal.get("reason") or "delta_spike"
-                "confidence": confidence
-                "confidence01": confidence
-                "confidence_pct": confidence * 100.0
-                "atr": atr
-                "ts": ts_ms
-                "ts_ms": ts_ms
+                "symbol": symbol,
+                "side": crypto_signal.side,
+                "entry": entry,
+                "sl": sl,
+                "tp_levels": tp_levels,
+                "lot": lot,
+                "source": "CryptoOrderFlow",
+                "reason": signal.get("reason") or "delta_spike",
+                "confidence": confidence,
+                "confidence01": confidence,
+                "confidence_pct": confidence * 100.0,
+                "atr": atr,
+                "ts": ts_ms,
+                "ts_ms": ts_ms,
                 # P4 latency contract canonical timestamp copies
-                FIELD_TS_EVENT_MS: int(enriched_signal.get(FIELD_TS_EVENT_MS) or ts_ms)
-                FIELD_TS_FEATURE_MS: int(enriched_signal.get(FIELD_TS_FEATURE_MS) or ts_ms)
-                FIELD_TS_EMIT_MS: int(enriched_signal.get(FIELD_TS_EMIT_MS) or ts_ms)
-                "trail_after_tp1": self._normalize_trailing_flag(enriched_signal.get("trail_after_tp1"), symbol)
-                "trail_profile": enriched_signal.get("trail_profile", "rocket_v1")
-                "indicators": indicators
-                "strategy": "cryptoorderflow"
-                "tf": "tick"
+                FIELD_TS_EVENT_MS: int(enriched_signal.get(FIELD_TS_EVENT_MS) or ts_ms),
+                FIELD_TS_FEATURE_MS: int(enriched_signal.get(FIELD_TS_FEATURE_MS) or ts_ms),
+                FIELD_TS_EMIT_MS: int(enriched_signal.get(FIELD_TS_EMIT_MS) or ts_ms),
+                "trail_after_tp1": self._normalize_trailing_flag(enriched_signal.get("trail_after_tp1"), symbol),
+                "trail_profile": enriched_signal.get("trail_profile", "rocket_v1"),
+                "indicators": indicators,
+                "strategy": "cryptoorderflow",
+                "tf": "tick",
             }
 
             env = build_outbox_envelope(
-                sid=crypto_signal.sid
-                symbol=symbol
-                kind="crypto_orderflow"
-                notify_payload=telegram_payload
-                audit_payload={"payload": json.dumps(enriched_signal, ensure_ascii=False)}
-                signal_stream_payload={"data": json.dumps(audit_payload, ensure_ascii=False)}
-                audit_stream=self.raw_signal_stream
-                signal_stream=signal_stream
+                sid=crypto_signal.sid,
+                symbol=symbol,
+                kind="crypto_orderflow",
+                notify_payload=telegram_payload,
+                audit_payload={"payload": json.dumps(enriched_signal, ensure_ascii=False)},
+                signal_stream_payload={"data": json.dumps(audit_payload, ensure_ascii=False)},
+                audit_stream=self.raw_signal_stream,
+                signal_stream=signal_stream,
             )
             
             logger.info(f"DEBUG_OUTBOX_ENV: keys={list(env.keys())} targets={list(env.get('targets', {}).keys()) if 'targets' in env else 'MISSING'}")
@@ -1955,14 +1955,14 @@ class SignalPipeline:
             # env_json уже готов (как раньше). Пишем его как payload_obj.
             payload_obj = env  # dict envelope
             await atomic_xadd_async(
-                self.publisher.r
-                stream_key=str(outbox_stream)
-                signal_id=str(sid)
-                payload_obj=payload_obj
-                kind=str(env.get("kind") or "")
-                symbol=str(env.get("symbol") or "")
-                ts=str(env.get("ts_ms") or "")
-                meta_obj=meta_obj
+                self.publisher.r,
+                stream_key=str(outbox_stream),
+                signal_id=str(sid),
+                payload_obj=payload_obj,
+                kind=str(env.get("kind") or ""),
+                symbol=str(env.get("symbol") or ""),
+                ts=str(env.get("ts_ms") or ""),
+                meta_obj=meta_obj,
             )
 
             # NOTE: Direct Telegram notification REMOVED — dispatcher handles notify delivery
@@ -1979,9 +1979,9 @@ class SignalPipeline:
             pub = self.publisher
             try:
                 await pub.xadd_json(
-                    sink=StreamSink(name=str(self.raw_signal_stream), field="payload", maxlen=100000)
-                    payload=enriched_signal
-                    symbol=str(symbol)
+                    sink=StreamSink(name=str(self.raw_signal_stream), field="payload", maxlen=100000),
+                    payload=enriched_signal,
+                    symbol=str(symbol),
                 )
                 sampled_info(logger, "SIGNAL_RAW_STREAM", "📤 [SIGNAL] (%s) Also sent to %s for ExecutionGateService", symbol, self.raw_signal_stream)
             except Exception as e:
@@ -1991,9 +1991,9 @@ class SignalPipeline:
             if self.publish_of_inputs and self.of_inputs_stream and self.of_inputs_publish_enabled:
                 try:
                     await pub.xadd_json(
-                        sink=StreamSink(name=str(self.of_inputs_stream), field="payload", maxlen=self.of_inputs_stream_maxlen)
-                        payload=enriched_signal
-                        symbol=str(symbol)
+                        sink=StreamSink(name=str(self.of_inputs_stream), field="payload", maxlen=self.of_inputs_stream_maxlen),
+                        payload=enriched_signal,
+                        symbol=str(symbol),
                     )
                 except Exception as e:
                     logger.warning("⚠️ [SIGNAL] (%s) Failed to send to of_inputs_stream: %s", symbol, e)
@@ -2001,10 +2001,10 @@ class SignalPipeline:
             # Stop here if we rely purely on outbox
             sampled_info(logger, "SIGNAL_PUBLISHED", "🚀 [SIGNAL] (%s) %s P=%s Published via Atomic Outbox: ID=%s", symbol, direction, entry, sid)
             await self._push_virtual_to_binance_queue(
-                sid=sid, symbol=symbol, direction=direction
-                entry=entry, sl=sl, tp_levels=tp_levels, lot=lot
-                ts_ms=ts_ms, confidence=confidence
-                enriched_signal=enriched_signal, indicators=indicators
+                sid=sid, symbol=symbol, direction=direction,
+                entry=entry, sl=sl, tp_levels=tp_levels, lot=lot,
+                ts_ms=ts_ms, confidence=confidence,
+                enriched_signal=enriched_signal, indicators=indicators,
             )
             return
 
@@ -2026,9 +2026,9 @@ class SignalPipeline:
                 # We'll use self.publisher.r (Redis client) directly.
                  if counter_value % notify_signal_every_n == 0:
                      await self.publisher.r.xadd(
-                         self.notify_stream
-                         fields=telegram_payload
-                         maxlen=20000
+                         self.notify_stream,
+                         fields=telegram_payload,
+                         maxlen=20000,
                      )
              except Exception as exc:
                  logger.warning("⚠️ (%s) Не удалось опубликовать в %s: %s", symbol, self.notify_stream, exc)
@@ -2040,9 +2040,9 @@ class SignalPipeline:
              # Note: logic in strategy created a new AsyncSignalPublisher, but we have one injected.
              # We should use the injected one.
              await pub.xadd_json(
-                 sink=StreamSink(name=str(self.raw_signal_stream), field="payload", maxlen=100000)
-                 payload=enriched_signal
-                 symbol=str(symbol)
+                 sink=StreamSink(name=str(self.raw_signal_stream), field="payload", maxlen=100000),
+                 payload=enriched_signal,
+                 symbol=str(symbol),
              )
         except Exception:
              pass
@@ -2051,9 +2051,9 @@ class SignalPipeline:
         if self.publish_of_inputs and self.of_inputs_stream and self.of_inputs_publish_enabled:
             try:
                 await pub.xadd_json(
-                    sink=StreamSink(name=str(self.of_inputs_stream), field="payload", maxlen=self.of_inputs_stream_maxlen)
-                    payload=enriched_signal
-                    symbol=str(symbol)
+                    sink=StreamSink(name=str(self.of_inputs_stream), field="payload", maxlen=self.of_inputs_stream_maxlen),
+                    payload=enriched_signal,
+                    symbol=str(symbol),
                 )
             except Exception:
                 pass
@@ -2061,9 +2061,9 @@ class SignalPipeline:
         # 3) Audit Payload via AsyncSignalPublisher
         preprocess_signal_for_publish(audit_payload, symbol=str(symbol), source="CryptoOrderFlow", logger=logger)
         await pub.xadd_json(
-            sink=StreamSink(name=str(signal_stream), field="data", maxlen=1000)
-            payload=audit_payload
-            symbol=str(symbol)
+            sink=StreamSink(name=str(signal_stream), field="data", maxlen=1000),
+            payload=audit_payload,
+            symbol=str(symbol),
         )
 
         # ------------------------------------------------------------------
@@ -2096,27 +2096,27 @@ class SignalPipeline:
 
         # Push virtual copy to Binance executor (direct publish path)
         await self._push_virtual_to_binance_queue(
-            sid=sid, symbol=symbol, direction=direction
-            entry=entry, sl=sl, tp_levels=tp_levels, lot=lot
-            ts_ms=ts_ms, confidence=confidence
-            enriched_signal=enriched_signal, indicators=indicators
+            sid=sid, symbol=symbol, direction=direction,
+            entry=entry, sl=sl, tp_levels=tp_levels, lot=lot,
+            ts_ms=ts_ms, confidence=confidence,
+            enriched_signal=enriched_signal, indicators=indicators,
         )
 
     async def _push_virtual_to_binance_queue(
-        self
-        *
-        sid: str
-        symbol: str
-        direction: str
-        entry: float
-        sl: float
-        tp_levels: List[float]
-        lot: float
-        ts_ms: int
-        confidence: float
-        enriched_signal: Dict[str, Any]
-        indicators: Dict[str, Any]
-        is_rejected_signal: bool = False
+        self,
+        *,
+        sid: str,
+        symbol: str,
+        direction: str,
+        entry: float,
+        sl: float,
+        tp_levels: List[float],
+        lot: float,
+        ts_ms: int,
+        confidence: float,
+        enriched_signal: Dict[str, Any],
+        indicators: Dict[str, Any],
+        is_rejected_signal: bool = False,
     ) -> None:
         """Push orderflow signals to Binance demo queue as is_virtual=1.
 
@@ -2176,34 +2176,34 @@ class SignalPipeline:
                 binance_queue = os.getenv("ORDERS_QUEUE_BINANCE", "orders:queue:binance")
 
             order_payload = {
-                "action": "open"
-                "sid": str(sid)
-                "symbol": str(symbol)
-                "side": str(direction)
-                "qty": float(lot)
-                "type": "MARKET"
-                "entry": float(entry)
-                "sl": float(sl)
-                "tp_levels": [float(x) for x in (tp_levels or [])]
-                "is_virtual": 1
-                "mirror_all": bool(mirror_all)
-                "source": str(enriched_signal.get("source") or "CryptoOrderFlow")
-                "strategy": str(enriched_signal.get("strategy") or "cryptoorderflow")
-                "confidence": float(confidence)
-                "confidence_pct": float(confidence) * 100.0
-                "ts_ms": int(ts_ms)
-                "trail_after_tp1": bool(enriched_signal.get("trail_after_tp1", False))
-                "trail_profile": str(enriched_signal.get("trail_profile") or "rocket_v1")
-                "atr": float(indicators.get("atr", 0.0) or 0.0)
-                "validation_status": "failed" if is_rejected_signal else str(enriched_signal.get("validation_status") or "")
+                "action": "open",
+                "sid": str(sid),
+                "symbol": str(symbol),
+                "side": str(direction),
+                "qty": float(lot),
+                "type": "MARKET",
+                "entry": float(entry),
+                "sl": float(sl),
+                "tp_levels": [float(x) for x in (tp_levels or [])],
+                "is_virtual": 1,
+                "mirror_all": bool(mirror_all),
+                "source": str(enriched_signal.get("source") or "CryptoOrderFlow"),
+                "strategy": str(enriched_signal.get("strategy") or "cryptoorderflow"),
+                "confidence": float(confidence),
+                "confidence_pct": float(confidence) * 100.0,
+                "ts_ms": int(ts_ms),
+                "trail_after_tp1": bool(enriched_signal.get("trail_after_tp1", False)),
+                "trail_profile": str(enriched_signal.get("trail_profile") or "rocket_v1"),
+                "atr": float(indicators.get("atr", 0.0) or 0.0),
+                "validation_status": "failed" if is_rejected_signal else str(enriched_signal.get("validation_status") or ""),
             }
             await self.publisher.r.rpush(
-                binance_queue
-                json.dumps(order_payload, ensure_ascii=False)
+                binance_queue,
+                json.dumps(order_payload, ensure_ascii=False),
             )
             mode_tag = "MIRROR-ALL" if mirror_all else             logger.info(
-                "🚀 [BINANCE-%s] (%s) Order pushed to %s sid=%s side=%s entry=%.2f conf=%.0f%% status=%s"
-                mode_tag, symbol, binance_queue, sid, direction, entry, confidence * 100.0, validation_status
+                "🚀 [BINANCE-%s] (%s) Order pushed to %s sid=%s side=%s entry=%.2f conf=%.0f%% status=%s",
+                mode_tag, symbol, binance_queue, sid, direction, entry, confidence * 100.0, validation_status,
             )
         except Exception as exc:
             logger.warning("⚠️ [BINANCE-VIRTUAL] (%s) Failed to push to binance queue: %s", symbol, exc)
@@ -2215,18 +2215,18 @@ class SignalPipeline:
         try:
             ts_ms = str(get_ny_time_millis())
             fields = {
-                "type": "report"
-                "text": str(text or "")
-                "source": str(source or "report")
-                "symbol": str(symbol or "")
-                "ts_ms": ts_ms
+                "type": "report",
+                "text": str(text or ""),
+                "source": str(source or "report"),
+                "symbol": str(symbol or ""),
+                "ts_ms": ts_ms,
             }
             # notify_worker.py handles type=report with priority
             await self.publisher.r.xadd(
-                self.notify_stream
-                fields=fields
-                maxlen=int(getattr(self, "notify_maxlen", 20000) or 20000)
-                approximate=True
+                self.notify_stream,
+                fields=fields,
+                maxlen=int(getattr(self, "notify_maxlen", 20000) or 20000),
+                approximate=True,
             )
             logger.info("📱 [TELEGRAM-REPORT] sent: source=%s symbol=%s", fields["source"], fields["symbol"])
         except Exception as exc:
@@ -2270,11 +2270,11 @@ class SignalPipeline:
         return 1.0 - (1.0 / (1.0 + k * ax))
 
     def _build_mix_dict(
-        self
-        delta: float
-        delta_z: float
-        indicators: Optional[Dict[str, Any]]
-        confirmations: Sequence[str]
+        self,
+        delta: float,
+        delta_z: float,
+        indicators: Optional[Dict[str, Any]],
+        confirmations: Sequence[str],
     ) -> Dict[str, float]:
         mix: Dict[str, float] = {}
 
@@ -2325,12 +2325,12 @@ class SignalPipeline:
         return force_trail
 
     def _calculate_levels(
-        self
-        runtime: SymbolRuntime
-        entry: float
-        side: str
-        indicators: Dict[str, Any]
-        trail_profile: Optional[str] = None
+        self,
+        runtime: SymbolRuntime,
+        entry: float,
+        side: str,
+        indicators: Dict[str, Any],
+        trail_profile: Optional[str] = None,
     ) -> Tuple[float, List[float], float, float]:
         cfg = runtime.config
         atr = float(indicators.get("atr", 0.0) or 0.0)
@@ -2384,10 +2384,10 @@ class SignalPipeline:
         # Final ATR fallback (absolute last resort)
         if atr <= 0:
             symbol_fallbacks = {
-                "BTCUSDT": 30.0
-                "ETHUSDT": 4.0
-                "BNBUSDT": 0.5
-                "SOLUSDT": 0.3
+                "BTCUSDT": 30.0,
+                "ETHUSDT": 4.0,
+                "BNBUSDT": 0.5,
+                "SOLUSDT": 0.3,
             }
             atr = symbol_fallbacks.get(runtime.symbol, entry * 0.0003)
             indicators["atr_src"] = "fallback-symbol"
@@ -2503,7 +2503,7 @@ class SignalPipeline:
                 
                 tps = [tp1, tp2, tp3]
                 logger.debug(
-                    "✅ rocket_v1 LONG adjusted: TP1=%.2f (%.2f ATR), TP2=%.2f (%.2f ATR), TP3=%.2f (%.2f ATR)"
+                    "✅ rocket_v1 LONG adjusted: TP1=%.2f (%.2f ATR), TP2=%.2f (%.2f ATR), TP3=%.2f (%.2f ATR)",
                     tp1, tp1_dist/atr, tp2, tp2_dist/atr, tp3, tp3_dist/atr
                 )
             else:
@@ -2533,7 +2533,7 @@ class SignalPipeline:
                 
                 tps = [tp1, tp2, tp3]
                 logger.debug(
-                    "✅ rocket_v1 SHORT adjusted: TP1=%.2f (%.2f ATR), TP2=%.2f (%.2f ATR), TP3=%.2f (%.2f ATR)"
+                    "✅ rocket_v1 SHORT adjusted: TP1=%.2f (%.2f ATR), TP2=%.2f (%.2f ATR), TP3=%.2f (%.2f ATR)",
                     tp1, tp1_dist/atr, tp2, tp2_dist/atr, tp3, tp3_dist/atr
                 )
             else:
@@ -2556,10 +2556,10 @@ class SignalPipeline:
         """
         try:
             await self.publisher.r.xadd(
-                self.notify_stream
-                fields={"type": "report", "text": text, "source": source, "symbol": symbol, "ts_ms": str(get_ny_time_millis())}
-                maxlen=self.notify_maxlen
-                approximate=True
+                self.notify_stream,
+                fields={"type": "report", "text": text, "source": source, "symbol": symbol, "ts_ms": str(get_ny_time_millis())},
+                maxlen=self.notify_maxlen,
+                approximate=True,
             )
             logger.info("📱 [TELEGRAM-REPORT] Sent report for %s from %s", symbol, source)
         except Exception as exc:

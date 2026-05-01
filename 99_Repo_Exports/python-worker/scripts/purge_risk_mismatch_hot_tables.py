@@ -56,15 +56,15 @@ def render_textfile(report: dict) -> str:
     freshness_seconds = max(0.0, (get_ny_time_millis() - generated_at_ms) / 1000.0) if generated_at_ms else 0.0
     stale_threshold = int(report.get('freshness_stale_threshold_sec') or 1800)
     lines = [
-        '# HELP trade_risk_mismatch_retention_freshness_seconds Freshness of latest mismatch retention purge report.'
-        '# TYPE trade_risk_mismatch_retention_freshness_seconds gauge'
-        f'trade_risk_mismatch_retention_freshness_seconds {freshness_seconds}'
-        '# HELP trade_risk_mismatch_retention_stale Whether mismatch retention purge report is stale.'
-        '# TYPE trade_risk_mismatch_retention_stale gauge'
-        f'trade_risk_mismatch_retention_stale {1 if freshness_seconds > float(stale_threshold) else 0}'
-        '# HELP trade_risk_mismatch_retention_last_purged_quarantine Rows purged in latest mismatch retention run.'
-        '# TYPE trade_risk_mismatch_retention_last_purged_quarantine gauge'
-        f"trade_risk_mismatch_retention_last_purged_quarantine {int(report.get('purged_quarantine') or 0)}"
+        '# HELP trade_risk_mismatch_retention_freshness_seconds Freshness of latest mismatch retention purge report.',
+        '# TYPE trade_risk_mismatch_retention_freshness_seconds gauge',
+        f'trade_risk_mismatch_retention_freshness_seconds {freshness_seconds}',
+        '# HELP trade_risk_mismatch_retention_stale Whether mismatch retention purge report is stale.',
+        '# TYPE trade_risk_mismatch_retention_stale gauge',
+        f'trade_risk_mismatch_retention_stale {1 if freshness_seconds > float(stale_threshold) else 0}',
+        '# HELP trade_risk_mismatch_retention_last_purged_quarantine Rows purged in latest mismatch retention run.',
+        '# TYPE trade_risk_mismatch_retention_last_purged_quarantine gauge',
+        f"trade_risk_mismatch_retention_last_purged_quarantine {int(report.get('purged_quarantine') or 0)}",
     ]
     return '\n'.join(lines) + '\n'
 
@@ -74,47 +74,47 @@ def main() -> int:
         description='Archive and purge risk mismatch quarantine ledger rows older than retention window.'
     )
     parser.add_argument(
-        '--dsn'
-        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', ''))
+        '--dsn',
+        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),
     )
     parser.add_argument(
-        '--retention-days'
-        type=int
-        default=int(os.getenv('RISK_MISMATCH_RETENTION_DAYS', '30'))
+        '--retention-days',
+        type=int,
+        default=int(os.getenv('RISK_MISMATCH_RETENTION_DAYS', '30')),
     )
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument(
-        '--out'
+        '--out',
         default=os.getenv(
-            'RISK_MISMATCH_RETENTION_REPORT_PATH'
-            '/var/lib/trade-runbook/reports/latest_risk_mismatch_retention.json'
+            'RISK_MISMATCH_RETENTION_REPORT_PATH',
+            '/var/lib/trade-runbook/reports/latest_risk_mismatch_retention.json',
         )
     )
     parser.add_argument(
-        '--textfile-output'
-        default=os.getenv('RISK_MISMATCH_RETENTION_TEXTFILE_PATH', '')
+        '--textfile-output',
+        default=os.getenv('RISK_MISMATCH_RETENTION_TEXTFILE_PATH', ''),
     )
     parser.add_argument(
-        '--freshness-stale-threshold-sec'
-        type=int
-        default=int(os.getenv('RISK_MISMATCH_RETENTION_STALE_SEC', '86400'))
+        '--freshness-stale-threshold-sec',
+        type=int,
+        default=int(os.getenv('RISK_MISMATCH_RETENTION_STALE_SEC', '86400')),
     )
     args = parser.parse_args()
     if not args.dsn or psycopg is None:
         raise RuntimeError('psycopg + DSN required')
     cutoff_ms = int((time.time() - args.retention_days * 86400) * 1000)
     out = {
-        'cutoff_ts_ms': cutoff_ms
-        'dry_run': bool(args.dry_run)
-        'generated_at_ms': get_ny_time_millis()
-        'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec)
+        'cutoff_ts_ms': cutoff_ms,
+        'dry_run': bool(args.dry_run),
+        'generated_at_ms': get_ny_time_millis(),
+        'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec),
     }
     with psycopg.connect(args.dsn) as conn:
         with conn.cursor() as cur:
             if args.dry_run:
                 cur.execute(
-                    'select count(*) from risk_mismatch_quarantine_ledger where created_ts_ms < %s'
-                    (cutoff_ms,)
+                    'select count(*) from risk_mismatch_quarantine_ledger where created_ts_ms < %s',
+                    (cutoff_ms,),
                 )
                 out['rows_to_purge'] = int(cur.fetchone()[0])
             else:

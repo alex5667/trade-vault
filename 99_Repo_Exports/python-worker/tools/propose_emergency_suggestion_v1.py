@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Manual tool: emit an emergency cfg:suggestions proposal.
 
 Use-case:
@@ -10,7 +11,6 @@ Notes:
 - This tool does NOT depend on ApplyRunner internals.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

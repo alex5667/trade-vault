@@ -70,12 +70,12 @@ class RuntimeSnapshot:
         trace_log_sample_rate = _env_float("DECISION_TRACE_LOG_SAMPLE_RATE", 0.02)
 
         return RuntimeSnapshot(
-            loaded_ms=now_ms
-            min_conf_default=float(min_conf_default)
-            min_conf_factor_default=float(min_conf_factor_default)
-            min_conf_by_symbol=by_sym
-            min_conf_factor_by_symbol=by_sym_cf
-            trace_log_sample_rate=float(trace_log_sample_rate)
+            loaded_ms=now_ms,
+            min_conf_default=float(min_conf_default),
+            min_conf_factor_default=float(min_conf_factor_default),
+            min_conf_by_symbol=by_sym,
+            min_conf_factor_by_symbol=by_sym_cf,
+            trace_log_sample_rate=float(trace_log_sample_rate),
         )
 
     def min_conf(self, symbol: str) -> float:
@@ -115,7 +115,7 @@ class RuntimeRefresher:
 # --- Compatibility Alias for Tests ---
 class RuntimeSnapshotCache:
     """
-    Simulates old static cache for tests
+    Simulates old static cache for tests,
     delegating to RuntimeRefresher or just loading once.
     """
     @staticmethod

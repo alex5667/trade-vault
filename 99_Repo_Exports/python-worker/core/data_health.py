@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """core.data_health
 
 Unified Data Quality / Health layer.
@@ -22,7 +23,6 @@ Score semantics:
     0.0 = hard failure (missing timestamps / clearly broken source)
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Tuple

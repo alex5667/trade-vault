@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for signal_quality_gating/common/metrics_stage.py
 
 Tests cover:
@@ -10,7 +11,6 @@ Uses importlib.util to load the file directly to avoid package naming conflicts
 with python-worker/common/.
 """
 
-from __future__ import annotations
 
 import importlib.util
 import os

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Unit-тесты контракта POSITION_CLOSED (A3).
 
 Покрывают:
@@ -10,7 +11,6 @@
   pytest python-worker/services/posttrade/test_trade_events_contract.py -v
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hashlib
@@ -49,7 +49,7 @@ def _valid_event(**overrides: Any) -> Dict[str, Any]:
         "ts": str(NOW_MS),
         "exit_ts_ms": str(NOW_MS),
         "event_id": _sha1(f"POSITION_CLOSED|sid-abc-123|{NOW_MS}||"),
-        "symbol": "XAUUSD",
+        "symbol": "",
         # A3 join-critical fields:
         "side": "LONG",
         "order_id": "ord-001",
@@ -364,7 +364,7 @@ class TestRoundTrip:
         assert "evidence" not in normalized
 
     def test_seconds_ts_fixed_in_roundtrip(self):
-        raw = {"sid": "s", "ts": NOW_MS // 1000, "side": "LONG", "price": 100.0, "qty": 0.01, "fee_bps": 1.0, "symbol": "XAUUSD", "source": "mt5"}  # секунды
+        raw = {"sid": "s", "ts": NOW_MS // 1000, "side": "LONG", "price": 100.0, "qty": 0.01, "fee_bps": 1.0, "symbol": "BTCUSD", "source": "mt5"}  # секунды
         normalized, _ = normalize_position_closed_event(raw)
         ok, errs = validate_position_closed_event(normalized)
         # ts must have been converted to ms — check it

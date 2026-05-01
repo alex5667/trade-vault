@@ -52,24 +52,24 @@ class TickQualityEMA:
         s = self._by_symbol.get(symbol)
         if s is None:
             s = {
-                "unknown": _EMA(tau_ms=self.tau_ms)
-                "ts_now": _EMA(tau_ms=self.tau_ms)
-                "ts_stream_id": _EMA(tau_ms=self.tau_ms)
-                "skew_abs_ms": _EMA(tau_ms=self.tau_ms)
-                "age_abs_ms": _EMA(tau_ms=self.tau_ms)
+                "unknown": _EMA(tau_ms=self.tau_ms),
+                "ts_now": _EMA(tau_ms=self.tau_ms),
+                "ts_stream_id": _EMA(tau_ms=self.tau_ms),
+                "skew_abs_ms": _EMA(tau_ms=self.tau_ms),
+                "age_abs_ms": _EMA(tau_ms=self.tau_ms),
             }
             self._by_symbol[symbol] = s
         return s
 
     def update(
-        self
-        *
-        symbol: str
-        ts_ms: int
-        unknown_side: float
-        ts_source: str
-        abs_skew_ms: float
-        abs_age_ms: float
+        self,
+        *,
+        symbol: str,
+        ts_ms: int,
+        unknown_side: float,
+        ts_source: str,
+        abs_skew_ms: float,
+        abs_age_ms: float,
     ) -> Dict[str, float]:
         s = self._s(str(symbol))
         ts_ms = int(ts_ms)
@@ -78,10 +78,10 @@ class TickQualityEMA:
         stream_id_flag = 1.0 if ts_source == "stream_id" else 0.0
 
         out = {
-            "unknown": s["unknown"].update(float(unknown_side), ts_ms)
-            "ts_now": s["ts_now"].update(now_flag, ts_ms)
-            "ts_stream_id": s["ts_stream_id"].update(stream_id_flag, ts_ms)
-            "skew_abs_ms": s["skew_abs_ms"].update(float(abs_skew_ms), ts_ms)
-            "age_abs_ms": s["age_abs_ms"].update(float(abs_age_ms), ts_ms)
+            "unknown": s["unknown"].update(float(unknown_side), ts_ms),
+            "ts_now": s["ts_now"].update(now_flag, ts_ms),
+            "ts_stream_id": s["ts_stream_id"].update(stream_id_flag, ts_ms),
+            "skew_abs_ms": s["skew_abs_ms"].update(float(abs_skew_ms), ts_ms),
+            "age_abs_ms": s["age_abs_ms"].update(float(abs_age_ms), ts_ms),
         }
         return out

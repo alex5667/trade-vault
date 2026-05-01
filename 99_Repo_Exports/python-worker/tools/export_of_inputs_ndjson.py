@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Export OFInputsV1 records from Redis Stream to NDJSON.
 
 Why:
@@ -19,7 +20,6 @@ Notes:
   - Deterministic ordering: uses XRANGE in increasing ID order.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

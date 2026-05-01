@@ -43,15 +43,15 @@ def summary_key(prefix: str) -> str:
 
 
 def update_deploy_lint_state(
-    r: Any
-    *
-    purpose: str
-    report: Mapping[str, Any]
-    state_prefix: str
-    gate_prefix: str
-    hold_s: int
-    ttl_s: int
-    now_ms: int | None = None
+    r: Any,
+    *,
+    purpose: str,
+    report: Mapping[str, Any],
+    state_prefix: str,
+    gate_prefix: str,
+    hold_s: int,
+    ttl_s: int,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     """Persist one deploy-lint result and maintain a persistent-drift gate.
 
@@ -85,27 +85,27 @@ def update_deploy_lint_state(
         gate_active = 1 if fail_age_s >= max(1, int(hold_s)) else 0
 
     mapping = {
-        'schema_version': '1'
-        'purpose': purpose
-        'last_checked_ts_ms': str(now_ms)
-        'last_ok_ts_ms': str(last_ok_ts_ms)
-        'last_fail_ts_ms': str(0 if ok else now_ms)
-        'fail_since_ts_ms': str(fail_since_ts_ms)
-        'fail_age_s': str(fail_age_s)
-        'ok': str(ok)
-        'errors_count': str(len(errors))
-        'warnings_count': str(len(warnings))
-        'gate_active': str(gate_active)
-        'gate_hold_s': str(int(hold_s))
-        'gate_reason_code': 'persistent_config_drift' if gate_active else ('ok' if ok else 'transient_config_drift')
-        'error_codes': ','.join(errors) if errors else 'ok'
-        'warning_codes': ','.join(warnings) if warnings else 'none'
-        'compose_file': str(checks.get('compose_file', ''))
-        'wrapper_file': str(checks.get('wrapper_file', ''))
-        'unit_file': str(checks.get('unit_file', ''))
-        'env_file': str(checks.get('env_file', ''))
-        'missing_runtime_env': ','.join(checks.get('missing_runtime_env') or []) or 'none'
-        'missing_env_file_vars': ','.join(checks.get('missing_env_file_vars') or []) or 'none'
+        'schema_version': '1',
+        'purpose': purpose,
+        'last_checked_ts_ms': str(now_ms),
+        'last_ok_ts_ms': str(last_ok_ts_ms),
+        'last_fail_ts_ms': str(0 if ok else now_ms),
+        'fail_since_ts_ms': str(fail_since_ts_ms),
+        'fail_age_s': str(fail_age_s),
+        'ok': str(ok),
+        'errors_count': str(len(errors)),
+        'warnings_count': str(len(warnings)),
+        'gate_active': str(gate_active),
+        'gate_hold_s': str(int(hold_s)),
+        'gate_reason_code': 'persistent_config_drift' if gate_active else ('ok' if ok else 'transient_config_drift'),
+        'error_codes': ','.join(errors) if errors else 'ok',
+        'warning_codes': ','.join(warnings) if warnings else 'none',
+        'compose_file': str(checks.get('compose_file', '')),
+        'wrapper_file': str(checks.get('wrapper_file', '')),
+        'unit_file': str(checks.get('unit_file', '')),
+        'env_file': str(checks.get('env_file', '')),
+        'missing_runtime_env': ','.join(checks.get('missing_runtime_env') or []) or 'none',
+        'missing_env_file_vars': ','.join(checks.get('missing_env_file_vars') or []) or 'none',
     }
 
     r.hset(skey, mapping=mapping)
@@ -116,15 +116,15 @@ def update_deploy_lint_state(
 
     if gate_active:
         gate_mapping = {
-            'schema_version': '1'
-            'purpose': purpose
-            'gate_active': '1'
-            'gate_reason_code': 'persistent_config_drift'
-            'last_checked_ts_ms': str(now_ms)
-            'fail_since_ts_ms': str(fail_since_ts_ms)
-            'fail_age_s': str(fail_age_s)
-            'errors_count': str(len(errors))
-            'error_codes': mapping['error_codes']
+            'schema_version': '1',
+            'purpose': purpose,
+            'gate_active': '1',
+            'gate_reason_code': 'persistent_config_drift',
+            'last_checked_ts_ms': str(now_ms),
+            'fail_since_ts_ms': str(fail_since_ts_ms),
+            'fail_age_s': str(fail_age_s),
+            'errors_count': str(len(errors)),
+            'error_codes': mapping['error_codes'],
         }
         r.hset(gkey, mapping=gate_mapping)
         try:

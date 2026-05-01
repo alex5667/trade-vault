@@ -32,10 +32,10 @@ except ImportError:
     joblib = None
 
 def _crypto_conf_factor(
-    ctx: "SignalContext"
-    signal_kind: str
-    weights_path: Optional[str] = None
-    ml_model_path: Optional[str] = None
+    ctx: "SignalContext",
+    signal_kind: str,
+    weights_path: Optional[str] = None,
+    ml_model_path: Optional[str] = None,
 ) -> tuple[float, dict[str, float] | None]:
     """
     Final Confidence Scorer (Phases 1-3).
@@ -187,6 +187,6 @@ class ConfidenceScorer:
         return _crypto_conf_factor(
             ctx, 
             kind, 
-            weights_path=self.weights_path
+            weights_path=self.weights_path,
             ml_model_path=self.ml_model_path
         )

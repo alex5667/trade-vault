@@ -18,7 +18,7 @@ def render_scorecard_message(change_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to build scorecard for rendering {change_id}: {e}")
         return {
-            "text": f"⚠️ Error building scorecard for {change_id}: {e}"
+            "text": f"⚠️ Error building scorecard for {change_id}: {e}",
             "parse_mode": "HTML"
         }
 
@@ -28,17 +28,17 @@ def render_scorecard_message(change_id: str) -> Dict[str, Any]:
     icon = "✅" if decision == "allow" else "⚠️" if decision == "allow_with_override" else "🚫"
 
     msg_lines = [
-        f"{icon} <b>ATR Release Readiness</b>\n"
-        f"Change: <code>{change_id}</code>"
-        f"Decision: <b>{decision.upper()}</b>"
+        f"{icon} <b>ATR Release Readiness</b>\n",
+        f"Change: <code>{change_id}</code>",
+        f"Decision: <b>{decision.upper()}</b>",
         f"Score: <b>{score:.1f}</b>\n"
     ]
 
     summary = scorecard.get("summary", {})
     msg_lines.extend([
-        f"Replay: {summary.get('replay_status')}"
-        f"Rollout cert: {summary.get('rollout_cert_status')}"
-        f"Open SEV-1 incidents: {summary.get('incidents_open')}"
+        f"Replay: {summary.get('replay_status')}",
+        f"Rollout cert: {summary.get('rollout_cert_status')}",
+        f"Open SEV-1 incidents: {summary.get('incidents_open')}",
         f"Overdue actions: {summary.get('overdue_actions')}\n"
     ])
 
@@ -65,24 +65,24 @@ def render_scorecard_message(change_id: str) -> Dict[str, Any]:
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "Approve release", "callback_data": f"/release approve {change_id}"}
+                {"text": "Approve release", "callback_data": f"/release approve {change_id}"},
                 {"text": "Deny release",    "callback_data": f"/release deny {change_id}"}
             ]
             [
                 {"text": "Override release", "callback_data": f"/release override {change_id}"}
             ]
             [
-                {"text": "📊 Graph board",   "callback_data": "/release graph_board"}
-                {"text": "🌊 Drift board",   "callback_data": "/release drift_board"}
-            ] if _GRAPH_GATE_ENABLE else []
+                {"text": "📊 Graph board",   "callback_data": "/release graph_board"},
+                {"text": "🌊 Drift board",   "callback_data": "/release drift_board"},
+            ] if _GRAPH_GATE_ENABLE else [],
         ]
     }
     # remove empty rows
     keyboard["inline_keyboard"] = [r for r in keyboard["inline_keyboard"] if r]
 
     return {
-        "text": text
-        "parse_mode": "HTML"
+        "text": text,
+        "parse_mode": "HTML",
         "reply_markup": json.dumps(keyboard)
     }
 
@@ -96,12 +96,12 @@ def _render_graph_board() -> Dict[str, Any]:
         ) as cur:
             cur.execute(
                 """
-                SELECT change_id, scope_value, legacy_decision
+                SELECT change_id, scope_value, legacy_decision,
                        graph_decision, status, created_at
                 FROM v_governance_release_graph_board
                 LIMIT 10
                 """
-            )
+            ),
             rows = cur.fetchall()
     except Exception as exc:
         return {"text": f"⚠️ Error fetching graph board: {exc}", "parse_mode": "HTML"}
@@ -114,7 +114,7 @@ def _render_graph_board() -> Dict[str, Any]:
             f"legacy=<code>{r['legacy_decision']}</code> "
             f"graph=<code>{r['graph_decision']}</code> "
             f"({r['created_at'].strftime('%H:%M')})"
-        )
+        ),
     if not rows:
         lines.append("No equivalence checks yet. Enable ATR_GRAPH_RELEASE_GATE_ENABLE=1.")
 
@@ -134,7 +134,7 @@ def _render_drift_board() -> Dict[str, Any]:
                 FROM v_governance_release_drift_board
                 LIMIT 15
                 """
-            )
+            ),
             rows = cur.fetchall()
     except Exception as exc:
         return {"text": f"⚠️ Error fetching drift board: {exc}", "parse_mode": "HTML"}
@@ -147,7 +147,7 @@ def _render_drift_board() -> Dict[str, Any]:
             f"{ic} <code>{r['drift_kind']}</code> | "
             f"scope=<code>{r['scope_value']}</code> | "
             f"{r['created_at'].strftime('%m-%d %H:%M')}"
-        )
+        ),
     if not rows:
         lines.append("✅ No open drifts.")
 
@@ -168,7 +168,7 @@ def _render_cutover_status() -> Dict[str, Any]:
                 WHERE component = 'release_gate'
                 ORDER BY created_at DESC LIMIT 1
                 """
-            )
+            ),
             row = cur.fetchone()
     except Exception as exc:
         return {"text": f"⚠️ Error fetching cutover status: {exc}", "parse_mode": "HTML"}
@@ -228,22 +228,22 @@ def handle_telegram_callback(callback_query: Dict[str, Any]) -> Dict[str, Any]:
                 "text": (
                     f"Cannot purely approve {change_id}. "
                     f"Current decision policy is {scorecard.get('decision')}. Use Override."
-                )
+                ),
             }
         record_release_decision(
             change_id, scorecard_id, from_user, "approve_release", "OPERATOR_APPROVED", scorecard
-        )
+        ),
         return {
-            "text": f"✅ Change <code>{change_id}</code> approved by {from_user}"
+            "text": f"✅ Change <code>{change_id}</code> approved by {from_user}",
             "parse_mode": "HTML"
         }
 
     elif action_type == "deny":
         record_release_decision(
             change_id, scorecard_id, from_user, "deny_release", "OPERATOR_DENIED", scorecard
-        )
+        ),
         return {
-            "text": f"🚫 Change <code>{change_id}</code> denied by {from_user}"
+            "text": f"🚫 Change <code>{change_id}</code> denied by {from_user}",
             "parse_mode": "HTML"
         }
 
@@ -253,16 +253,16 @@ def handle_telegram_callback(callback_query: Dict[str, Any]) -> Dict[str, Any]:
                 "text": (
                     f"Cannot override {change_id}. "
                     f"There are HARD blockers: {scorecard.get('blockers')}"
-                )
+                ),
             }
         record_release_decision(
             change_id, scorecard_id, from_user, "override_release", "OPERATOR_OVERRIDE", scorecard
-        )
+        ),
         return {
             "text": (
                 f"⚠️ Change <code>{change_id}</code> "
                 f"APPROVED WITH OVERRIDE by {from_user}"
-            )
+            ),
             "parse_mode": "HTML"
         }
 

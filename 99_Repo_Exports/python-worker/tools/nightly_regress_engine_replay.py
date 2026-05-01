@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly regression test: run engine replay on baseline inputs and compare with baseline output.
 
 Orchestrates:
@@ -11,7 +12,6 @@ Usage:
   (reads BASELINE_INPUTS, BASELINE_OUTPUT from env)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

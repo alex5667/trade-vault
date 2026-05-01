@@ -18,7 +18,7 @@ def test_validate_of_gate_row_ok():
 def test_validate_of_gate_row_missing_fields():
     row = {
         "ts_ms": "1672531200000",
-        "symbol": "BTCUSDT"
+        "symbol": "BTCUSDT",
     }
     ok, err = validate_of_gate_row(row)
     assert ok is False

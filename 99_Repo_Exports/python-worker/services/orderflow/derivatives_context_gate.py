@@ -42,18 +42,18 @@ def _map_profile(profile: str) -> str:
 
 
 def evaluate_derivatives_context(
-    *
-    profile: str
-    funding_rate_z: float
-    basis_bps: float
-    funding_extreme: int
-    basis_extreme: int
-    oi_accel: int
-    thr_funding_z: float
-    thr_basis_bps: float
-    require_oi_for_veto: bool
-    tighten_mult: float
-    tighten_cap_bps: float
+    *,
+    profile: str,
+    funding_rate_z: float,
+    basis_bps: float,
+    funding_extreme: int,
+    basis_extreme: int,
+    oi_accel: int,
+    thr_funding_z: float,
+    thr_basis_bps: float,
+    require_oi_for_veto: bool,
+    tighten_mult: float,
+    tighten_cap_bps: float,
 ) -> DerivativesContextDecision:
     mode = _map_profile(profile)
 
@@ -98,14 +98,14 @@ def evaluate_derivatives_context(
             veto_reason = "deriv_ctx:" + ",".join(flags)
 
     return DerivativesContextDecision(
-        hit=hit
-        mode=mode
-        flags=flags
-        crowding_score=float(score)
-        tighten_add_bps=float(tighten_add)
-        veto=bool(veto)
-        veto_reason=str(veto_reason)
-        caution=bool(caution)
+        hit=hit,
+        mode=mode,
+        flags=flags,
+        crowding_score=float(score),
+        tighten_add_bps=float(tighten_add),
+        veto=bool(veto),
+        veto_reason=str(veto_reason),
+        caution=bool(caution),
     )
 
 
@@ -120,23 +120,23 @@ def evaluate_derivatives_context(
 # Veto: only hard profile + multi-flag crowding (not on single breadth/liq flag).
 
 def evaluate_derivatives_context_v2(
-    *
-    profile: str
-    side: str
-    funding_rate_z: float
-    basis_bps: float
-    oi_accel: int
-    long_short_ratio_z: float = 0.0
-    taker_buy_sell_imbalance: float = 0.0
-    liq_imbalance_z: float = 0.0
-    market_breadth_ret_24h: float = 0.0
-    leader_btc_eth_confirm: float = 0.0
+    *,
+    profile: str,
+    side: str,
+    funding_rate_z: float,
+    basis_bps: float,
+    oi_accel: int,
+    long_short_ratio_z: float = 0.0,
+    taker_buy_sell_imbalance: float = 0.0,
+    liq_imbalance_z: float = 0.0,
+    market_breadth_ret_24h: float = 0.0,
+    leader_btc_eth_confirm: float = 0.0,
     # v1 threshold params with defaults
-    thr_funding_z: float = 3.0
-    thr_basis_bps: float = 10.0
-    require_oi_for_veto: bool = True
-    tighten_mult: float = 1.0
-    tighten_cap_bps: float = 8.0
+    thr_funding_z: float = 3.0,
+    thr_basis_bps: float = 10.0,
+    require_oi_for_veto: bool = True,
+    tighten_mult: float = 1.0,
+    tighten_cap_bps: float = 8.0,
 ) -> DerivativesContextDecision:
     mode = _map_profile(profile)
     side_up = str(side or "").strip().upper()
@@ -195,8 +195,8 @@ def evaluate_derivatives_context_v2(
         # Each extra flag above 1 adds severity
         sev += 0.5 * max(0.0, score - 1.0)
         tighten_add = min(
-            float(tighten_cap_bps)
-            max(0.0, float(tighten_mult)) * sev
+            float(tighten_cap_bps),
+            max(0.0, float(tighten_mult)) * sev,
         )
 
     # Veto: only in hard/veto mode, requires multi-flag crowding
@@ -219,13 +219,13 @@ def evaluate_derivatives_context_v2(
             veto_reason = "deriv_ctx:" + ",".join(flags)
 
     return DerivativesContextDecision(
-        hit=hit
-        mode=mode
-        flags=flags
-        crowding_score=float(score)
-        tighten_add_bps=float(tighten_add)
-        veto=bool(veto)
-        veto_reason=str(veto_reason)
-        caution=bool(caution)
+        hit=hit,
+        mode=mode,
+        flags=flags,
+        crowding_score=float(score),
+        tighten_add_bps=float(tighten_add),
+        veto=bool(veto),
+        veto_reason=str(veto_reason),
+        caution=bool(caution),
     )
 

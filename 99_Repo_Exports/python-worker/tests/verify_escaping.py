@@ -3,7 +3,7 @@ import html
 
 def test_escaping():
     test_cases = [
-        ("XAUUSD", "XAUUSD"),
+        (""),
         ("total=0<min_total=5", "total=0&lt;min_total=5"),
         ("tail(R<=-1)", "tail(R&lt;=-1)"),
         ("bigwin(R>=2)", "bigwin(R&gt;=2)"),

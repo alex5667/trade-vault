@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 v11_of — Feature schema v11 (OrderFlow), pinned snapshot + regime/microstructure/interaction extensions.
 
@@ -24,7 +25,6 @@ Design notes
 - vol_regime_code: 0=low, 1=normal, 2=high, 3=extreme (ordinal, not one-hot — tree-friendly).
 """
 
-from __future__ import annotations
 
 from typing import List
 

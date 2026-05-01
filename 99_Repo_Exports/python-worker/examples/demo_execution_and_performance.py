@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Demo: Signal Execution Planning and Performance Analysis
 
@@ -15,7 +16,6 @@ Demo: Signal Execution Planning and Performance Analysis
 - SIGNAL PERFORMANCE: Метрики производительности и outcome
 """
 
-from __future__ import annotations
 
 import math
 import uuid
@@ -46,10 +46,10 @@ from signal_exec.performance_tracker import SignalPerformanceTracker
 def build_setup_configs() -> dict[tuple[str, str], SymbolSetupConfig]:
     """
     Конфигурация для разных (symbol, setup_type).
-    Пример для XAUUSD + 'volatility_spike'.
+    Пример для  + 'volatility_spike'.
     """
     cfg_xau_vol_spike = SymbolSetupConfig(
-        symbol="XAUUSD",
+        symbol="",
         setup_type="volatility_spike",
 
         # Время жизни сигнала (bars 1m).
@@ -82,7 +82,7 @@ def build_setup_configs() -> dict[tuple[str, str], SymbolSetupConfig]:
     )
 
     return {
-        ("XAUUSD", "volatility_spike"): cfg_xau_vol_spike,
+        ("volatility_spike"): cfg_xau_vol_spike,
     }
 
 
@@ -90,7 +90,7 @@ def build_setup_configs() -> dict[tuple[str, str], SymbolSetupConfig]:
 
 def build_mock_signal_context() -> ExtendedSignalContext:
     """
-    Создаем моковый контекст сигнала для XAUUSD.
+    Создаем моковый контекст сигнала для .
     Имитируем выход детектора сигналов с микроструктурными данными.
     """
     now = datetime.now(timezone.utc)
@@ -158,7 +158,7 @@ def build_mock_signal_context() -> ExtendedSignalContext:
 
     ctx = ExtendedSignalContext(
         signal_id=str(uuid.uuid4()),
-        symbol="XAUUSD",
+        symbol="",
         side=Side.LONG,             # Ищем long
         setup_type="volatility_spike",
 
@@ -196,7 +196,7 @@ def demo_execution_planner() -> ExecutionPlan | None:
     plan = planner.build_plan(ctx)
 
     print("=" * 80)
-    print("EXECUTION PLAN FOR XAUUSD VOLATILITY SPIKE")
+    print("EXECUTION PLAN FOR  VOLATILITY SPIKE")
     print("=" * 80)
 
     if plan is None:

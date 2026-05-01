@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_nightly_meta_enforce_ramp_or_freeze_bundle.py
 
 Unit tests for nightly_meta_enforce_ramp_or_freeze_bundle.py
 """
 
-from __future__ import annotations
 
 import json
 import os

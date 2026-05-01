@@ -35,15 +35,15 @@ class L2ConfirmBreakout:
     ЖЁСТКАЯ УНИФИКАЦИЯ (вариант B):
       near_big_wall (wall_near) => VETO, а не soft-fail.
     Почему:
-      - для breakout это чаще структурно плохая сделка (пробой упирается в крупный оффер/бид)
-      - нужен стабильный reason_code="VETO_WALL_NEAR" для калибровки/метрик
+      - для breakout это чаще структурно плохая сделка (пробой упирается в крупный оффер/бид),
+      - нужен стабильный reason_code="VETO_WALL_NEAR" для калибровки/метрик,
       - дальнейший скоринг не должен "спасать" такие кандидаты.
     """
     def __init__(self, cfg: Optional[BreakoutConfirmCfg] = None, **kwargs: Any) -> None:
         if cfg is None and kwargs:
             cfg = BreakoutConfirmCfg(
-                max_near_wall_bps=kwargs.get("wall_within_bps", 4.0)
-                min_wall_notional=kwargs.get("min_wall_notional", 25_000.0)
+                max_near_wall_bps=kwargs.get("wall_within_bps", 4.0),
+                min_wall_notional=kwargs.get("min_wall_notional", 25_000.0),
             )
         self.cfg = cfg or BreakoutConfirmCfg()
 
@@ -58,12 +58,12 @@ class L2ConfirmBreakout:
         return (ts - l2_ts) > float(self.cfg.l2_stale_ms)
 
     def confirm(
-        self
-        *
-        ctx: Any
-        side: int | str
-        level_price: float
-        l2: Optional[L2Snapshot] = None
+        self,
+        *,
+        ctx: Any,
+        side: int | str,
+        level_price: float,
+        l2: Optional[L2Snapshot] = None,
         **_: Any,  # допускаем лишние kwargs от оберток/движков при рефакторинге
     ) -> ConfirmResult:
         if isinstance(side, int):
@@ -77,18 +77,18 @@ class L2ConfirmBreakout:
             flags["l2_stale"] = True
             reasons.append("l2_stale")
             parts["l2_stale_ms"] = float(self.cfg.l2_stale_ms)
-            # Политика Breakout: stale L2 это fail-closed в ConfirmationsEngine
+            # Политика Breakout: stale L2 это fail-closed в ConfirmationsEngine,
             # но оставляем этот валидатор явным и структурированным тоже.
             rc, u16 = normalize_and_u16("VETO_L2_STALE")
             return ConfirmResult(
-                passed=False
-                veto=True
-                score01=0.0
-                reason_code=rc
-                reason_u16=u16
-                parts=parts
-                flags=flags
-                reasons=reasons
+                passed=False,
+                veto=True,
+                score01=0.0,
+                reason_code=rc,
+                reason_u16=u16,
+                parts=parts,
+                flags=flags,
+                reasons=reasons,
             )
 
         # разрешаем явную инъекцию (тесты / движок предоставляет l2), иначе читаем из ctx
@@ -160,13 +160,13 @@ class L2ConfirmBreakout:
             parts["max_near_wall_bps"] = float(self.cfg.max_near_wall_bps)
             rc, u16 = normalize_and_u16("VETO_WALL_NEAR")
             return ConfirmResult(
-                passed=False
-                veto=True
-                flags=flags
-                reasons=reasons
-                score01=0.0
-                reason_code=rc
-                reason_u16=u16
+                passed=False,
+                veto=True,
+                flags=flags,
+                reasons=reasons,
+                score01=0.0,
+                reason_code=rc,
+                reason_u16=u16,
             )
 
         rc, u16 = normalize_and_u16(OK)

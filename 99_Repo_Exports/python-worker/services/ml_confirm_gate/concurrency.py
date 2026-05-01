@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Concurrency utilities for OFConfirm engine build.
 
@@ -8,7 +9,6 @@ Provides:
 
 Migrated from ml_confirm_gate_old.py to the new ml_confirm_gate package.
 """
-from __future__ import annotations
 
 import asyncio
 import concurrent.futures
@@ -49,26 +49,26 @@ def _get_ml_executor() -> concurrent.futures.ThreadPoolExecutor:
     if _ML_INFER_EXECUTOR is None:
         n = int(os.getenv("ML_CONFIRM_THREADS", "2") or "2")
         _ML_INFER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max(1, n)
-            thread_name_prefix="ml-infer"
+            max_workers=max(1, n),
+            thread_name_prefix="ml-infer",
         )
     return _ML_INFER_EXECUTOR
 
 
 async def run_bounded_of_build(
-    fn: Callable[[], Any]
-    *
-    timeout_s: float
-    acquire_timeout_s: Optional[float] = None
+    fn: Callable[[], Any],
+    *,
+    timeout_s: float,
+    acquire_timeout_s: Optional[float] = None,
 ) -> Tuple[Any, Optional[str]]:
     """Run OF build in the shared executor without allowing unbounded backlog.
 
     Returns (result, error_reason). If error_reason is not None, result is None.
     """
     from services.orderflow.metrics import (
-        of_confirm_build_inflight
-        of_confirm_build_rejected_total
-        of_confirm_build_timeout_total
+        of_confirm_build_inflight,
+        of_confirm_build_rejected_total,
+        of_confirm_build_timeout_total,
     )
 
     symbol = "unknown"

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P3.3 — unit tests for BinanceExecutor rehydrate-on-miss behaviour.
 
 Tests live in python-worker/services/tests/ so that `services.*` imports
@@ -9,7 +10,6 @@ Tests cover:
   - _resume_open_from_state works correctly on rehydrated snapshots
   - rehydrate is skipped when EXEC_REHYDRATE_ON_STATE_MISS=False
 """
-from __future__ import annotations
 
 from pathlib import Path
 import importlib.util

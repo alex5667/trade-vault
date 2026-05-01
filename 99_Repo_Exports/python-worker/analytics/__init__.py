@@ -43,21 +43,21 @@ try:
 
     __all__ = [
         # Core
-        "Repository"
-        "RepoConfig"
-        "Order"
-        "Signal"
-        "calculate_roc_auc"
-        "roc_from_signals"
-        "ParquetSink"
+        "Repository",
+        "RepoConfig",
+        "Order",
+        "Signal",
+        "calculate_roc_auc",
+        "roc_from_signals",
+        "ParquetSink",
         # v2.0
-        "ThresholdTuner"
-        "ROCStore"
-        "MetricsPublisher"
-        "TelegramReporterExt"
+        "ThresholdTuner",
+        "ROCStore",
+        "MetricsPublisher",
+        "TelegramReporterExt",
         # v3.0
-        "roc_svg"
-        "confusion_svg"
+        "roc_svg",
+        "confusion_svg",
         "save_svg"
     ]
 except ImportError as e:

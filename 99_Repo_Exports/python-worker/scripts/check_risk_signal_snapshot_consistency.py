@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """P4.6/P4.7: Consistency check between signal payload and SQL risk_snapshot.
 
 P4.6: Joins risk_decisions (signal_jsonb) with risk_snapshot (snapshot_jsonb)
@@ -33,7 +34,6 @@ Usage
   python3 scripts/check_risk_signal_snapshot_consistency.py --dsn postgresql://... --limit 500
   python3 scripts/check_risk_signal_snapshot_consistency.py --quarantine-on-repeated
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -87,10 +87,10 @@ def _quarantine_sid(redis_client: object, sid: str, *, prefix: str, reason: str,
     redis_client.set(qkey, json.dumps(payload, ensure_ascii=False, sort_keys=True))  # type: ignore[union-attr]
     redis_client.sadd(f'{qprefix}sids', sid)  # type: ignore[union-attr]
     redis_client.xadd(  # type: ignore[union-attr]
-        f'{qprefix}events'
-        {'sid': sid, 'reason': reason, 'source': 'risk_consistency_checker'}
-        maxlen=10000
-        approximate=True
+        f'{qprefix}events',
+        {'sid': sid, 'reason': reason, 'source': 'risk_consistency_checker'},
+        maxlen=10000,
+        approximate=True,
     )
     return {'sid': sid, 'quarantine_key': qkey, 'reason': reason}
 
@@ -103,12 +103,12 @@ def render_textfile(report: dict) -> str:
       trade_risk_signal_repeated_sid_total   – number of SIDs above repeat_threshold.
     """
     lines = [
-        '# HELP trade_risk_signal_mismatch_rate Fraction of checked decisions that mismatched risk snapshot.'
-        '# TYPE trade_risk_signal_mismatch_rate gauge'
-        f"trade_risk_signal_mismatch_rate {float(report.get('mismatch_rate') or 0.0)}"
-        '# HELP trade_risk_signal_repeated_sid_total Number of repeated mismatch sid above threshold.'
-        '# TYPE trade_risk_signal_repeated_sid_total gauge'
-        f"trade_risk_signal_repeated_sid_total {int(len(report.get('repeated_sid') or []))}"
+        '# HELP trade_risk_signal_mismatch_rate Fraction of checked decisions that mismatched risk snapshot.',
+        '# TYPE trade_risk_signal_mismatch_rate gauge',
+        f"trade_risk_signal_mismatch_rate {float(report.get('mismatch_rate') or 0.0)}",
+        '# HELP trade_risk_signal_repeated_sid_total Number of repeated mismatch sid above threshold.',
+        '# TYPE trade_risk_signal_repeated_sid_total gauge',
+        f"trade_risk_signal_repeated_sid_total {int(len(report.get('repeated_sid') or []))}",
     ]
     return '\n'.join(lines) + '\n'
 
@@ -116,54 +116,54 @@ def render_textfile(report: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description='Check consistency between signal payload persisted in '
-                    'risk_decisions and SQL risk_snapshot.'
-    )
+                    'risk_decisions and SQL risk_snapshot.',
+    ),
     parser.add_argument(
-        '--dsn'
-        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', ''))
-        help='PostgreSQL DSN'
-    )
+        '--dsn',
+        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),
+        help='PostgreSQL DSN',
+    ),
     parser.add_argument(
-        '--limit'
-        type=int
-        default=int(os.getenv('RISK_CONSISTENCY_LIMIT', '250'))
-        help='Maximum number of recent rows to check'
-    )
+        '--limit',
+        type=int,
+        default=int(os.getenv('RISK_CONSISTENCY_LIMIT', '250')),
+        help='Maximum number of recent rows to check',
+    ),
     parser.add_argument(
-        '--out'
+        '--out',
         default=os.getenv(
-            'RISK_CONSISTENCY_REPORT_PATH'
-            '/var/lib/trade-runbook/reports/latest_risk_signal_consistency.json'
-        )
-        help='Output JSON report path (written atomically)'
+            'RISK_CONSISTENCY_REPORT_PATH',
+            '/var/lib/trade-runbook/reports/latest_risk_signal_consistency.json',
+        ),
+        help='Output JSON report path (written atomically)',
     )
     parser.add_argument(
-        '--redis-url'
-        default=os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-        help='Redis URL for quarantine writes'
+        '--redis-url',
+        default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+        help='Redis URL for quarantine writes',
     )
     parser.add_argument(
-        '--quarantine-prefix'
-        default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:')
-        help='Redis key prefix for quarantine entries'
+        '--quarantine-prefix',
+        default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'),
+        help='Redis key prefix for quarantine entries',
     )
     parser.add_argument(
-        '--repeat-threshold'
-        type=int
-        default=int(os.getenv('RISK_CONSISTENCY_REPEAT_THRESHOLD', '3'))
-        help='Minimum mismatch count per SID to trigger quarantine (default: 3)'
+        '--repeat-threshold',
+        type=int,
+        default=int(os.getenv('RISK_CONSISTENCY_REPEAT_THRESHOLD', '3')),
+        help='Minimum mismatch count per SID to trigger quarantine (default: 3)',
     )
     parser.add_argument(
-        '--quarantine-on-repeated'
-        action='store_true'
-        default=os.getenv('RISK_CONSISTENCY_QUARANTINE_ON_REPEATED', '0') not in {'0', 'false', 'False'}
-        help='Auto-quarantine SIDs with repeated mismatches in Redis'
+        '--quarantine-on-repeated',
+        action='store_true',
+        default=os.getenv('RISK_CONSISTENCY_QUARANTINE_ON_REPEATED', '0') not in {'0', 'false', 'False'},
+        help='Auto-quarantine SIDs with repeated mismatches in Redis',
     )
     # P4.8: Prometheus textfile output for node_exporter textfile_collector.
     parser.add_argument(
-        '--textfile-output'
-        default=os.getenv('RISK_CONSISTENCY_TEXTFILE_PATH', '')
-        help='Path to write Prometheus textfile metrics (.prom); leave empty to disable'
+        '--textfile-output',
+        default=os.getenv('RISK_CONSISTENCY_TEXTFILE_PATH', ''),
+        help='Path to write Prometheus textfile metrics (.prom); leave empty to disable',
     )
     args = parser.parse_args()
 
@@ -191,8 +191,8 @@ def main() -> int:
             delay = 2 ** attempt
             print(
                 f'[risk-consistency] DB connect attempt {attempt}/{max_retries} failed, '
-                f'retrying in {delay}s …'
-                file=sys.stderr
+                f'retrying in {delay}s …',
+                file=sys.stderr,
             )
             time.sleep(delay)
 
@@ -200,27 +200,27 @@ def main() -> int:
         with conn.cursor() as cur:
             cur.execute(
                 '''
-                select a.decision_id, a.signal_id, a.symbol, a.sid, a.effective_execution_policy
-                       a.adjusted_notional_usd, a.leverage_cap, a.clamp_ratio
-                       a.signal_jsonb, s.snapshot_jsonb, s.tier, s.level
-                       s.effective_execution_policy as snap_execution_policy
-                       s.adjusted_notional_usd      as snap_adjusted_notional_usd
-                       s.leverage_cap               as snap_leverage_cap
+                select a.decision_id, a.signal_id, a.symbol, a.sid, a.effective_execution_policy,
+                       a.adjusted_notional_usd, a.leverage_cap, a.clamp_ratio,
+                       a.signal_jsonb, s.snapshot_jsonb, s.tier, s.level,
+                       s.effective_execution_policy as snap_execution_policy,
+                       s.adjusted_notional_usd      as snap_adjusted_notional_usd,
+                       s.leverage_cap               as snap_leverage_cap,
                        s.clamp_ratio                as snap_clamp_ratio
                 from risk_decisions a
                 join risk_snapshot s using (decision_id, ts)
                 order by a.ts desc
                 limit %s
                 '''
-                (args.limit,)
+                (args.limit,),
             )
             for row in cur.fetchall():
                 checked += 1
                 (
-                    decision_id, signal_id, symbol, sid
-                    exec_policy, adjusted_notional, leverage_cap, clamp_ratio
+                    decision_id, signal_id, symbol, sid,
+                    exec_policy, adjusted_notional, leverage_cap, clamp_ratio,
                     signal_jsonb, snapshot_jsonb, tier, level,  # type: ignore[misc]
-                    snap_exec_policy, snap_adj, snap_lev, snap_clamp
+                    snap_exec_policy, snap_adj, snap_lev, snap_clamp,
                 ) = row
 
                 signal: dict = signal_jsonb or {}
@@ -244,20 +244,20 @@ def main() -> int:
                 # Check clamp_ratio from snapshot_jsonb vs snapshot table column
                 snap_ratio = snap.get('clamp_ratio') if isinstance(snap, dict) else None
                 if not _eq_num(
-                    snap_ratio if snap_ratio is not None else clamp_ratio
-                    snap_clamp
+                    snap_ratio if snap_ratio is not None else clamp_ratio,
+                    snap_clamp,
                 ):
                     reasons.append('clamp_ratio_snapshot')
 
                 if reasons:
                     mismatches.append({
-                        'decision_id': decision_id
+                        'decision_id': decision_id,
                         'signal_id':   signal_id,  # P4.8: included for SQL ledger
-                        'sid':         sid
-                        'symbol':      symbol
-                        'tier':        tier
-                        'level':       level
-                        'mismatches':  reasons
+                        'sid':         sid,
+                        'symbol':      symbol,
+                        'tier':        tier,
+                        'level':       level,
+                        'mismatches':  reasons,
                     })
 
     # P4.7: count repeated mismatches per SID; P4.8: retain first representative item.
@@ -289,38 +289,38 @@ def main() -> int:
         now_ms = get_ny_time_millis()
         for item in repeated:
             payload = {
-                'sid': item['sid']
-                'mismatch_count': item['count']
-                'reason': 'repeated_risk_consistency_mismatch'
+                'sid': item['sid'],
+                'mismatch_count': item['count'],
+                'reason': 'repeated_risk_consistency_mismatch',
             }
             quarantine_results.append(_quarantine_sid(
-                r
-                item['sid']
-                prefix=args.quarantine_prefix
-                reason='repeated_risk_consistency_mismatch'
-                payload=payload
+                r,
+                item['sid'],
+                prefix=args.quarantine_prefix,
+                reason='repeated_risk_consistency_mismatch',
+                payload=payload,
             ))
             # P4.8: Write to SQL ledger (best-effort, never raises).
             sink.record_quarantine({
-                'decision_id':      item.get('decision_id')
-                'signal_id':        item.get('signal_id')
-                'sid':              item['sid']
-                'symbol':           item.get('symbol') or ''
-                'tier':             item.get('tier') or ''
-                'repeated_count':   item['count']
-                'mismatch_rate':    mismatch_rate
-                'reasons':          item.get('mismatches') or []
-                'quarantine_action': 'REPEATED_MISMATCH_QUARANTINED'
-                'created_ts_ms':    now_ms
+                'decision_id':      item.get('decision_id'),
+                'signal_id':        item.get('signal_id'),
+                'sid':              item['sid'],
+                'symbol':           item.get('symbol') or '',
+                'tier':             item.get('tier') or '',
+                'repeated_count':   item['count'],
+                'mismatch_rate':    mismatch_rate,
+                'reasons':          item.get('mismatches') or [],
+                'quarantine_action': 'REPEATED_MISMATCH_QUARANTINED',
+                'created_ts_ms':    now_ms,
             })
 
     out = {
-        'checked':            checked
-        'mismatch_count':     len(mismatches)
-        'mismatch_rate':      mismatch_rate
-        'mismatches':         mismatches
-        'repeated_sid':       repeated
-        'quarantine_results': quarantine_results
+        'checked':            checked,
+        'mismatch_count':     len(mismatches),
+        'mismatch_rate':      mismatch_rate,
+        'mismatches':         mismatches,
+        'repeated_sid':       repeated,
+        'quarantine_results': quarantine_results,
         'generated_at_ms':    get_ny_time_millis(),  # P4.8: explicit generation timestamp
     }
 

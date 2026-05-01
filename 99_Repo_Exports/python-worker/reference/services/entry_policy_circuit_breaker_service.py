@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Entry Policy Circuit Breaker Service V1
 
@@ -22,7 +23,6 @@ Expert review:
   - DevOps/SRE: Horizontal scaling via consumer groups, observable freeze keys
   - Professor Statistics: P² algorithm accurate for P95, EMA for of_score smoothing
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -245,9 +245,9 @@ class EntryPolicyCircuitBreakerService:
         while True:
             try:
                 resp = await self.r.xreadgroup(
-                    self.group, self.consumer
-                    {self.stream: ">"}
-                    count=self.read_count
+                    self.group, self.consumer,
+                    {self.stream: ">"},
+                    count=self.read_count,
                     block=self.block_ms
                 )
             except Exception:
@@ -395,28 +395,28 @@ class EntryPolicyCircuitBreakerService:
 
         # Create freeze object
         fz = EntryPolicyFreezeV1(
-            ver=1
-            symbol=sym
-            group=group
-            scenario=scn
-            until_ts_ms=until
-            mode=mode
-            reason_code="DATA_BAD"
-            notes=f"bad_cnt={bad_cnt} spread_p95={sp95:.2f} obi_age_p95={ob95:.0f} pressure_p95={pr95:.2f} of_ema={of_ema:.2f}"
-            src="cb_v1"
-            created_ts_ms=now
+            ver=1,
+            symbol=sym,
+            group=group,
+            scenario=scn,
+            until_ts_ms=until,
+            mode=mode,
+            reason_code="DATA_BAD",
+            notes=f"bad_cnt={bad_cnt} spread_p95={sp95:.2f} obi_age_p95={ob95:.0f} pressure_p95={pr95:.2f} of_ema={of_ema:.2f}",
+            src="cb_v1",
+            created_ts_ms=now,
             metrics={
-                "n": int(st.n)
-                "spread_z_p95": float(sp95)
-                "obi_age_ms_p95": float(ob95)
-                "pressure_sps_p95": float(pr95)
-                "of_score_ema": float(of_ema)
-                "bad_spread": int(bad_spread)
-                "bad_obi": int(bad_obi)
-                "bad_pressure": int(bad_pressure)
-                "bad_of": int(bad_of)
-                "day_id": int(utc_day_id(now))
-            }
+                "n": int(st.n),
+                "spread_z_p95": float(sp95),
+                "obi_age_ms_p95": float(ob95),
+                "pressure_sps_p95": float(pr95),
+                "of_score_ema": float(of_ema),
+                "bad_spread": int(bad_spread),
+                "bad_obi": int(bad_obi),
+                "bad_pressure": int(bad_pressure),
+                "bad_of": int(bad_of),
+                "day_id": int(utc_day_id(now)),
+            },
         )
 
         # Write freeze to Redis (best-effort)

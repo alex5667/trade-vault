@@ -38,7 +38,7 @@ class TestRiskLevelsRRMode(unittest.TestCase):
             "TP_MODE": "RR",
             "TP_RR": "1.0,2.0,3.0",
             "slq_used": 1,
-            "slq_original_mult": 0.8
+            "slq_original_mult": 0.8,
         }
         res2 = compute_levels(entry, atr, side, cfg_slq, symbol="TEST2")
         

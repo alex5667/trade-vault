@@ -1,9 +1,9 @@
+from __future__ import annotations
 """P5.6 tests for the audit chain endpoint in the runbook server.
 
 Tests use the filter_report and load_report functions from a wrapped runbook_server
 that exposes the /api/audit-chain/latest endpoint.
 """
-from __future__ import annotations
 
 import importlib.util
 import json
@@ -30,12 +30,12 @@ def test_filter_audit_chain_report_by_sid_and_kind() -> None:
     """Filter by sid + kind must return only matching rows and recalculate broken_by_kind."""
     report = {
         "broken": [
-            {"kind": "broken_trade_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"}
-            {"kind": "broken_analytics_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"}
-            {"kind": "broken_trade_link", "sid": "b", "signal_id": "s2", "closed_trade_id": "t2"}
-        ]
-        "total_broken": 3
-        "broken_by_kind": {"broken_trade_link": 2, "broken_analytics_link": 1}
+            {"kind": "broken_trade_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"},
+            {"kind": "broken_analytics_link", "sid": "a", "signal_id": "s1", "closed_trade_id": "t1"},
+            {"kind": "broken_trade_link", "sid": "b", "signal_id": "s2", "closed_trade_id": "t2"},
+        ],
+        "total_broken": 3,
+        "broken_by_kind": {"broken_trade_link": 2, "broken_analytics_link": 1},
     }
     out = filter_audit_chain_report(report, {"sid": ["a"], "kind": ["broken_trade_link"]})
     assert out["total_broken"] == 1
@@ -47,11 +47,11 @@ def test_filter_audit_chain_report_no_filters_returns_all() -> None:
     """With no filters, filter_audit_chain_report must return all rows."""
     report = {
         "broken": [
-            {"kind": "broken_trade_link", "sid": "a"}
-            {"kind": "broken_analytics_link", "sid": "b"}
-        ]
-        "total_broken": 2
-        "broken_by_kind": {"broken_trade_link": 1, "broken_analytics_link": 1}
+            {"kind": "broken_trade_link", "sid": "a"},
+            {"kind": "broken_analytics_link", "sid": "b"},
+        ],
+        "total_broken": 2,
+        "broken_by_kind": {"broken_trade_link": 1, "broken_analytics_link": 1},
     }
     out = filter_audit_chain_report(report, {})
     assert out["total_broken"] == 2
@@ -70,11 +70,11 @@ def test_filter_audit_chain_report_by_signal_id() -> None:
     """Filter by signal_id must narrow results correctly."""
     report = {
         "broken": [
-            {"kind": "broken_signal_link", "sid": "a", "signal_id": "sig-X"}
-            {"kind": "broken_signal_link", "sid": "b", "signal_id": "sig-Y"}
-        ]
-        "total_broken": 2
-        "broken_by_kind": {"broken_signal_link": 2}
+            {"kind": "broken_signal_link", "sid": "a", "signal_id": "sig-X"},
+            {"kind": "broken_signal_link", "sid": "b", "signal_id": "sig-Y"},
+        ],
+        "total_broken": 2,
+        "broken_by_kind": {"broken_signal_link": 2},
     }
     out = filter_audit_chain_report(report, {"signal_id": ["sig-X"]})
     assert out["total_broken"] == 1

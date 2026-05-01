@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """enforce_bucket_slo_freezer_p80.py
 
 P80: Freeze auto-apply for enforce-bucket promoter if SLO degrades on enforced buckets.
@@ -35,9 +36,8 @@ Status/notify:
 
 Audit:
   ENFORCE_FREEZER_EVENTS_STREAM (default events:enforce_bucket_slo_freezer)
-"""
+""",
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -224,7 +224,7 @@ def _xadd_event(r: Any, *, sym: str, bucket: str, meta: dict) -> None:
             "sym": str(sym),
             "bucket": str(bucket),
             "meta": json.dumps(meta, separators=(",", ":"))[:3500],
-        }
+        },
         r.xadd(stream, fields, maxlen=50000)
     except Exception:
         return
@@ -304,7 +304,7 @@ def main() -> int:
                     "resid_p95_bps": p95,
                     "resid_p99_bps": p99,
                     "edge_neg_share": neg,
-                }
+                },
                 pipe = r.pipeline(transaction=False)
                 pipe.set(block_key, "1")
                 pipe.set(meta_key, json.dumps(meta, separators=(",", ":")))

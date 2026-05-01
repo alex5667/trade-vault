@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Prometheus exporter for extended confidence-calibration diagnostics.
 
 Reads proof/status JSON files written by conf_cal_promotion_manager_v1.py
@@ -14,7 +15,6 @@ ENV:
   CALIBRATION_EXT_EXPORTER_PORT     HTTP port (default 9138)
   CALIBRATION_EXT_EXPORTER_REFRESH_SEC  poll interval seconds (default 10)
 """
-from __future__ import annotations
 
 import json
 import os

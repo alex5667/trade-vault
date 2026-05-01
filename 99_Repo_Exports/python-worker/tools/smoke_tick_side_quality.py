@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Smoke tool: Tick-side quality & time sanity
 
@@ -17,7 +18,6 @@ Notes
   symbol, side, side_conf, event_ts_ms, ts_source, stream_id/stream_ms (optional)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

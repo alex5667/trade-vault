@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """meta_cov_outcome_auto_apply_v1.py
 
-P33+P34: Auto-downgrade + quarantine loop for meta ENFORCE per-coverage bucket shares
+P33+P34: Auto-downgrade + quarantine loop for meta ENFORCE per-coverage bucket shares,
 based on realized outcomes from POSITION_CLOSED events.
 
 Key ideas
@@ -87,7 +88,6 @@ Exit codes
 0 : OK / no action
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -462,12 +462,12 @@ def main() -> int:
             patch[f"meta_cov_recovery_target_share_{b}"] = float(tgt)
             patch[f"meta_cov_quarantine_reason_{b}"] = "released"
             decisions.append({
-                "action": "unquarantine"
-                "bucket": b
-                "start_share": float(start)
-                "target_share": float(tgt)
-                "good_streak": int(bs["release_streak"])
-                "ctl": s_ctl
+                "action": "unquarantine",
+                "bucket": b,
+                "start_share": float(start),
+                "target_share": float(tgt),
+                "good_streak": int(bs["release_streak"]),
+                "ctl": s_ctl,
             })
             bs["release_streak"] = 0
 
@@ -498,17 +498,17 @@ def main() -> int:
                 patch[f"meta_cov_recovery_target_share_{b}"] = float(cur)
 
             decisions.append({
-                "action": "quarantine"
-                "bucket": b
-                "cur_share": float(cur)
-                "new_share": 0.0
-                "ttl_sec": int(quarantine_ttl_sec)
-                "mean_delta": mean_delta
-                "tail_delta": tail_delta
-                "tail_enf": float(s_enf["tail_rate"])
-                "tail_ctl": float(s_ctl["tail_rate"])
-                "n_enf": int(s_enf["n"])
-                "n_ctl": int(s_ctl["n"])
+                "action": "quarantine",
+                "bucket": b,
+                "cur_share": float(cur),
+                "new_share": 0.0,
+                "ttl_sec": int(quarantine_ttl_sec),
+                "mean_delta": mean_delta,
+                "tail_delta": tail_delta,
+                "tail_enf": float(s_enf["tail_rate"]),
+                "tail_ctl": float(s_ctl["tail_rate"]),
+                "n_enf": int(s_enf["n"]),
+                "n_ctl": int(s_ctl["n"]),
             })
             continue
 
@@ -524,16 +524,16 @@ def main() -> int:
 
         patch[f"meta_enforce_share_cov_{b}"] = float(new_share)
         decisions.append({
-            "action": "downgrade"
-            "bucket": b
-            "cur_share": float(cur)
-            "new_share": float(new_share)
-            "mean_delta": mean_delta
-            "tail_delta": tail_delta
-            "tail_enf": float(s_enf["tail_rate"])
-            "tail_ctl": float(s_ctl["tail_rate"])
-            "n_enf": int(s_enf["n"])
-            "n_ctl": int(s_ctl["n"])
+            "action": "downgrade",
+            "bucket": b,
+            "cur_share": float(cur),
+            "new_share": float(new_share),
+            "mean_delta": mean_delta,
+            "tail_delta": tail_delta,
+            "tail_enf": float(s_enf["tail_rate"]),
+            "tail_ctl": float(s_ctl["tail_rate"]),
+            "n_enf": int(s_enf["n"]),
+            "n_ctl": int(s_ctl["n"]),
         })
 
     # Pass 3: gradual ramp towards recovery target (if configured)
@@ -568,17 +568,17 @@ def main() -> int:
             new_share = min(tgt, cur + ramp_step)
             patch[f"meta_enforce_share_cov_{b}"] = float(new_share)
             decisions.append({
-                "action": "ramp_up"
-                "bucket": b
-                "cur_share": float(cur)
-                "new_share": float(new_share)
-                "target_share": float(tgt)
-                "good_streak": int(bs["ramp_streak"])
-                "mean_delta": mean_delta
-                "tail_enf": float(s_enf["tail_rate"])
-                "tail_ctl": float(s_ctl["tail_rate"])
-                "n_enf": int(s_enf["n"])
-                "n_ctl": int(s_ctl["n"])
+                "action": "ramp_up",
+                "bucket": b,
+                "cur_share": float(cur),
+                "new_share": float(new_share),
+                "target_share": float(tgt),
+                "good_streak": int(bs["ramp_streak"]),
+                "mean_delta": mean_delta,
+                "tail_enf": float(s_enf["tail_rate"]),
+                "tail_ctl": float(s_ctl["tail_rate"]),
+                "n_enf": int(s_enf["n"]),
+                "n_ctl": int(s_ctl["n"]),
             })
             bs["ramp_streak"] = 0
             if new_share >= (tgt - 1e-9):
@@ -610,13 +610,13 @@ def main() -> int:
     sid = f"cov_guard:{int(now_ts)}:{h}"
 
     meta = {
-        "sid": sid
-        "ts_ms": int(now_ts)
-        "reason": reason
-        "window_hours": float(args.lookback_hours)
-        "decisions": decisions
-        "summary": summary
-        "patch": patch
+        "sid": sid,
+        "ts_ms": int(now_ts),
+        "reason": reason,
+        "window_hours": float(args.lookback_hours),
+        "decisions": decisions,
+        "summary": summary,
+        "patch": patch,
     }
 
     if args.dry_run:

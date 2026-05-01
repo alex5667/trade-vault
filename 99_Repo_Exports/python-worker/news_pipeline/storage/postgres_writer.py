@@ -31,12 +31,12 @@ class PgConfig:
 
 
 class NewsPostgresWriterAsync:
-    """
+    """,
     Асинхронный writer:
     - consumer поток кладёт записи в очередь (O(1), очень быстро)
     - отдельный поток батчит и пишет
     - fail-open: при проблемах просто "молчим", чтобы пайплайн не стоял
-    """
+    """,
 
     def __init__(self, cfg: PgConfig) -> None:
         self.cfg = cfg
@@ -128,54 +128,54 @@ class NewsPostgresWriterAsync:
 
         if analysis_rows:
             psycopg2.extras.execute_values(
-                cur
-                """
+                cur,
+                """,
                 INSERT INTO news_analysis(uid, ts_ms, symbol, source, risk, surprise, tags_mask, primary_tag, payload_json)
                 VALUES %s
                 ON CONFLICT (uid) DO UPDATE SET
-                  ts_ms=EXCLUDED.ts_ms
-                  symbol=EXCLUDED.symbol
-                  source=EXCLUDED.source
-                  risk=EXCLUDED.risk
-                  surprise=EXCLUDED.surprise
-                  tags_mask=EXCLUDED.tags_mask
-                  primary_tag=EXCLUDED.primary_tag
+                  ts_ms=EXCLUDED.ts_ms,
+                  symbol=EXCLUDED.symbol,
+                  source=EXCLUDED.source,
+                  risk=EXCLUDED.risk,
+                  surprise=EXCLUDED.surprise,
+                  tags_mask=EXCLUDED.tags_mask,
+                  primary_tag=EXCLUDED.primary_tag,
                   payload_json=EXCLUDED.payload_json
-                """
+                """,
                 [
                     (
-                        r["uid"]
-                        int(r["ts_ms"])
-                        r["symbol"]
-                        r["source"]
-                        float(r["risk"])
-                        float(r["surprise"])
-                        int(r["tags_mask"])
-                        int(r["primary_tag"])
-                        json.dumps(r["payload_json"])
+                        r["uid"],
+                        int(r["ts_ms"]),
+                        r["symbol"],
+                        r["source"],
+                        float(r["risk"]),
+                        float(r["surprise"]),
+                        int(r["tags_mask"]),
+                        int(r["primary_tag"]),
+                        json.dumps(r["payload_json"]),
                     )
                     for r in analysis_rows
-                ]
+                ],
             )
 
         if feature_rows:
             psycopg2.extras.execute_values(
-                cur
-                """
+                cur,
+                """,
                 INSERT INTO news_features_symbol(symbol, ts_ms, risk, surprise, tags_mask, primary_tag, ref)
                 VALUES %s
                 ON CONFLICT (symbol, ts_ms) DO NOTHING
-                """
+                """,
                 [
                     (
-                        r["symbol"]
-                        int(r["ts_ms"])
-                        float(r["risk"])
-                        float(r["surprise"])
-                        int(r["tags_mask"])
-                        int(r["primary_tag"])
-                        r["ref"]
+                        r["symbol"],
+                        int(r["ts_ms"]),
+                        float(r["risk"]),
+                        float(r["surprise"]),
+                        int(r["tags_mask"]),
+                        int(r["primary_tag"]),
+                        r["ref"],
                     )
                     for r in feature_rows
-                ]
+                ],
             )

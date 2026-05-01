@@ -1,7 +1,7 @@
+from __future__ import annotations
 """P13: Tests for ActiveSymbolGuardIncidentNotifier with hold/ack-aware candidate selection
 and decision field in run_once output.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

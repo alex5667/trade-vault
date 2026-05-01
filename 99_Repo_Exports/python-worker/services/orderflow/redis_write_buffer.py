@@ -1,10 +1,11 @@
+from __future__ import annotations
 """
 Redis Write-Behind Buffer and Local TTL Cache for hot-path optimization.
 
 Provides two utilities:
-1. WriteBehindBuffer — coalesces fire-and-forget SET/INCR/EXPIRE into periodic pipeline flushes
+1. WriteBehindBuffer — coalesces fire-and-forget SET/INCR/EXPIRE into periodic pipeline flushes,
    reducing Redis round-trips by ~10-50x for frequently-overwritten keys.
-2. LocalTTLCache — in-process TTL cache for slow-changing Redis keys (config, state)
+2. LocalTTLCache — in-process TTL cache for slow-changing Redis keys (config, state),
    eliminating redundant GET/HGETALL round-trips.
 
 Usage:
@@ -23,7 +24,6 @@ Usage:
         cache.put("config:orderflow:BTCUSDT", val)
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -36,15 +36,15 @@ logger = logging.getLogger("redis_write_buffer")
 class WriteBehindBuffer:
     """Coalesces fire-and-forget Redis writes into periodic pipeline flushes.
 
-    For keys that are overwritten on every tick (e.g. cfg:last_px:*)
+    For keys that are overwritten on every tick (e.g. cfg:last_px:*),
     this reduces ~900 SET/sec → ~9 pipeline execs/sec (at flush_interval=2s).
 
     Thread-safety: designed for single-threaded asyncio event loop.
     """
     __slots__ = (
-        '_redis', '_flush_sec', '_last_flush_ns'
-        '_pending_set', '_pending_incr', '_pending_sadd'
-        '_pending_expire', '_flush_task', '_closed'
+        '_redis', '_flush_sec', '_last_flush_ns',
+        '_pending_set', '_pending_incr', '_pending_sadd',
+        '_pending_expire', '_flush_task', '_closed',
     )
 
     def __init__(self, redis_client: Any, flush_interval_sec: float = 2.0):

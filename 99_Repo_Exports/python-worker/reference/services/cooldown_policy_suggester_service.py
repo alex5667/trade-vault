@@ -17,7 +17,7 @@ def _sha1(s: str) -> str:
 def _clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
-def propose_from_group(cur: dict, *, blocked: int, replaced: int, emit_pending: int, emit_current: int
+def propose_from_group(cur: dict, *, blocked: int, replaced: int, emit_pending: int, emit_current: int,
                        p90_pressure: float, p90_spread: float, regime: str, scenario: str) -> dict:
     """
     Heuristic tuner (safe-first):
@@ -74,9 +74,9 @@ async def main() -> None:
 
     # current defaults (global)
     cur_defaults = {
-        "cooldown_reversal_sec": float(os.getenv("COOLDOWN_REV_DEFAULT", "30"))
-        "cooldown_continuation_sec": float(os.getenv("COOLDOWN_CON_DEFAULT", "15"))
-        "pressure_hi_sps": float(os.getenv("PRESSURE_HI_DEFAULT", "0.12"))
+        "cooldown_reversal_sec": float(os.getenv("COOLDOWN_REV_DEFAULT", "30")),
+        "cooldown_continuation_sec": float(os.getenv("COOLDOWN_CON_DEFAULT", "15")),
+        "pressure_hi_sps": float(os.getenv("PRESSURE_HI_DEFAULT", "0.12")),
     }
 
     for k, g in groups.items():
@@ -88,38 +88,38 @@ async def main() -> None:
         replaced = int(g.get("replaced", 0) or 0)
         emit_pending = int(g.get("emit_pending", 0) or 0)
         emit_current = int(g.get("emit_current", 0) or 0)
-        p90_pressure = float(g.get("p90_pressure_sps", 0.0) or 0.0)
-        p90_spread = float(g.get("p90_spread_bp", 0.0) or 0.0)
+        p90_pressure = float(g.get("p90_pressure_sps", 0.0) or 0.0),
+        p90_spread = float(g.get("p90_spread_bp", 0.0) or 0.0),
 
         proposed = propose_from_group(
-            cur_defaults
-            blocked=blocked, replaced=replaced
-            emit_pending=emit_pending, emit_current=emit_current
-            p90_pressure=p90_pressure, p90_spread=p90_spread
-            regime=str(regime).lower(), scenario=str(scenario).lower()
-        )
+            cur_defaults,
+            blocked=blocked, replaced=replaced,
+            emit_pending=emit_pending, emit_current=emit_current,
+            p90_pressure=p90_pressure, p90_spread=p90_spread,
+            regime=str(regime).lower(), scenario=str(scenario).lower(),
+        ),
 
         meta = {
-            "kind": "cooldown_policy_v1"
-            "ts_ms": now
-            "symbol": str(sym).upper()
-            "regime": str(regime).lower()
-            "scenario": str(scenario).lower()
-            "input_report_ts_ms": int(rep.get("ts_ms", 0) or 0)
+            "kind": "cooldown_policy_v1",
+            "ts_ms": now,
+            "symbol": str(sym).upper(),
+            "regime": str(regime).lower(),
+            "scenario": str(scenario).lower(),
+            "input_report_ts_ms": int(rep.get("ts_ms", 0) or 0),
             "stats": {
-                "blocked": blocked
-                "replaced": replaced
-                "emit_pending": emit_pending
-                "emit_current": emit_current
-                "p90_pressure_sps": p90_pressure
-                "p90_spread_bp": p90_spread
-            }
-            "proposed": proposed
+                "blocked": blocked,
+                "replaced": replaced,
+                "emit_pending": emit_pending,
+                "emit_current": emit_current,
+                "p90_pressure_sps": p90_pressure,
+                "p90_spread_bp": p90_spread,
+            },
+            "proposed": proposed,
             "apply": {
-                "override_key": f"cfg:crypto_of:overrides:{str(sym).upper()}"
-                "allow_keys": list(proposed.keys())
-            }
-            "rationale": "Auto-tune cooldown/pressure from burst report; safe-first; bounded; requires 2-man approval."
+                "override_key": f"cfg:crypto_of:overrides:{str(sym).upper()}",
+                "allow_keys": list(proposed.keys()),
+            },
+            "rationale": "Auto-tune cooldown/pressure from burst report; safe-first; bounded; requires 2-man approval.",
         }
 
         sid = _sha1(json.dumps(meta, sort_keys=True, separators=(",", ":")))

@@ -14,14 +14,14 @@ class DeribitContextDecision:
 
 
 def evaluate_deribit_context(
-    *
-    profile: str
-    side: str
-    vol_regime: str
-    iv_z: float
-    funding_8h: float
-    basis_bps: float
-    tighten_cap_bps: float
+    *,
+    profile: str,
+    side: str,
+    vol_regime: str,
+    iv_z: float,
+    funding_8h: float,
+    basis_bps: float,
+    tighten_cap_bps: float,
 ) -> DeribitContextDecision:
     """
     Evaluate Deribit volatility context and produce a risk/tighten decision.
@@ -39,11 +39,11 @@ def evaluate_deribit_context(
       normal         → no action
     """
     mode = {
-        "default": "monitor"
-        "monitor": "monitor"
-        "soft": "monitor"
-        "strict": "tighten"
-        "tighten": "tighten"
+        "default": "monitor",
+        "monitor": "monitor",
+        "soft": "monitor",
+        "strict": "tighten",
+        "tighten": "tighten",
         "hard": "tighten",  # intentionally no hard veto for Deribit
     }.get(str(profile or "monitor").lower(), "monitor")
 
@@ -90,11 +90,11 @@ def evaluate_deribit_context(
 
     # Deribit never issues a hard veto — it is a slow volatility context layer only.
     return DeribitContextDecision(
-        hit=bool(flags)
-        mode=mode
-        flags=flags
-        tighten_add_bps=float(tighten)
-        risk_multiplier=float(risk_mult)
-        veto=False
-        veto_reason=""
+        hit=bool(flags),
+        mode=mode,
+        flags=flags,
+        tighten_add_bps=float(tighten),
+        risk_multiplier=float(risk_mult),
+        veto=False,
+        veto_reason="",
     )

@@ -80,10 +80,10 @@ class PaperTradingTest:
         log.info("✅ PaperTradingTest initialized: redis=%s", self.redis_url)
     
     def create_test_signal(
-        self
-        symbol: str = "XAUUSD"
-        side: str = "LONG"
-        confidence: float = 80.0
+        self,
+        symbol: str = "XAUUSD",
+        side: str = "LONG",
+        confidence: float = 80.0,
         trail_profile: str = "rocket_v1"
     ) -> TestSignal:
         """
@@ -123,23 +123,23 @@ class PaperTradingTest:
         else:
             sl = entry + atr * 1.5
             tp_levels = [
-                entry - atr * 2.0
-                entry - atr * 3.0
+                entry - atr * 2.0,
+                entry - atr * 3.0,
                 entry - atr * 4.0
             ]
         
         signal = TestSignal(
-            sid=sid
-            symbol=symbol
-            side=side
-            entry=entry
-            sl=sl
-            tp_levels=tp_levels
-            lot=0.03
-            trail_after_tp1=confidence >= 60
-            trail_profile=trail_profile
-            confidence=confidence
-            atr=atr
+            sid=sid,
+            symbol=symbol,
+            side=side,
+            entry=entry,
+            sl=sl,
+            tp_levels=tp_levels,
+            lot=0.03,
+            trail_after_tp1=confidence >= 60,
+            trail_profile=trail_profile,
+            confidence=confidence,
+            atr=atr,
             ts=ts
         )
         
@@ -154,8 +154,8 @@ class PaperTradingTest:
         log.info("💾 Signal saved: %s", signal.sid)
     
     def run_scenario(
-        self
-        signal: TestSignal
+        self,
+        signal: TestSignal,
         scenario: str
     ) -> TestResult:
         """
@@ -171,13 +171,13 @@ class PaperTradingTest:
         log.info("🎬 Running scenario '%s' for %s", scenario, signal.sid)
         
         result = TestResult(
-            signal_id=signal.sid
-            scenario=scenario
-            success=False
-            trailing_activated=False
-            tp1_reached=False
-            tp2_reached=False
-            tp3_reached=False
+            signal_id=signal.sid,
+            scenario=scenario,
+            success=False,
+            trailing_activated=False,
+            tp1_reached=False,
+            tp2_reached=False,
+            tp3_reached=False,
             sl_hit=False
         )
         
@@ -244,8 +244,8 @@ class PaperTradingTest:
         return result
     
     def run_test_suite(
-        self
-        num_signals: int = 5
+        self,
+        num_signals: int = 5,
         scenarios: List[str] = None
     ) -> List[TestResult]:
         """
@@ -260,10 +260,10 @@ class PaperTradingTest:
         """
         if scenarios is None:
             scenarios = [
-                "tp1_only"
-                "tp1_then_tp2"
-                "tp1_then_tp2_then_tp3"
-                "tp1_then_sl"
+                "tp1_only",
+                "tp1_then_tp2",
+                "tp1_then_tp2_then_tp3",
+                "tp1_then_sl",
                 "direct_sl"
             ]
         
@@ -283,9 +283,9 @@ class PaperTradingTest:
                 side = random.choice(["LONG", "SHORT"])
                 
                 signal = self.create_test_signal(
-                    symbol="XAUUSD"
-                    side=side
-                    confidence=confidence
+                    symbol="XAUUSD",
+                    side=side,
+                    confidence=confidence,
                     trail_profile=profile
                 )
                 
@@ -293,9 +293,9 @@ class PaperTradingTest:
                 results.append(result)
                 
                 log.info(
-                    "Test %d/%d: %s - %s | trailing=%s"
-                    i + 1, num_signals, scenario
-                    "✅ OK" if result.success else "❌ FAIL"
+                    "Test %d/%d: %s - %s | trailing=%s",
+                    i + 1, num_signals, scenario,
+                    "✅ OK" if result.success else "❌ FAIL",
                     "✅" if result.trailing_activated else "❌"
                 )
                 
@@ -356,9 +356,9 @@ def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description="Paper Trading Test for TP1 Trailing")
     parser.add_argument(
-        "--scenario"
-        choices=["tp1_only", "tp1_then_tp2", "tp1_then_tp2_then_tp3", "tp1_then_sl", "direct_sl", "all"]
-        default="all"
+        "--scenario",
+        choices=["tp1_only", "tp1_then_tp2", "tp1_then_tp2_then_tp3", "tp1_then_sl", "direct_sl", "all"],
+        default="all",
         help="Test scenario"
     )
     parser.add_argument("--signals", type=int, default=5, help="Number of signals per scenario")

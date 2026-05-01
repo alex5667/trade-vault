@@ -108,14 +108,14 @@ def build_verification_policy(action_type: str) -> Dict[str, Any]:
         "max_negative_delta": _f(os.getenv("ML_POST_COMMIT_MAX_NEG_DELTA", "0.05"), 0.05),
         "max_error_rate": _f(os.getenv("ML_POST_COMMIT_MAX_ERROR_RATE", "0.05"), 0.05),
         "max_latency_p95_ms": _f(os.getenv("ML_POST_COMMIT_MAX_LATENCY_P95_MS", "8.0"), 8.0),
-    }
+    },
     if action_type == "propose_threshold_canary":
         base.update(
             {
                 "required_signals_min": _i(os.getenv("ML_POST_COMMIT_CANARY_MIN_SIGNALS", "50"), 50),
                 "rollback_on_allow_rate_drop": True,
                 "rollback_on_error_spike": True,
-            }
+            },
         )
     elif action_type in {"freeze_candidate", "unfreeze_candidate"}:
         base.update(
@@ -123,7 +123,7 @@ def build_verification_policy(action_type: str) -> Dict[str, Any]:
                 "required_signals_min": _i(os.getenv("ML_POST_COMMIT_FREEZE_MIN_SIGNALS", "10"), 10),
                 "rollback_on_allow_rate_drop": False,
                 "rollback_on_error_spike": True,
-            }
+            },
         )
     else:
         base.update({"required_signals_min": 10, "rollback_on_allow_rate_drop": False, "rollback_on_error_spike": True})
@@ -225,7 +225,7 @@ async def maybe_emit_rollback(redis_cli: Any, rec: CommitResult, reasons: List[s
         "target_ref": rec.target_ref,
         "rollback_reason_codes_json": json.dumps(reasons),
         "requested_by": "ml_post_commit_verifier_v1",
-    }
+    },
     await redis_cli.xadd(
         os.getenv("ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM", "stream:ml:recommendation_rollback_requests"),
         payload,

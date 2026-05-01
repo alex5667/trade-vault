@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """P58 wrapper: archive signals:of:inputs stream to NDJSON.
 
 Runs ml_analysis.tools.stream_archiver_ndjson_v1 with sensible defaults.
@@ -12,7 +13,6 @@ Env overrides:
   MAX_MESSAGES / BATCH / GZIP / etc (passed through via env or CLI)
 """
 
-from __future__ import annotations
 
 import os
 import sys

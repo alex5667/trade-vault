@@ -36,23 +36,23 @@ class DerivedFGHStats:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "n_rows": int(self.n_rows)
-            "n_rel_ok": int(self.n_rel_ok)
-            "n_rel_missing_leader": int(self.n_rel_missing_leader)
-            "n_rel_lagged": int(self.n_rel_lagged)
-            "n_replen_ok": int(self.n_replen_ok)
-            "n_vel_ok": int(self.n_vel_ok)
+            "n_rows": int(self.n_rows),
+            "n_rel_ok": int(self.n_rel_ok),
+            "n_rel_missing_leader": int(self.n_rel_missing_leader),
+            "n_rel_lagged": int(self.n_rel_lagged),
+            "n_replen_ok": int(self.n_replen_ok),
+            "n_vel_ok": int(self.n_vel_ok),
         }
 
 
 def derive_fgh_rows(
-    rows: List[Dict[str, Any]]
-    *
-    leader_symbol: str = "BTCUSDT"
-    leader_max_lag_ms: int = 2000
-    eps: float = 1e-9
-    vel_z_alpha: float = 0.06
-    store_debug_flags: bool = False
+    rows: List[Dict[str, Any]],
+    *,
+    leader_symbol: str = "BTCUSDT",
+    leader_max_lag_ms: int = 2000,
+    eps: float = 1e-9,
+    vel_z_alpha: float = 0.06,
+    store_debug_flags: bool = False,
 ) -> Dict[str, Any]:
     """Derive ROI-dense offline-only features F/G/H.
 
@@ -243,18 +243,18 @@ def derive_fgh_rows(
     tb_keys = ["hawkes_taker_buy_lam", "lambda_trade_buy", "taker_buy_rate_ema", "taker_buy_rate"]
     ts_keys = ["hawkes_taker_sell_lam", "lambda_trade_sell", "taker_sell_rate_ema", "taker_sell_rate"]
     la_ask_keys = [
-        "hawkes_limit_add_ask_lam"
-        "lambda_limit_add_ask"
-        "limit_add_ask_rate_ema"
-        "added_ask_rate_ema"
-        "l2_added_ask_rate_ema"
+        "hawkes_limit_add_ask_lam",
+        "lambda_limit_add_ask",
+        "limit_add_ask_rate_ema",
+        "added_ask_rate_ema",
+        "l2_added_ask_rate_ema",
     ]
     la_bid_keys = [
-        "hawkes_limit_add_bid_lam"
-        "lambda_limit_add_bid"
-        "limit_add_bid_rate_ema"
-        "added_bid_rate_ema"
-        "l2_added_bid_rate_ema"
+        "hawkes_limit_add_bid_lam",
+        "lambda_limit_add_bid",
+        "limit_add_bid_rate_ema",
+        "added_bid_rate_ema",
+        "l2_added_bid_rate_ema",
     ]
 
     for r in rows:

@@ -26,7 +26,7 @@ class TestWeakProgressConfig(unittest.TestCase):
         cfg1 = {
             "weak_progress_range_atr": 0.6,
             "weak_progress_body_atr": 0.05,
-            "tick_size_px": 0.1
+            "tick_size_px": 0.1,
         }
         res1 = compute_weak_progress(bar, atr, cfg1)
         self.assertTrue(res1.weak_range, "Range should be weak (0.5 < 0.6)")
@@ -40,7 +40,7 @@ class TestWeakProgressConfig(unittest.TestCase):
         cfg2 = {
             "weak_progress_range_atr": 0.4,
             "weak_progress_body_atr": 0.2,
-            "tick_size_px": 0.1
+            "tick_size_px": 0.1,
         }
         res2 = compute_weak_progress(bar, atr, cfg2)
         self.assertFalse(res2.weak_range, "Range should NOT be weak (0.5 > 0.4)")

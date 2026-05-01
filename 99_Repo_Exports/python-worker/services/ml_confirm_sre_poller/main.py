@@ -14,7 +14,7 @@ log = logging.getLogger("ml_confirm_sre_poller")
 def main():
     # Setup logging
     logging.basicConfig(
-        level=logging.INFO
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     

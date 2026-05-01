@@ -1,4 +1,4 @@
 """
-Calibration module for auto-tuning XAUUSD signal thresholds.
+Calibration module for auto-tuning  signal thresholds.
 """
 

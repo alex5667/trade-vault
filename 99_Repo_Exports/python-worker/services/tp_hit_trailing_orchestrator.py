@@ -180,7 +180,7 @@ class TpHitTrailingOrchestrator:
             if trailing_symbols_env:
                 symbol_list = trailing_symbols_env
             else:
-                symbol_list = ["XAUUSD", "BTCUSDT", "ETHUSDT"]
+                symbol_list = ["BTCUSDT", "ETHUSDT"]
             self.symbol_filter_enabled = True
         self.trailing_symbols = {
             _normalize_symbol(sym) for sym in symbol_list if _normalize_symbol(sym)
@@ -245,8 +245,8 @@ class TpHitTrailingOrchestrator:
         Event format:
         {
             "event_type": "TP1_HIT" | "TP2_HIT" | "SL_HIT" | "POSITION_OPENED",
-            "sid": "signal-XAUUSD-1730222790",
-            "symbol": "XAUUSD",
+            "sid": "signal--1730222790",
+            "symbol": "",
             "position_id": "1234567",  # MT5 ticket
             "ticket": "1234567",        # альтернативное поле
             "price": "2769.9",
@@ -321,7 +321,7 @@ class TpHitTrailingOrchestrator:
             self.stats["tp1_hits"] += 1
         
         sid = event.get("sid")
-        symbol = symbol or "XAUUSD"
+        symbol = symbol or ""
         position_id = event.get("position_id") or event.get("ticket")
         price = float(event.get("price", 0.0))
         source = event.get("source", "unknown")
@@ -366,7 +366,7 @@ class TpHitTrailingOrchestrator:
                 TrailingMetrics.record_signal_without_flag(symbol)
             log.debug(
                 "Signal %s does not have trail_after_tp1 flag, skip trailing",
-                sid
+                sid,
             )
             return TrailingResult(success=False, skipped=True, error="trail_flag_disabled")
         
@@ -840,8 +840,8 @@ if __name__ == "__main__":
     # Тестовое событие
     test_event = {
         "event_type": "TP1_HIT",
-        "sid": "signal-XAUUSD-1730222790",
-        "symbol": "XAUUSD",
+        "sid": "signal--1730222790",
+        "symbol": "",
         "position_id": "1234567",
         "price": "2769.9",
         "ts": "1730222790",

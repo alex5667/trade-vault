@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for tick_flow_full.services.prom_rules_bundle_smoke_runner_v1 (P104 mirror).
 
 Mirrors the services/ test suite but imports from tick_flow_full.*
 and validates the tick_flow_full manifest.
 """
-from __future__ import annotations
 
 import json
 

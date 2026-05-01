@@ -146,7 +146,7 @@ async def main() -> None:
             if await _acquire_lock(r_async, lock_key, lock_ttl):
                 print(f"Triggering daily report at {now}")
                 txt, sids = await run_once(
-                    r_sync=r_sync, r_async=r_async
+                    r_sync=r_sync, r_async=r_async,
                     since_hours=daily_hours, window_days=1.0, min_n=min_n_daily, propose=propose_daily
                 )
                 
@@ -178,7 +178,7 @@ async def main() -> None:
             if await _acquire_lock(r_async, lock_key, lock_ttl):
                 print(f"Triggering weekly report at {now}")
                 txt, sids = await run_once(
-                    r_sync=r_sync, r_async=r_async
+                    r_sync=r_sync, r_async=r_async,
                     since_hours=weekly_hours, window_days=7.0, min_n=min_n_weekly, propose=propose_weekly
                 )
                 

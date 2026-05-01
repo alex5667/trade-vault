@@ -8,7 +8,7 @@ Usage:
     python3 calibrate_roc.py \
         --joined data/labels/joined_pnl.parquet \
         --out-yaml config/defaults/xauusd.yaml \
-        --symbol XAUUSD
+        --symbol 
 """
 
 import argparse
@@ -32,7 +32,7 @@ def main():
     )
     ap.add_argument("--joined", required=True, help="Joined parquet/csv")
     ap.add_argument("--out-yaml", required=True, help="Output YAML config")
-    ap.add_argument("--symbol", default="XAUUSD", help="Symbol name")
+    ap.add_argument("--symbol", help="Symbol name")
     args = ap.parse_args()
     
     print("=" * 80)
@@ -90,10 +90,10 @@ def main():
             best_threshold = thresholds[best_idx]
             
             results[feat] = {
-                "auc": float(auc)
-                "threshold": float(best_threshold)
-                "tpr": float(tpr[best_idx])
-                "fpr": float(fpr[best_idx])
+                "auc": float(auc),
+                "threshold": float(best_threshold),
+                "tpr": float(tpr[best_idx]),
+                "fpr": float(fpr[best_idx]),
                 "youden_j": float(j[best_idx])
             }
             
@@ -110,21 +110,21 @@ def main():
     
     # Build config
     cfg = {
-        "symbol": args.symbol
-        "thresholds": {
-            "deltaSpikeZ": float(results.get("delta_z", {}).get("threshold", 2.0))
-            "obi_signed": float(results.get("obi_signed", {}).get("threshold", 0.25))
+        "symbol": args.symbol,
+#         "thresholds": {
+            "deltaSpikeZ": float(results.get("delta_z", {}).get("threshold", 2.0)),
+            "obi_signed": float(results.get("obi_signed", {}).get("threshold", 0.25)),
             "weakProgress": 0.3  # Fixed methodologically
         }
-        "aucs": {
-            k: v["auc"] for k, v in results.items()
-        }
-        "calibration": {
-            "timestamp": datetime.now(timezone.utc).isoformat()
-            "samples": len(df)
-            "win_rate": float(df["label"].mean())
-        }
-    }
+#         "aucs": {
+#             k: v["auc"] for k, v in results.items()
+#         }
+#         "calibration": {
+#             "timestamp": datetime.now(timezone.utc).isoformat(),
+#             "samples": len(df),
+#             "win_rate": float(df["label"].mean())
+#         }
+#     }
     
     # Save
     pathlib.Path(args.out_yaml).parent.mkdir(parents=True, exist_ok=True)

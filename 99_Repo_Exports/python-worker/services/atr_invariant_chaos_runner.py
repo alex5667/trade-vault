@@ -12,26 +12,26 @@ from services.analytics_db import get_conn
 
 def _build_synthetic_signal(drill_code: str) -> Dict[str, Any]:
     return {
-        "signal_id": f"synth_sig_{uuid.uuid4()}"
-        "symbol": "BTCUSDT"
-        "side": "BUY"
-        "action": "OPEN"
-        "entry_price": 50000.0
-        "sl_price": 49000.0
-        "tp1_price": 51000.0
-        "risk_pct": 1.0
-        "effective_risk_pct": 1.0
-        "tradeable": True
-        "veto_reason": None
+        "signal_id": f"synth_sig_{uuid.uuid4()}",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "action": "OPEN",
+        "entry_price": 50000.0,
+        "sl_price": 49000.0,
+        "tp1_price": 51000.0,
+        "risk_pct": 1.0,
+        "effective_risk_pct": 1.0,
+        "tradeable": True,
+        "veto_reason": None,
         "is_rejected_signal": 0
     }
 
 def _build_synthetic_ctx(drill_code: str) -> Dict[str, Any]:
     return {
-        "degrade_state": "normal"
-        "allocator_state": "fresh"
-        "rollout_stage": "shadow"
-        "portfolio_gate_allow": True
+        "degrade_state": "normal",
+        "allocator_state": "fresh",
+        "rollout_stage": "shadow",
+        "portfolio_gate_allow": True,
         "protective_exit_allowed": True
     }
 
@@ -68,12 +68,12 @@ def _apply_drill_mutation(signal: Dict[str, Any], ctx: Dict[str, Any], drill_cod
 
 def _execute_surface(drill: InvariantChaosDrill, signal: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
     result = {
-        "engine_allow": True
-        "violations": []
-        "remediation_actions": []
-        "target_stage_allowed": True
-        "incident_opened": False
-        "rollout_paused": False
+        "engine_allow": True,
+        "violations": [],
+        "remediation_actions": [],
+        "target_stage_allowed": True,
+        "incident_opened": False,
+        "rollout_paused": False,
         "rollback_requested": False
     }
 
@@ -116,15 +116,15 @@ def _execute_surface(drill: InvariantChaosDrill, signal: Dict[str, Any], ctx: Di
 
 def _certify(drill: InvariantChaosDrill, signal: Dict[str, Any], ctx: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
     cert = {
-        "violation_logged": len(result["violations"]) > 0
-        "expected_action_triggered": False
-        "unrelated_scopes_untouched": True
-        "order_queue_unchanged_if_deny": True
-        "diagnostics_emitted_if_expected": True
-        "risk_pct_clipped_if_clip_expected": True
-        "rollout_paused_if_pause_expected": True
-        "rollback_request_created_if_expected": True
-        "protective_exits_intact": True
+        "violation_logged": len(result["violations"]) > 0,
+        "expected_action_triggered": False,
+        "unrelated_scopes_untouched": True,
+        "order_queue_unchanged_if_deny": True,
+        "diagnostics_emitted_if_expected": True,
+        "risk_pct_clipped_if_clip_expected": True,
+        "rollout_paused_if_pause_expected": True,
+        "rollback_request_created_if_expected": True,
+        "protective_exits_intact": True,
         "status": "passed"
     }
 
@@ -160,9 +160,9 @@ def _certify(drill: InvariantChaosDrill, signal: Dict[str, Any], ctx: Dict[str, 
 
     # Main pass/fail assessment:
     cert_checks = [
-        cert["violation_logged"]
-        cert["expected_action_triggered"]
-        cert["unrelated_scopes_untouched"]
+        cert["violation_logged"],
+        cert["expected_action_triggered"],
+        cert["unrelated_scopes_untouched"],
         cert["order_queue_unchanged_if_deny"]
     ]
     if all(cert_checks):
@@ -176,10 +176,10 @@ def persist_run(run_id: str, drill_code: str, invariant_id: str, mode: str, targ
     # We only persist to SQL if not in purely unit-test isolation without DB
     status = cert_dict["status"]
     pack = {
-        "run_id": run_id
-        "drill_code": drill_code
-        "mode": mode
-        "results": cert_dict
+        "run_id": run_id,
+        "drill_code": drill_code,
+        "mode": mode,
+        "results": cert_dict,
         "status": status
     }
     
@@ -247,10 +247,10 @@ def run_once() -> Dict[str, Any]:
         if cert["status"] == "failed":
             from services.atr_invariant_budget_service import record_synthetic_burn
             record_synthetic_burn(
-                surface=drill.execute_mode
-                severity="critical"
+                surface=drill.execute_mode,
+                severity="critical",
                 scope_kind="global", # Failures on chaos affect global governance
-                scope_value="synthetic_chaos"
+                scope_value="synthetic_chaos",
                 reason_code=f"CHAOS_DRILL_FAILED_{drill_code}"
             )
         

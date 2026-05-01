@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tick quality gate from Prometheus /metrics.
 
 Purpose
@@ -24,7 +25,6 @@ Exit codes
 This tool is stdlib-only.
 """
 
-from __future__ import annotations
 
 import argparse
 import os

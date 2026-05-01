@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Extract policy snapshot + feature manifest from decision records (NDJSON).
 
 Usage:
@@ -8,7 +9,6 @@ It enables an "ironclad" Train==Serve contract by persisting the runtime policy 
 used to create the training dataset.
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -64,9 +64,9 @@ def main() -> int:
                 any_manifest = ind.get("dq_policy_feature_manifest_v1")
 
     meta = {
-        "records_seen": int(n)
-        "dq_policy_hash_counts": dict(sorted(policy_counts.items(), key=lambda kv: (-kv[1], kv[0])))
-        "dq_policy_feature_manifest_hash_counts": dict(sorted(manifest_counts.items(), key=lambda kv: (-kv[1], kv[0])))
+        "records_seen": int(n),
+        "dq_policy_hash_counts": dict(sorted(policy_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "dq_policy_feature_manifest_hash_counts": dict(sorted(manifest_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
     }
     (outdir / "policy_counts.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 

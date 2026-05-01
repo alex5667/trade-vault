@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """services.autopilot_scheduler_service
 
 Container-friendly scheduler (no systemd) for autopilot reports.
@@ -14,7 +15,6 @@ Locking:
   - Redis SETNX lock prevents double-run across replicas.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio
@@ -71,14 +71,14 @@ def _sleep_until_next_boundary(*, every_min: int) -> float:
 
 async def _run_once_task(*, base: Path, propose: bool) -> int:
     args = [
-        sys.executable
-        "tools/autopilot_run_once.py"
-        "--since-hours"
-        str(_env_int("AUTOPILOT_SINCE_HOURS", 168))
-        "--window-days"
-        str(_env_int("AUTOPILOT_WINDOW_DAYS", 7))
-        "--out-dir"
-        str(os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot"))
+        sys.executable,
+        "tools/autopilot_run_once.py",
+        "--since-hours",
+        str(_env_int("AUTOPILOT_SINCE_HOURS", 168)),
+        "--window-days",
+        str(_env_int("AUTOPILOT_WINDOW_DAYS", 7)),
+        "--out-dir",
+        str(os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot")),
     ]
     if propose:
         args.append("--redis-write")
@@ -87,11 +87,11 @@ async def _run_once_task(*, base: Path, propose: bool) -> int:
         os.environ["AUTOPILOT_REDIS_WRITE"] = "0"
         
     proc = await asyncio.create_subprocess_exec(
-        *args
-        cwd=str(base)
-        stdout=asyncio.subprocess.PIPE
-        stderr=asyncio.subprocess.STDOUT
-        env=os.environ.copy()
+        *args,
+        cwd=str(base),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=os.environ.copy(),
     )
     out_b = await proc.stdout.read() if proc.stdout else b""
     rc = int(await proc.wait())
@@ -155,14 +155,14 @@ async def run_forever(cfg: SchedulerCfg) -> None:
 def _load_cfg() -> SchedulerCfg:
     redis_url = os.getenv("AUTOPILOT_REDIS_URL") or os.getenv("REDIS_URL") or "redis://redis-worker-1:6379/0"
     return SchedulerCfg(
-        redis_url=str(redis_url)
-        lock_key=str(os.getenv("AUTOPILOT_LOCK_KEY", "lock:autopilot:reporter"))
-        lock_ttl_sec=_env_int("AUTOPILOT_LOCK_TTL_SEC", 55 * 60)
-        every_min=_env_int("AUTOPILOT_EVERY_MIN", 60)
-        propose_every_hours=_env_int("AUTOPILOT_PROPOSE_EVERY_HOURS", 24)
-        out_dir=str(os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot"))
-        since_hours=_env_int("AUTOPILOT_SINCE_HOURS", 168)
-        window_days=_env_int("AUTOPILOT_WINDOW_DAYS", 7)
+        redis_url=str(redis_url),
+        lock_key=str(os.getenv("AUTOPILOT_LOCK_KEY", "lock:autopilot:reporter")),
+        lock_ttl_sec=_env_int("AUTOPILOT_LOCK_TTL_SEC", 55 * 60),
+        every_min=_env_int("AUTOPILOT_EVERY_MIN", 60),
+        propose_every_hours=_env_int("AUTOPILOT_PROPOSE_EVERY_HOURS", 24),
+        out_dir=str(os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot")),
+        since_hours=_env_int("AUTOPILOT_SINCE_HOURS", 168),
+        window_days=_env_int("AUTOPILOT_WINDOW_DAYS", 7),
     )
 
 

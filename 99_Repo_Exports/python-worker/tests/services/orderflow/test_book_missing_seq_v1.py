@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for BookProcessor book missing-seq continuity EMA tracking (v1).
 
 Tests validate:
@@ -6,7 +7,6 @@ Tests validate:
   reorder/duplicate handling, partial depth (no U/u), monotone last_u
 """
 
-from __future__ import annotations
 
 import pytest
 

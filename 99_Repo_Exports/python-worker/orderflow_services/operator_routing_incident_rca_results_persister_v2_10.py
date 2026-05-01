@@ -117,7 +117,7 @@ async def persist_result(db_url: str, row: Dict[str, Any], output_hash: str) -> 
         with psycopg.connect(db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_operator_routing_incident_rca_results (
                         output_hash,
                         route_change_id,

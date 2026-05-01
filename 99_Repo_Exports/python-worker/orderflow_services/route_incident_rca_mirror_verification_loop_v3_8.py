@@ -181,7 +181,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_pending_total": parse_int(raw.get("max_pending_total"), DEFAULT_MAX_PENDING_TOTAL),
         "max_comparator_age_ms": parse_int(raw.get("max_comparator_age_ms"), DEFAULT_MAX_COMPARATOR_AGE_MS),
         "rollback_cooldown_sec": parse_int(raw.get("rollback_cooldown_sec"), DEFAULT_ROLLBACK_COOLDOWN_SEC),
-    }
+    },
 
 
 def shadow_mode_from_hash(raw: Dict[str, Any]) -> str:
@@ -206,7 +206,7 @@ async def pending_total_from_keys(r: Any, prefix: str) -> int:
 
     KEYS on a large keyspace stalls Redis for 40+ ms.  async scan_iter
     with a small count drip-releases between batches.
-    """
+    """,
     try:
         handoff_n = 0
         async for _ in r.scan_iter(f"{prefix}handoff:*", count=5000):
@@ -234,7 +234,7 @@ def summarize_window(rows: List[Dict[str, Any]], window_min: int) -> Dict[str, A
         "match_rate": (match_n / total) if total else 0.0,
         "drift_rate": (drift_n / total) if total else 0.0,
         "mismatch_rate": (mismatch_n / total) if total else 0.0,
-    }
+    },
 
 
 def evaluate_verification(
@@ -269,7 +269,7 @@ def evaluate_verification(
         "target_mode": current_mode,
         "degraded": 1 if degraded else 0,
         "rollback_cooldown_active": 1 if rollback_cooldown_active else 0,
-    }
+    },
 
     if current_mode != "MIRROR":
         out["decision"] = "HOLD"
@@ -314,7 +314,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_verification_results (
                     ts_ms,
                     current_mode,
@@ -348,7 +348,7 @@ async def persist_if_configured(
             )
             if decision["decision"] == "ROLLBACK_TO_AUDIT":
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_route_incident_rca_mirror_rollback_journal (
                         ts_ms,
                         reason_code,
@@ -424,7 +424,7 @@ async def main() -> None:  # pragma: no cover
                 "advisory_only": policy["advisory_only"],
                 "executor_mode": policy["executor_mode"],
                 "policy": policy,
-            }
+            },
 
             if (
                 decision["decision"] == "ROLLBACK_TO_AUDIT"
@@ -467,7 +467,7 @@ async def main() -> None:  # pragma: no cover
                 "target_mode": decision["target_mode"],
                 "snapshot_json": stable_json(snapshot),
                 "ts_ms": str(now_ms()),
-            }
+            },
             await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
             await r.xadd(
                 AUDIT_STREAM,

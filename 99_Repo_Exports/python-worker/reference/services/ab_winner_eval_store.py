@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 AB Winner Eval Store (Redis)
 ============================
@@ -22,7 +23,6 @@ AB Winner Eval Store (Redis)
   => инкрементальный ingest + собственное окно.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time
@@ -92,14 +92,14 @@ class IngestResult:
 
 class ABWinnerEvalStore:
     def __init__(
-        self
-        *
-        r
-        stream: str
-        prefix: str = "ab:eval:r:z:v1"
-        ctx_set_key: str = "ab:eval:ctx:set:v1"
-        ctx_ts_prefix: str = "ab:eval:ctx:ts:v1"
-        cursor_prefix: str = "ab:eval:cursor:v1"
+        self,
+        *,
+        r,
+        stream: str,
+        prefix: str = "ab:eval:r:z:v1",
+        ctx_set_key: str = "ab:eval:ctx:set:v1",
+        ctx_ts_prefix: str = "ab:eval:ctx:ts:v1",
+        cursor_prefix: str = "ab:eval:cursor:v1",
     ) -> None:
         self.r = r
         self.stream = stream
@@ -156,14 +156,14 @@ class ABWinnerEvalStore:
         return f"{self.prefix}:{symbol}:{regime}:{group}:{scenario}:{arm}"
 
     def ingest_from_stream(
-        self
-        *
-        end_ms: int
-        window_ms: int
-        max_items_per_zset: int
-        start_from_id: str = ""
-        batch: int = 2000
-        hard_cap_msgs: int = 200000
+        self,
+        *,
+        end_ms: int,
+        window_ms: int,
+        max_items_per_zset: int,
+        start_from_id: str = "",
+        batch: int = 2000,
+        hard_cap_msgs: int = 200000,
     ) -> IngestResult:
         """
         Incremental XREAD from cursor/start_id until end_ms (by stream id ms part).
@@ -255,16 +255,16 @@ class ABWinnerEvalStore:
             return []
 
     def load_r_mult_series(
-        self
-        *
-        symbol: str
-        regime: str
-        group: str
-        scenario: str
-        arm: str
-        start_ms: int
-        end_ms: int
-        max_items: int = 5000
+        self,
+        *,
+        symbol: str,
+        regime: str,
+        group: str,
+        scenario: str,
+        arm: str,
+        start_ms: int,
+        end_ms: int,
+        max_items: int = 5000,
     ) -> List[float]:
         zkey = self._zkey(symbol, regime, group, scenario, arm)
         try:

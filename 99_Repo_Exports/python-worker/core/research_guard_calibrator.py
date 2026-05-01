@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Research Guard Calibrator — pure computation module (no IO).
 
@@ -25,7 +26,6 @@ Safety invariants:
 Import as:
     from core.research_guard_calibrator import evaluate_research_guard, ResearchGuardCalibResult
 """
-from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List

@@ -60,15 +60,15 @@ def render_textfile(report: dict) -> str:
     freshness = max(0.0, (get_ny_time_millis() - gen) / 1000.0) if gen else 0.0
     stale_threshold = int(report.get('freshness_stale_threshold_sec') or 1800)
     lines = [
-        '# HELP trade_risk_mismatch_archive_consistency_freshness_seconds Freshness of archive consistency report.'
-        '# TYPE trade_risk_mismatch_archive_consistency_freshness_seconds gauge'
-        f'trade_risk_mismatch_archive_consistency_freshness_seconds {freshness}'
-        '# HELP trade_risk_mismatch_archive_consistency_stale Whether archive consistency report is stale.'
-        '# TYPE trade_risk_mismatch_archive_consistency_stale gauge'
-        f'trade_risk_mismatch_archive_consistency_stale {1 if freshness > float(stale_threshold) else 0}'
-        '# HELP trade_risk_mismatch_archive_consistency_mismatch_total Number of mismatching summary rows.'
-        '# TYPE trade_risk_mismatch_archive_consistency_mismatch_total gauge'
-        f"trade_risk_mismatch_archive_consistency_mismatch_total {int(report.get('mismatch_count') or 0)}"
+        '# HELP trade_risk_mismatch_archive_consistency_freshness_seconds Freshness of archive consistency report.',
+        '# TYPE trade_risk_mismatch_archive_consistency_freshness_seconds gauge',
+        f'trade_risk_mismatch_archive_consistency_freshness_seconds {freshness}',
+        '# HELP trade_risk_mismatch_archive_consistency_stale Whether archive consistency report is stale.',
+        '# TYPE trade_risk_mismatch_archive_consistency_stale gauge',
+        f'trade_risk_mismatch_archive_consistency_stale {1 if freshness > float(stale_threshold) else 0}',
+        '# HELP trade_risk_mismatch_archive_consistency_mismatch_total Number of mismatching summary rows.',
+        '# TYPE trade_risk_mismatch_archive_consistency_mismatch_total gauge',
+        f"trade_risk_mismatch_archive_consistency_mismatch_total {int(report.get('mismatch_count') or 0)}",
     ]
     return '\n'.join(lines) + '\n'
 
@@ -78,24 +78,24 @@ def main() -> int:
         description='Check consistency between risk_mismatch_summary_mv and hot+archive mismatch ledger.'
     )
     parser.add_argument(
-        '--dsn'
-        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', ''))
+        '--dsn',
+        default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),
     )
     parser.add_argument(
-        '--out'
+        '--out',
         default=os.getenv(
-            'RISK_MISMATCH_ARCHIVE_CONSISTENCY_REPORT_PATH'
-            '/var/lib/trade-runbook/reports/latest_risk_mismatch_archive_consistency.json'
+            'RISK_MISMATCH_ARCHIVE_CONSISTENCY_REPORT_PATH',
+            '/var/lib/trade-runbook/reports/latest_risk_mismatch_archive_consistency.json',
         )
     )
     parser.add_argument(
-        '--textfile-output'
-        default=os.getenv('RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH', '')
+        '--textfile-output',
+        default=os.getenv('RISK_MISMATCH_ARCHIVE_CONSISTENCY_TEXTFILE_PATH', ''),
     )
     parser.add_argument(
-        '--freshness-stale-threshold-sec'
-        type=int
-        default=int(os.getenv('RISK_MISMATCH_ARCHIVE_CONSISTENCY_STALE_SEC', '1800'))
+        '--freshness-stale-threshold-sec',
+        type=int,
+        default=int(os.getenv('RISK_MISMATCH_ARCHIVE_CONSISTENCY_STALE_SEC', '1800')),
     )
     args = parser.parse_args()
 
@@ -103,9 +103,9 @@ def main() -> int:
         raise RuntimeError('psycopg + DSN required')
 
     report: dict = {
-        'generated_at_ms': get_ny_time_millis()
-        'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec)
-        'rows': []
+        'generated_at_ms': get_ny_time_millis(),
+        'freshness_stale_threshold_sec': int(args.freshness_stale_threshold_sec),
+        'rows': [],
     }
 
     # Full-outer-join risk_mismatch_summary_mv against the recomputed
@@ -123,28 +123,28 @@ def main() -> int:
       union all
       select '7d'::text as window_name, * from unioned where created_ts_ms >= (extract(epoch from now() - interval '7 days')*1000)::bigint
     ), expected as (
-      select window_name
-             coalesce(nullif(tier,''), 'UNKNOWN') as tier
-             count(*)::bigint as quarantine_count
-             count(distinct sid)::bigint as distinct_sid_count
-             avg(repeated_count)::double precision as avg_repeated_count
-             max(repeated_count)::integer as max_repeated_count
+      select window_name,
+             coalesce(nullif(tier,''), 'UNKNOWN') as tier,
+             count(*)::bigint as quarantine_count,
+             count(distinct sid)::bigint as distinct_sid_count,
+             avg(repeated_count)::double precision as avg_repeated_count,
+             max(repeated_count)::integer as max_repeated_count,
              avg(mismatch_rate)::double precision as avg_mismatch_rate
       from base
       group by window_name, coalesce(nullif(tier,''), 'UNKNOWN')
     )
     select
-      coalesce(mv.window_name, ex.window_name) as window_name
-      coalesce(mv.tier, ex.tier) as tier
-      mv.quarantine_count as mv_quarantine_count
-      ex.quarantine_count as expected_quarantine_count
-      mv.distinct_sid_count as mv_distinct_sid_count
-      ex.distinct_sid_count as expected_distinct_sid_count
-      mv.avg_repeated_count as mv_avg_repeated_count
-      ex.avg_repeated_count as expected_avg_repeated_count
-      mv.max_repeated_count as mv_max_repeated_count
-      ex.max_repeated_count as expected_max_repeated_count
-      mv.avg_mismatch_rate as mv_avg_mismatch_rate
+      coalesce(mv.window_name, ex.window_name) as window_name,
+      coalesce(mv.tier, ex.tier) as tier,
+      mv.quarantine_count as mv_quarantine_count,
+      ex.quarantine_count as expected_quarantine_count,
+      mv.distinct_sid_count as mv_distinct_sid_count,
+      ex.distinct_sid_count as expected_distinct_sid_count,
+      mv.avg_repeated_count as mv_avg_repeated_count,
+      ex.avg_repeated_count as expected_avg_repeated_count,
+      mv.max_repeated_count as mv_max_repeated_count,
+      ex.max_repeated_count as expected_max_repeated_count,
+      mv.avg_mismatch_rate as mv_avg_mismatch_rate,
       ex.avg_mismatch_rate as expected_avg_mismatch_rate
     from risk_mismatch_summary_mv mv
     full outer join expected ex using(window_name, tier)
@@ -184,8 +184,8 @@ def main() -> int:
         _write_atomic(Path(args.textfile_output), render_textfile(report))
 
     print(json.dumps(
-        {'row_count': report['row_count'], 'mismatch_count': report['mismatch_count']}
-        ensure_ascii=False
+        {'row_count': report['row_count'], 'mismatch_count': report['mismatch_count']},
+        ensure_ascii=False,
     ))
     return 0
 

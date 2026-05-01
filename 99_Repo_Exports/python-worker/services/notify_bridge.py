@@ -12,7 +12,7 @@ Endpoints:
 Environment:
     BOT_TOKEN - Telegram bot token (required)
     CHAT_ID - Telegram chat ID (required)
-    TITLE_PREFIX - Message title prefix (optional, default: "[XAUUSD]")
+    TITLE_PREFIX - Message title prefix (optional, default: "[]")
     OBI_HOST - OBI service URL (default: http://127.0.0.1:8090)
     NOTIFY_BRIDGE_PORT - Service port (default: 8089)
 
@@ -34,7 +34,7 @@ import datetime as dt
 # Configuration
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
-TITLE = os.getenv("TITLE_PREFIX", "[XAUUSD]")
+TITLE = os.getenv("TITLE_PREFIX", "[]")
 OBI_HOST = os.getenv("OBI_HOST", "http://127.0.0.1:8090")
 PORT = int(os.getenv("NOTIFY_BRIDGE_PORT", "8089"))
 
@@ -123,7 +123,7 @@ async def notify(req: Request):
     payload = await req.json()
     
     t = payload.get("ts", 0)
-    symbol = payload.get("symbol", "XAUUSD")
+    symbol = payload.get("symbol")
     typ = payload.get("type", "event")
     obi = payload.get("obi", 0.0)
     dur = payload.get("duration_ms", 0)

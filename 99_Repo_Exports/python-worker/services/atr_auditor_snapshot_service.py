@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""
+""",
 ATR Auditor Snapshot Service
 Periodically captures the state of governance boards to maintain
 an immutable audit history over time.
-"""
+""",
 
 import os
 import sys
@@ -56,7 +56,7 @@ async def capture_snapshot(pool: asyncpg.Pool, kind: str):
             snapshot_id = f"snap_{kind}_{int(time.time()*1000)}_{uuid.uuid4().hex[:8]}"
 
             await conn.execute(
-                """
+                """,
                 INSERT INTO atr_auditor_snapshots 
                 (snapshot_id, snapshot_kind, snapshot_json, created_at)
                 VALUES ($1, $2, $3, $4)

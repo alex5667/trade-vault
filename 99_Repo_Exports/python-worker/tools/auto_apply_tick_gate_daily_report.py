@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Auto-apply Tick Gate Daily Report
 
@@ -9,7 +10,6 @@ ENV:
   REDIS_URL=redis://host:6379/0
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

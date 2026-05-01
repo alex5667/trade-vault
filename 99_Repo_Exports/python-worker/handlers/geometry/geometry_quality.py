@@ -68,11 +68,11 @@ class GeometryQualityPolicy:
         if not available:
             flags.append("htf_missing")
             return GeometryAssessment(
-                available=False
-                veto=False
-                score01=self.missing_score01
-                flags=flags
-                reason="htf_missing_neutral"
+                available=False,
+                veto=False,
+                score01=self.missing_score01,
+                flags=flags,
+                reason="htf_missing_neutral",
             )
 
         # если уже рассчитан geometry_score — используем его как truth source

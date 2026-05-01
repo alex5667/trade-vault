@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Repo-local import helpers for tests.
 
 Why:
@@ -14,7 +15,6 @@ Contract:
   - load_module_from_candidates() loads the first existing candidate.
 """
 
-from __future__ import annotations
 
 import importlib.util
 from pathlib import Path

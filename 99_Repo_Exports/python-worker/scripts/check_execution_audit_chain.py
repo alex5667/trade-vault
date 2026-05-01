@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 P5.6 execution audit-chain checker.
 
@@ -20,7 +21,7 @@ Outputs
 2) Prometheus textfile exporter for node_exporter textfile collector
 
 The checker is intentionally conservative and read-only.
-It supports partial environments: if some downstream tables are not present yet
+It supports partial environments: if some downstream tables are not present yet,
 this is surfaced in the report rather than silently ignored.
 
 Usage
@@ -30,7 +31,6 @@ python scripts/check_execution_audit_chain.py \\
   --report-json /var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.json \\
   --report-prom /var/lib/node_exporter/textfile_collector/latest_execution_audit_chain.prom
 """
-from __future__ import annotations
 
 import argparse
 import json
@@ -91,26 +91,26 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse CLI arguments; env vars provide defaults."""
     parser = argparse.ArgumentParser(description="Check execution audit-chain health")
     parser.add_argument(
-        "--dsn"
-        default=env_str("TRADES_DB_DSN", env_str("DATABASE_URL", ""))
+        "--dsn",
+        default=env_str("TRADES_DB_DSN", env_str("DATABASE_URL", "")),
     )
     parser.add_argument(
-        "--lookback-hours"
-        type=int
-        default=env_int("EXEC_AUDIT_LOOKBACK_HOURS", DEFAULT_LOOKBACK_HOURS)
+        "--lookback-hours",
+        type=int,
+        default=env_int("EXEC_AUDIT_LOOKBACK_HOURS", DEFAULT_LOOKBACK_HOURS),
     )
     parser.add_argument(
-        "--limit"
-        type=int
-        default=env_int("EXEC_AUDIT_LIMIT", 10000)
+        "--limit",
+        type=int,
+        default=env_int("EXEC_AUDIT_LIMIT", 10000),
     )
     parser.add_argument(
-        "--report-json"
-        default=env_str("EXEC_AUDIT_REPORT_JSON", DEFAULT_REPORT_JSON)
+        "--report-json",
+        default=env_str("EXEC_AUDIT_REPORT_JSON", DEFAULT_REPORT_JSON),
     )
     parser.add_argument(
-        "--report-prom"
-        default=env_str("EXEC_AUDIT_REPORT_PROM", DEFAULT_REPORT_PROM)
+        "--report-prom",
+        default=env_str("EXEC_AUDIT_REPORT_PROM", DEFAULT_REPORT_PROM),
     )
     return parser.parse_args(argv)
 
@@ -123,13 +123,13 @@ def table_name(env_name: str, default: str) -> str:
 def get_table_map() -> Dict[str, str]:
     """Return the mapping of logical role -> actual table name (configurable via ENV)."""
     return {
-        "execution_orders": table_name("EXEC_AUDIT_TBL_EXECUTION_ORDERS", "execution_orders")
-        "signals": table_name("EXEC_AUDIT_TBL_SIGNALS", "signals")
-        "signal_execution_plan": table_name("EXEC_AUDIT_TBL_SIGNAL_EXECUTION_PLAN", "signal_execution_plan")
-        "trades_closed": table_name("EXEC_AUDIT_TBL_TRADES_CLOSED", "trades_closed")
-        "position_events": table_name("EXEC_AUDIT_TBL_POSITION_EVENTS", "position_events")
-        "entry_policy_audit": table_name("EXEC_AUDIT_TBL_ENTRY_POLICY_AUDIT", "entry_policy_audit")
-        "decision_snapshot": table_name("EXEC_AUDIT_TBL_DECISION_SNAPSHOT", "decision_snapshot")
+        "execution_orders": table_name("EXEC_AUDIT_TBL_EXECUTION_ORDERS", "execution_orders"),
+        "signals": table_name("EXEC_AUDIT_TBL_SIGNALS", "signals"),
+        "signal_execution_plan": table_name("EXEC_AUDIT_TBL_SIGNAL_EXECUTION_PLAN", "signal_execution_plan"),
+        "trades_closed": table_name("EXEC_AUDIT_TBL_TRADES_CLOSED", "trades_closed"),
+        "position_events": table_name("EXEC_AUDIT_TBL_POSITION_EVENTS", "position_events"),
+        "entry_policy_audit": table_name("EXEC_AUDIT_TBL_ENTRY_POLICY_AUDIT", "entry_policy_audit"),
+        "decision_snapshot": table_name("EXEC_AUDIT_TBL_DECISION_SNAPSHOT", "decision_snapshot"),
     }
 
 
@@ -158,8 +158,8 @@ def discover_existing_tables(conn: Any, tables: Mapping[str, str]) -> Set[str]:
             where (table_schema, table_name) in (
                 values %s
             )
-            """.replace("%s", ", ".join(["(%s,%s)"] * len(wanted_pairs)))
-            [item for pair in wanted_pairs for item in pair]
+            """.replace("%s", ", ".join(["(%s,%s)"] * len(wanted_pairs))),
+            [item for pair in wanted_pairs for item in pair],
         )
         rows = cur.fetchall()
     existing_pairs = {(str(r[0]), str(r[1])) for r in rows}
@@ -180,10 +180,10 @@ def read_seed_execution_orders(
     schema, raw_table = _split_table_name(table)
     sql = f"""
         select
-            coalesce(cast(sid as text), '') as sid
-            coalesce(cast(signal_id as text), '') as signal_id
-            coalesce(cast(closed_trade_id as text), '') as closed_trade_id
-            coalesce(cast(symbol as text), '') as symbol
+            coalesce(cast(sid as text), '') as sid,
+            coalesce(cast(signal_id as text), '') as signal_id,
+            coalesce(cast(closed_trade_id as text), '') as closed_trade_id,
+            coalesce(cast(symbol as text), '') as symbol,
             created_at_ms / 1000.0 as source_ts
         from {schema}.{raw_table}
         where created_at_ms >= (extract(epoch from now() - (%s || ' hours')::interval) * 1000)
@@ -195,11 +195,11 @@ def read_seed_execution_orders(
         rows = cur.fetchall()
     return [
         AuditRow(
-            sid=normalize_id(r[0])
-            signal_id=normalize_id(r[1])
-            closed_trade_id=normalize_id(r[2])
-            symbol=normalize_id(r[3])
-            source_ts=float(r[4]) if r[4] is not None else None
+            sid=normalize_id(r[0]),
+            signal_id=normalize_id(r[1]),
+            closed_trade_id=normalize_id(r[2]),
+            symbol=normalize_id(r[3]),
+            source_ts=float(r[4]) if r[4] is not None else None,
         )
         for r in rows
     ]
@@ -221,17 +221,17 @@ def build_lookup_set(conn: Any, table: str, columns: Sequence[str]) -> Set[str]:
 
 
 def analyze_chain_rows(
-    seed_rows: Sequence[AuditRow]
-    signal_keys: Set[str]
-    plan_keys: Set[str]
-    trade_keys: Set[str]
-    position_event_keys: Set[str]
-    entry_policy_keys: Set[str]
-    decision_snapshot_keys: Set[str]
-    *
-    now_ts: Optional[float] = None
-    existing_tables: Optional[Iterable[str]] = None
-    lookback_hours: int = DEFAULT_LOOKBACK_HOURS
+    seed_rows: Sequence[AuditRow],
+    signal_keys: Set[str],
+    plan_keys: Set[str],
+    trade_keys: Set[str],
+    position_event_keys: Set[str],
+    entry_policy_keys: Set[str],
+    decision_snapshot_keys: Set[str],
+    *,
+    now_ts: Optional[float] = None,
+    existing_tables: Optional[Iterable[str]] = None,
+    lookback_hours: int = DEFAULT_LOOKBACK_HOURS,
 ) -> Dict[str, Any]:
     """
     Core linkage checker: for each seed execution_order row, verify that
@@ -246,12 +246,12 @@ def analyze_chain_rows(
         """Record a broken link entry with row metadata."""
         counts[kind] = counts.get(kind, 0) + 1
         item: Dict[str, Any] = {
-            "kind": kind
-            "sid": row.sid
-            "signal_id": row.signal_id
-            "closed_trade_id": row.closed_trade_id
-            "symbol": row.symbol
-            "source_ts": row.source_ts
+            "kind": kind,
+            "sid": row.sid,
+            "signal_id": row.signal_id,
+            "closed_trade_id": row.closed_trade_id,
+            "symbol": row.symbol,
+            "source_ts": row.source_ts,
         }
         if details:
             item.update(dict(details))
@@ -285,15 +285,15 @@ def analyze_chain_rows(
 
     now_ts = float(now_ts if now_ts is not None else time.time())
     report = {
-        "schema_version": "p5.6.v1"
-        "generated_at_ts": now_ts
-        "generated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ts))
-        "lookback_hours": int(lookback_hours)
-        "seed_rows": len(seed_rows)
-        "existing_tables": sorted(existing)
-        "total_broken": sum(counts.values())
-        "broken_by_kind": dict(sorted(counts.items()))
-        "broken": broken
+        "schema_version": "p5.6.v1",
+        "generated_at_ts": now_ts,
+        "generated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ts)),
+        "lookback_hours": int(lookback_hours),
+        "seed_rows": len(seed_rows),
+        "existing_tables": sorted(existing),
+        "total_broken": sum(counts.values()),
+        "broken_by_kind": dict(sorted(counts.items())),
+        "broken": broken,
     }
     return report
 
@@ -313,21 +313,20 @@ def render_textfile_metrics(
     stale = 1 if freshness != freshness or freshness > stale_threshold else 0
 
     lines = [
-        "# HELP trade_execution_audit_chain_report_timestamp_seconds Unix timestamp of the last generated audit-chain report"
-        "# TYPE trade_execution_audit_chain_report_timestamp_seconds gauge"
-        f"trade_execution_audit_chain_report_timestamp_seconds {generated_at_ts:.0f}"
-        "# HELP trade_execution_audit_chain_report_freshness_seconds Age of the last generated audit-chain report"
-        "# TYPE trade_execution_audit_chain_report_freshness_seconds gauge"
-        f"trade_execution_audit_chain_report_freshness_seconds {0.0 if freshness != freshness else freshness:.6f}"
-        "# HELP trade_execution_audit_chain_report_stale 1 when the report is stale beyond configured threshold"
-        "# TYPE trade_execution_audit_chain_report_stale gauge"
-        f"trade_execution_audit_chain_report_stale {stale}"
-        "# HELP trade_execution_audit_chain_total_broken Total number of broken execution audit-chain links"
-        "# TYPE trade_execution_audit_chain_total_broken gauge"
-        f"trade_execution_audit_chain_total_broken {int(report.get('total_broken') or 0)}"
-        "# HELP trade_execution_audit_chain_broken_total Broken execution audit-chain rows by kind"
-        "# TYPE trade_execution_audit_chain_broken_total gauge"
-    ]
+        "# HELP trade_execution_audit_chain_report_timestamp_seconds Unix timestamp of the last generated audit-chain report",
+        "# TYPE trade_execution_audit_chain_report_timestamp_seconds gauge",
+        f"trade_execution_audit_chain_report_timestamp_seconds {generated_at_ts:.0f}",
+        "# HELP trade_execution_audit_chain_report_freshness_seconds Age of the last generated audit-chain report",
+        "# TYPE trade_execution_audit_chain_report_freshness_seconds gauge",
+        f"trade_execution_audit_chain_report_freshness_seconds {0.0 if freshness != freshness else freshness:.6f}",
+        "# HELP trade_execution_audit_chain_report_stale 1 when the report is stale beyond configured threshold",
+        "# TYPE trade_execution_audit_chain_report_stale gauge",
+        f"trade_execution_audit_chain_report_stale {stale}",
+        "# HELP trade_execution_audit_chain_total_broken Total number of broken execution audit-chain links",
+        "# TYPE trade_execution_audit_chain_total_broken gauge",
+        f"trade_execution_audit_chain_total_broken {int(report.get('total_broken') or 0)}",
+        "# HELP trade_execution_audit_chain_broken_total Broken execution audit-chain rows by kind",
+        "# TYPE trade_execution_audit_chain_broken_total gauge"]
     for kind, value in sorted(dict(report.get("broken_by_kind") or {}).items()):
         safe_kind = str(kind).replace('"', '\\"')
         lines.append(f'trade_execution_audit_chain_broken_total{{kind="{safe_kind}"}} {int(value)}')
@@ -407,52 +406,52 @@ def build_report_from_db(dsn: str, *, lookback_hours: int, limit: int) -> Dict[s
             else set()
         )
         return analyze_chain_rows(
-            seed_rows
-            signal_keys
-            plan_keys
-            trade_keys
-            position_event_keys
-            entry_policy_keys
-            decision_snapshot_keys
-            existing_tables=existing
-            lookback_hours=lookback_hours
-        )
+            seed_rows,
+            signal_keys,
+            plan_keys,
+            trade_keys,
+            position_event_keys,
+            entry_policy_keys,
+            decision_snapshot_keys,
+            existing_tables=existing,
+            lookback_hours=lookback_hours,
+        ),
     finally:
-        conn.close()
+        conn.close(),
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Entry point: parse args, run audit chain check, write reports."""
-    args = parse_args(argv)
+    """Entry point: parse args, run audit chain check, write reports.""",
+    args = parse_args(argv),
     try:
         report = build_report_from_db(
-            args.dsn, lookback_hours=args.lookback_hours, limit=args.limit
-        )
-        write_json_report(args.report_json, report)
-        write_textfile_report(args.report_prom, report)
+            args.dsn, lookback_hours=args.lookback_hours, limit=args.limit,
+        ),
+        write_json_report(args.report_json, report),
+        write_textfile_report(args.report_prom, report),
         print(
             json.dumps(
                 {
-                    "ok": True
-                    "report_json": args.report_json
-                    "report_prom": args.report_prom
-                    "total_broken": int(report.get("total_broken") or 0)
-                }
-                ensure_ascii=False
+                    "ok": True,
+                    "report_json": args.report_json,
+                    "report_prom": args.report_prom,
+                    "total_broken": int(report.get("total_broken") or 0),
+                },
+                ensure_ascii=False,
             )
         )
         return 0
     except Exception as exc:
         failure_ts = time.time()
         failure_report = {
-            "schema_version": "p5.6.v1"
-            "generated_at_ts": failure_ts
-            "generated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(failure_ts))
-            "error": str(exc)
-            "total_broken": 0
-            "broken_by_kind": {}
-            "broken": []
-            "seed_rows": 0
+            "schema_version": "p5.6.v1",
+            "generated_at_ts": failure_ts,
+            "generated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(failure_ts)),
+            "error": str(exc),
+            "total_broken": 0,
+            "broken_by_kind": {},
+            "broken": [],
+            "seed_rows": 0,
         }
         try:
             write_json_report(args.report_json, failure_report)

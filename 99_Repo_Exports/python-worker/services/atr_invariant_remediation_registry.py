@@ -32,7 +32,7 @@ def get_active_remediation_policies() -> Dict[str, Dict[str, Any]]:
                     except:
                         pol_json = {}
                 policies[inv_id] = {
-                    "remediation_kind": kind
+                    "remediation_kind": kind,
                     "policy_json": pol_json
                 }
     except Exception as e:

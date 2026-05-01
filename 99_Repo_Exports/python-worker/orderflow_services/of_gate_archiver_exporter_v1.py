@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_archiver_exporter_v1.py
 
 Prometheus exporter (P78) for OF-gate archiver + quarantine archiver + rollups refresh status.
@@ -30,7 +31,6 @@ Notes:
   - tick loop every 5s; blocking HGETALL
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

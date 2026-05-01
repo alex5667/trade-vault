@@ -730,7 +730,7 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка отправки ежедневной сводки: {e}", exc_info=True)
     
-    def send_strategy_report(self, strategy: str, symbol: str = "XAUUSD", tf: str = "tick"):
+    def send_strategy_report(self, strategy: str, symbol: str, tf: str = "tick"):
         from services.stats_aggregator import StatsAggregator
 
         stats = StatsAggregator.get_stats(self.redis, strategy, symbol, tf)

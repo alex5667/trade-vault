@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 SignalPerformanceTracker: Online performance analysis for executed signals.
 
@@ -5,7 +6,6 @@ Tracks TTD, MFE/MAE, and outcome classification for each signal.
 Integrates with TimescaleDB for historical analysis and TTD optimization.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -158,10 +158,10 @@ class SignalPerformanceTracker:
         repo: SignalRepository, 
         ttd_target_R: float = 1.0, 
         max_ttd_bars: int = 30, 
-        bus: Optional["SignalBus"] = None
-        max_lifetime_bars_after_entry: Optional[int] = None
-        max_lifetime_ms_after_entry: Optional[int] = None
-        housekeeping_every_ms: int = 1000
+        bus: Optional["SignalBus"] = None,
+        max_lifetime_bars_after_entry: Optional[int] = None,
+        max_lifetime_ms_after_entry: Optional[int] = None,
+        housekeeping_every_ms: int = 1000,
     ):
         self.repo = repo
         self.bus = bus
@@ -249,10 +249,10 @@ class SignalPerformanceTracker:
     # --- Public API ---
 
     def register_signal(
-        self
-        ctx: SignalContext
-        plan: ExecutionPlan
-        bar_idx: Optional[int] = None
+        self,
+        ctx: SignalContext,
+        plan: ExecutionPlan,
+        bar_idx: Optional[int] = None,
     ) -> None:
         """
         Register new signal + plan for tracking.
@@ -260,16 +260,16 @@ class SignalPerformanceTracker:
         bar_idx: текущий индекс бара (если доступен) для отслеживания TTL в барах.
         """
         state = SignalPerfState(
-            signal_id=plan.signal_id
-            symbol=plan.symbol
-            setup_type=plan.setup_type
-            side=plan.side
-            ts_signal=plan.ts_signal
-            price_at_signal=plan.price_at_signal
-            atr_1m=max(getattr(ctx, "atr_1m", 0.0), 1e-6)
-            stop_price=plan.stop_price
-            expiry_bars=plan.expiry_bars
-            max_ttd_bars=self.max_ttd_bars
+            signal_id=plan.signal_id,
+            symbol=plan.symbol,
+            setup_type=plan.setup_type,
+            side=plan.side,
+            ts_signal=plan.ts_signal,
+            price_at_signal=plan.price_at_signal,
+            atr_1m=max(getattr(ctx, "atr_1m", 0.0), 1e-6),
+            stop_price=plan.stop_price,
+            expiry_bars=plan.expiry_bars,
+            max_ttd_bars=self.max_ttd_bars,
             bar_signal=bar_idx,  # NEW: сохраняем индекс бара сигнала
         )
         
@@ -394,12 +394,12 @@ class SignalPerformanceTracker:
                 self._finalize_and_store(st, reason="normal_exit")
 
     def on_execution_event(
-        self
-        signal_id: str
-        event_type: str
-        ts: datetime
-        price: float
-        bar_idx: Optional[int] = None
+        self,
+        signal_id: str,
+        event_type: str,
+        ts: datetime,
+        price: float,
+        bar_idx: Optional[int] = None,
     ) -> None:
         """
         Feed execution events from MT5/ExecutionEngine:
@@ -418,7 +418,7 @@ class SignalPerformanceTracker:
         """
         # NEW: Поздние события после finalize игнорируем (O(1) через set)
         if signal_id in self._finalized_set:
-            # Важно: это защищает от "позднего exit события" после рестарта/лага
+            # Важно: это защищает от "позднего exit события" после рестарта/лага,
             # которое иначе могло бы пересоздать state и исказить статистику.
             # Можно добавить логирование если нужно:
             # self.logger.warning("Late event ignored for finalized signal_id=%s", signal_id)
@@ -440,10 +440,10 @@ class SignalPerformanceTracker:
             if bar_idx is not None:
                 state.bar_exit = bar_idx  # NEW: сохраняем индекс бара выхода
             state.outcome = {
-                "STOP_HIT": Outcome.STOP_HIT
-                "TP_HIT": Outcome.TARGET_HIT
-                "BREAKEVEN": Outcome.BREAKEVEN
-                "MANUAL_EXIT": Outcome.MANUAL_EXIT
+                "STOP_HIT": Outcome.STOP_HIT,
+                "TP_HIT": Outcome.TARGET_HIT,
+                "BREAKEVEN": Outcome.BREAKEVEN,
+                "MANUAL_EXIT": Outcome.MANUAL_EXIT,
             }[event_type]
             # NEW: финализируем сразу при exit событии
             self._finalize_and_store(state, reason=f"exit_{event_type.lower()}")
@@ -583,27 +583,27 @@ class SignalPerformanceTracker:
             realized_R = diff / state.atr_1m
 
         perf = SignalPerformance(
-            signal_id=state.signal_id
-            symbol=state.symbol
-            setup_type=state.setup_type
-            side=state.side
-            ts_signal=state.ts_signal
-            ts_entry=state.ts_entry
-            ts_exit=state.ts_exit
-            price_at_signal=state.price_at_signal
-            entry_price=state.entry_price
-            exit_price=state.exit_price
-            stop_price=state.stop_price
-            realized_R=realized_R
-            mfe_R=state.mfe_R
-            mae_R=state.mae_R
-            ttd_bars=state.ttd_bars
-            ttd_seconds=state.ttd_seconds
-            bars_to_entry=state.bars_to_entry
-            bars_to_exit=state.bars_to_exit
-            outcome=state.outcome
-            notes=state.notes
-            extra=state.extra
+            signal_id=state.signal_id,
+            symbol=state.symbol,
+            setup_type=state.setup_type,
+            side=state.side,
+            ts_signal=state.ts_signal,
+            ts_entry=state.ts_entry,
+            ts_exit=state.ts_exit,
+            price_at_signal=state.price_at_signal,
+            entry_price=state.entry_price,
+            exit_price=state.exit_price,
+            stop_price=state.stop_price,
+            realized_R=realized_R,
+            mfe_R=state.mfe_R,
+            mae_R=state.mae_R,
+            ttd_bars=state.ttd_bars,
+            ttd_seconds=state.ttd_seconds,
+            bars_to_entry=state.bars_to_entry,
+            bars_to_exit=state.bars_to_exit,
+            outcome=state.outcome,
+            notes=state.notes,
+            extra=state.extra,
         )
 
         # 2) Store in TimescaleDB

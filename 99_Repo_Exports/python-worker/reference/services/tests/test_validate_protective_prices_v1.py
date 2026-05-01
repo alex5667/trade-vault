@@ -43,8 +43,8 @@ def _make_executor(mark_price: float) -> MagicMock:
 def _validate(mark: float, side: str, sl=None, tps=None):
     exe, client = _make_executor(mark)
     valid_sl, valid_tps = exe._validate_protective_prices(
-        "TESTUSDT", side, sl, tps or []
-        client=client, ref_price=None
+        "TESTUSDT", side, sl, tps or [],
+        client=client, ref_price=None,
     )
     return valid_sl, valid_tps
 
@@ -186,8 +186,8 @@ class TestEdgeCases:
         """When mark price is unavailable (returns 0), return prices as-is."""
         exe, client = _make_executor(0.0)  # 0 → treated as unavailable
         sl, tps = exe._validate_protective_prices(
-            "TESTUSDT", "LONG", 1900.0, [2100.0]
-            client=client, ref_price=None
+            "TESTUSDT", "LONG", 1900.0, [2100.0],
+            client=client, ref_price=None,
         )
         assert sl == 1900.0
         assert tps == [2100.0]
@@ -204,8 +204,8 @@ class TestEdgeCases:
         client = MagicMock()
         client.get_mark_price.return_value = 0.0   # unavailable
         sl, tps = exe._validate_protective_prices(
-            "TESTUSDT", "LONG", 1900.0, [2100.0]
-            client=client, ref_price=MARK
+            "TESTUSDT", "LONG", 1900.0, [2100.0],
+            client=client, ref_price=MARK,
         )
         # ref_price=2000 → sl=1900 valid (below mark), tp=2100 valid (above mark)
         assert sl == 1900.0

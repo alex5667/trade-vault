@@ -52,13 +52,13 @@ load_dotenv()
 
 JSON_FIELD_KEYS = {
     # outbox v2
-    "signal_payload"
-    "signal_settings"
+    "signal_payload",
+    "signal_settings",
     # common nested blobs
-    "risk"
-    "metadata"
-    "indicators"
-    "confirmations"
+    "risk",
+    "metadata",
+    "indicators",
+    "confirmations",
     # UI controls
     "buttons" 
 }
@@ -295,7 +295,7 @@ class BotCallbackPoller:
                 
                 # Answer callback immediately (stop loading spinner)
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"✅ Approved! (Total: {count})"}
                 )
                 
@@ -318,8 +318,8 @@ class BotCallbackPoller:
                 # Mark as rejected
                 rejected_key = f"cfg:suggestions:entry_policy:rejected:{sid}"
                 self.r.set(rejected_key, json.dumps({
-                    "by": username
-                    "ts_ms": get_ny_time_millis()
+                    "by": username,
+                    "ts_ms": get_ny_time_millis(),
                 }), ex=proposal_ttl)
                 
                 # Delete the proposal meta key (discard)
@@ -328,7 +328,7 @@ class BotCallbackPoller:
                 
                 # Answer callback
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "❌ Rejected!"}
                 )
                 
@@ -386,17 +386,17 @@ class BotCallbackPoller:
                         if shadow_info and delta_r < 0:
                             # Keep in shadow — calibration would hurt this symbol (any negative Δ)
                             skipped_keys.append({
-                                "key": suffix
-                                "delta_r": delta_r
-                                "reason": recommendation or "NEGATIVE_DELTA"
+                                "key": suffix,
+                                "delta_r": delta_r,
+                                "reason": recommendation or "NEGATIVE_DELTA",
                             })
                         else:
                             # Δ >= 0, or no shadow data (fail-open) → enforce
                             self.r.hset(k, "mode", "enforce")
                             enforced_keys.append({
-                                "key": suffix
-                                "delta_r": delta_r
-                                "recommendation": recommendation or "NO_DATA"
+                                "key": suffix,
+                                "delta_r": delta_r,
+                                "recommendation": recommendation or "NO_DATA",
                             })
                     if cursor == 0:
                         break
@@ -406,7 +406,7 @@ class BotCallbackPoller:
                 
                 # Answer callback
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"✅ Trail approved! ({n_enforced} enforced, {n_skipped} skipped)"}
                 )
                 
@@ -504,7 +504,7 @@ class BotCallbackPoller:
                 
                 # Answer callback
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "❌ Trail calibration rejected"}
                 )
                 
@@ -556,7 +556,7 @@ class BotCallbackPoller:
                 raw_pending = self.r.get(pending_key)
                 if not raw_pending:
                     await client.post(
-                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                         json={"callback_query_id": cb_id, "text": "⚠️ Pending record expired"}
                     )
                     return
@@ -565,7 +565,7 @@ class BotCallbackPoller:
                 
                 if pending.get("status") != "PENDING":
                     await client.post(
-                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                         json={"callback_query_id": cb_id, "text": f"⚠️ Already {pending.get('status', 'processed').lower()}"}
                     )
                     await self._remove_buttons(client, chat_id, message_id)
@@ -596,7 +596,7 @@ class BotCallbackPoller:
                 # Answer callback
                 status_text = "✅ ML Scorer promoted!" if promoted else "⚠️ Approved but promote failed"
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": status_text}
                 )
                 
@@ -640,7 +640,7 @@ class BotCallbackPoller:
                     
                     if pending.get("status") != "PENDING":
                         await client.post(
-                            f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                            f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                             json={"callback_query_id": cb_id, "text": f"⚠️ Already {pending.get('status', 'processed').lower()}"}
                         )
                         await self._remove_buttons(client, chat_id, message_id)
@@ -665,7 +665,7 @@ class BotCallbackPoller:
                 
                 # Answer callback
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "❌ ML Scorer rejected"}
                 )
                 
@@ -705,7 +705,7 @@ class BotCallbackPoller:
 
                 if not raw_pending:
                     await client.post(
-                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                         json={"callback_query_id": cb_id, "text": "⚠️ Pending record expired or not found"}
                     )
                     return
@@ -736,7 +736,7 @@ class BotCallbackPoller:
 
                 # Answer callback
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"✅ Strong Gate → FULL ENFORCE ({switched} symbols)"}
                 )
 
@@ -811,7 +811,7 @@ class BotCallbackPoller:
 
                 # Answer callback
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "⬇️ Strong Gate reverted to SHADOW"}
                 )
 
@@ -848,7 +848,7 @@ class BotCallbackPoller:
                 raw_pending = self.r.get(pending_key)
                 if not raw_pending:
                     await client.post(
-                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                         json={"callback_query_id": cb_id, "text": "⚠️ Pending record expired or not found"}
                     )
                     return
@@ -884,7 +884,7 @@ class BotCallbackPoller:
                         pass
 
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"🟢 G10 Adverse → ENFORCE ({switched} symbols)"}
                 )
 
@@ -949,7 +949,7 @@ class BotCallbackPoller:
                         pass
 
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"⬇️ G10 Adverse disabled ({switched} symbols)"}
                 )
 
@@ -978,7 +978,7 @@ class BotCallbackPoller:
                 raw_pending = self.r.get(pending_key)
                 if not raw_pending:
                     await client.post(
-                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                         json={"callback_query_id": cb_id, "text": "⚠️ Pending record expired or not found"}
                     )
                     return
@@ -1015,7 +1015,7 @@ class BotCallbackPoller:
                     pass
 
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "🔴 G14 Research Guard → ENFORCE"}
                 )
 
@@ -1084,7 +1084,7 @@ class BotCallbackPoller:
                     pass
 
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "🟢 G14 → kept REPORT-ONLY"}
                 )
 
@@ -1111,7 +1111,7 @@ class BotCallbackPoller:
                 raw_pending = self.r.get(pending_key)
                 if not raw_pending:
                     await client.post(
-                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                         json={"callback_query_id": cb_id, "text": "⚠️ Pending record expired or not found"}
                     )
                     return
@@ -1148,7 +1148,7 @@ class BotCallbackPoller:
                         pass
 
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"✅ Cont Ctx Window applied ({len(applied)} sym)"}
                 )
 
@@ -1188,7 +1188,7 @@ class BotCallbackPoller:
                 sym_list = ", ".join(symbols[:10])
 
                 await client.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "❌ Cont Ctx Window — rejected"}
                 )
 
@@ -1209,7 +1209,7 @@ class BotCallbackPoller:
         else:
             # Unknown callback — acknowledge to stop the loading animation
             await client.post(
-                f"https://api.telegram.org/bot{self.token}/answerCallbackQuery"
+                f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                 json={"callback_query_id": cb_id, "text": "Action recorded"}
             )
 
@@ -1219,11 +1219,11 @@ class BotCallbackPoller:
             return
         try:
             await client.post(
-                f"https://api.telegram.org/bot{self.token}/editMessageReplyMarkup"
+                f"https://api.telegram.org/bot{self.token}/editMessageReplyMarkup",
                 json={
-                    "chat_id": chat_id
-                    "message_id": message_id
-                    "reply_markup": {"inline_keyboard": []}
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "reply_markup": {"inline_keyboard": []},
                 }
             )
         except Exception as e:
@@ -1297,8 +1297,8 @@ class BotCallbackPoller:
                                 pending["status"] = "EXPIRED"
                                 pending["expired_at_ms"] = now_ms
                                 await asyncio.to_thread(
-                                    self.r.set, key
-                                    json.dumps(pending, ensure_ascii=False)
+                                    self.r.set, key,
+                                    json.dumps(pending, ensure_ascii=False),
                                 )
                                 # Keep TTL from original set
                                 continue
@@ -1332,22 +1332,22 @@ class BotCallbackPoller:
                             )
 
                             buttons = [[
-                                {"text": "✅ Full Enforce", "callback_data": f"sg_calib_approve:{run_id}"}
-                                {"text": "⬇️ Revert Shadow", "callback_data": f"sg_calib_reject:{run_id}"}
+                                {"text": "✅ Full Enforce", "callback_data": f"sg_calib_approve:{run_id}"},
+                                {"text": "⬇️ Revert Shadow", "callback_data": f"sg_calib_reject:{run_id}"},
                             ]]
                             buttons_json = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
 
                             # Send via notify:telegram stream
                             fields = {
-                                "type": "report"
-                                "text": reminder_text
-                                "buttons": buttons_json
-                                "ts": str(now_ms)
+                                "type": "report",
+                                "text": reminder_text,
+                                "buttons": buttons_json,
+                                "ts": str(now_ms),
                             }
                             await asyncio.to_thread(
                                 lambda: self.r.xadd(
-                                    notify_stream, fields
-                                    maxlen=200000, approximate=True
+                                    notify_stream, fields,
+                                    maxlen=200000, approximate=True,
                                 )
                             )
 
@@ -1446,8 +1446,8 @@ class BotCallbackPoller:
                                 pending["status"] = "EXPIRED"
                                 pending["expired_at_ms"] = now_ms
                                 await asyncio.to_thread(
-                                    self.r.set, key
-                                    json.dumps(pending, ensure_ascii=False)
+                                    self.r.set, key,
+                                    json.dumps(pending, ensure_ascii=False),
                                 )
                                 continue
 
@@ -1486,21 +1486,21 @@ class BotCallbackPoller:
                             )
 
                             buttons = [[
-                                {"text": f"🟢 Enforce ({len(symbols)} sym)", "callback_data": f"adv_calib_approve:{run_id}"}
-                                {"text": "⬇️ Disable All", "callback_data": f"adv_calib_reject:{run_id}"}
+                                {"text": f"🟢 Enforce ({len(symbols)} sym)", "callback_data": f"adv_calib_approve:{run_id}"},
+                                {"text": "⬇️ Disable All", "callback_data": f"adv_calib_reject:{run_id}"},
                             ]]
                             buttons_json = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
 
                             fields = {
-                                "type": "report"
-                                "text": reminder_text
-                                "buttons": buttons_json
-                                "ts": str(now_ms)
+                                "type": "report",
+                                "text": reminder_text,
+                                "buttons": buttons_json,
+                                "ts": str(now_ms),
                             }
                             await asyncio.to_thread(
                                 lambda: self.r.xadd(
-                                    notify_stream, fields
-                                    maxlen=200000, approximate=True
+                                    notify_stream, fields,
+                                    maxlen=200000, approximate=True,
                                 )
                             )
 
@@ -1593,8 +1593,8 @@ class BotCallbackPoller:
                                 pending["status"] = "EXPIRED"
                                 pending["expired_at_ms"] = now_ms
                                 await asyncio.to_thread(
-                                    self.r.set, key
-                                    json.dumps(pending, ensure_ascii=False)
+                                    self.r.set, key,
+                                    json.dumps(pending, ensure_ascii=False),
                                 )
                                 continue
 
@@ -1629,21 +1629,21 @@ class BotCallbackPoller:
                             )
 
                             buttons = [[
-                                {"text": "🔴 Enforce (Block Deploys)", "callback_data": f"rg_calib_approve:{run_id}"}
-                                {"text": "🟢 Keep Report-Only", "callback_data": f"rg_calib_reject:{run_id}"}
+                                {"text": "🔴 Enforce (Block Deploys)", "callback_data": f"rg_calib_approve:{run_id}"},
+                                {"text": "🟢 Keep Report-Only", "callback_data": f"rg_calib_reject:{run_id}"},
                             ]]
                             buttons_json = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
 
                             fields = {
-                                "type": "report"
-                                "text": reminder_text
-                                "buttons": buttons_json
-                                "ts": str(now_ms)
+                                "type": "report",
+                                "text": reminder_text,
+                                "buttons": buttons_json,
+                                "ts": str(now_ms),
                             }
                             await asyncio.to_thread(
                                 lambda: self.r.xadd(
-                                    notify_stream, fields
-                                    maxlen=200000, approximate=True
+                                    notify_stream, fields,
+                                    maxlen=200000, approximate=True,
                                 )
                             )
 
@@ -1742,8 +1742,8 @@ class BotCallbackPoller:
                                 pending["status"] = "EXPIRED"
                                 pending["expired_at_ms"] = now_ms
                                 await asyncio.to_thread(
-                                    self.r.set, key
-                                    json.dumps(pending, ensure_ascii=False)
+                                    self.r.set, key,
+                                    json.dumps(pending, ensure_ascii=False),
                                 )
                                 continue
 
@@ -1816,21 +1816,21 @@ class BotCallbackPoller:
                             )
 
                             buttons = [[
-                                {"text": f"✅ Apply ({len(symbols)} sym)", "callback_data": f"cont_ctx_approve:{run_id}"}
-                                {"text": "❌ Reject", "callback_data": f"cont_ctx_reject:{run_id}"}
+                                {"text": f"✅ Apply ({len(symbols)} sym)", "callback_data": f"cont_ctx_approve:{run_id}"},
+                                {"text": "❌ Reject", "callback_data": f"cont_ctx_reject:{run_id}"},
                             ]]
                             buttons_json = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
 
                             fields = {
-                                "type": "report"
-                                "text": reminder_text
-                                "buttons": buttons_json
-                                "ts": str(now_ms)
+                                "type": "report",
+                                "text": reminder_text,
+                                "buttons": buttons_json,
+                                "ts": str(now_ms),
                             }
                             await asyncio.to_thread(
                                 lambda: self.r.xadd(
-                                    notify_stream, fields
-                                    maxlen=200000, approximate=True
+                                    notify_stream, fields,
+                                    maxlen=200000, approximate=True,
                                 )
                             )
 
@@ -1934,14 +1934,14 @@ class BotCallbackPoller:
                                 f"Run ID: <code>{bundle_id}</code>"
                             )
                             fields = {
-                                "type": "report"
-                                "text": reject_text
-                                "ts": str(now_ms)
+                                "type": "report",
+                                "text": reject_text,
+                                "ts": str(now_ms),
                             }
                             await asyncio.to_thread(
                                 lambda: self.r.xadd(
-                                    notify_stream, fields
-                                    maxlen=200000, approximate=True
+                                    notify_stream, fields,
+                                    maxlen=200000, approximate=True,
                                 )
                             )
 
@@ -1971,11 +1971,11 @@ MESSAGE_LOG_INTERVAL = 1
 
 def get_redis(url: str) -> redis.Redis:
     return redis.Redis.from_url(
-        url
-        decode_responses=True
-        socket_timeout=10
-        socket_connect_timeout=5
-        max_connections=10
+        url,
+        decode_responses=True,
+        socket_timeout=10,
+        socket_connect_timeout=5,
+        max_connections=10,
         health_check_interval=30
     )
 
@@ -2061,21 +2061,21 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
 
             source = parsed.get("source", "OrderFlow")
             raw = {
-                "source": source
-                "signal_settings": signal_settings
-                "envelope_type": "outbox_signal"
+                "source": source,
+                "signal_settings": signal_settings,
+                "envelope_type": "outbox_signal",
             }
 
             _attach_outbox_meta(redis_client=redis, entry=entry, parsed=parsed, raw=raw)
 
         elif "text" in entry and "side" in entry and "price" in entry:
-            # XAUUSD Format
+            #  Format
             text = entry.get("text", "")
             side = entry.get("side", "")
             price = entry.get("price", "")
             
             symbol_match = re.search(r'(XAU\w*|BTC\w*|ETH\w*|[A-Z]{3,})', text)
-            symbol = symbol_match.group(1) if symbol_match else "XAUUSD"
+            symbol = symbol_match.group(1) if symbol_match else ""
             
             risk_json = entry.get("risk")
             stop = None
@@ -2085,26 +2085,26 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
                 tp_list = risk_json.get("tp_levels", [])
             
             parsed = {
-                "symbol": symbol
-                "direction": side
-                "entry": price
-                "stop": stop or ""
-                "tp": tp_list or []
-                "leverage": entry.get("lot", "1.0")
-                "confidence": None
-                "timeframe": None
-                "exchange": "MT5"
-                "source": "XAUUSD OrderFlow"
-                "orderType": entry.get("note", "Market")
-                "profitPct": None
-                "raw_text": text
+                "symbol": symbol,
+                "direction": side,
+                "entry": price,
+                "stop": stop or "",
+                "tp": tp_list or [],
+                "leverage": entry.get("lot", "1.0"),
+                "confidence": None,
+                "timeframe": None,
+                "exchange": "MT5",
+                "source": " OrderFlow",
+                "orderType": entry.get("note", "Market"),
+                "profitPct": None,
+                "raw_text": text,
                 "is_xauusd": True
             }
-            # Special raw construction for XAUUSD to bypass formatting
+            # Special raw construction for  to bypass formatting
             raw = {
-                "chat_title": "XAUUSD OrderFlow Analysis"
-                "username": "scanner-python-worker"
-                "text": text
+                "chat_title": " OrderFlow Analysis",
+                "username": "scanner-python-worker",
+                "text": text,
                 "is_xauusd": True
             }
             # send logic below handles this
@@ -2121,18 +2121,18 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
                 return True
 
             parsed = {
-                "symbol": entry.get("symbol") or ""
-                "direction": entry.get("direction") or ""
-                "entry": entry.get("entry") or ""
-                "stop": entry.get("stop") or ""
-                "tp": []
-                "leverage": entry.get("leverage") or ""
-                "confidence": entry.get("confidence") or ""
-                "timeframe": entry.get("timeframe") or ""
-                "exchange": entry.get("exchange") or ""
-                "source": entry.get("source") or entry.get("username") or entry.get("chat_title") or "Unknown Channel"
-                "orderType": entry.get("orderType") or ""
-                "profitPct": entry.get("profitPct") or ""
+                "symbol": entry.get("symbol") or "",
+                "direction": entry.get("direction") or "",
+                "entry": entry.get("entry") or "",
+                "stop": entry.get("stop") or "",
+                "tp": [],
+                "leverage": entry.get("leverage") or "",
+                "confidence": entry.get("confidence") or "",
+                "timeframe": entry.get("timeframe") or "",
+                "exchange": entry.get("exchange") or "",
+                "source": entry.get("source") or entry.get("username") or entry.get("chat_title") or "Unknown Channel",
+                "orderType": entry.get("orderType") or "",
+                "profitPct": entry.get("profitPct") or "",
                 "raw_text": existing_text
             }
             
@@ -2150,8 +2150,8 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
                         parsed["tp"] = []
 
             raw = {
-                "chat_title": entry.get("chat_title")
-                "username": entry.get("username")
+                "chat_title": entry.get("chat_title"),
+                "username": entry.get("username"),
                 "text": existing_text
             }
 

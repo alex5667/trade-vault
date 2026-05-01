@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """P58 wrapper: archive trades:closed stream to NDJSON.
 
 Env overrides:
@@ -8,7 +9,6 @@ Env overrides:
   TRADES_CLOSED_ARCHIVER_GROUP (default: closed_archiver_v1)
 """
 
-from __future__ import annotations
 
 import os
 import sys

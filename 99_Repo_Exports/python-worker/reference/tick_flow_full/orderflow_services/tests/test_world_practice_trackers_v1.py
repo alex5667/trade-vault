@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 test_world_practice_trackers_v1.py
 ===================================
@@ -14,7 +15,6 @@ helpers _as_float / _call_update / _call_snapshot tolerate minor signature
 drifts without requiring edits to core tracker files.
 """
 
-from __future__ import annotations
 
 import asyncio
 import os
@@ -83,7 +83,7 @@ def _call_snapshot(tracker: Any) -> Dict[str, Any]:
         return tracker.state()
     # Last-resort: pull known public attributes into a dict
     out: Dict[str, Any] = {}
-    for k in ("vol_fast_bps", "vol_slow_bps", "vol_ratio", "vol_ratio_z"
+    for k in ("vol_fast_bps", "vol_slow_bps", "vol_ratio", "vol_ratio_z",
                "recovered", "res_recovered", "score"):
         if hasattr(tracker, k):
             out[k] = getattr(tracker, k)
@@ -130,8 +130,8 @@ def test_vol_regime_tracker_detects_shock() -> None:
     # Real keys: vol_ratio, vol_ratio_z (not vol_z)
     ratio_post = _as_float(snap_post.get("vol_ratio", snap_post.get("ratio", 0.0)))
     z_post = _as_float(
-        snap_post.get("vol_ratio_z"
-                      snap_post.get("vol_z"
+        snap_post.get("vol_ratio_z",
+                      snap_post.get("vol_z",
                                     snap_post.get("ratio_z", 0.0)))
     )
 
@@ -167,10 +167,10 @@ def test_book_resilience_tracker_recovers() -> None:
     from core.book_resilience_tracker import BookResilienceTracker
 
     tr = BookResilienceTracker(
-        min_sweep_usd=50.0
-        recover_ratio=0.85
-        max_recovery_ms=30_000
-        grace_ms=5_000
+        min_sweep_usd=50.0,
+        recover_ratio=0.85,
+        max_recovery_ms=30_000,
+        grace_ms=5_000,
     )
 
     ts0 = 1_700_000_000_000
@@ -213,7 +213,7 @@ def test_fill_prob_proxy_monotonic() -> None:
     fill_prob decreases monotonically as cancel-to-trade pressure increases.
     Both extremes must be in [0, 1].
 
-    Real API: compute_fill_prob_proxy(direction, cancel_to_trade_bid
+    Real API: compute_fill_prob_proxy(direction, cancel_to_trade_bid,
                                       cancel_to_trade_ask, eta_fill_bid_sec, ...)
     Returns a dict with keys fill_prob_proxy / fill_prob / p_fill.
     """
@@ -221,21 +221,21 @@ def test_fill_prob_proxy_monotonic() -> None:
 
     # Low cancel pressure for a LONG order
     out_low = compute_fill_prob_proxy(
-        direction="LONG"
-        cancel_to_trade_bid=0.2
-        cancel_to_trade_ask=0.2
-        eta_fill_bid_sec=0.5
-        eta_fill_ask_sec=0.5
-        max_wait_s=2.0
+        direction="LONG",
+        cancel_to_trade_bid=0.2,
+        cancel_to_trade_ask=0.2,
+        eta_fill_bid_sec=0.5,
+        eta_fill_ask_sec=0.5,
+        max_wait_s=2.0,
     )
     # High cancel pressure
     out_high = compute_fill_prob_proxy(
-        direction="LONG"
-        cancel_to_trade_bid=8.0
-        cancel_to_trade_ask=8.0
-        eta_fill_bid_sec=0.5
-        eta_fill_ask_sec=0.5
-        max_wait_s=2.0
+        direction="LONG",
+        cancel_to_trade_bid=8.0,
+        cancel_to_trade_ask=8.0,
+        eta_fill_bid_sec=0.5,
+        eta_fill_ask_sec=0.5,
+        max_wait_s=2.0,
     )
 
     p_low  = _as_float(out_low.get("fill_prob",  out_low.get("p_fill",  0.0)))
@@ -335,14 +335,14 @@ def test_tick_processor_missing_qty_does_not_crash(monkeypatch: pytest.MonkeyPat
     redis_stub = _DummyRedis()
 
     tp = TickProcessor(
-        redis=redis_stub
-        ticks=redis_stub
-        publisher=_DummyPublisher()
-        of_engine=type("E", (), {"symbol": "BTCUSDT"})()
-        calib_svc=type("C", (), {"symbol": "BTCUSDT"})()
-        atr_cache=None
-        atr_sanity=None
-        conf_scorer=None
+        redis=redis_stub,
+        ticks=redis_stub,
+        publisher=_DummyPublisher(),
+        of_engine=type("E", (), {"symbol": "BTCUSDT"})(),
+        calib_svc=type("C", (), {"symbol": "BTCUSDT"})(),
+        atr_cache=None,
+        atr_sanity=None,
+        conf_scorer=None,
     )
 
     # Stub out _apply_tick_time_guard to bypass full Redis state
@@ -355,9 +355,9 @@ def test_tick_processor_missing_qty_does_not_crash(monkeypatch: pytest.MonkeyPat
 
     # Tick with no qty/q/quantity/volume field -- should not crash
     tick: Dict[str, Any] = {
-        "ts_ms": 1_700_000_000_000
-        "price": 100.0
-        "is_buyer_maker": False
+        "ts_ms": 1_700_000_000_000,
+        "price": 100.0,
+        "is_buyer_maker": False,
     }
 
     out = asyncio.run(tp.process_tick(runtime, tick))

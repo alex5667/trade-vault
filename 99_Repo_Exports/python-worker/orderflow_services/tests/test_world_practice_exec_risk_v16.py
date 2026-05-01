@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Unit tests for exec-risk observability v16 integration.
 
 Tests cover:
@@ -6,7 +7,6 @@ Tests cover:
 - New alert names (OFExecPenaltyP95High, OFSpreadP95High) present in YAML
 - Smoke-check compiles without syntax errors
 """
-from __future__ import annotations
 
 import os
 import json

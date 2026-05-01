@@ -60,7 +60,7 @@ class TPEventListener:
         # Инициализация компонентов
         self.profiles = TrailingProfilesRegistry()
         self.orchestrator = TP1TrailingOrchestrator(
-            redis_client=self.r
+            redis_client=self.r,
             profiles=self.profiles
         )
         
@@ -69,10 +69,10 @@ class TPEventListener:
         
         # Статистика
         self.stats = {
-            "messages_read": 0
-            "messages_processed": 0
-            "messages_acked": 0
-            "errors": 0
+            "messages_read": 0,
+            "messages_processed": 0,
+            "messages_acked": 0,
+            "errors": 0,
             "last_message_ts": 0
         }
         
@@ -81,7 +81,7 @@ class TPEventListener:
         signal.signal(signal.SIGTERM, self._signal_handler)
         
         log.info(
-            "✅ TPEventListener initialized | stream=%s group=%s consumer=%s"
+            "✅ TPEventListener initialized | stream=%s group=%s consumer=%s",
             self.events_stream, self.consumer_group, self.consumer_name
         )
     
@@ -93,9 +93,9 @@ class TPEventListener:
         while retry_count < max_retries:
             try:
                 self.r.xgroup_create(
-                    self.events_stream
-                    self.consumer_group
-                    id="0"
+                    self.events_stream,
+                    self.consumer_group,
+                    id="0",
                     mkstream=True
                 )
                 log.info("✅ Consumer group created: %s", self.consumer_group)
@@ -104,7 +104,7 @@ class TPEventListener:
                 # Redis is loading dataset from disk
                 retry_count += 1
                 wait_time = min(5 * retry_count, 30)  # Exponential backoff, max 30 seconds
-                log.warning("⚠️ Redis загружает данные в память (попытка %d/%d), ждём %d сек..."
+                log.warning("⚠️ Redis загружает данные в память (попытка %d/%d), ждём %d сек...",
                           retry_count, max_retries, wait_time)
                 time.sleep(wait_time)
                 continue
@@ -116,7 +116,7 @@ class TPEventListener:
                 if "Redis is loading the dataset in memory" in error_msg:
                     retry_count += 1
                     wait_time = min(5 * retry_count, 30)  # Exponential backoff, max 30 seconds
-                    log.warning("⚠️ Redis загружает данные в память (попытка %d/%d), ждём %d сек..."
+                    log.warning("⚠️ Redis загружает данные в память (попытка %d/%d), ждём %d сек...",
                               retry_count, max_retries, wait_time)
                     time.sleep(wait_time)
                     continue
@@ -127,7 +127,7 @@ class TPEventListener:
                 # Handle connection issues with retry
                 retry_count += 1
                 wait_time = min(2 * retry_count, 10)  # Shorter backoff for connection issues
-                log.warning("⚠️ Redis connection error (попытка %d/%d), ждём %d сек: %s"
+                log.warning("⚠️ Redis connection error (попытка %d/%d), ждём %d сек: %s",
                           retry_count, max_retries, wait_time, str(e))
                 time.sleep(wait_time)
                 continue
@@ -204,7 +204,7 @@ class TPEventListener:
                     except Exception as e:
                         self.stats["errors"] += 1
                         log.error(
-                            "❌ Error processing message %s: %s"
+                            "❌ Error processing message %s: %s",
                             msg_id, str(e), exc_info=True
                         )
                         # Подтверждаем даже при ошибке, чтобы не застрять
@@ -246,8 +246,8 @@ class TPEventListener:
         log.info("✅ Shutdown complete")
     
     def _read_messages(
-        self
-        count: int
+        self,
+        count: int,
         block_ms: int
     ) -> List[Tuple[str, Dict[str, str]]]:
         """
@@ -262,10 +262,10 @@ class TPEventListener:
         """
         try:
             resp = self.r.xreadgroup(
-                self.consumer_group
-                self.consumer_name
-                streams={self.events_stream: ">"}
-                count=count
+                self.consumer_group,
+                self.consumer_name,
+                streams={self.events_stream: ">"},
+                count=count,
                 block=block_ms
             )
 
@@ -347,11 +347,11 @@ class TPEventListener:
     def _log_stats(self):
         """Вывести статистику в лог."""
         log.info(
-            "📊 Listener Stats: read=%d processed=%d acked=%d errors=%d last_msg=%ds_ago"
-            self.stats["messages_read"]
-            self.stats["messages_processed"]
-            self.stats["messages_acked"]
-            self.stats["errors"]
+            "📊 Listener Stats: read=%d processed=%d acked=%d errors=%d last_msg=%ds_ago",
+            self.stats["messages_read"],
+            self.stats["messages_processed"],
+            self.stats["messages_acked"],
+            self.stats["errors"],
             int(time.time()) - self.stats["last_message_ts"] if self.stats["last_message_ts"] > 0 else -1
         )
         
@@ -380,11 +380,11 @@ class TPEventListener:
         is_active = last_msg_age < 600 if self.stats["last_message_ts"] > 0 else True
         
         return {
-            "status": "healthy" if (redis_ok and self.running) else "unhealthy"
-            "running": self.running
-            "redis_connected": redis_ok
-            "active": is_active
-            "stats": self.stats
+            "status": "healthy" if (redis_ok and self.running) else "unhealthy",
+            "running": self.running,
+            "redis_connected": redis_ok,
+            "active": is_active,
+            "stats": self.stats,
             "orchestrator_stats": self.orchestrator.get_stats()
         }
 

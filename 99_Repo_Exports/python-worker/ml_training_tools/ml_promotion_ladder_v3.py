@@ -122,7 +122,7 @@ def thresholds_for_level(level: float, bucket: str) -> Dict[str, float]:
     return {"brier_max": brier, "ece_max": ece, "meanR_min": meanR, "tail_max": tail, "es05_min": es05}
 
 
-def filter_rows(rows: List[Dict[str, Any]], *, bucket: str, symbol: str = "") -> List[Dict[str, Any]]:
+def filter_rows(rows: List[Dict[str, Any]], *, bucket: str, symbol="") -> List[Dict[str, Any]]:
     """Filter rows by bucket and optionally by symbol."""
     out = []
     bs = bucket.lower()

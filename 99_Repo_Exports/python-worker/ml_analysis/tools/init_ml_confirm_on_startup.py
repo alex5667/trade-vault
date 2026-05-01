@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Startup ML Confirm config initializer — ml_analysis.tools wrapper.
 
 This module exists to satisfy imports like:
@@ -7,7 +8,6 @@ Implementation is kept in-sync with `utilities/init_ml_confirm_on_startup.py`.
 The canonical implementation lives in `utilities/`; this wrapper simply re-exports it.
 """
 
-from __future__ import annotations
 
 # Prefer the canonical utilities implementation
 try:

@@ -24,21 +24,21 @@ def test_dataset_report_json_structure():
     drop.add("close_invalid_risk", {"id": "2-0", "sid": "test", "risk_usd": 0.0})
 
     report = {
-        "signal_stream": "signals:of:inputs"
-        "closed_stream": "trades:closed"
-        "signals_raw": 1000
-        "signals_parsed": 950
-        "closes_raw": 1000
-        "closes_parsed": 980
+        "signal_stream": "signals:of:inputs",
+        "closed_stream": "trades:closed",
+        "signals_raw": 1000,
+        "signals_parsed": 950,
+        "closes_raw": 1000,
+        "closes_parsed": 980,
         "joined": 900,  # Critical field for timer validation
-        "unmatched_closes": 80
-        "y_min_r": 0.10
+        "unmatched_closes": 80,
+        "y_min_r": 0.10,
         "pos_rate": 0.15,  # Critical field for timer validation (should be 0.05-0.40)
-        "r_mult_p50": 0.12
-        "r_mult_p95": 0.45
-        "drop": drop.to_dict()
-        "generated_ms": 1700000000000
-    }
+        "r_mult_p50": 0.12,
+        "r_mult_p95": 0.45,
+        "drop": drop.to_dict(),
+        "generated_ms": 1700000000000,
+    },
 
     # Validate structure
     assert "joined" in report
@@ -94,18 +94,18 @@ def test_quarantine_jsonl_structure():
 
         # Write sample quarantine records
         q.write(
-            "signal"
-            "signal_parse_none"
-            stream="signals:of:inputs"
-            msg_id="1-0"
-            data={"payload": "invalid"}
+            "signal",
+            "signal_parse_none",
+            stream="signals:of:inputs",
+            msg_id="1-0",
+            data={"payload": "invalid"},
         )
         q.write(
-            "close"
-            "close_invalid_risk"
-            stream="trades:closed"
-            msg_id="2-0"
-            data={"sid": "test", "risk_usd": 0.0}
+            "close",
+            "close_invalid_risk",
+            stream="trades:closed",
+            msg_id="2-0",
+            data={"sid": "test", "risk_usd": 0.0},
         )
         q.close()
 
@@ -139,15 +139,15 @@ def test_report_drop_diagnostics():
         drop.add("join_no_signal", {"sid": f"test-{i}"})
 
     report = {
-        "joined": 500
-        "drop": drop.to_dict()
+        "joined": 500,
+        "drop": drop.to_dict(),
         "mismatch": {
-            "counts": {"<=1s": 30, "<=10s": 10, ">5m": 10}
+            "counts": {"<=1s": 30, "<=10s": 10, ">5m": 10},
             "examples": [
                 {"sid_close": "test-1", "nearest_signal_sid": "test-2", "delta_ms": 500}
             ]
-        }
-    }
+        },
+    },
 
     # Diagnosis checks
     signal_parse_count = report["drop"]["counts"].get("signal_parse_none", 0)
@@ -164,23 +164,23 @@ def test_feature_cols_json_structure():
 
     rows = [
         {
-            "ts_ms": 1000
-            "sid": "crypto-of:BTCUSDT:1000"
-            "symbol": "BTCUSDT"
-            "direction": "BUY"
-            "scenario": "trend"
-            "indicators": {"spread_bps": 1.2, "delta_z": 0.5, "obi": 0.8}
-            "y": 1
-        }
+            "ts_ms": 1000,
+            "sid": "crypto-of:BTCUSDT:1000",
+            "symbol": "BTCUSDT",
+            "direction": "BUY",
+            "scenario": "trend",
+            "indicators": {"spread_bps": 1.2, "delta_z": 0.5, "obi": 0.8},
+            "y": 1,
+        },
         {
-            "ts_ms": 2000
-            "sid": "crypto-of:ETHUSDT:2000"
-            "symbol": "ETHUSDT"
-            "direction": "SELL"
-            "scenario": "range"
-            "indicators": {"spread_bps": 1.0, "delta_z": -0.2, "obi": 0.6}
-            "y": 0
-        }
+            "ts_ms": 2000,
+            "sid": "crypto-of:ETHUSDT:2000",
+            "symbol": "ETHUSDT",
+            "direction": "SELL",
+            "scenario": "range",
+            "indicators": {"spread_bps": 1.0, "delta_z": -0.2, "obi": 0.6},
+            "y": 0,
+        },
     ]
 
     cols = infer_feature_cols(rows, max_numeric=128, include_direction=True, include_scenario=True)

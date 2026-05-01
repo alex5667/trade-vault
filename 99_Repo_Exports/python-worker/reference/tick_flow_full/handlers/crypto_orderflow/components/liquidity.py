@@ -38,12 +38,12 @@ class CryptoLiquidity:
             return "cfg:err"
 
     def find_near_liquidity_wall(
-        self
-        ctx: Any
-        l2: SimpleL2Snapshot
-        max_levels: int = 10
-        max_dist_bps: float = 15.0
-        size_z_thr: float = 1.5
+        self,
+        ctx: Any,
+        l2: SimpleL2Snapshot,
+        max_levels: int = 10,
+        max_dist_bps: float = 15.0,
+        size_z_thr: float = 1.5,
     ) -> Tuple[Optional[str], Optional[L2Level], Optional[float]]:
         price = ctx.last_price
         if price is None:
@@ -102,8 +102,8 @@ class CryptoLiquidity:
         return best_side, best_level, best_size_z
 
     def calculate_book_metrics(
-        self
-        l2: SimpleL2Snapshot
+        self,
+        l2: SimpleL2Snapshot,
     ) -> Dict[str, Any]:
         """
         Calculate common book metrics: spread, depth_5, best prices/qtys.
@@ -112,15 +112,15 @@ class CryptoLiquidity:
         best_ask = l2.asks[0] if l2.asks else None
 
         metrics = {
-            "best_bid_px": getattr(best_bid, "price", 0.0) if best_bid else 0.0
-            "best_bid_qty": getattr(best_bid, "size", 0.0) if best_bid else 0.0
-            "best_ask_px": getattr(best_ask, "price", 0.0) if best_ask else 0.0
-            "best_ask_qty": getattr(best_ask, "size", 0.0) if best_ask else 0.0
-            "spread_bps": 0.0
-            "depth_5_bid_vol": sum(x.size for x in l2.bids[:5])
-            "depth_5_ask_vol": sum(x.size for x in l2.asks[:5])
-            "top5_bids": [(x.price, x.size) for x in l2.bids[:5]]
-            "top5_asks": [(x.price, x.size) for x in l2.asks[:5]]
+            "best_bid_px": getattr(best_bid, "price", 0.0) if best_bid else 0.0,
+            "best_bid_qty": getattr(best_bid, "size", 0.0) if best_bid else 0.0,
+            "best_ask_px": getattr(best_ask, "price", 0.0) if best_ask else 0.0,
+            "best_ask_qty": getattr(best_ask, "size", 0.0) if best_ask else 0.0,
+            "spread_bps": 0.0,
+            "depth_5_bid_vol": sum(x.size for x in l2.bids[:5]),
+            "depth_5_ask_vol": sum(x.size for x in l2.asks[:5]),
+            "top5_bids": [(x.price, x.size) for x in l2.bids[:5]],
+            "top5_asks": [(x.price, x.size) for x in l2.asks[:5]],
         }
 
         if metrics["best_bid_px"] > 0 and metrics["best_ask_px"] > 0:
@@ -131,10 +131,10 @@ class CryptoLiquidity:
         return metrics
 
     def build_liquidity_context(
-        self
-        ctx: Any
-        l2: SimpleL2Snapshot
-        cluster: Optional[ClusterVol] = None
+        self,
+        ctx: Any,
+        l2: SimpleL2Snapshot,
+        cluster: Optional[ClusterVol] = None,
     ) -> LiquidityContext:
         lc = LiquidityContext()
         
@@ -176,17 +176,17 @@ class CryptoLiquidity:
         cached_on_ctx(ctx, slot="_cache_ensure_levels", key=key, compute=_compute)
 
     def ensure_trade_levels_once(
-        self
-        *
-        ctx: Any
-        side: Any
-        symbol: str
-        kind: str
-        cfg: dict | None
-        regime: Any = None
-        empirical: Any = None
-        overwrite: bool = False
-        logger: Any = None
+        self,
+        *,
+        ctx: Any,
+        side: Any,
+        symbol: str,
+        kind: str,
+        cfg: dict | None,
+        regime: Any = None,
+        empirical: Any = None,
+        overwrite: bool = False,
+        logger: Any = None,
     ) -> None:
         """
         Attach trade levels to ctx with caching and normalization.
@@ -249,13 +249,13 @@ class CryptoLiquidity:
         try:
             # We call attach_trade_levels_to_ctx which does the heavy lifting
             res = attach_trade_levels_to_ctx(
-                ctx=ctx
-                side=side_s
-                symbol=str(symbol)
-                cfg=cfgd
-                empirical=empirical
-                regime=regime
-                overwrite=overwrite
+                ctx=ctx,
+                side=side_s,
+                symbol=str(symbol),
+                cfg=cfgd,
+                empirical=empirical,
+                regime=regime,
+                overwrite=overwrite,
             )
             
             # Sizing (RR-mode fixed risk)

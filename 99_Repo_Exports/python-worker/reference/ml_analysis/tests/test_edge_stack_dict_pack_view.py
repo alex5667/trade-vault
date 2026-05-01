@@ -14,25 +14,25 @@ def test_dict_pack_view_enables_scaler_in_feature_row():
     gate = MLConfirmGate(r=DummyRedis(), mode="OFF", fail_policy="OPEN", champion_key="x", challenger_key="y")
 
     pack = {
-        "feature_cols": ["f_x", "f_spread_bps", "f_expected_slippage_bps", "f_exec_risk_norm"]
-        "feature_transforms": {}
-        "robust_scaler": {"x": {"center": 10.0, "scale": 2.0}}
+        "feature_cols": ["f_x", "f_spread_bps", "f_expected_slippage_bps", "f_exec_risk_norm"],
+        "feature_transforms": {},
+        "robust_scaler": {"x": {"center": 10.0, "scale": 2.0}},
     }
     view = _DictPackModelView(pack)
 
     indicators = {
-        "x": 12.0
-        "spread_bps": 1.0
-        "expected_slippage_bps": 1.0
-        "exec_risk_norm": 0.2
+        "x": 12.0,
+        "spread_bps": 1.0,
+        "expected_slippage_bps": 1.0,
+        "exec_risk_norm": 0.2,
     }
 
     row, missing = gate._build_feature_row(
-        model=view
-        indicators=indicators
-        direction="BUY"
-        scenario="trend"
-        ts_ms=1700000000000
+        model=view,
+        indicators=indicators,
+        direction="BUY",
+        scenario="trend",
+        ts_ms=1700000000000,
     )
 
     assert missing == []
@@ -58,30 +58,30 @@ def test_dict_pack_model_view_build_feature_row():
 
     # feature_cols with bucket:/hour:/dow: columns (Commit 11 format)
     pack = {
-        "type": "edge_stack_v1"
+        "type": "edge_stack_v1",
         "feature_cols": [
-            "f_x", "f_spread_bps", "f_expected_slippage_bps", "f_exec_risk_norm"
-            "bucket:trend", "hour:22", "dow:1"
-        ]
-        "weights": {"intercept": 0.0, "coef": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
-        "meta": {"name": "test"}
+            "f_x", "f_spread_bps", "f_expected_slippage_bps", "f_exec_risk_norm",
+            "bucket:trend", "hour:22", "dow:1",
+        ],
+        "weights": {"intercept": 0.0, "coef": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
+        "meta": {"name": "test"},
     }
     view = _DictPackModelView(pack)
 
     indicators = {
-        "x": 12.0
-        "spread_bps": 2.0
-        "expected_slippage_bps": 3.0
-        "exec_risk_norm": 4.0
+        "x": 12.0,
+        "spread_bps": 2.0,
+        "expected_slippage_bps": 3.0,
+        "exec_risk_norm": 4.0,
     }
 
     # ts_ms=1700000000000: UTC 2023-11-14 22:13:20 => hour=22, dow=1 (Tue, Mon=0)
     row, missing = gate._build_feature_row(
-        model=view
-        indicators=indicators
-        direction="BUY"
-        scenario="trend"
-        ts_ms=1700000000000
+        model=view,
+        indicators=indicators,
+        direction="BUY",
+        scenario="trend",
+        ts_ms=1700000000000,
     )
 
     assert missing == []

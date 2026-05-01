@@ -71,7 +71,7 @@ for row in rows:
         "close_ts_ms": exit_ts_ms,
         "r_mult": r_mult,
         "meta_enforce_cov_bucket": cov_bucket,
-        "meta_enforce_applied": applied
+        "meta_enforce_applied": applied,
     }
 
     # Emulate trades:closed

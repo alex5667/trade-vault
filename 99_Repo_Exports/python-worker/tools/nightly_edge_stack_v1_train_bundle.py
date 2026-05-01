@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P59: Nightly edge_stack_v1 training bundle (dataset build + OOF train + publish).
 
 This bundle:
@@ -16,7 +17,6 @@ Environment defaults:
   EDGE_STACK_POS_RATE_MAX (default 0.60)
 """
 
-from __future__ import annotations
 
 import argparse
 import json

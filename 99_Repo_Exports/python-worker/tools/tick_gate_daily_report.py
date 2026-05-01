@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Daily report for tick-quality gate outcomes stored in Redis Streams.
 
 Reads ops:tick_quality_gate (or configured stream) and produces a compact summary:
@@ -11,7 +12,6 @@ Designed to be robust to schema variations:
  - Otherwise, the entry fields are treated as a flat dict.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

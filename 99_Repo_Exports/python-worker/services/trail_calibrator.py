@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Trail Calibrator — computes optimal trailing params per symbol × regime.
 
@@ -12,7 +13,6 @@ Mode: shadow (log only) or enforce (executor reads and uses).
 
 Fail-open: never raises.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import math
@@ -70,15 +70,15 @@ class TrailCalibratorConfig:
     @classmethod
     def from_env(cls) -> "TrailCalibratorConfig":
         return cls(
-            enabled=_env_bool("TRAIL_CALIB_ENABLED", True)
-            mode=os.getenv("TRAIL_CALIB_MODE", "shadow") or "shadow"
-            safety_mult=float(os.getenv("TRAIL_CALIB_SAFETY_MULT", "1.2") or 1.2)
-            max_change_pct=float(os.getenv("TRAIL_CALIB_MAX_CHANGE_PCT", "30") or 30)
-            min_confidence=float(os.getenv("TRAIL_CALIB_MIN_CONFIDENCE", "0.55") or 0.55)
-            min_n=_si(os.getenv("TRAIL_ANALYZER_MIN_N", "50"), 50)
-            ttl_sec=_si(os.getenv("TRAIL_CALIB_TTL_SEC", str(48 * 3600)), 48 * 3600)
-            key_prefix=os.getenv("TRAIL_CALIB_KEY_PREFIX", "trail:calib") or "trail:calib"
-            analysis_key_prefix=os.getenv("TRAIL_ANALYZER_KEY_PREFIX", "trail:analysis") or "trail:analysis"
+            enabled=_env_bool("TRAIL_CALIB_ENABLED", True),
+            mode=os.getenv("TRAIL_CALIB_MODE", "shadow") or "shadow",
+            safety_mult=float(os.getenv("TRAIL_CALIB_SAFETY_MULT", "1.2") or 1.2),
+            max_change_pct=float(os.getenv("TRAIL_CALIB_MAX_CHANGE_PCT", "30") or 30),
+            min_confidence=float(os.getenv("TRAIL_CALIB_MIN_CONFIDENCE", "0.55") or 0.55),
+            min_n=_si(os.getenv("TRAIL_ANALYZER_MIN_N", "50"), 50),
+            ttl_sec=_si(os.getenv("TRAIL_CALIB_TTL_SEC", str(48 * 3600)), 48 * 3600),
+            key_prefix=os.getenv("TRAIL_CALIB_KEY_PREFIX", "trail:calib") or "trail:calib",
+            analysis_key_prefix=os.getenv("TRAIL_ANALYZER_KEY_PREFIX", "trail:analysis") or "trail:analysis",
         )
 
 
@@ -113,19 +113,19 @@ class CalibratedTrailParams:
 
 class TrailCalibrator:
     """
-    Reads trail:analysis:{symbol}:{regime} hashes
-    computes optimal trailing params
+    Reads trail:analysis:{symbol}:{regime} hashes,
+    computes optimal trailing params,
     writes to trail:calib:{symbol}:{regime}.
     """
 
     # Default ATR in BPS for major symbols (fallback)
     DEFAULT_ATR_BPS: Dict[str, float] = {
-        "BTCUSDT": 30.0
-        "ETHUSDT": 45.0
-        "SOLUSDT": 80.0
-        "XRPUSDT": 60.0
-        "BNBUSDT": 40.0
-        "DOGEUSDT": 100.0
+        "BTCUSDT": 30.0,
+        "ETHUSDT": 45.0,
+        "SOLUSDT": 80.0,
+        "XRPUSDT": 60.0,
+        "BNBUSDT": 40.0,
+        "DOGEUSDT": 100.0,
     }
     DEFAULT_ATR_BPS_FALLBACK = 50.0
 
@@ -156,8 +156,8 @@ class TrailCalibrator:
                 results.append(params)
 
         logger.info(
-            "Trail calibration complete: %d params written (mode=%s)"
-            len(results), self.cfg.mode
+            "Trail calibration complete: %d params written (mode=%s)",
+            len(results), self.cfg.mode,
         )
         return results
 
@@ -202,8 +202,8 @@ class TrailCalibrator:
                 return None
             if confidence < self.cfg.min_confidence:
                 logger.debug(
-                    "Skipping %s:%s — confidence %.3f < min %.3f"
-                    symbol, regime, confidence, self.cfg.min_confidence
+                    "Skipping %s:%s — confidence %.3f < min %.3f",
+                    symbol, regime, confidence, self.cfg.min_confidence,
                 )
                 return None
 
@@ -232,21 +232,21 @@ class TrailCalibrator:
             if prev_callback > EPS and self.cfg.max_change_pct > 0:
                 max_delta = prev_callback * self.cfg.max_change_pct / 100.0
                 callback_atr_mult = max(
-                    prev_callback - max_delta
-                    min(prev_callback + max_delta, callback_atr_mult)
+                    prev_callback - max_delta,
+                    min(prev_callback + max_delta, callback_atr_mult),
                 )
 
             return CalibratedTrailParams(
-                symbol=symbol
-                regime=regime
-                callback_atr_mult=round(callback_atr_mult, 6)
-                activate_offset_bps=round(activate_offset_bps, 4)
-                min_profit_lock_r=round(min_profit_lock_r, 6)
-                confidence=round(confidence, 4)
-                mode=self.cfg.mode
-                n_total=n_total
-                computed_at_ms=get_ny_time_millis()
-                previous_callback_atr_mult=round(prev_callback, 6)
+                symbol=symbol,
+                regime=regime,
+                callback_atr_mult=round(callback_atr_mult, 6),
+                activate_offset_bps=round(activate_offset_bps, 4),
+                min_profit_lock_r=round(min_profit_lock_r, 6),
+                confidence=round(confidence, 4),
+                mode=self.cfg.mode,
+                n_total=n_total,
+                computed_at_ms=get_ny_time_millis(),
+                previous_callback_atr_mult=round(prev_callback, 6),
             )
 
         except Exception as e:
@@ -274,10 +274,10 @@ class TrailCalibrator:
                 pipe.expire(key, self.cfg.ttl_sec)
             pipe.execute()
             logger.info(
-                "Wrote %s: callback=%.3f, offset=%.1fbps, lock=%.3fR (mode=%s, conf=%.3f, prev=%.3f)"
-                key, params.callback_atr_mult, params.activate_offset_bps
-                params.min_profit_lock_r, params.mode, params.confidence
-                params.previous_callback_atr_mult
+                "Wrote %s: callback=%.3f, offset=%.1fbps, lock=%.3fR (mode=%s, conf=%.3f, prev=%.3f)",
+                key, params.callback_atr_mult, params.activate_offset_bps,
+                params.min_profit_lock_r, params.mode, params.confidence,
+                params.previous_callback_atr_mult,
             )
         except Exception as e:
             logger.error("Failed to write %s: %s", key, e)

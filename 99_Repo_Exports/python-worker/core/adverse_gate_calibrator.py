@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Adverse Gate Calibrator — pure computation module (no IO).
 
@@ -26,7 +27,6 @@ Safety invariants:
 Import as:
     from core.adverse_gate_calibrator import evaluate_adverse_gate, AdverseGateCalibResult
 """
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, asdict
@@ -61,7 +61,7 @@ class AdverseOutcome:
 @dataclass
 class AdverseGateCalibResult:
     """Result of a single per-symbol adverse gate calibration evaluation."""
-    symbol: str = ""
+    symbol=""
     window_h: int = 24
 
     # Sample counts
@@ -128,7 +128,7 @@ class AdverseGateCalibResult:
 def evaluate_adverse_gate(
     outcomes: List[AdverseOutcome],
     *,
-    symbol: str = "",
+    symbol="",
     window_h: int = 24,
     min_rev_veto_precision: float = 0.55,
     min_rev_veto_lift: float = 0.08,

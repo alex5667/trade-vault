@@ -28,13 +28,13 @@ FN_SET = "exec_health_freeze_sealed_set"
 FN_FORCE_SET = "exec_health_freeze_sealed_force_set"
 
 _SEAL_META_FIELDS = {
-    "seal_digest"
-    "seal_algorithm"
-    "seal_version"
-    "seal_prev_digest"
-    "seal_entrypoint"
-    "sealed_at_ts_ms"
-    "seal_force_reason"
+    "seal_digest",
+    "seal_algorithm",
+    "seal_version",
+    "seal_prev_digest",
+    "seal_entrypoint",
+    "sealed_at_ts_ms",
+    "seal_force_reason",
 }
 
 # Redis Functions are available since Redis 7.0, and loaded libraries are then
@@ -153,13 +153,13 @@ def verify_sealed_hash(raw: Mapping[str, Any] | None, *, secret: str | None = No
 
 
 def prepare_sealed_mapping(
-    *
-    prev_raw: Mapping[str, Any] | None
-    mapping: Mapping[str, Any]
-    entrypoint: str
-    now_ms: int | None = None
-    secret: str | None = None
-    force_reason: str = ""
+    *,
+    prev_raw: Mapping[str, Any] | None,
+    mapping: Mapping[str, Any],
+    entrypoint: str,
+    now_ms: int | None = None,
+    secret: str | None = None,
+    force_reason: str = "",
 ) -> Dict[str, Any]:
     sec = _secret(secret)
     prev = dict(prev_raw or {})
@@ -168,12 +168,12 @@ def prepare_sealed_mapping(
     out = dict(mapping)
     out.update(
         {
-            "seal_algorithm": "sha1_v1"
-            "seal_version": int(version)
-            "seal_prev_digest": _s(prev.get("seal_digest"), "") if prev_valid else ""
-            "seal_entrypoint": str(entrypoint or "")
-            "sealed_at_ts_ms": int(now_ms or _now_ms())
-            "seal_force_reason": str(force_reason or "")
+            "seal_algorithm": "sha1_v1",
+            "seal_version": int(version),
+            "seal_prev_digest": _s(prev.get("seal_digest"), "") if prev_valid else "",
+            "seal_entrypoint": str(entrypoint or ""),
+            "sealed_at_ts_ms": int(now_ms or _now_ms()),
+            "seal_force_reason": str(force_reason or ""),
         }
     )
     out["seal_digest"] = compute_seal_digest(out, secret=secret)
@@ -219,16 +219,16 @@ def _call_function(redis_client: Any, fn: str, key: str, args: Sequence[Any]) ->
 
 
 def sealed_set_sync(
-    redis_client: Any
-    *
-    key: str
-    prev_raw: Mapping[str, Any] | None
-    mapping: Mapping[str, Any]
-    entrypoint: str
-    ttl_s: int
-    force: bool = False
-    secret: str | None = None
-    force_reason: str = ""
+    redis_client: Any,
+    *,
+    key: str,
+    prev_raw: Mapping[str, Any] | None,
+    mapping: Mapping[str, Any],
+    entrypoint: str,
+    ttl_s: int,
+    force: bool = False,
+    secret: str | None = None,
+    force_reason: str = "",
 ) -> Dict[str, Any]:
     sec = _secret(secret)
     if not sec and seal_enforced():
@@ -242,11 +242,11 @@ def sealed_set_sync(
         return {"ok": False, "rc": -91, "error": "invalid_prev_seal", "mapping": dict(mapping)}
     sealed = prepare_sealed_mapping(prev_raw=prev if (prev_valid and not prev_missing_seal) else {}, mapping=mapping, entrypoint=entrypoint, now_ms=_now_ms(), secret=sec, force_reason=force_reason)
     args = [
-        _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else ""
-        _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0
-        int(ttl_s or 0)
-        len(sealed)
-        *_flat_pairs(sealed)
+        _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else "",
+        _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0,
+        int(ttl_s or 0),
+        len(sealed),
+        *_flat_pairs(sealed),
     ]
     fn = FN_FORCE_SET if force else FN_SET
     rc = int(_call_function(redis_client, fn, key, args))
@@ -264,16 +264,16 @@ async def _aensure_loaded(redis_client: Any) -> bool:
         return "already exists" in msg or "library name is already taken" in msg or "busy" in msg
 
 async def asealed_set(
-    redis_client: Any
-    *
-    key: str
-    prev_raw: Mapping[str, Any] | None
-    mapping: Mapping[str, Any]
-    entrypoint: str
-    ttl_s: int
-    force: bool = False
-    secret: str | None = None
-    force_reason: str = ""
+    redis_client: Any,
+    *,
+    key: str,
+    prev_raw: Mapping[str, Any] | None,
+    mapping: Mapping[str, Any],
+    entrypoint: str,
+    ttl_s: int,
+    force: bool = False,
+    secret: str | None = None,
+    force_reason: str = "",
 ) -> Dict[str, Any]:
     sec = _secret(secret)
     if not sec and seal_enforced():
@@ -287,11 +287,11 @@ async def asealed_set(
         return {"ok": False, "rc": -91, "error": "invalid_prev_seal", "mapping": dict(mapping)}
     sealed = prepare_sealed_mapping(prev_raw=prev if (prev_valid and not prev_missing_seal) else {}, mapping=mapping, entrypoint=entrypoint, now_ms=_now_ms(), secret=sec, force_reason=force_reason)
     args = [
-        _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else ""
-        _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0
-        int(ttl_s or 0)
-        len(sealed)
-        *_flat_pairs(sealed)
+        _s(prev.get("seal_digest"), "") if (prev_valid and not prev_missing_seal) else "",
+        _i(prev.get("seal_version"), 0) if (prev_valid and not prev_missing_seal) else 0,
+        int(ttl_s or 0),
+        len(sealed),
+        *_flat_pairs(sealed),
     ]
     fn = FN_FORCE_SET if force else FN_SET
     try:

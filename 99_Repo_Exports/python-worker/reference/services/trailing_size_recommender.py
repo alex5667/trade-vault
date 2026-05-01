@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 TrailingSizeRecommender
 
@@ -11,12 +12,11 @@ TrailingSizeRecommender
 - конвертируем lock_r в TRAILING_TP1_OFFSET_ATR через stop_atr_mult.
 
 Ожидается, что вызывающий код сам отфильтрует сделки по:
-- source (например, CryptoOrderFlow)
-- symbol (ETHUSDT / BTCUSDT)
+- source (например, CryptoOrderFlow),
+- symbol (ETHUSDT / BTCUSDT),
 - entry_tag (опционально).
 """
 
-from __future__ import annotations
 
 import statistics as stats
 from dataclasses import dataclass
@@ -61,27 +61,27 @@ class ClosedTradeSnapshot:
         или payload из Redis/JSON).
         """
         return cls(
-            source=str(d.get("source") or "")
-            symbol=str(d.get("symbol") or "")
-            strategy=str(d.get("strategy") or "")
-            entry_tag=str(d.get("entry_tag") or "")
+            source=str(d.get("source") or ""),
+            symbol=str(d.get("symbol") or ""),
+            strategy=str(d.get("strategy") or ""),
+            entry_tag=str(d.get("entry_tag") or ""),
 
-            exit_ts_ms=int(d.get("exit_ts_ms") or 0)
+            exit_ts_ms=int(d.get("exit_ts_ms") or 0),
 
-            pnl_net=float(d.get("pnl_net") or 0.0)
-            pnl_if_fixed_exit=float(d.get("pnl_if_fixed_exit") or 0.0)
-            one_r_money=float(d.get("one_r_money") or 0.0)
+            pnl_net=float(d.get("pnl_net") or 0.0),
+            pnl_if_fixed_exit=float(d.get("pnl_if_fixed_exit") or 0.0),
+            one_r_money=float(d.get("one_r_money") or 0.0),
 
-            mfe_pnl=float(d.get("mfe_pnl") or 0.0)
-            mae_pnl=float(d.get("mae_pnl") or 0.0)
-            giveback=float(d.get("giveback") or 0.0)
-            missed_profit=float(d.get("missed_profit") or 0.0)
+            mfe_pnl=float(d.get("mfe_pnl") or 0.0),
+            mae_pnl=float(d.get("mae_pnl") or 0.0),
+            giveback=float(d.get("giveback") or 0.0),
+            missed_profit=float(d.get("missed_profit") or 0.0),
 
-            trailing_started=bool(d.get("trailing_started") or d.get("trailing_active") or False)
-            trailing_active=bool(d.get("trailing_active") or False)
-            close_reason=str(d.get("close_reason") or "")
-            close_reason_raw=str(d.get("close_reason_raw") or "")
-            close_reason_detail=str(d.get("close_reason_detail") or "")
+            trailing_started=bool(d.get("trailing_started") or d.get("trailing_active") or False),
+            trailing_active=bool(d.get("trailing_active") or False),
+            close_reason=str(d.get("close_reason") or ""),
+            close_reason_raw=str(d.get("close_reason_raw") or ""),
+            close_reason_detail=str(d.get("close_reason_detail") or ""),
         )
 
 
@@ -130,10 +130,10 @@ def _quantile(xs: List[float], q: float) -> float:
 
 
 def _compute_confidence(
-    mfe_r_win: List[float]
-    giveback_ratio_win: List[float]
-    wins_count: int
-    min_trades_required: int
+    mfe_r_win: List[float],
+    giveback_ratio_win: List[float],
+    wins_count: int,
+    min_trades_required: int,
 ) -> Tuple[float, float, float]:
     """
     Возвращает (confidence, std_mfe_r, std_giveback_ratio)
@@ -172,13 +172,13 @@ def _compute_confidence(
 
 
 def recommend_trailing_size(
-    trades: Iterable[ClosedTradeSnapshot]
-    *
-    stop_atr_mult: float
-    min_trades: int = 50
-    winners_only: bool = True
-    mfe_quantile: float = 0.25
-    trailing_only: bool = False
+    trades: Iterable[ClosedTradeSnapshot],
+    *,
+    stop_atr_mult: float,
+    min_trades: int = 50,
+    winners_only: bool = True,
+    mfe_quantile: float = 0.25,
+    trailing_only: bool = False,
 ) -> Optional[TrailingSizeRecommendation]:
     """
     Рассчитывает рекомендованный размер трейлинга (lock_r и TRAILING_TP1_OFFSET_ATR)
@@ -256,7 +256,7 @@ def recommend_trailing_size(
     raw_lock_r = min(base_lock_r, lock_cap_by_r)
 
     # 3) Флоор/клип
-    #    - не меньше 0.05R (иначе защиты почти нет)
+    #    - не меньше 0.05R (иначе защиты почти нет),
     #    - не больше 1.0R (иначе слишком агрессивный трейлинг).
     lock_r = max(0.10, min(raw_lock_r, 1.0))
 
@@ -271,28 +271,28 @@ def recommend_trailing_size(
 
     # 6) Вычисление confidence
     confidence, std_mfe_r, std_giveback_ratio = _compute_confidence(
-        mfe_r_win
-        giveback_ratio_win
-        n
-        min_trades_required=min_trades
+        mfe_r_win,
+        giveback_ratio_win,
+        n,
+        min_trades_required=min_trades,
     )
 
     return TrailingSizeRecommendation(
-        lock_r=lock_r
-        lock_r_low=lock_r_low
-        lock_r_high=lock_r_high
-        trailing_tp1_offset_atr=trailing_tp1_offset_atr
-        trailing_tp1_offset_atr_low=trailing_tp1_offset_atr_low
-        trailing_tp1_offset_atr_high=trailing_tp1_offset_atr_high
-        sample_size_win=n
-        avg_r_win=avg_r
-        median_r_win=median_r
-        median_mfe_r_win=median_mfe_r
-        avg_giveback_r_win=avg_giveback_r
-        avg_giveback_ratio_win=avg_giveback_ratio
-        trailing_only=trailing_only
-        sample_size_total=count_total
-        confidence=confidence
-        std_mfe_r=std_mfe_r
-        std_giveback_ratio=std_giveback_ratio
+        lock_r=lock_r,
+        lock_r_low=lock_r_low,
+        lock_r_high=lock_r_high,
+        trailing_tp1_offset_atr=trailing_tp1_offset_atr,
+        trailing_tp1_offset_atr_low=trailing_tp1_offset_atr_low,
+        trailing_tp1_offset_atr_high=trailing_tp1_offset_atr_high,
+        sample_size_win=n,
+        avg_r_win=avg_r,
+        median_r_win=median_r,
+        median_mfe_r_win=median_mfe_r,
+        avg_giveback_r_win=avg_giveback_r,
+        avg_giveback_ratio_win=avg_giveback_ratio,
+        trailing_only=trailing_only,
+        sample_size_total=count_total,
+        confidence=confidence,
+        std_mfe_r=std_mfe_r,
+        std_giveback_ratio=std_giveback_ratio,
     )

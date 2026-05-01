@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Confidence Shadow Report (v1).
 
 Reads the joined dataset JSONL produced by build_edge_stack_dataset_from_redis and evaluates:
@@ -12,7 +13,6 @@ Usage:
   python -m ml_analysis.tools.confidence_shadow_report_v1 --in_jsonl ./edge_train.jsonl
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -101,8 +101,8 @@ def load_arrays_custom(path: str, prob_keys: List[str]) -> Tuple[np.ndarray, np.
                 probs_lists[i].append(v if v is not None else np.nan)
 
     res = [
-        np.array(y, dtype=np.float32)
-        np.array(r, dtype=np.float32)
+        np.array(y, dtype=np.float32),
+        np.array(r, dtype=np.float32),
     ]
     for pl in probs_lists:
         res.append(np.array(pl, dtype=np.float32))

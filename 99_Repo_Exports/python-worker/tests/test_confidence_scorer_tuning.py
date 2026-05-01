@@ -13,7 +13,7 @@ def test_anti_corr_tuning_override():
     ctx_base = MockContext(
         market_mode="momentum",
         main_z=3.0, atr_q_main=0.5, spread_bps=1.0, 
-        evidence={"rsi_agree": 1}
+        evidence={"rsi_agree": 1},
     )
     _, parts_base = scorer.score(kind="breakout", side="LONG", ctx=ctx_base)
     base_osc = parts_base["bonus_osc_applied"]
@@ -47,7 +47,7 @@ def test_synergy_tuning_override():
     ctx_base = MockContext(
         market_mode="neutral",
         main_z=2.0, atr_q_main=0.5, spread_bps=1.0, 
-        evidence={"sweep": 1, "reclaim": 1}
+        evidence={"sweep": 1, "reclaim": 1},
     )
     _, parts_base = scorer.score(kind="standard", side="UNKNOWN", ctx=ctx_base)
     base_syn = parts_base["bonus_synergy_applied"]

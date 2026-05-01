@@ -25,7 +25,7 @@ Order Book Metrics - метрики для детекции iceberg orders из 
 
 ИНТЕГРАЦИЯ:
 - Используется в XAU OrderFlow Handler v3
-- Работает с данными из stream:book_XAUUSD
+- Работает с данными из stream:book_
 """
 
 from dataclasses import dataclass, field

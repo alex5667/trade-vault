@@ -390,7 +390,7 @@ class RegimeState:
     session_bias: float = 0.0
     daily_open_cross_freq: float = 0.0
     ts: float = 0.0  # timestamp
-    symbol: str = ""  # symbol identifier
+    symbol=""  # symbol identifier
     last_update_ts: float = 0.0  # timestamp of last regime update
 
 
@@ -2422,15 +2422,15 @@ class BaseOrderFlowHandler(ABC):
             # Создаем базовые конфиги по символам/сетапам
             # В проде это можно загружать из базы данных
             setup_configs = {
-                ("XAUUSD", "breakout_R1"): SymbolSetupConfig(
-                    symbol="XAUUSD",
+                ("breakout_R1"): SymbolSetupConfig(
+                    symbol="",
                     setup_type="breakout_R1",
                     expiry_bars=5,
                     score_buckets=(0.4, 0.7, 0.85),
                     risk_multipliers=(0.5, 1.0, 1.5, 2.0),
                 ),
-                ("XAUUSD", "fade_PDH"): SymbolSetupConfig(
-                    symbol="XAUUSD",
+                "fade_PDH": SymbolSetupConfig(
+                    symbol="",
                     setup_type="fade_PDH",
                     expiry_bars=3,
                     score_buckets=(0.4, 0.7, 0.85),
@@ -5389,7 +5389,7 @@ class BaseOrderFlowHandler(ABC):
         symbol_up = self.symbol.upper()
         is_crypto = symbol_up.endswith(("USDT", "USDC", "USD", "BUSD"))
 
-        # Специальный фильтр для XAUUSD: более мягкий confidence
+        # Специальный фильтр для : более мягкий confidence
         if is_crypto and symbol_up.startswith("XAU"):
             min_conf = 20.0
         else:

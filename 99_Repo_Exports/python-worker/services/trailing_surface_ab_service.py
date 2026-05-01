@@ -19,7 +19,7 @@ def _dsn() -> str:
         os.getenv("ANALYTICS_DB_DSN")
         or os.getenv("TRADES_DB_DSN")
         or "postgresql://postgres:12345@postgres:5432/scanner_analytics"
-    )
+    ),
 
 
 def _redis():
@@ -49,7 +49,7 @@ def run_once() -> int:
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """
+                """,
                 WITH base AS (
                   SELECT
                     date_trunc('day', to_timestamp(t.exit_ts_ms / 1000.0))::date AS day,
@@ -74,17 +74,17 @@ def run_once() -> int:
                     ON p0.order_id = t.order_id
                   WHERE t.exit_ts_ms >= (extract(epoch from now()) * 1000)::bigint - (%s * 86400 * 1000)
                   GROUP BY 1,2,3,4,5,6,7
-                )
+                ),
                 SELECT * FROM base
                 WHERE n >= %s
                 ORDER BY day DESC, source, symbol, scenario, regime, risk_horizon_bucket, trailing_surface_applied
                 """,
                 (_window_days(), _min_group_n()),
-            )
+            ),
             rows = cur.fetchall()
 
             cur.execute(
-                """
+                """,
                 CREATE TABLE IF NOT EXISTS horizon_trailing_surface_ab_daily (
                   day date NOT NULL,
                   source text NOT NULL,
@@ -105,9 +105,9 @@ def run_once() -> int:
                   avg_mfe_pnl double precision,
                   updated_at_ms bigint NOT NULL,
                   PRIMARY KEY (day, source, symbol, scenario, regime, risk_horizon_bucket, trailing_surface_applied)
-                )
-                """
-            )
+                ),
+                """,
+            ),
 
             upsert_sql = """
             INSERT INTO horizon_trailing_surface_ab_daily (
@@ -118,7 +118,7 @@ def run_once() -> int:
               %(day)s, %(source)s, %(symbol)s, %(scenario)s, %(regime)s, %(risk_horizon_bucket)s, %(trailing_surface_applied)s,
               %(n)s, %(avg_pnl_bps)s, %(median_pnl_bps)s, %(win_rate)s, %(tp1_rate)s, %(stop_rate)s,
               %(avg_slippage_bps)s, %(avg_hold_ms)s, %(avg_mae_pct)s, %(avg_mfe_pnl)s, %(updated_at_ms)s
-            )
+            ),
             ON CONFLICT (day, source, symbol, scenario, regime, risk_horizon_bucket, trailing_surface_applied)
             DO UPDATE SET
               n = EXCLUDED.n,
@@ -132,7 +132,7 @@ def run_once() -> int:
               avg_mae_pct = EXCLUDED.avg_mae_pct,
               avg_mfe_pnl = EXCLUDED.avg_mfe_pnl,
               updated_at_ms = EXCLUDED.updated_at_ms
-            """
+            """,
 
             now_ms = int(time.time() * 1000)
             for row in rows:
@@ -143,7 +143,7 @@ def run_once() -> int:
         # lightweight suggestion layer
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """
+                """,
                 WITH pair AS (
                   SELECT
                     source, symbol, scenario, regime, risk_horizon_bucket,
@@ -158,13 +158,13 @@ def run_once() -> int:
                   FROM horizon_trailing_surface_ab_daily
                   WHERE day >= current_date - %s::int
                   GROUP BY 1,2,3,4,5
-                )
+                ),
                 SELECT * FROM pair
                 WHERE coalesce(n_canary,0) >= %s
                   AND coalesce(n_control,0) >= %s
                 """,
                 (_window_days(), _min_group_n(), _min_group_n()),
-            )
+            ),
             for row in cur.fetchall():
                 key = f"cfg:suggestions:atr_trailing_surface:{row['source']}:{row['symbol']}:{row['scenario']}:{row['regime']}:{row['risk_horizon_bucket']}"
                 suggest = {

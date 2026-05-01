@@ -58,7 +58,7 @@ def _call_process_tick(
         lambda: process_tick(pos, spec, tick, tp_ratios, "level"),
         lambda: process_tick(pos, spec, tick, tp_ratios),
         lambda: process_tick(pos=pos, spec=spec, tick=tick, tp_ratios=tp_ratios, fill_policy="level"),
-        lambda: process_tick(pos=pos, spec=spec, tick=tick, tp_ratios=tp_ratios),
+        lambda: process_tick(pos=pos, spec=spec, tick=tick, tp_ratios=tp_ratios)
     ]
     last_err: Optional[Exception] = None
     for fn in attempts:
@@ -136,7 +136,7 @@ def test_tp1_failsafe_marks_tp_hit_arms_trailing_and_rocket_enters_trailing_only
 
     # 3) Минимальный spec с нужной сигнатурой pnl_money (используется для MFE/MAE и для TP частичного PnL).
     class FakeSpec:
-        def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol: str = "") -> float:
+        def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
             sign = 1.0 if str(direction).upper() == "LONG" else -1.0
             return (float(price) - float(entry_price)) * sign * float(lot)
 

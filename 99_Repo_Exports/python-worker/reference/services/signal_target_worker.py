@@ -321,27 +321,27 @@ class SignalTargetWorker:
         self._ensure_scripts()
         try:
             self.redis.evalsha(
-                self._sha_retry
-                3
-                tkey
-                self.due_zset
-                self.inflight_zset
-                str(int(self.task_ttl_sec))
-                str(int(due_ms))
-                sid
-                payload
+                self._sha_retry,
+                3,
+                tkey,
+                self.due_zset,
+                self.inflight_zset,
+                str(int(self.task_ttl_sec)),
+                str(int(due_ms)),
+                sid,
+                payload,
             )  # type: ignore
         except Exception:
             self.redis.eval(
-                _LUA_SCHEDULE_RETRY
-                3
-                tkey
-                self.due_zset
-                self.inflight_zset
-                str(int(self.task_ttl_sec))
-                str(int(due_ms))
-                sid
-                payload
+                _LUA_SCHEDULE_RETRY,
+                3,
+                tkey,
+                self.due_zset,
+                self.inflight_zset,
+                str(int(self.task_ttl_sec)),
+                str(int(due_ms)),
+                sid,
+                payload,
             )
 
     def _send_dlq(self, reason: str, data: Any) -> None:
@@ -355,23 +355,23 @@ class SignalTargetWorker:
         self._ensure_scripts()
         try:
             res = self.redis.evalsha(
-                self._sha_pop
-                2
-                self.due_zset
-                self.inflight_zset
-                str(int(now_ms))
-                str(int(self.visibility_ms))
-                self.task_key_prefix
+                self._sha_pop,
+                2,
+                self.due_zset,
+                self.inflight_zset,
+                str(int(now_ms)),
+                str(int(self.visibility_ms)),
+                self.task_key_prefix,
             )  # type: ignore
         except Exception:
             res = self.redis.eval(
-                _LUA_CLAIM_DUE
-                2
-                self.due_zset
-                self.inflight_zset
-                str(int(now_ms))
-                str(int(self.visibility_ms))
-                self.task_key_prefix
+                _LUA_CLAIM_DUE,
+                2,
+                self.due_zset,
+                self.inflight_zset,
+                str(int(now_ms)),
+                str(int(self.visibility_ms)),
+                self.task_key_prefix,
             )
         if not res or not isinstance(res, (list, tuple)) or len(res) < 2:
             return None
@@ -394,27 +394,27 @@ class SignalTargetWorker:
         self._ensure_scripts()
         try:
             res = self.redis.evalsha(
-                self._sha_requeue
-                2
-                self.inflight_zset
-                self.due_zset
-                str(int(now_ms))
-                str(int(self.requeue_scan_limit))
-                str(int(self.requeue_min_delay_ms))
-                self.done_prefix
-                self.task_key_prefix
+                self._sha_requeue,
+                2,
+                self.inflight_zset,
+                self.due_zset,
+                str(int(now_ms)),
+                str(int(self.requeue_scan_limit)),
+                str(int(self.requeue_min_delay_ms)),
+                self.done_prefix,
+                self.task_key_prefix,
             )  # type: ignore
         except Exception:
             res = self.redis.eval(
-                _LUA_REQUEUE_EXPIRED
-                2
-                self.inflight_zset
-                self.due_zset
-                str(int(now_ms))
-                str(int(self.requeue_scan_limit))
-                str(int(self.requeue_min_delay_ms))
-                self.done_prefix
-                self.task_key_prefix
+                _LUA_REQUEUE_EXPIRED,
+                2,
+                self.inflight_zset,
+                self.due_zset,
+                str(int(now_ms)),
+                str(int(self.requeue_scan_limit)),
+                str(int(self.requeue_min_delay_ms)),
+                self.done_prefix,
+                self.task_key_prefix,
             )
         try:
             return int(res[0]) if res else 0
@@ -445,11 +445,11 @@ class SignalTargetWorker:
                 flat.append(json.dumps(v, ensure_ascii=False))
 
         args = [
-            str(int(self.inflight_ttl_ms))
-            str(int(self.task_ttl_sec))
-            str(int(maxlen))
-            "1" if approx else "0"
-            *flat
+            str(int(self.inflight_ttl_ms)),
+            str(int(self.task_ttl_sec)),
+            str(int(maxlen)),
+            "1" if approx else "0",
+            *flat,
         ]
         try:
             res = self.redis.evalsha(self._sha_xadd, 3, done, inflight, stream, *args)  # type: ignore
@@ -471,23 +471,23 @@ class SignalTargetWorker:
         inflight = self._inflight_key(sid)
         try:
             res = self.redis.evalsha(
-                self._sha_setex
-                3
-                done, inflight, key
-                str(int(self.inflight_ttl_ms))
-                str(int(self.task_ttl_sec))
-                str(int(ttl))
-                value
+                self._sha_setex,
+                3,
+                done, inflight, key,
+                str(int(self.inflight_ttl_ms)),
+                str(int(self.task_ttl_sec)),
+                str(int(ttl)),
+                value,
             )  # type: ignore
         except Exception:
             res = self.redis.eval(
-                _LUA_SETEX_DELIVER
-                3
-                done, inflight, key
-                str(int(self.inflight_ttl_ms))
-                str(int(self.task_ttl_sec))
-                str(int(ttl))
-                value
+                _LUA_SETEX_DELIVER,
+                3,
+                done, inflight, key,
+                str(int(self.inflight_ttl_ms)),
+                str(int(self.task_ttl_sec)),
+                str(int(ttl)),
+                value,
             )
         if not res:
             return False
@@ -507,27 +507,27 @@ class SignalTargetWorker:
             flat.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
         try:
             res = self.redis.evalsha(
-                self._sha_notify
-                4
-                done, inflight, self.notify_stream, self.notify_counter_key
-                str(int(self.inflight_ttl_ms))
-                str(int(self.task_ttl_sec))
-                "500"
-                "1"
-                str(int(self.notify_every_n))
-                *flat
+                self._sha_notify,
+                4,
+                done, inflight, self.notify_stream, self.notify_counter_key,
+                str(int(self.inflight_ttl_ms)),
+                str(int(self.task_ttl_sec)),
+                "500",
+                "1",
+                str(int(self.notify_every_n)),
+                *flat,
             )  # type: ignore
         except Exception:
             res = self.redis.eval(
-                _LUA_NOTIFY_DELIVER
-                4
-                done, inflight, self.notify_stream, self.notify_counter_key
-                str(int(self.inflight_ttl_ms))
-                str(int(self.task_ttl_sec))
-                "500"
-                "1"
-                str(int(self.notify_every_n))
-                *flat
+                _LUA_NOTIFY_DELIVER,
+                4,
+                done, inflight, self.notify_stream, self.notify_counter_key,
+                str(int(self.inflight_ttl_ms)),
+                str(int(self.task_ttl_sec)),
+                "500",
+                "1",
+                str(int(self.notify_every_n)),
+                *flat,
             )
         if not res:
             return False
@@ -559,18 +559,18 @@ class SignalTargetWorker:
                 ok = self._deliver_notify(sid, task.get("payload") or {})
             elif op == "xadd":
                 ok = self._deliver_xadd(
-                    sid
-                    str(task.get("stream") or "")
-                    task.get("fields") or {}
-                    int(task.get("maxlen") or 1000)
-                    bool(task.get("approx", True))
+                    sid,
+                    str(task.get("stream") or ""),
+                    task.get("fields") or {},
+                    int(task.get("maxlen") or 1000),
+                    bool(task.get("approx", True)),
                 )
             elif op == "setex":
                 ok = self._deliver_setex(
-                    sid
-                    str(task.get("key") or "")
-                    int(task.get("ttl") or 3600)
-                    str(task.get("value") or "")
+                    sid,
+                    str(task.get("key") or ""),
+                    int(task.get("ttl") or 3600),
+                    str(task.get("value") or ""),
                 )
             else:
                 self._send_dlq("unknown_op", task)
@@ -596,7 +596,7 @@ class SignalTargetWorker:
 
     def run(self) -> None:
         logger.info(
-            "TargetWorker started target=%s redis=%s due_zset=%s inflight_zset=%s visibility_ms=%s"
+            "TargetWorker started target=%s redis=%s due_zset=%s inflight_zset=%s visibility_ms=%s",
             self.target, self.redis_url, self.due_zset, self.inflight_zset, self.visibility_ms
         )
         while True:

@@ -155,7 +155,7 @@ class DecisionTrace:
     trace_id: str = ""
     created_ts_ms: int = 0
     sid: str = ""
-    symbol: str = ""
+    symbol=""
     kind: str = ""
     tags: Dict[str, Any] = field(default_factory=dict)
     events: List[EventDict] = field(default_factory=list)

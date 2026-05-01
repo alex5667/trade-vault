@@ -35,7 +35,7 @@ def render_auditor_graph_dashboard() -> Dict[str, Any]:
         logger.error(f"Failed to fetch auditor graph dashboard stats: {e}")
         return {
             "text": f"⚠️ Error rendering control-plane graph stats: {e}",
-            "parse_mode": "HTML"
+            "parse_mode": "HTML",
         }
 
     msg_lines = [

@@ -23,7 +23,7 @@ def test_build_outbox_envelope_trace_safe_no_events(monkeypatch: pytest.MonkeyPa
     # Форсим "trace enabled" и делаем ensure_trace / serialize_trace_from_ctx детерминированными
     monkeypatch.setattr(mod, "trace_enabled", lambda: True)
 
-    def _ensure_trace(ctx: Any, sid: str, symbol: str = "", kind: str = "") -> Dict[str, Any]:
+    def _ensure_trace(ctx: Any, sid: str, symbol="", kind: str = "") -> Dict[str, Any]:
         return {"trace_id": "TID123", "events": [{"type": "gate", "name": "x"}]}
 
     monkeypatch.setattr(mod, "ensure_trace", _ensure_trace)

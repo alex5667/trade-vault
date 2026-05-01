@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Cost/EV gate compatibility helpers.
 
@@ -11,7 +12,6 @@ IMPORTANT:
   - Must never raise (hot-path safe).
 """
 
-from __future__ import annotations
 
 import os
 import math
@@ -41,11 +41,11 @@ def decision_to_legacy_tuple(dec: Any) -> Tuple[bool, Dict[str, float]]:
 
         details: Dict[str, float] = {}
         for k in (
-            "expected_move_bps"
-            "threshold_bps"
-            "fees_bps"
-            "slippage_bps"
-            "k"
+            "expected_move_bps",
+            "threshold_bps",
+            "fees_bps",
+            "slippage_bps",
+            "k",
         ):
             v = getattr(dec, k, None)
             if _isfinite_num(v):
@@ -53,11 +53,11 @@ def decision_to_legacy_tuple(dec: Any) -> Tuple[bool, Dict[str, float]]:
 
         # EV-mode extras (safe for dashboards / debugging; ignore if missing)
         for k in (
-            "p_hit_tp1"
-            "p_min"
-            "tp1_bps"
-            "stop_bps"
-            "ev_bps"
+            "p_hit_tp1",
+            "p_min",
+            "tp1_bps",
+            "stop_bps",
+            "ev_bps",
         ):
             v = getattr(dec, k, None)
             if _isfinite_num(v):

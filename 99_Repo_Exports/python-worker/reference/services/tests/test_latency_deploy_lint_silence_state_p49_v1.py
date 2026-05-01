@@ -22,10 +22,10 @@ class FakeRedis:
 def test_evaluate_ack_policy_requires_escalation_after_ack_limit() -> None:
     """Once policy_max_acks is reached, evaluate_ack_policy must require escalation."""
     raw = {
-        'policy_window_start_ts_ms': '1000'
-        'policy_window_end_ts_ms': str(1000 + 168 * 3600 * 1000)
-        'policy_window_ack_count': '2'
-        'policy_window_budget_minutes_used': '60'
+        'policy_window_start_ts_ms': '1000',
+        'policy_window_end_ts_ms': str(1000 + 168 * 3600 * 1000),
+        'policy_window_ack_count': '2',
+        'policy_window_budget_minutes_used': '60',
     }
     out = mod.evaluate_ack_policy(raw, now_ms=2000, silence_minutes=30, policy_window_s=168 * 3600, max_budget_minutes=240, max_acks=2, ticket='INC-1')
     assert out.allowed is False

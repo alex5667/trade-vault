@@ -72,20 +72,20 @@ def _mk_exec(redis_obj):
 def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
     r = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
-        r
-        exec_stream='orders:exec'
-        state_key_prefix='orders:state:'
-        active_symbol_key_prefix='orders:active_symbol_sid:'
-        cursor_key='orders:exec:projection:cursor'
+        r,
+        exec_stream='orders:exec',
+        state_key_prefix='orders:state:',
+        active_symbol_key_prefix='orders:active_symbol_sid:',
+        cursor_key='orders:exec:projection:cursor',
     )
     r.xadd('orders:exec', {
-        'sid': 'sid-1'
-        'symbol': 'BTCUSDT'
-        'action': 'open'
-        'event_type': 'state_transition'
-        'status': 'ok'
-        'fsm_state': 'PROTECTED'
-        'ts_event_ms': '1700000000001'
+        'sid': 'sid-1',
+        'symbol': 'BTCUSDT',
+        'action': 'open',
+        'event_type': 'state_transition',
+        'status': 'ok',
+        'fsm_state': 'PROTECTED',
+        'ts_event_ms': '1700000000001',
     })
     worker.run_until_idle()
     active = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
@@ -93,13 +93,13 @@ def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
     assert active['fsm_state'] == 'PROTECTED'
 
     r.xadd('orders:exec', {
-        'sid': 'sid-1'
-        'symbol': 'BTCUSDT'
-        'action': 'cancel'
-        'event_type': 'state_transition'
-        'status': 'closed'
-        'fsm_state': 'EXIT_FILLED'
-        'ts_event_ms': '1700000000002'
+        'sid': 'sid-1',
+        'symbol': 'BTCUSDT',
+        'action': 'cancel',
+        'event_type': 'state_transition',
+        'status': 'closed',
+        'fsm_state': 'EXIT_FILLED',
+        'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
     assert r.get('orders:active_symbol_sid:BTCUSDT') in (None, '')
@@ -108,10 +108,10 @@ def test_projection_worker_sets_and_clears_active_symbol_key_from_journal():
 def test_executor_blocks_new_open_when_symbol_has_active_sid():
     r = FakeRedis()
     r.set('orders:active_symbol_sid:ETHUSDT', json.dumps({
-        'symbol': 'ETHUSDT'
-        'sid': 'sid-existing'
-        'fsm_state': 'PROTECTED'
-        'updated_at_ms': 1700000000000
+        'symbol': 'ETHUSDT',
+        'sid': 'sid-existing',
+        'fsm_state': 'PROTECTED',
+        'updated_at_ms': 1700000000000,
     }))
     ex = _mk_exec(r)
     ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'PROTECTED'}
@@ -126,10 +126,10 @@ def test_executor_blocks_new_open_when_symbol_has_active_sid():
 def test_executor_releases_terminal_active_symbol_guard_before_new_open():
     r = FakeRedis()
     r.set('orders:active_symbol_sid:SOLUSDT', json.dumps({
-        'symbol': 'SOLUSDT'
-        'sid': 'sid-old'
-        'fsm_state': 'PROTECTED'
-        'updated_at_ms': 1700000000000
+        'symbol': 'SOLUSDT',
+        'sid': 'sid-old',
+        'fsm_state': 'PROTECTED',
+        'updated_at_ms': 1700000000000,
     }))
     ex = _mk_exec(r)
     ex._load_order_state = lambda sid: {'sid': sid, 'fsm_state': 'EXIT_FILLED', 'status': 'closed', 'closed': True}

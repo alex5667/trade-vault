@@ -64,7 +64,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    }
+    },
 
 async def is_vertex_degraded(r: Any) -> bool:
     try:
@@ -100,7 +100,7 @@ async def route_vertex(r: Any, bundle_id: str, bundle_json: str, severity: str) 
         "task_family": "route_incident_rca_mirror_rca",
         "task_type": "route_incident_rca_mirror_rca",
         "bundle_json": bundle_json,
-    }
+    },
     await r.xadd(VERTEX_RCA_STREAM, payload, maxlen=MAXLEN, approximate=True)
     if ROUTED:
         ROUTED.labels(route="ROUTE_VERTEX", severity=severity).inc()
@@ -110,7 +110,7 @@ async def route_local(r: Any, bundle_id: str, bundle_json: str, severity: str) -
         "task_type": "vertex_unavailable_fallback",
         "source": APP_NAME,
         "input_json": bundle_json,
-    }
+    },
     await r.xadd(LOCAL_FALLBACK_STREAM, payload, maxlen=MAXLEN, approximate=True)
     if ROUTED:
         ROUTED.labels(route="ROUTE_LOCAL", severity=severity).inc()
@@ -121,7 +121,7 @@ async def persist_decision(db_url: str, bundle_id: str, decision: str, vertex_de
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_bridge_decisions (
                     bundle_id, ts_ms, decision, vertex_degraded, severity
                 ) VALUES (

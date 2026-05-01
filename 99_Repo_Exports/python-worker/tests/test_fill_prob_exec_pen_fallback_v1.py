@@ -1,5 +1,6 @@
 # tests/test_fill_prob_exec_pen_fallback_v1.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Unit-level tests for the fill_prob / exec_fill_pen *fallback* block
 introduced in:
@@ -15,7 +16,6 @@ The block (inserted right after of_engine.build()) does:
 These tests exercise the same logic directly via compute_fill_prob_proxy so
 they run without needing the full tick_processor import chain.
 """
-from __future__ import annotations
 
 import pytest
 from core.fill_prob_proxy import compute_fill_prob_proxy

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """DecisionSnapshotWriter (A3/A4)
 
 Consumes Redis Stream `events:decision_snapshot` (A2) and writes rows into
@@ -60,7 +61,6 @@ ENV (main):
   DECISION_SNAPSHOT_FAIL_SLEEP_SEC=1.0
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio
@@ -84,11 +84,11 @@ except Exception:  # pragma: no cover
         pass
 
 from services.posttrade.decision_snapshot_db import (
-    PostgresDecisionSnapshotDB
-    SQLiteDecisionSnapshotDB
-    _to_int
-    _to_float
-    _to_text_array
+    PostgresDecisionSnapshotDB,
+    SQLiteDecisionSnapshotDB,
+    _to_int,
+    _to_float,
+    _to_text_array,
 )
 from services.posttrade.decision_snapshot_writer_metrics import build_metrics, start_metrics_server
 
@@ -148,8 +148,8 @@ class DecisionSnapshotWriterConfig:
     # - DATABASE_URL (backend)
     # Writer accepts all, with priority on TRADES_DB_DSN.
     timescale_dsn: str = _env(
-        "TRADES_DB_DSN"
-        _env("TIMESCALE_DSN", _env("ANALYTICS_DB_DSN", _env("ANALYTICS_DSN", _env("PG_DSN", _env("DATABASE_URL", "")))))
+        "TRADES_DB_DSN",
+        _env("TIMESCALE_DSN", _env("ANALYTICS_DB_DSN", _env("ANALYTICS_DSN", _env("PG_DSN", _env("DATABASE_URL", ""))))),
     )
     ensure_schema: bool = bool(_env_int("DECISION_SNAPSHOT_DB_ENSURE_SCHEMA", 0))
     upsert_chunk: int = _env_int("DECISION_SNAPSHOT_DB_UPSERT_CHUNK", 500)
@@ -210,36 +210,36 @@ def _normalize_row(evt: Dict[str, Any]) -> Dict[str, Any]:
     symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
 
     row: Dict[str, Any] = {
-        "ts_decision_ms": int(ts_decision_ms)
-        "sid": sid
-        "symbol": symbol or "UNKNOWN"
-        "venue": str(evt.get("venue") or "binance")
-        "session": str(evt.get("session") or "")
-        "tf": str(evt.get("tf") or "")
-        "kind": str(evt.get("kind") or "")
-        "side": str(evt.get("side") or evt.get("direction") or "")
-        "direction": str(evt.get("direction") or "")
-        "decision_bid": _to_float(evt.get("decision_bid"))
-        "decision_ask": _to_float(evt.get("decision_ask"))
-        "decision_mid": _to_float(evt.get("decision_mid"))
-        "decision_spread_bps": _to_float(evt.get("decision_spread_bps"))
-        "decision_depth_bid_5": _to_float(evt.get("decision_depth_bid_5"))
-        "decision_depth_ask_5": _to_float(evt.get("decision_depth_ask_5"))
-        "decision_depth_bid_20": _to_float(evt.get("decision_depth_bid_20"))
-        "decision_depth_ask_20": _to_float(evt.get("decision_depth_ask_20"))
-        "decision_book_slope_bid": _to_float(evt.get("decision_book_slope_bid"))
-        "decision_book_slope_ask": _to_float(evt.get("decision_book_slope_ask"))
-        "decision_dws_bps": _to_float(evt.get("decision_dws_bps"))
-        "decision_ofi_norm": _to_float(evt.get("decision_ofi_norm"))
-        "decision_expected_slippage_bps": _to_float(evt.get("decision_expected_slippage_bps"))
-        "decision_exec_risk_norm": _to_float(evt.get("decision_exec_risk_norm"))
-        "decision_price": _to_float(evt.get("decision_price") or evt.get("decision_mid"))
-        "tca_ready": bool(evt.get("tca_ready") or False)
-        "book_sanity_flags": _to_text_array(evt.get("book_sanity_flags"))
-        "schema_version": _to_int(evt.get("schema_version") or evt.get("schema_ver") or 1, 1)
-        "producer": str(evt.get("producer") or evt.get("service") or os.getenv("SERVICE_NAME", "python-worker"))
-        "ts_insert_ms": _now_ms()
-    }
+        "ts_decision_ms": int(ts_decision_ms),
+        "sid": sid,
+        "symbol": symbol or "UNKNOWN",
+        "venue": str(evt.get("venue") or "binance"),
+        "session": str(evt.get("session") or ""),
+        "tf": str(evt.get("tf") or ""),
+        "kind": str(evt.get("kind") or ""),
+        "side": str(evt.get("side") or evt.get("direction") or ""),
+        "direction": str(evt.get("direction") or ""),
+        "decision_bid": _to_float(evt.get("decision_bid")),
+        "decision_ask": _to_float(evt.get("decision_ask")),
+        "decision_mid": _to_float(evt.get("decision_mid")),
+        "decision_spread_bps": _to_float(evt.get("decision_spread_bps")),
+        "decision_depth_bid_5": _to_float(evt.get("decision_depth_bid_5")),
+        "decision_depth_ask_5": _to_float(evt.get("decision_depth_ask_5")),
+        "decision_depth_bid_20": _to_float(evt.get("decision_depth_bid_20")),
+        "decision_depth_ask_20": _to_float(evt.get("decision_depth_ask_20")),
+        "decision_book_slope_bid": _to_float(evt.get("decision_book_slope_bid")),
+        "decision_book_slope_ask": _to_float(evt.get("decision_book_slope_ask")),
+        "decision_dws_bps": _to_float(evt.get("decision_dws_bps")),
+        "decision_ofi_norm": _to_float(evt.get("decision_ofi_norm")),
+        "decision_expected_slippage_bps": _to_float(evt.get("decision_expected_slippage_bps")),
+        "decision_exec_risk_norm": _to_float(evt.get("decision_exec_risk_norm")),
+        "decision_price": _to_float(evt.get("decision_price") or evt.get("decision_mid")),
+        "tca_ready": bool(evt.get("tca_ready") or False),
+        "book_sanity_flags": _to_text_array(evt.get("book_sanity_flags")),
+        "schema_version": _to_int(evt.get("schema_version") or evt.get("schema_ver") or 1, 1),
+        "producer": str(evt.get("producer") or evt.get("service") or os.getenv("SERVICE_NAME", "python-worker")),
+        "ts_insert_ms": _now_ms(),
+    },
 
     # Preserve remaining fields for audits/debugging.
     extra = dict(evt)
@@ -300,18 +300,18 @@ class DecisionSnapshotStreamWorker:
             raw_s = self._truncate_bytes(raw_s)
 
             await self.redis.xadd(
-                self.cfg.dlq_stream
+                self.cfg.dlq_stream,
                 fields={
-                    "ts_ms": str(_now_ms())
-                    "stream": self.cfg.stream
-                    "group": self.cfg.group
-                    "consumer": self.cfg.consumer
-                    "entry_id": str(entry_id)
-                    "reason": str(reason)
-                    "error": self._truncate_bytes(str(err))
-                    "payload": raw_s
-                }
-                maxlen=self.cfg.dlq_maxlen
+                    "ts_ms": str(_now_ms()),
+                    "stream": self.cfg.stream,
+                    "group": self.cfg.group,
+                    "consumer": self.cfg.consumer,
+                    "entry_id": str(entry_id),
+                    "reason": str(reason),
+                    "error": self._truncate_bytes(str(err)),
+                    "payload": raw_s,
+                },
+                maxlen=self.cfg.dlq_maxlen,
             )
             self._metrics.dlq_total.inc()
             # A5: Low-cardinality breakdown (top reasons in Grafana).
@@ -394,11 +394,11 @@ class DecisionSnapshotStreamWorker:
         Bad payloads are sent to DLQ and ACKed to avoid poison-pill loops.
         """
         resp = await self.redis.xreadgroup(
-            groupname=self.cfg.group
-            consumername=self.cfg.consumer
-            streams={self.cfg.stream: ">"}
-            count=self.cfg.batch_size
-            block=self.cfg.block_ms
+            groupname=self.cfg.group,
+            consumername=self.cfg.consumer,
+            streams={self.cfg.stream: ">"},
+            count=self.cfg.batch_size,
+            block=self.cfg.block_ms,
         )
         if not resp:
             return 0
@@ -465,12 +465,12 @@ class DecisionSnapshotStreamWorker:
                 xautoclaim = getattr(self.redis, "xautoclaim", None)
                 if callable(xautoclaim):
                     res = await xautoclaim(
-                        name=self.cfg.stream
-                        groupname=self.cfg.group
-                        consumername=self.cfg.consumer
-                        min_idle_time=self.cfg.pel_min_idle_ms
-                        start_id=cursor
-                        count=self.cfg.pel_claim_count
+                        name=self.cfg.stream,
+                        groupname=self.cfg.group,
+                        consumername=self.cfg.consumer,
+                        min_idle_time=self.cfg.pel_min_idle_ms,
+                        start_id=cursor,
+                        count=self.cfg.pel_claim_count,
                     )
                     if not res:
                         break
@@ -524,23 +524,23 @@ class DecisionSnapshotStreamWorker:
                     break
 
                 pending = await xpending_range(
-                    self.cfg.stream
-                    self.cfg.group
-                    min=cursor
-                    max="+"
-                    count=self.cfg.pel_claim_count
-                    idle=self.cfg.pel_min_idle_ms
+                    self.cfg.stream,
+                    self.cfg.group,
+                    min=cursor,
+                    max="+",
+                    count=self.cfg.pel_claim_count,
+                    idle=self.cfg.pel_min_idle_ms,
                 )
                 if not pending:
                     break
 
                 ids = [p["message_id"] if isinstance(p, dict) and "message_id" in p else p[0] for p in pending]
                 claimed = await xclaim(
-                    self.cfg.stream
-                    self.cfg.group
-                    self.cfg.consumer
-                    min_idle_time=self.cfg.pel_min_idle_ms
-                    message_ids=ids
+                    self.cfg.stream,
+                    self.cfg.group,
+                    self.cfg.consumer,
+                    min_idle_time=self.cfg.pel_min_idle_ms,
+                    message_ids=ids,
                 )
                 if not claimed:
                     break

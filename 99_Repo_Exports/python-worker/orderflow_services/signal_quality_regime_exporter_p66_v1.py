@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 P66: Signal Quality exporter (by regime)
 
@@ -26,7 +27,6 @@ Keys expected in settings:dynamic_cfg (written by signal_quality_kpi_worker_v1):
   signal_quality_last_ts_ms
 """
 
-from __future__ import annotations
 
 import os
 import time

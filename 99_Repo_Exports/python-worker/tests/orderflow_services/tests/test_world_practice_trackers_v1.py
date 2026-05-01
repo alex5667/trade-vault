@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 test_world_practice_trackers_v1.py
 ===================================
 World-practice integration tests for the core micro-structure trackers.
 """
 
-from __future__ import annotations
 
 import asyncio
 import pytest

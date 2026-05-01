@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Export tick-quality gate outcomes from Redis stream as Prometheus textfile metrics.
 
 This is a low-friction way to put gate outcomes on dashboards/alerts without
@@ -14,7 +15,6 @@ Metrics emitted (windowed counts):
   tick_gate_fail_metric_total{metric="...",window_h="24"}
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

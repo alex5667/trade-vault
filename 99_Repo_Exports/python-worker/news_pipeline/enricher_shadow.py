@@ -32,12 +32,12 @@ class NewsEnricherShadow:
     """
 
     def __init__(
-        self
-        *
-        redis
+        self,
+        *,
+        redis,
         refresh_interval_ms: int = 250,      # фон обновляет батчами
         cache_ttl_ms: int = 1500,            # сколько держим в памяти (per symbol)
-        max_batch: int = 256
+        max_batch: int = 256,
     ) -> None:
         self.r = redis
         self.refresh_interval_ms = int(refresh_interval_ms)
@@ -145,17 +145,17 @@ class NewsEnricherShadow:
                 ref = f"news:analysis:{ref}"
 
             nf = NewsFeatures(
-                ref=ref
-                news_risk=_f(news.get("risk_ema", 0.0))
-                surprise_score=_f(news.get("surprise_ema", 0.0))
-                news_grade_id=_i(news.get("news_grade_id", 0))
-                tags_mask=_i(news.get("tags_mask", 0)) & ((1 << 64) - 1)
-                primary_tag_id=_i(news.get("primary_tag_id", 0))
-                confidence=_f(news.get("confidence", 0.0))
-                horizon_sec=_i(news.get("horizon_sec", 0))
-                asof_ts_ms=_i(news.get("asof_ts_ms", 0))
-                event_tminus_sec=_i(cal.get("event_tminus_sec", -1), -1)
-                event_grade_id=_i(cal.get("event_grade_id", 0))
+                ref=ref,
+                news_risk=_f(news.get("risk_ema", 0.0)),
+                surprise_score=_f(news.get("surprise_ema", 0.0)),
+                news_grade_id=_i(news.get("news_grade_id", 0)),
+                tags_mask=_i(news.get("tags_mask", 0)) & ((1 << 64) - 1),
+                primary_tag_id=_i(news.get("primary_tag_id", 0)),
+                confidence=_f(news.get("confidence", 0.0)),
+                horizon_sec=_i(news.get("horizon_sec", 0)),
+                asof_ts_ms=_i(news.get("asof_ts_ms", 0)),
+                event_tminus_sec=_i(cal.get("event_tminus_sec", -1), -1),
+                event_grade_id=_i(cal.get("event_grade_id", 0)),
             )
             updates[(sym, ac)] = (now_ms, nf)
 

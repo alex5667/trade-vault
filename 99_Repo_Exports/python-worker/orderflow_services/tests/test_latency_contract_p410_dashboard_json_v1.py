@@ -1,5 +1,5 @@
-"""P4.10 Grafana dashboard JSON structural tests."""
 from __future__ import annotations
+"""P4.10 Grafana dashboard JSON structural tests."""
 
 import json
 import os

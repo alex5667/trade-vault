@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/news_pipeline/test_p6_idempotency_no_duplicate_streams.py
 
@@ -9,7 +10,6 @@ Expected: stream emit happens only on first insert (inserted=True);
 
 Tests use a minimal in-process mock (no real Redis/DB needed).
 """
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List

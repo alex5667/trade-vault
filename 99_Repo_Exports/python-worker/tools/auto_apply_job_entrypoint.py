@@ -1,3 +1,4 @@
+from __future__ import annotations
 '''
 Auto-apply job entrypoint (orchestration-friendly).
 
@@ -31,7 +32,6 @@ Exit codes:
   30  misconfiguration
 '''
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

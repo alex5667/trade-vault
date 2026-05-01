@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Универсальный сервис ордерфлоу для крипто‑фьючерсов Binance USDT-M.
 
@@ -11,7 +12,6 @@
 Сервис асинхронный, построен на redis.asyncio.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -34,16 +34,16 @@ from services.orderflow.configuration import (
 from prometheus_client import start_http_server
 
 from services.orderflow.metrics import (
-    log_silent_error, burst_active_gauge, burst_flush_total, signals_emitted_total
-    ticks_read_total, ticks_processed_total, signals_published_total
-    drain_forced_cancel_total
-    worker_lag_ms_gauge, worker_lag_ms_p50_gauge, worker_lag_ms_p95_gauge, worker_lag_ms_p99_gauge
-    processing_time_us, redis_errors_total
-    ticks_dropped_total, pel_autoclaim_total, tick_dedup_drop_total
-    ticks_unknown_side_policy_total, ticks_unknown_side_quarantine_published_total
-    ticks_ts_source_total
-    tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge, tick_ts_source_stream_id_ema_gauge
-    tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge
+    log_silent_error, burst_active_gauge, burst_flush_total, signals_emitted_total,
+    ticks_read_total, ticks_processed_total, signals_published_total,
+    drain_forced_cancel_total,
+    worker_lag_ms_gauge, worker_lag_ms_p50_gauge, worker_lag_ms_p95_gauge, worker_lag_ms_p99_gauge,
+    processing_time_us, redis_errors_total,
+    ticks_dropped_total, pel_autoclaim_total, tick_dedup_drop_total,
+    ticks_unknown_side_policy_total, ticks_unknown_side_quarantine_published_total,
+    ticks_ts_source_total,
+    tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge, tick_ts_source_stream_id_ema_gauge,
+    tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge,
     tick_ingest_process_ms, tick_ingest_e2e_delay_ms
 )
 from services.orderflow.tick_quality_ema import TickQualityEMA
@@ -92,28 +92,28 @@ except Exception:
 try:
     # P4: unified risk policy engine — per-trade sizing + tier policy + exposure caps
     from services.risk.risk_policy_engine import (
-        PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
-        infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
+        PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
+        infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
     )
 except Exception:
     try:
         from risk.risk_policy_engine import (
-            PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
-            infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
+            PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
+            infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
         )
     except Exception:
         # Fall back to legacy portfolio_risk_engine (old API, no infer_symbol_tier)
         try:
             from services.risk.portfolio_risk_engine import (
-                PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
-                RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
+                PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
+                RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
             )
             infer_symbol_tier = None  # type: ignore
         except Exception:
             try:
                 from risk.portfolio_risk_engine import (
-                    PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk
-                    RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN
+                    PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
+                    RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
                 )
                 infer_symbol_tier = None  # type: ignore
             except Exception:  # pragma: no cover
@@ -176,8 +176,8 @@ def ensure_audit_chain_fields(signal: Dict[str, Any]) -> Dict[str, Any]:
 
 log_level = os.getenv("CRYPTO_OF_LOG_LEVEL", "INFO")
 logging.basicConfig(
-    level=log_level
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=log_level,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 # Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
 # Доп. флаг: подробный DEBUG по дельте (по умолчанию выключен, чтобы не шуметь)
@@ -261,13 +261,13 @@ class CryptoOrderflowService:
         hc_iv = int(os.getenv("REDIS_HEALTHCHECK_INTERVAL", "30"))
 
         self.main: aioredis.Redis = aioredis.from_url(
-            self.redis_dsn
-            decode_responses=True
-            socket_connect_timeout=conn_to
-            socket_timeout=sock_to
-            socket_keepalive=True
+            self.redis_dsn,
+            decode_responses=True,
+            socket_connect_timeout=conn_to,
+            socket_timeout=sock_to,
+            socket_keepalive=True,
             health_check_interval=0,  # ✅ Disable to prevent additional connections
-            max_connections=self.main_max
+            max_connections=self.main_max,
         )
 
         # Если стримы на одном Redis, используем один пул для экономии соединений
@@ -275,22 +275,22 @@ class CryptoOrderflowService:
             self.ticks = self.main
             logger.info(
                 "🔗 Using shared Redis client for main and ticks (max_conn=%d). "
-                "Each symbol uses ~2 blocking connections (ticks+books), plan accordingly."
+                "Each symbol uses ~2 blocking connections (ticks+books), plan accordingly.",
                 self.main_max
             )
         else:
             self.ticks: aioredis.Redis = aioredis.from_url(
-                self.ticks_dsn
-                decode_responses=True
-                socket_connect_timeout=conn_to
-                socket_timeout=sock_to
-                socket_keepalive=True
+                self.ticks_dsn,
+                decode_responses=True,
+                socket_connect_timeout=conn_to,
+                socket_timeout=sock_to,
+                socket_keepalive=True,
                 health_check_interval=0,  # ✅ Disable to prevent additional connections
-                max_connections=self.ticks_max
+                max_connections=self.ticks_max,
             )
             logger.info(
                 "🔗 Using separate Redis clients: main (max=%d), ticks (max=%d). "
-                "Each symbol uses ~2 blocking connections (ticks+books), plan accordingly."
+                "Each symbol uses ~2 blocking connections (ticks+books), plan accordingly.",
                 self.main_max, self.ticks_max
             )
         
@@ -302,13 +302,13 @@ class CryptoOrderflowService:
         if max_supported_symbols < 10:
             logger.warning(
                 "⚠️ Connection pool may be too small: ticks_max=%d supports ~%d symbols. "
-                "Consider increasing REDIS_TICKS_MAX_CONNECTIONS if you plan to run more symbols."
+                "Consider increasing REDIS_TICKS_MAX_CONNECTIONS if you plan to run more symbols.",
                 self.ticks_max, max_supported_symbols
             )
         else:
             logger.info(
                 "✅ Connection pool configured: ticks_max=%d supports ~%d symbols (with %d overhead). "
-                "Health check disabled to prevent additional connections."
+                "Health check disabled to prevent additional connections.",
                 self.ticks_max, max_supported_symbols, overhead
             )
 
@@ -392,7 +392,7 @@ class CryptoOrderflowService:
         # Engines
         from services.ml_confirm_gate import MLConfirmGate
         self.of_engine = OFConfirmEngine(
-            version=int(os.getenv("OF_CONFIRM_VERSION", "2"))
+            version=int(os.getenv("OF_CONFIRM_VERSION", "2")),
             ml_gate=MLConfirmGate.from_env()
         )
         
@@ -402,14 +402,14 @@ class CryptoOrderflowService:
         if notify_url:
             # ✅ FIX: Set max_connections to prevent connection pool exhaustion
             self.notify_client = aioredis.from_url(
-                notify_url
-                encoding="utf-8"
-                decode_responses=True
-                socket_connect_timeout=conn_to
-                socket_timeout=sock_to
-                socket_keepalive=True
+                notify_url,
+                encoding="utf-8",
+                decode_responses=True,
+                socket_connect_timeout=conn_to,
+                socket_timeout=sock_to,
+                socket_keepalive=True,
                 health_check_interval=0,  # ✅ Disable to prevent additional connections
-                max_connections=notify_max
+                max_connections=notify_max,
             )
             logger.info("🔗 Using separate notify Redis client (max_conn=%d)", notify_max)
         else:
@@ -467,12 +467,12 @@ class CryptoOrderflowService:
         
         # Init Strategy
         self.strategy = OrderFlowStrategy(
-            redis=self.main
-            ticks=self.ticks
-            publisher=self.publisher
-            of_engine=self.of_engine
-            calib_svc=self.calib_svc
-            notify_client=self.notify_client
+            redis=self.main,
+            ticks=self.ticks,
+            publisher=self.publisher,
+            of_engine=self.of_engine,
+            calib_svc=self.calib_svc,
+            notify_client=self.notify_client,
             notify_stream=self.notify_stream
         )
 
@@ -640,12 +640,12 @@ class CryptoOrderflowService:
         if symbols_count > 0 and estimated_connections > (self.ticks_max * 0.8):
             logger.warning(
                 "⚠️ High connection pool usage estimate: %d symbols will use ~%d connections "
-                "(ticks_max=%d). Consider increasing REDIS_TICKS_MAX_CONNECTIONS if you see 'Too many connections' errors."
+                "(ticks_max=%d). Consider increasing REDIS_TICKS_MAX_CONNECTIONS if you see 'Too many connections' errors.",
                 symbols_count, estimated_connections, self.ticks_max
             )
         elif symbols_count > 0:
             logger.debug(
-                "ℹ️ Connection pool estimate: %d symbols will use ~%d connections (ticks_max=%d, utilization=%.1f%%)"
+                "ℹ️ Connection pool estimate: %d symbols will use ~%d connections (ticks_max=%d, utilization=%.1f%%)",
                 symbols_count, estimated_connections, self.ticks_max, (estimated_connections / self.ticks_max * 100) if self.ticks_max > 0 else 0
             )
 
@@ -666,11 +666,11 @@ class CryptoOrderflowService:
                 self.symbol_contexts[symbol] = runtime
                 # Initialize lag tracker for percentiles
                 self._lag_trackers[symbol] = LagTracker(
-                    window=2048
-                    export_every_n=200
-                    metric_p50="worker_lag_ms_p50"
-                    metric_p95="worker_lag_ms_p95"
-                    metric_p99="worker_lag_ms_p99"
+                    window=2048,
+                    export_every_n=200,
+                    metric_p50="worker_lag_ms_p50",
+                    metric_p95="worker_lag_ms_p95",
+                    metric_p99="worker_lag_ms_p99",
                     tags={"symbol": symbol}
                 )
                 self._lag_export_counters[symbol] = 0
@@ -715,12 +715,12 @@ class CryptoOrderflowService:
                     logger.error("❌ (%s) Detected dead tasks in load_dynamic_symbols; will restart via supervisor", symbol)
                 # Throttled worker start log (every 10000th)
                 sampled_info(
-                    logger
-                    "WORKER_INIT"
-                    "🚀 (%s) воркеры запущены: k=%s, delta_z_threshold=%.2f, min_conf=%.2f%%, every_n=%s"
-                    symbol, runtime.book_stream
-                    float(cfg.get("delta_z_threshold") or 3.10)
-                    float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", os.getenv("SIGNAL_MIN_CONF", "70")))
+                    logger,
+                    "WORKER_INIT",
+                    "🚀 (%s) воркеры запущены: k=%s, delta_z_threshold=%.2f, min_conf=%.2f%%, every_n=%s",
+                    symbol, runtime.book_stream,
+                    float(cfg.get("delta_z_threshold") or 3.10),
+                    float(os.getenv("CRYPTO_SIGNAL_MIN_CONF", os.getenv("SIGNAL_MIN_CONF", "70"))),
                     os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", os.getenv("NOTIFY_SIGNAL_EVERY_N", "30"))
                 )
 
@@ -762,7 +762,7 @@ class CryptoOrderflowService:
                      break
                 
                 # Access exposed property from OFConfirmEngine
-                # Note: of_engine might not have ml_gate initialized if no build() calls happened yet
+                # Note: of_engine might not have ml_gate initialized if no build() calls happened yet,
                 # or if ML_GATE is disabled.
                 if gate and hasattr(gate, "refresh_async"):
                     t0 = time.time()
@@ -787,8 +787,8 @@ class CryptoOrderflowService:
         max_restarts = int(os.getenv("CRYPTO_OF_SUPERVISOR_MAX_RESTARTS", "10"))
         window_sec = float(os.getenv("CRYPTO_OF_SUPERVISOR_WINDOW_SEC", "300"))
         logger.info(
-            "👮 Supervisor loop started (interval=%.1fs max_restarts=%d window=%.0fs)"
-            interval, max_restarts, window_sec
+            "👮 Supervisor loop started (interval=%.1fs max_restarts=%d window=%.0fs)",
+            interval, max_restarts, window_sec,
         )
         try:
             while not self._shutdown:
@@ -804,22 +804,22 @@ class CryptoOrderflowService:
                         continue
 
                     t_tick2 = await self._maybe_restart_symbol_task(
-                        symbol=symbol
-                        kind="ticks"
-                        task=t_tick
-                        coro_factory=(lambda s=symbol: self.consume_ticks(s))
-                        task_name=f"crypto-of-ticks-{symbol}"
-                        max_restarts=max_restarts
-                        window_sec=window_sec
+                        symbol=symbol,
+                        kind="ticks",
+                        task=t_tick,
+                        coro_factory=(lambda s=symbol: self.consume_ticks(s)),
+                        task_name=f"crypto-of-ticks-{symbol}",
+                        max_restarts=max_restarts,
+                        window_sec=window_sec,
                     )
                     t_book2 = await self._maybe_restart_symbol_task(
-                        symbol=symbol
-                        kind="books"
-                        task=t_book
-                        coro_factory=(lambda s=symbol: self.consume_books(s))
-                        task_name=f"crypto-of-book-{symbol}"
-                        max_restarts=max_restarts
-                        window_sec=window_sec
+                        symbol=symbol,
+                        kind="books",
+                        task=t_book,
+                        coro_factory=(lambda s=symbol: self.consume_books(s)),
+                        task_name=f"crypto-of-book-{symbol}",
+                        max_restarts=max_restarts,
+                        window_sec=window_sec,
                     )
 
                     if symbol in self.symbol_tasks:
@@ -831,15 +831,15 @@ class CryptoOrderflowService:
             logger.error("Supervisor critical error: %s", exc, exc_info=True)
 
     async def _maybe_restart_symbol_task(
-        self
-        *
-        symbol: str
-        kind: str
-        task: asyncio.Task
-        coro_factory: Any
-        task_name: str
-        max_restarts: int
-        window_sec: float
+        self,
+        *,
+        symbol: str,
+        kind: str,
+        task: asyncio.Task,
+        coro_factory: Any,
+        task_name: str,
+        max_restarts: int,
+        window_sec: float,
     ) -> asyncio.Task:
         if task is not None and not task.done():
             return task
@@ -860,8 +860,8 @@ class CryptoOrderflowService:
         dq.append(now)
         if len(dq) > max_restarts:
             logger.error(
-                "❌ (%s) %s task restart storm: %d restarts in %.0fs. Stopping symbol."
-                symbol, kind, len(dq), window_sec
+                "❌ (%s) %s task restart storm: %d restarts in %.0fs. Stopping symbol.",
+                symbol, kind, len(dq), window_sec,
             )
             await self._stop_symbol(symbol)
             return task
@@ -993,11 +993,11 @@ class CryptoOrderflowService:
     # ──────────────────────────────────────────────────────────────────────────
     # NEW: Shared Burst Processing Logic (DRY + Low Latency)
     # ──────────────────────────────────────────────────────────────────────────
-    async def _process_burst_flush(self, runtime: SymbolRuntime, trigger_source: str
+    async def _process_burst_flush(self, runtime: SymbolRuntime, trigger_source: str,
                                    ts_ms: int, do_publish: bool = True) -> Optional[Dict]:
         """
         Единая точка проверки Burst-сигнала.
-        Вызывается и при получении тика (для мгновенной реакции)
+        Вызывается и при получении тика (для мгновенной реакции),
         и по таймеру (для закрытия burst при остановке торгов).
 
         Args:
@@ -1040,8 +1040,8 @@ class CryptoOrderflowService:
             # Sample every 10000th message
             burst_flush_sampler = LogSamplerFactory.get_sampler("BURST_FLUSH", 10000)
             if burst_flush_sampler.should_log(f"burst_flush_{runtime.symbol}"):
-                logger.info("🔥 (%s) Burst flushed via %s: dir=%s p=%.2f score=%.2f"
-                            runtime.symbol, trigger_source, out.get("direction")
+                logger.info("🔥 (%s) Burst flushed via %s: dir=%s p=%.2f score=%.2f",
+                            runtime.symbol, trigger_source, out.get("direction"),
                             out.get("entry"), out.get("burst_best_score"))
 
             # --- PUBLISH LOGIC ---
@@ -1049,10 +1049,10 @@ class CryptoOrderflowService:
                 # Этот блок выполняется только для фонового цикла
                 try:
                     preprocess_signal_for_publish(
-                        out
-                        symbol=runtime.symbol
-                        source="crypto_orderflow_service"
-                        logger=logger
+                        out,
+                        symbol=runtime.symbol,
+                        source="crypto_orderflow_service",
+                        logger=logger,
                     )
                 except Exception:
                     pass
@@ -1088,16 +1088,16 @@ class CryptoOrderflowService:
         except Exception:
             outbox_backlog = 0
         return RedisDQSnapshot(
-            symbol=str(getattr(runtime, "symbol", "") or "UNKNOWN")
-            queue_lag_ms=queue_lag_ms
-            tick_staleness_ms=tick_staleness_ms
-            book_staleness_ms=book_staleness_ms
-            redis_timeout_events=int(getattr(runtime, "redis_timeout_events", 0) or 0)
-            negative_age_events=int(getattr(runtime, "negative_age_events", 0) or 0)
-            xack_fail_events=int(getattr(runtime, "xack_fail_events", 0) or 0)
-            outbox_backlog=outbox_backlog
-            stream_timeout_burst=int(getattr(runtime, "stream_timeout_burst", 0) or 0)
-            force_hard_veto=bool(getattr(runtime, "force_hard_veto", False))
+            symbol=str(getattr(runtime, "symbol", "") or "UNKNOWN"),
+            queue_lag_ms=queue_lag_ms,
+            tick_staleness_ms=tick_staleness_ms,
+            book_staleness_ms=book_staleness_ms,
+            redis_timeout_events=int(getattr(runtime, "redis_timeout_events", 0) or 0),
+            negative_age_events=int(getattr(runtime, "negative_age_events", 0) or 0),
+            xack_fail_events=int(getattr(runtime, "xack_fail_events", 0) or 0),
+            outbox_backlog=outbox_backlog,
+            stream_timeout_burst=int(getattr(runtime, "stream_timeout_burst", 0) or 0),
+            force_hard_veto=bool(getattr(runtime, "force_hard_veto", False)),
         )
 
     def _build_portfolio_risk_input(self, runtime: Any, signal: Dict[str, Any]) -> Optional["PortfolioRiskInput"]:
@@ -1123,11 +1123,11 @@ class CryptoOrderflowService:
                 continue
             try:
                 positions.append(PortfolioPosition(
-                    symbol=str(p.get("symbol") or "")
-                    notional_usd=float(p.get("notional_usd") or 0.0)
-                    side=str(p.get("side") or "LONG")
-                    cluster=str(p.get("cluster") or "default")
-                    tier=str(p.get("tier") or "B")
+                    symbol=str(p.get("symbol") or ""),
+                    notional_usd=float(p.get("notional_usd") or 0.0),
+                    side=str(p.get("side") or "LONG"),
+                    cluster=str(p.get("cluster") or "default"),
+                    tier=str(p.get("tier") or "B"),
                 ))
             except Exception:
                 continue
@@ -1158,22 +1158,22 @@ class CryptoOrderflowService:
             or str(signal.get("execution_policy") or "").strip().upper() == "MAKER_FIRST"
         )
         return PortfolioRiskInput(
-            symbol=symbol
-            cluster=str(signal.get("risk_cluster") or signal.get("cluster") or signal.get("symbol") or getattr(runtime, "symbol", ""))
-            tier=tier or "B"
-            requested_notional_usd=requested_notional
-            current_positions=positions
-            equity_usd=float(signal.get("account_equity_usd") or os.getenv("ACCOUNT_DEPOSIT_USD", "0") or 0.0)
-            daily_pnl_pct=float(signal.get("daily_pnl_pct") or 0.0)
-            stop_distance_bps=stop_distance_bps
-            volatility_bps=volatility_bps
-            spread_bps=float(signal.get("spread_bps") or 0.0)
-            expected_slippage_bps=float(signal.get("expected_slippage_bps") or signal.get("slippage_bps") or 0.0)
-            confidence=confidence
-            maker_policy_requested=maker_requested
-            infra_degraded=bool(signal.get("infra_degraded") or signal.get("dq_hard_veto"))
-            high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol"))
-            kill_switch=bool(signal.get("risk_kill_switch") or signal.get("kill_switch"))
+            symbol=symbol,
+            cluster=str(signal.get("risk_cluster") or signal.get("cluster") or signal.get("symbol") or getattr(runtime, "symbol", "")),
+            tier=tier or "B",
+            requested_notional_usd=requested_notional,
+            current_positions=positions,
+            equity_usd=float(signal.get("account_equity_usd") or os.getenv("ACCOUNT_DEPOSIT_USD", "0") or 0.0),
+            daily_pnl_pct=float(signal.get("daily_pnl_pct") or 0.0),
+            stop_distance_bps=stop_distance_bps,
+            volatility_bps=volatility_bps,
+            spread_bps=float(signal.get("spread_bps") or 0.0),
+            expected_slippage_bps=float(signal.get("expected_slippage_bps") or signal.get("slippage_bps") or 0.0),
+            confidence=confidence,
+            maker_policy_requested=maker_requested,
+            infra_degraded=bool(signal.get("infra_degraded") or signal.get("dq_hard_veto")),
+            high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol")),
+            kill_switch=bool(signal.get("risk_kill_switch") or signal.get("kill_switch")),
         )
 
 
@@ -1202,15 +1202,15 @@ class CryptoOrderflowService:
             decision_id = str(signal.get('decision_id') or signal.get('id') or uuid.uuid4().hex)
             signal['decision_id'] = decision_id
             self.risk_audit_sql_sink.record_decision(
-                decision_id=decision_id
-                signal=signal
-                risk_input=risk_input
-                risk_decision=risk_decision
+                decision_id=decision_id,
+                signal=signal,
+                risk_input=risk_input,
+                risk_decision=risk_decision,
             )
         except Exception as exc:
             logger.warning(
-                "⚠️ (%s) Risk SQL audit write failed: %s"
-                str(signal.get('symbol') or '?'), exc
+                "⚠️ (%s) Risk SQL audit write failed: %s",
+                str(signal.get('symbol') or '?'), exc,
             )
 
     async def _pre_publish_allows_signal(self, runtime: Any, signal: Dict[str, Any]) -> bool:
@@ -1242,8 +1242,8 @@ class CryptoOrderflowService:
                 signal['quarantine_denylist_hit'] = True
                 signal['quarantine_sid'] = str(deny_decision.matched_sid)
                 logger.warning(
-                    "\U0001f6ab (%s) Quarantine denylist veto before publish: sid=%s candidates=%s"
-                    getattr(runtime, 'symbol', '?'), deny_decision.matched_sid, deny_decision.candidates
+                    "\U0001f6ab (%s) Quarantine denylist veto before publish: sid=%s candidates=%s",
+                    getattr(runtime, 'symbol', '?'), deny_decision.matched_sid, deny_decision.candidates,
                 )
                 return False
         dq_decision = None
@@ -1256,8 +1256,8 @@ class CryptoOrderflowService:
                 signal["dq_hard_veto"] = not bool(dq_decision.allow_trade_publish)
                 if not dq_decision.allow_trade_publish:
                     logger.warning(
-                        "\U0001f6ab (%s) Hard DQ veto before publish: reasons=%s snapshot=%s"
-                        getattr(runtime, "symbol", "?"), dq_decision.reasons, dq_decision.snapshot
+                        "\U0001f6ab (%s) Hard DQ veto before publish: reasons=%s snapshot=%s",
+                        getattr(runtime, "symbol", "?"), dq_decision.reasons, dq_decision.snapshot,
                     )
                     return False
         # ── Portfolio risk check (P4: full tier-aware engine) ─────────────────
@@ -1283,8 +1283,8 @@ class CryptoOrderflowService:
                 # Block publish if denied and hard veto is armed
                 if risk_decision.level in {RISK_DENY_SOFT, RISK_DENY_HARD, RISK_FORCE_FLATTEN} and self.portfolio_risk_hard_veto:
                     logger.warning(
-                        "\U0001f6ab (%s) Portfolio risk veto before publish: level=%s reasons=%s snapshot=%s"
-                        getattr(runtime, "symbol", "?"), risk_decision.level, risk_decision.reasons, risk_decision.snapshot
+                        "\U0001f6ab (%s) Portfolio risk veto before publish: level=%s reasons=%s snapshot=%s",
+                        getattr(runtime, "symbol", "?"), risk_decision.level, risk_decision.reasons, risk_decision.snapshot,
                     )
                     return False
                 # P4: adjust notional to risk-engine output (shrink, not just deny)
@@ -1328,10 +1328,10 @@ class CryptoOrderflowService:
         """
         sampled_info(logger, "LOOP_DIAGNOSTIC", "🔄 (%s) Запуск цикла чтения тиков", symbol)
         backoff = Backoff(
-            base_delay=float(os.getenv("REDIS_BACKOFF_BASE", "0.25"))
-            multiplier=2.0
-            max_delay=float(os.getenv("REDIS_BACKOFF_CAP", "5.0"))
-            jitter=bool(int(os.getenv("REDIS_BACKOFF_JITTER_ENABLED", "1")))
+            base_delay=float(os.getenv("REDIS_BACKOFF_BASE", "0.25")),
+            multiplier=2.0,
+            max_delay=float(os.getenv("REDIS_BACKOFF_CAP", "5.0")),
+            jitter=bool(int(os.getenv("REDIS_BACKOFF_JITTER_ENABLED", "1"))),
         )
         idle_sleep = float(os.getenv("REDIS_IDLE_SLEEP_SEC", "0.05"))
         msg_counter = 0
@@ -1391,9 +1391,9 @@ class CryptoOrderflowService:
                 if runtime.loop_log_sampler.should_log("helper_read_call"):
                     logger.debug("🔍 (%s) Calling helper.read (block=%dms, count=%d)", symbol, block_ms, count)
                 messages = await helper.read(
-                    {stream: ">"}
-                    count=count
-                    block=block_ms
+                    {stream: ">"},
+                    count=count,
+                    block=block_ms,
                 )
                 if runtime.loop_log_sampler.should_log("helper_read_result"):
                     logger.debug("🔍 (%s) helper.read returned %d stream entries", symbol, len(messages) if messages else 0)
@@ -1416,7 +1416,7 @@ class CryptoOrderflowService:
                     logger.error(
                         "❌ (%s) Redis connection pool exhausted (main_max=%d, ticks_max=%d, active_symbols=%d, "
                         "estimated_connections=%d, pool_usage=%.1f%%). Error: %s. Retrying in %.2fs. "
-                        "Consider increasing REDIS_TICKS_MAX_CONNECTIONS or reducing symbol count."
+                        "Consider increasing REDIS_TICKS_MAX_CONNECTIONS or reducing symbol count.",
                         symbol, self.main_max, self.ticks_max, active_count, estimated_connections, pool_usage_pct, error_str, delay
                     )
                     # Longer delay to allow connections to be released
@@ -1459,9 +1459,9 @@ class CryptoOrderflowService:
                     try:
                         await helper.ensure_group(stream, recreate=True)
                         messages = await helper.read(
-                            {stream: ">"}
-                            count=count
-                            block=block_ms
+                            {stream: ">"},
+                            count=count,
+                            block=block_ms,
                         )
                     except Exception as e:
                         delay = backoff.get_delay()
@@ -1577,12 +1577,12 @@ class CryptoOrderflowService:
                             abs_age_ms = abs(int(now_ms) - ev_ms) if ev_ms else 0
 
                             ema = self._tick_quality_ema.update(
-                                symbol=str(symbol)
-                                ts_ms=int(now_ms)
-                                unknown_side=1.0 if unknown_side else 0.0
-                                ts_source=str(ts_source)
-                                abs_skew_ms=float(abs_skew_ms)
-                                abs_age_ms=float(abs_age_ms)
+                                symbol=str(symbol),
+                                ts_ms=int(now_ms),
+                                unknown_side=1.0 if unknown_side else 0.0,
+                                ts_source=str(ts_source),
+                                abs_skew_ms=float(abs_skew_ms),
+                                abs_age_ms=float(abs_age_ms),
                             )
 
                             # Step16: limit cardinality + throttle gauge emission (per label)
@@ -1661,13 +1661,13 @@ class CryptoOrderflowService:
                             uid = str(tick.get("tick_uid") or "")
                             if not uid:
                                 uid = _compute_tick_uid(
-                                    symbol=str(tick.get("symbol") or symbol)
-                                    trade_id=tick.get("trade_id")
-                                    ts_ms=_safe_int(tick.get("ts_ms") or 0)
-                                    price_src=raw.get("price") or raw.get("last") or raw.get("mid")
-                                    qty_src=raw.get("qty") or raw.get("volume")
-                                    side=str(tick.get("side") or "")
-                                    is_buyer_maker=tick.get("is_buyer_maker")
+                                    symbol=str(tick.get("symbol") or symbol),
+                                    trade_id=tick.get("trade_id"),
+                                    ts_ms=_safe_int(tick.get("ts_ms") or 0),
+                                    price_src=raw.get("price") or raw.get("last") or raw.get("mid"),
+                                    qty_src=raw.get("qty") or raw.get("volume"),
+                                    side=str(tick.get("side") or ""),
+                                    is_buyer_maker=tick.get("is_buyer_maker"),
                                 )
                                 tick["tick_uid"] = uid
                             if uid and runtime.is_duplicate_tick_uid(uid):
@@ -1696,11 +1696,11 @@ class CryptoOrderflowService:
 
                                     if pol == 'quarantine':
                                         await self._quarantine_unknown_side_tick(
-                                            symbol=str(symbol)
-                                            msg_id=str(msg_id)
-                                            tick=tick
-                                            raw_fields=raw
-                                            reason='unknown_side'
+                                            symbol=str(symbol),
+                                            msg_id=str(msg_id),
+                                            tick=tick,
+                                            raw_fields=raw,
+                                            reason='unknown_side',
                                         )
                                     processed_ok = True
                                     continue
@@ -1723,10 +1723,10 @@ class CryptoOrderflowService:
                                 if book and book.timestamp_ms:
                                     t_l2_age = max(0, event_ts_ms - book.timestamp_ms)
                                     self.health_metrics.on_tick(
-                                        symbol=str(symbol)
-                                        l2_age_ms=float(t_l2_age)
-                                        l2_age_ms_tick=float(t_l2_age)
-                                        l2_is_stale=(t_l2_age > 1500)
+                                        symbol=str(symbol),
+                                        l2_age_ms=float(t_l2_age),
+                                        l2_age_ms_tick=float(t_l2_age),
+                                        l2_is_stale=(t_l2_age > 1500),
                                         l2_is_stale_now=(max(0, now_ms - book.timestamp_ms) > 1500)
                                     )
                         except Exception:
@@ -1762,10 +1762,10 @@ class CryptoOrderflowService:
                         if signal:
                             try:
                                 preprocess_signal_for_publish(
-                                    signal
-                                    symbol=str(getattr(runtime, "symbol", "") or symbol)
-                                    source="CryptoOrderFlow"
-                                    logger=logger
+                                    signal,
+                                    symbol=str(getattr(runtime, "symbol", "") or symbol),
+                                    source="CryptoOrderFlow",
+                                    logger=logger,
                                 )
                             except Exception:
                                 pass
@@ -1780,10 +1780,10 @@ class CryptoOrderflowService:
                         # Poison pill => quarantine + ACK (fail-open)
                         try:
                             await self.ticks.xadd(self.quarantine_stream, {
-                                "symbol": symbol
-                                "msg_id": msg_id
-                                "error": str(exc)[:200]
-                                "payload": json.dumps(fields, default=str)[:1000]
+                                "symbol": symbol,
+                                "msg_id": msg_id,
+                                "error": str(exc)[:200],
+                                "payload": json.dumps(fields, default=str)[:1000],
                             }, maxlen=5000)
                             logger.warning("☣️ (%s) Message %s quarantined", symbol, msg_id)
                             processed_ok = True
@@ -1847,10 +1847,10 @@ class CryptoOrderflowService:
         Читает книги заявок и обновляет состояния детекторов OBI/Iceberg.
         """
         backoff = Backoff(
-            base_delay=float(os.getenv("REDIS_BACKOFF_BASE", "0.25"))
-            multiplier=2.0
-            max_delay=float(os.getenv("REDIS_BACKOFF_CAP", "5.0"))
-            jitter=bool(int(os.getenv("REDIS_BACKOFF_JITTER_ENABLED", "1")))
+            base_delay=float(os.getenv("REDIS_BACKOFF_BASE", "0.25")),
+            multiplier=2.0,
+            max_delay=float(os.getenv("REDIS_BACKOFF_CAP", "5.0")),
+            jitter=bool(int(os.getenv("REDIS_BACKOFF_JITTER_ENABLED", "1"))),
         )
         idle_sleep = float(os.getenv("REDIS_IDLE_SLEEP_SEC", "0.05"))
         while not self._shutdown:
@@ -1877,9 +1877,9 @@ class CryptoOrderflowService:
 
             try:
                 messages = await helper.read(
-                    {stream: ">"}
-                    count=runtime.config.get("read_count", 200)
-                    block=runtime.config.get("read_block_ms", 1000)
+                    {stream: ">"},
+                    count=runtime.config.get("read_count", 200),
+                    block=runtime.config.get("read_block_ms", 1000),
                 )
             except (ConnectionError, TimeoutError) as exc:
                 # ✅ FIX: Handle connection pool exhaustion and timeouts
@@ -1899,7 +1899,7 @@ class CryptoOrderflowService:
                     logger.error(
                         "❌ (%s) Redis connection pool exhausted reading books (main_max=%d, ticks_max=%d, "
                         "active_symbols=%d, estimated_connections=%d, pool_usage=%.1f%%). Error: %s. "
-                        "Retrying in %.2fs. Consider increasing REDIS_TICKS_MAX_CONNECTIONS or reducing symbol count."
+                        "Retrying in %.2fs. Consider increasing REDIS_TICKS_MAX_CONNECTIONS or reducing symbol count.",
                         symbol, self.main_max, self.ticks_max, active_count, estimated_connections, pool_usage_pct, error_str, delay
                     )
                     # Longer delay to allow connections to be released
@@ -2000,20 +2000,20 @@ class CryptoOrderflowService:
                 return
 
             payload = {
-                'symbol': str(symbol)
-                'reason': str(reason)
-                'policy': str(self._unknown_side_policy)
-                'msg_id': str(msg_id)
-                'tick_uid': str(tick.get('tick_uid') or '')
-                'event_ts_ms': str(_safe_int(tick.get('event_ts_ms') or 0))
-                'ts_source': str(tick.get('ts_source') or '')
-                'side': str(tick.get('side') or '')
-                'side_conf': str(tick.get('side_conf') or '')
-                'side_raw': str(tick.get('side_raw') or '')
-                'is_buyer_maker': str(tick.get('is_buyer_maker') if tick.get('is_buyer_maker') is not None else '')
-                'trade_id': str(tick.get('trade_id') or '')
-                'price': str(tick.get('price') or '')
-                'qty': str(tick.get('qty') or tick.get('volume') or '')
+                'symbol': str(symbol),
+                'reason': str(reason),
+                'policy': str(self._unknown_side_policy),
+                'msg_id': str(msg_id),
+                'tick_uid': str(tick.get('tick_uid') or ''),
+                'event_ts_ms': str(_safe_int(tick.get('event_ts_ms') or 0)),
+                'ts_source': str(tick.get('ts_source') or ''),
+                'side': str(tick.get('side') or ''),
+                'side_conf': str(tick.get('side_conf') or ''),
+                'side_raw': str(tick.get('side_raw') or ''),
+                'is_buyer_maker': str(tick.get('is_buyer_maker') if tick.get('is_buyer_maker') is not None else ''),
+                'trade_id': str(tick.get('trade_id') or ''),
+                'price': str(tick.get('price') or ''),
+                'qty': str(tick.get('qty') or tick.get('volume') or ''),
             }
             try:
                 raw_keys = sorted(list(raw_fields.keys()))
@@ -2022,10 +2022,10 @@ class CryptoOrderflowService:
                 pass
 
             await self.ticks.xadd(
-                self._unknown_side_quarantine_stream
-                payload
-                maxlen=int(self._unknown_side_quarantine_maxlen)
-                approximate=True
+                self._unknown_side_quarantine_stream,
+                payload,
+                maxlen=int(self._unknown_side_quarantine_maxlen),
+                approximate=True,
             )
             try:
                 ticks_unknown_side_quarantine_published_total.labels(symbol=str(symbol), reason=str(reason)).inc()
@@ -2110,7 +2110,7 @@ class CryptoOrderflowService:
         except Exception as exc:
             if redis_errors_total:
                 redis_errors_total.labels(op=op, symbol=symbol).inc()
-            logger.warning("⚠️ (%s) XACK pipeline failed (stream=%s group=%s n=%d): %s"
+            logger.warning("⚠️ (%s) XACK pipeline failed (stream=%s group=%s n=%d): %s",
                            symbol, stream, group, len(ids), exc)
 
     async def _pel_sweeper_loop(self) -> None:
@@ -2153,7 +2153,7 @@ class CryptoOrderflowService:
 
                         try:
                             res = await self.ticks.xautoclaim(
-                                stream, group, consumer
+                                stream, group, consumer,
                                 min_idle_ms, start_id, count=count
                             )
                         except Exception:
@@ -2179,11 +2179,11 @@ class CryptoOrderflowService:
                             if quarantine:
                                 try:
                                     await self.ticks.xadd(self.quarantine_stream, {
-                                        "symbol": sym
-                                        "msg_id": str(msg_id)
-                                        "reason": f"pel_autoclaim:{kind}"
-                                        "payload": json.dumps(fields, default=str)[:1000]
-                                        "ts_ms": str(self._msgid_ms(msg_id) or now_ms)
+                                        "symbol": sym,
+                                        "msg_id": str(msg_id),
+                                        "reason": f"pel_autoclaim:{kind}",
+                                        "payload": json.dumps(fields, default=str)[:1000],
+                                        "ts_ms": str(self._msgid_ms(msg_id) or now_ms),
                                     }, maxlen=5000)
                                 except Exception:
                                     pass

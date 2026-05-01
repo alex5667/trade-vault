@@ -70,7 +70,7 @@ PRIMARY_STREAM_BY_FAMILY = {
         "ML_VERTEX_LOCAL_HANDOFF_ROUTE_INCIDENT_RCA_STREAM",
         "stream:ml:operator_routing_incident_rca_route_rca_requests",
     ),
-}
+},
 
 LOCAL_TASK_BY_FAMILY = {
     "routing_incident_rca": "vertex_unavailable_fallback",
@@ -78,7 +78,7 @@ LOCAL_TASK_BY_FAMILY = {
     "local_report": "local_report",
     "offline_debug": "offline_debug",
     "emergency_summarize": "emergency_summarize",
-}
+},
 
 SUPPORTED_FAMILIES = set(LOCAL_TASK_BY_FAMILY.keys())
 LOCAL_ONLY_FAMILIES = {"local_report", "offline_debug", "emergency_summarize"}
@@ -170,7 +170,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "mode": str(raw.get("mode") or DEFAULT_MODE).upper(),
         "require_vertex_degraded": parse_int(raw.get("require_vertex_degraded"), DEFAULT_REQUIRE_VERTEX_DEGRADED),
         "allow_families": {str(x) for x in allow_families},
-    }
+    },
 
 
 def vertex_degraded_from_hash(raw: Dict[str, Any]) -> bool:
@@ -224,7 +224,7 @@ def evaluate_handoff(row: Dict[str, Any], policy: Dict[str, Any], vertex_degrade
         "reason_code": "REJECTED",
         "task_family": family,
         "route": "reject",
-    }
+    },
 
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
@@ -302,7 +302,7 @@ async def persist_if_configured(db_url: str, row: Dict[str, Any], decision: Dict
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_vertex_local_fallback_handoff_decisions (
                     request_id,
                     ts_ms,
@@ -350,7 +350,7 @@ async def route_local(r: Any, row: Dict[str, Any], family: str) -> None:
         "prompt": build_local_prompt(family, row),
         "input_json": row.get("payload_json", "{}"),
         "ts_ms": str(now_ms()),
-    }
+    },
     await r.xadd(LOCAL_OUTPUT_STREAM, payload, maxlen=MAXLEN, approximate=True)
 
 
@@ -365,7 +365,7 @@ async def route_vertex(r: Any, row: Dict[str, Any], family: str) -> str:
         "severity": row.get("severity", "info"),
         "source": row.get("source", "vertex_local_handoff_v3_1"),
         "ts_ms": str(now_ms()),
-    }
+    },
     await r.xadd(dst, payload, maxlen=MAXLEN, approximate=True)
     return dst
 
@@ -422,7 +422,7 @@ async def main() -> None:  # pragma: no cover
                         "destination_stream": destination_stream,
                         "vertex_degraded": "1" if vertex_degraded else "0",
                         "ts_ms": str(now_ms()),
-                    }
+                    },
                     await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await r.xadd(
                         AUDIT_STREAM,

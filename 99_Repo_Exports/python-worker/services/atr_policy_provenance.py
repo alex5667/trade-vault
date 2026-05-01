@@ -29,14 +29,14 @@ def _safe_str(v: Any, default: str = "") -> str:
 
 def _compact_tag(obj: Dict[str, Any]) -> str:
     base = "|".join([
-        _safe_str(obj.get("policy_source"))
-        _safe_str(obj.get("symbol")).upper()
-        _safe_str(obj.get("scenario")).lower()
-        _safe_str(obj.get("regime")).lower()
-        _safe_str(obj.get("risk_horizon_bucket")).lower()
-        str(_safe_int(obj.get("policy_ver"), 0))
-        _safe_str(obj.get("stop_ttl_mode"))
-        _safe_str(obj.get("trailing_mode"))
+        _safe_str(obj.get("policy_source")),
+        _safe_str(obj.get("symbol")).upper(),
+        _safe_str(obj.get("scenario")).lower(),
+        _safe_str(obj.get("regime")).lower(),
+        _safe_str(obj.get("risk_horizon_bucket")).lower(),
+        str(_safe_int(obj.get("policy_ver"), 0)),
+        _safe_str(obj.get("stop_ttl_mode")),
+        _safe_str(obj.get("trailing_mode")),
     ])
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
 
@@ -56,20 +56,20 @@ def build_policy_provenance(signal: Dict[str, Any]) -> Dict[str, Any]:
         cert_id = ""
 
     out = {
-        "policy_ver": _safe_int(pol.get("policy_ver"), 0)
-        "policy_source": _safe_str(pol.get("source"))
-        "symbol": _safe_str(pol.get("symbol") or signal.get("symbol")).upper()
-        "scenario": _safe_str(pol.get("scenario") or signal.get("kind")).lower()
-        "regime": _safe_str(pol.get("regime"))
-        "risk_horizon_bucket": _safe_str(pol.get("risk_horizon_bucket")).lower()
-        "stop_ttl_mode": _safe_str(pol.get("stop_ttl_mode"), "canary")
-        "trailing_mode": _safe_str(pol.get("trailing_mode"), "canary")
-        "active_key": _safe_str(pol.get("active_key"))
-        "policy_updated_at_ms": _safe_int(pol.get("updated_at_ms"), 0)
-        "recovery_run_id": recovery_run_id
-        "restore_cert_id": cert_id
-        "restore_cert_status": cert_status
-        "attached_at_ms": int(time.time() * 1000)
+        "policy_ver": _safe_int(pol.get("policy_ver"), 0),
+        "policy_source": _safe_str(pol.get("source")),
+        "symbol": _safe_str(pol.get("symbol") or signal.get("symbol")).upper(),
+        "scenario": _safe_str(pol.get("scenario") or signal.get("kind")).lower(),
+        "regime": _safe_str(pol.get("regime")),
+        "risk_horizon_bucket": _safe_str(pol.get("risk_horizon_bucket")).lower(),
+        "stop_ttl_mode": _safe_str(pol.get("stop_ttl_mode"), "canary"),
+        "trailing_mode": _safe_str(pol.get("trailing_mode"), "canary"),
+        "active_key": _safe_str(pol.get("active_key")),
+        "policy_updated_at_ms": _safe_int(pol.get("updated_at_ms"), 0),
+        "recovery_run_id": recovery_run_id,
+        "restore_cert_id": cert_id,
+        "restore_cert_status": cert_status,
+        "attached_at_ms": int(time.time() * 1000),
     }
     out["policy_tag"] = _compact_tag(out)
     return out

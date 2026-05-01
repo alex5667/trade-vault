@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Калибровка stop_atr_mult и rr_levels под волатильность символа.
 
@@ -12,7 +13,6 @@
     python calibrate_stop_rr_levels.py --dsn "postgresql://..." --source CryptoOrderFlow --symbol ETHUSDT --limit 1000
 """
 
-from __future__ import annotations
 
 import argparse
 import statistics as stats

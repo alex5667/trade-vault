@@ -10,7 +10,7 @@ from domain.models import PositionState
 
 @dataclass
 class DummySpec:
-    def pnl_money(self, entry: float, price: float, lot: float, side: str, symbol: str = "") -> float:
+    def pnl_money(self, entry: float, price: float, lot: float, side: str, symbol="") -> float:
         sign = 1.0 if side == "LONG" else -1.0
         return (price - entry) * sign * lot
 

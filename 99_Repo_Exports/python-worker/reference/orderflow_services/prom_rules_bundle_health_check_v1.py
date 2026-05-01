@@ -106,12 +106,12 @@ def _write_state(*, ok: bool, files_checked: int, errors: list[str]) -> None:
     # Keep state keys reasonably fresh, but do not delete them.
     ttl_s = int(os.getenv("PROM_RULES_BUNDLE_STATE_TTL_S", str(14 * 24 * 3600)))
     for k in (
-        f"{prefix}:last_run_ts_ms"
-        f"{prefix}:last_ok_ts_ms"
-        f"{prefix}:last_ok"
-        f"{prefix}:last_files_checked"
-        f"{prefix}:last_error_n"
-        f"{prefix}:last_error_head"
+        f"{prefix}:last_run_ts_ms",
+        f"{prefix}:last_ok_ts_ms",
+        f"{prefix}:last_ok",
+        f"{prefix}:last_files_checked",
+        f"{prefix}:last_error_n",
+        f"{prefix}:last_error_head",
     ):
         pipe.expire(k, ttl_s)
 

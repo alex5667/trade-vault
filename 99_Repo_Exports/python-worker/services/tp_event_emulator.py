@@ -9,7 +9,7 @@ from utils.time_utils import get_ny_time_millis
 3. Проверки работы оркестратора трейлинга
 
 Использование:
-    python -m services.tp_event_emulator --sid signal-XAUUSD-123 --scenario tp1_then_tp2
+    python -m services.tp_event_emulator --sid signal--123 --scenario tp1_then_tp2
 """
 
 import os
@@ -64,19 +64,19 @@ class TPEventEmulator:
     def emit_tp1_hit(
         self, 
         sid: str, 
-        symbol: str = "XAUUSD"
-        price: float = 2769.9
+        symbol="",
+        price: float = 2769.9,
         position_id: str = "1234567"
     ) -> str:
         """Эмитировать TP1_HIT событие."""
         event = {
-            "event_type": "TP1_HIT"
-            "sid": sid
-            "symbol": symbol
-            "position_id": position_id
-            "ticket": position_id
-            "price": str(price)
-            "ts": str(get_ny_time_millis())
+            "event_type": "TP1_HIT",
+            "sid": sid,
+            "symbol": symbol,
+            "position_id": position_id,
+            "ticket": position_id,
+            "price": str(price),
+            "ts": str(get_ny_time_millis()),
             "source": "emulator"
         }
         return self.emit_event(event)
@@ -84,19 +84,19 @@ class TPEventEmulator:
     def emit_tp2_hit(
         self, 
         sid: str, 
-        symbol: str = "XAUUSD"
-        price: float = 2773.1
+        symbol="",
+        price: float = 2773.1,
         position_id: str = "1234567"
     ) -> str:
         """Эмитировать TP2_HIT событие."""
         event = {
-            "event_type": "TP2_HIT"
-            "sid": sid
-            "symbol": symbol
-            "position_id": position_id
-            "ticket": position_id
-            "price": str(price)
-            "ts": str(get_ny_time_millis())
+            "event_type": "TP2_HIT",
+            "sid": sid,
+            "symbol": symbol,
+            "position_id": position_id,
+            "ticket": position_id,
+            "price": str(price),
+            "ts": str(get_ny_time_millis()),
             "source": "emulator"
         }
         return self.emit_event(event)
@@ -104,19 +104,19 @@ class TPEventEmulator:
     def emit_tp3_hit(
         self, 
         sid: str, 
-        symbol: str = "XAUUSD"
-        price: float = 2776.3
+        symbol="",
+        price: float = 2776.3,
         position_id: str = "1234567"
     ) -> str:
         """Эмитировать TP3_HIT событие."""
         event = {
-            "event_type": "TP3_HIT"
-            "sid": sid
-            "symbol": symbol
-            "position_id": position_id
-            "ticket": position_id
-            "price": str(price)
-            "ts": str(get_ny_time_millis())
+            "event_type": "TP3_HIT",
+            "sid": sid,
+            "symbol": symbol,
+            "position_id": position_id,
+            "ticket": position_id,
+            "price": str(price),
+            "ts": str(get_ny_time_millis()),
             "source": "emulator"
         }
         return self.emit_event(event)
@@ -124,24 +124,24 @@ class TPEventEmulator:
     def emit_sl_hit(
         self, 
         sid: str, 
-        symbol: str = "XAUUSD"
-        price: float = 2758.7
+        symbol="",
+        price: float = 2758.7,
         position_id: str = "1234567"
     ) -> str:
         """Эмитировать SL_HIT событие."""
         event = {
-            "event_type": "SL_HIT"
-            "sid": sid
-            "symbol": symbol
-            "position_id": position_id
-            "ticket": position_id
-            "price": str(price)
-            "ts": str(get_ny_time_millis())
+            "event_type": "SL_HIT",
+            "sid": sid,
+            "symbol": symbol,
+            "position_id": position_id,
+            "ticket": position_id,
+            "price": str(price),
+            "ts": str(get_ny_time_millis()),
             "source": "emulator"
         }
         return self.emit_event(event)
     
-    def run_scenario(self, scenario: str, sid: str, symbol: str = "XAUUSD"):
+    def run_scenario(self, scenario: str, sid: str, symbol=""):
         """
         Запустить сценарий тестирования.
         
@@ -186,17 +186,17 @@ def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description="TP Event Emulator")
     parser.add_argument("--sid", required=True, help="Signal ID")
-    parser.add_argument("--symbol", default="XAUUSD", help="Symbol (default: XAUUSD)")
+    parser.add_argument("--symbol", help="Symbol (default: )")
     parser.add_argument(
         "--scenario", 
         choices=[
             "tp1_only", 
             "tp1_then_tp2", 
-            "tp1_then_tp2_then_tp3"
-            "tp1_then_sl"
+            "tp1_then_tp2_then_tp3",
+            "tp1_then_sl",
             "direct_sl"
-        ]
-        default="tp1_only"
+        ],
+        default="tp1_only",
         help="Test scenario"
     )
     

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Emergency cap-clamp: auto-apply upper bounds on meta_enforce_share per-regime when hard-stop persists N cycles.
 
 Reads metrics:of_gate for a time window, detects hard-stop conditions (latency, exec_risk, soft_rate, ok_rate),
@@ -25,7 +26,6 @@ Environment Variables:
   - Rec/bot: NOTIFY_TELEGRAM_STREAM, RECS_TTL_SEC, RECS_HMAC_SECRET, CFG_HASH_PREFIX
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 train_confidence_conformal_v1.py
 
@@ -18,7 +19,6 @@ Usage:
   python3 -m ml_analysis.tools.train_confidence_conformal_v1 --data_jsonl /path/to/dataset.jsonl --out_json /path/to/conf_conformal_latest.json --alpha 0.10
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -147,17 +147,17 @@ def main() -> int:
             buckets_out[bk] = _quantile_qhat(scs, alpha)
 
     out = {
-        "schema_version": "conf_conformal_v1"
-        "alpha": alpha
-        "global_qhat": float(global_qhat)
-        "buckets": buckets_out
-        "trained_ts_ms": now_ms()
+        "schema_version": "conf_conformal_v1",
+        "alpha": alpha,
+        "global_qhat": float(global_qhat),
+        "buckets": buckets_out,
+        "trained_ts_ms": now_ms(),
         "stats": {
-            "rows_total": rows
-            "rows_used": used
-            "n_global": len(global_scores)
-            "n_buckets": len(buckets_out)
-            "min_bucket_n": int(args.min_bucket_n)
+            "rows_total": rows,
+            "rows_used": used,
+            "n_global": len(global_scores),
+            "n_buckets": len(buckets_out),
+            "min_bucket_n": int(args.min_bucket_n),
         }
     }
 

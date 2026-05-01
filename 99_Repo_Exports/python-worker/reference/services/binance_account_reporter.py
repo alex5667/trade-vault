@@ -166,29 +166,29 @@ class AccountSnapshot:
     def to_json(self) -> str:
         return json.dumps(
             {
-                "ts_ms": int(self.ts_ms)
-                "venue": self.venue
-                "wallet_balance": self.wallet_balance
-                "margin_balance": self.margin_balance
-                "available_balance": self.available_balance
-                "unrealized_pnl": self.unrealized_pnl
-                "initial_margin": self.initial_margin
-                "maint_margin": self.maint_margin
-                "open_positions_n": int(self.open_positions_n)
-                "open_notional_usdt": self.open_notional_usdt
-                "open_orders_n": int(self.open_orders_n)
-                "positions": self.positions
-            }
-            ensure_ascii=False
-            separators=(",", ":")
+                "ts_ms": int(self.ts_ms),
+                "venue": self.venue,
+                "wallet_balance": self.wallet_balance,
+                "margin_balance": self.margin_balance,
+                "available_balance": self.available_balance,
+                "unrealized_pnl": self.unrealized_pnl,
+                "initial_margin": self.initial_margin,
+                "maint_margin": self.maint_margin,
+                "open_positions_n": int(self.open_positions_n),
+                "open_notional_usdt": self.open_notional_usdt,
+                "open_orders_n": int(self.open_orders_n),
+                "positions": self.positions,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
         )
 
 
 def build_snapshot(
-    *
-    client: BinanceFuturesREST
-    topn_positions: int
-    include_open_orders: bool
+    *,
+    client: BinanceFuturesREST,
+    topn_positions: int,
+    include_open_orders: bool,
 ) -> AccountSnapshot:
     ts_ms = _now_ms()
     acct = client.get_account()
@@ -216,19 +216,19 @@ def build_snapshot(
             open_notional += abs(notional)
             all_positions.append(
                 {
-                    "symbol": str(row.get("symbol") or "")
-                    "side": _side_from_position_amt(amt)
-                    "position_amt": amt
-                    "entry_price": entry
-                    "mark_price": mark
-                    "unrealized_pnl": upnl
-                    "notional": notional
-                    "liquidation_price": _safe_float(row.get("liquidationPrice"))
-                    "initial_margin": _safe_float(row.get("initialMargin"))
-                    "maint_margin": _safe_float(row.get("maintMargin"))
-                    "isolated_margin": _safe_float(row.get("isolatedMargin"))
-                    "margin_type": str(row.get("marginType") or "")
-                    "leverage": _safe_float(row.get("leverage"))
+                    "symbol": str(row.get("symbol") or ""),
+                    "side": _side_from_position_amt(amt),
+                    "position_amt": amt,
+                    "entry_price": entry,
+                    "mark_price": mark,
+                    "unrealized_pnl": upnl,
+                    "notional": notional,
+                    "liquidation_price": _safe_float(row.get("liquidationPrice")),
+                    "initial_margin": _safe_float(row.get("initialMargin")),
+                    "maint_margin": _safe_float(row.get("maintMargin")),
+                    "isolated_margin": _safe_float(row.get("isolatedMargin")),
+                    "margin_type": str(row.get("marginType") or ""),
+                    "leverage": _safe_float(row.get("leverage")),
                 }
             )
 
@@ -252,18 +252,18 @@ def build_snapshot(
             open_orders_n = 0
 
     return AccountSnapshot(
-        ts_ms=ts_ms
-        venue="binance_usdtm"
-        wallet_balance=wallet
-        margin_balance=margin_bal
-        available_balance=avail
-        unrealized_pnl=u_pnl
-        initial_margin=init_m
-        maint_margin=maint_m
-        open_positions_n=open_positions_total_n
-        open_notional_usdt=open_notional
-        open_orders_n=open_orders_n
-        positions=positions_top
+        ts_ms=ts_ms,
+        venue="binance_usdtm",
+        wallet_balance=wallet,
+        margin_balance=margin_bal,
+        available_balance=avail,
+        unrealized_pnl=u_pnl,
+        initial_margin=init_m,
+        maint_margin=maint_m,
+        open_positions_n=open_positions_total_n,
+        open_notional_usdt=open_notional,
+        open_orders_n=open_orders_n,
+        positions=positions_top,
     )
 
 
@@ -291,10 +291,10 @@ def _store_history(r: Any, history_key: str, ts_ms: int, available: float, ttl_s
 
 
 def _read_delta_available(
-    r: Any
-    history_key: str
-    now_ts_ms: int
-    current_available: float
+    r: Any,
+    history_key: str,
+    now_ts_ms: int,
+    current_available: float,
 ) -> Dict[str, Optional[float]]:
     """Return {"1h": delta_float_or_None, "24h": delta_float_or_None}.
 
@@ -345,7 +345,7 @@ def _fmt_delta(delta: Optional[float]) -> str:
 
 
 def format_report(
-    snapshot: AccountSnapshot
+    snapshot: AccountSnapshot,
     deltas: Optional[Dict[str, Optional[float]]] = None
 ) -> str:
     t_utc = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(snapshot.ts_ms / 1000))
@@ -413,9 +413,9 @@ class Metrics:
         if Gauge is None or Histogram is None:
             raise RuntimeError("prometheus_client is not available")
         self.fetch_latency = Histogram(
-            "binance_account_report_fetch_latency_ms"
-            "Latency of Binance account fetch"
-            buckets=[50, 100, 250, 500, 1000, 2000, 5000, 10000]
+            "binance_account_report_fetch_latency_ms",
+            "Latency of Binance account fetch",
+            buckets=[50, 100, 250, 500, 1000, 2000, 5000, 10000],
         )
         self.last_ok_ts = Gauge("binance_account_report_last_ok_ts_seconds", "Last successful report time")
         self.last_err_ts = Gauge("binance_account_report_last_err_ts_seconds", "Last failed report time")

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 meta_cov_outcome_guard_v1.py
 
@@ -51,7 +52,6 @@ Emits a cfg:suggestions proposal (default prefix cfg:suggestions:entry_policy fo
 with the existing ApplyRunner). Override via META_COV_OUTCOME_SUGGESTIONS_PREFIX.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -240,7 +240,7 @@ def _summary_stats(xs: List[float]) -> Dict[str, float]:
             "p95": 0.0,
             "win_rate": 0.0,
             "tail_rate_le_neg1R": 0.0,
-        }
+        },
     n = len(xs)
     meanR = sum(xs) / float(n)
     win_rate = sum(1 for v in xs if v > 0) / float(n)
@@ -253,7 +253,7 @@ def _summary_stats(xs: List[float]) -> Dict[str, float]:
         "p95": float(_pctl(xs, 0.95)),
         "win_rate": float(win_rate),
         "tail_rate_le_neg1R": float(tail_rate),
-    }
+    },
 
 
 def _simulate_share(rows: List[Dict[str, Any]], share: float, salt: str) -> Dict[str, Any]:
@@ -297,7 +297,7 @@ def _simulate_share(rows: List[Dict[str, Any]], share: float, salt: str) -> Dict
         "exec_rate": float((used - blocked) / float(used)) if used > 0 else 0.0,
         "opp": _summary_stats(opp),
         "exec": _summary_stats(execs),
-    }
+    },
 
 
 def _read_recent_closed_trades(
@@ -407,7 +407,7 @@ def _emit_cfg_suggestion(
         "ops": ops,
         "report": report,
         "status": "approved" if auto_approve else "pending",
-    }
+    },
 
     r.set(meta_key, json.dumps(meta, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec)
 
@@ -416,7 +416,7 @@ def _emit_cfg_suggestion(
             "created_ms": str(meta["created_ms"]),
             "kind": kind,
             "status": "approved" if auto_approve else "pending",
-        }
+        },
         if auto_approve:
             base_appr["auto"] = "1"
         r.hset(appr_key, mapping=base_appr)
@@ -489,7 +489,7 @@ def main() -> int:
         "trend": max(0.0, min(1.0, _f(cfg2.get("meta_enforce_share_trend"), global_share))),
         "range": max(0.0, min(1.0, _f(cfg2.get("meta_enforce_share_range"), global_share))),
         "other": max(0.0, min(1.0, _f(cfg2.get("meta_enforce_share_other"), global_share))),
-    }
+    },
 
     since_ms = now_ms() - int(float(args.lookback_hours) * 3600.0 * 1000.0)
     rows = _read_recent_closed_trades(r, stream=args.trade_stream, since_ms=since_ms, max_scan=int(args.max_scan))
@@ -526,7 +526,7 @@ def main() -> int:
             "rep_cur": rep_cur,
             "rep_share0": rep_0,
             "delta_meanR": float(delta),
-        }
+        },
 
         if shares[b] <= 0.0 or used < int(args.min_n):
             continue
@@ -576,7 +576,7 @@ def main() -> int:
         "last_change_ms": int(last_change_ms),
         "emit_suggestion": bool(int(args.emit_suggestion) == 1),
         "direct_apply": bool(int(args.direct_apply) == 1),
-    }
+    },
 
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=False))
 

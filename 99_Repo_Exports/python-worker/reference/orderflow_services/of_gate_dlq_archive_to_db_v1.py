@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OF-Gate DLQ -> PostgreSQL/Timescale archiver (P83 optional).
 
 Goal
@@ -20,7 +21,6 @@ Usage
   python -m orderflow_services.of_gate_dlq_archive_to_db_v1 --tail 200000 --no-checkpoint
 """
 
-from __future__ import annotations
 
 import argparse
 import datetime as dt
@@ -122,18 +122,18 @@ class PgWriter:
     def ensure_tables(self) -> None:
         ddl = """
         CREATE TABLE IF NOT EXISTS of_gate_dlq_events (
-          stream TEXT NOT NULL
-          dlq_id TEXT NOT NULL
-          ts_ms BIGINT NOT NULL
-          ts TIMESTAMPTZ NOT NULL
-          src_stream TEXT
-          src_stream_id TEXT
-          err TEXT
-          dq_code TEXT
-          reason_code TEXT
-          schema_version INT
-          payload_json JSONB
-          inserted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          stream TEXT NOT NULL,
+          dlq_id TEXT NOT NULL,
+          ts_ms BIGINT NOT NULL,
+          ts TIMESTAMPTZ NOT NULL,
+          src_stream TEXT,
+          src_stream_id TEXT,
+          err TEXT,
+          dq_code TEXT,
+          reason_code TEXT,
+          schema_version INT,
+          payload_json JSONB,
+          inserted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           PRIMARY KEY (stream, dlq_id)
         );
         CREATE INDEX IF NOT EXISTS of_gate_dlq_events_ts_idx ON of_gate_dlq_events (ts DESC);
@@ -154,10 +154,10 @@ class PgWriter:
             return 0
         sql = """
         INSERT INTO of_gate_dlq_events (
-          stream, dlq_id, ts_ms, ts
-          src_stream, src_stream_id, err
-          dq_code, reason_code, schema_version
-          payload_json
+          stream, dlq_id, ts_ms, ts,
+          src_stream, src_stream_id, err,
+          dq_code, reason_code, schema_version,
+          payload_json,
         ) VALUES %s
         ON CONFLICT (stream, dlq_id) DO NOTHING
         """
@@ -190,14 +190,14 @@ def parse_dlq_fields(dlq_id: str, fields: Dict[str, Any]) -> Tuple[str, str, str
         schema_version_i = None
 
     return (
-        src_stream
-        src_stream_id
-        err
-        str(dq_code) if dq_code is not None else None
-        str(reason_code) if reason_code is not None else None
-        schema_version_i
-        payload
-        ts_ms
+        src_stream,
+        src_stream_id,
+        err,
+        str(dq_code) if dq_code is not None else None,
+        str(reason_code) if reason_code is not None else None,
+        schema_version_i,
+        payload,
+        ts_ms,
     )
 
 
@@ -256,17 +256,17 @@ def run_once(args: argparse.Namespace) -> int:
             payload_json = json.dumps(payload, ensure_ascii=False) if payload is not None else None
             rows.append(
                 (
-                    stream
-                    dlq_id
-                    int(ts_ms)
-                    ts
-                    src_stream or None
-                    src_stream_id or None
-                    err or None
-                    dq_code
-                    reason_code
-                    schema_version_i
-                    payload_json
+                    stream,
+                    dlq_id,
+                    int(ts_ms),
+                    ts,
+                    src_stream or None,
+                    src_stream_id or None,
+                    err or None,
+                    dq_code,
+                    reason_code,
+                    schema_version_i,
+                    payload_json,
                 )
             )
 
@@ -287,9 +287,9 @@ def run_once(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="of_gate_dlq_archive_to_db_v1")
     p.add_argument(
-        "--streams"
-        default=env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")
-        help="comma-separated DLQ streams"
+        "--streams",
+        default=env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine"),
+        help="comma-separated DLQ streams",
     )
     p.add_argument("--batch", type=int, default=env_int("OF_GATE_DLQ_DB_ARCHIVE_BATCH", 5000))
     p.add_argument("--auto-migrate", action="store_true", default=env_bool("OF_GATE_DLQ_DB_ARCHIVE_AUTO_MIGRATE", True))

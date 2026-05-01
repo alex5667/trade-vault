@@ -1,9 +1,9 @@
 # data_parser.py
+from __future__ import annotations
 """
 Data parsing functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Optional, Dict, Any, Tuple, List
@@ -32,8 +32,8 @@ except ImportError:
             self.size = size
 
     class SimpleL2Snapshot:
-        def __init__(self, bids: List[L2Level], asks: List[L2Level], ts_ms: int, mid: float
-                     best_bid: float, best_ask: float, depth_bid_5: float, depth_ask_5: float
+        def __init__(self, bids: List[L2Level], asks: List[L2Level], ts_ms: int, mid: float,
+                     best_bid: float, best_ask: float, depth_bid_5: float, depth_ask_5: float,
                      depth_bid_20: float, depth_ask_20: float):
             self.bids = bids
             self.asks = asks
@@ -191,12 +191,12 @@ class OrderFlowDataParser:
 
             return Tick(
                 ts=int(ts_ms),  # type: ignore
-                bid=float(bid_f)
-                ask=float(ask_f)
-                last=float(last_f)
-                volume=float(volume) if volume is not None else 0.0
-                flags=int(flags)
-                is_buyer_maker=is_buyer_maker
+                bid=float(bid_f),
+                ask=float(ask_f),
+                last=float(last_f),
+                volume=float(volume) if volume is not None else 0.0,
+                flags=int(flags),
+                is_buyer_maker=is_buyer_maker,
             )
         except Exception as e:
             if self.logger:
@@ -211,7 +211,7 @@ class OrderFlowDataParser:
                 if isinstance(decoded, dict):
                     data = decoded
 
-            ts_ms = _ensure_ts_ms(data.get("ts") or data.get("ts_ms") or fields.get("ts") or fields.get("ts_ms")
+            ts_ms = _ensure_ts_ms(data.get("ts") or data.get("ts_ms") or fields.get("ts") or fields.get("ts_ms"),
                                   fallback_now=True)
 
             bids_data = _maybe_json(data.get("bids") if isinstance(data, dict) else None) or _maybe_json(fields.get("bids"))
@@ -266,10 +266,10 @@ class OrderFlowDataParser:
                 return float(sum(l.size for l in levels[: min(n, len(levels))]))
 
             snapshot = SimpleL2Snapshot(
-                bids=bids, asks=asks, ts_ms=int(ts_ms), mid=float(mid)
-                best_bid=float(best_bid), best_ask=float(best_ask)
-                depth_bid_5=_sum_depth(bids, 5), depth_ask_5=_sum_depth(asks, 5)
-                depth_bid_20=_sum_depth(bids, 20), depth_ask_20=_sum_depth(asks, 20)
+                bids=bids, asks=asks, ts_ms=int(ts_ms), mid=float(mid),
+                best_bid=float(best_bid), best_ask=float(best_ask),
+                depth_bid_5=_sum_depth(bids, 5), depth_ask_5=_sum_depth(asks, 5),
+                depth_bid_20=_sum_depth(bids, 20), depth_ask_20=_sum_depth(asks, 20),
             )
             return {"snapshot": snapshot, "ts_ms": int(ts_ms), "raw_data": fields}
         except Exception as e:

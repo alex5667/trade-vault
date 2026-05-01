@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # tools/dump_trailing_after_tp1_config.py
+from __future__ import annotations
 """
 Скрипт для вывода конфигурации trailing after TP1 по source/symbol.
 
@@ -9,7 +10,6 @@
 - Источник настройки (SymbolSpec / ENV / allowlist / global)
 """
 
-from __future__ import annotations
 
 import os
 import sys

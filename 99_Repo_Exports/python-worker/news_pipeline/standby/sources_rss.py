@@ -36,20 +36,20 @@ def fetch_rss(*, name: str, urls: Iterable[str], user_agent: str = "trade-standb
 
             summary = (getattr(e, "summary", "") or "").strip()
             payload = {
-                "feed_url": u
-                "feed_title": getattr(d.feed, "title", "") if getattr(d, "feed", None) else ""
+                "feed_url": u,
+                "feed_title": getattr(d.feed, "title", "") if getattr(d, "feed", None) else "",
             }
 
             out.append({
-                "published_ts_ms": published_ms if published_ms > 0 else now_ms
-                "ingested_ts_ms": now_ms
-                "source": name
-                "title": title
-                "url": link
-                "summary": summary[:2000]
+                "published_ts_ms": published_ms if published_ms > 0 else now_ms,
+                "ingested_ts_ms": now_ms,
+                "source": name,
+                "title": title,
+                "url": link,
+                "summary": summary[:2000],
                 "symbols": [],          # на ingest не угадываем
-                "importance": 0.0
-                "payload": payload
+                "importance": 0.0,
+                "payload": payload,
             })
 
     return out

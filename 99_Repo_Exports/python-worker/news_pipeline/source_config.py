@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Единая конфигурация источников новостей/календаря.
 
@@ -8,7 +9,6 @@
 - дефолт "из коробки": RSS без ключей
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -18,11 +18,11 @@ from typing import Any, Dict, List, Optional
 
 DEFAULT_RSS_URLS = [
     # RSS URLs из вашего Excel файла (news_sources_tables.xlsx)
-    "https://www.ecb.europa.eu/rss/press.html"
-    "https://www.coindesk.com/arc/outboundfeeds/rss/"
-    "https://cointelegraph.com/rss"
-    "https://decrypt.co/feed"
-    "https://bitcoinmagazine.com/.rss/full/"
+    "https://www.ecb.europa.eu/rss/press.html",
+    "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "https://cointelegraph.com/rss",
+    "https://decrypt.co/feed",
+    "https://bitcoinmagazine.com/.rss/full/",
     "https://thedefiant.io/rss.xml"
 ]
 
@@ -59,10 +59,10 @@ class SourcesConfig:
 def load_sources_config() -> SourcesConfig:
     """
     NEWS_SOURCES_JSON='{
-      "providers": ["cryptopanic","fmp","newsapi","rss"]
-      "cryptopanic": {...}
-      "fmp": {...}
-      "newsapi": {...}
+      "providers": ["cryptopanic","fmp","newsapi","rss"],
+      "cryptopanic": {...},
+      "fmp": {...},
+      "newsapi": {...},
       "rss": {...}
     }'
 
@@ -72,8 +72,8 @@ def load_sources_config() -> SourcesConfig:
     raw_json = _env("NEWS_SOURCES_JSON", "").strip()
     if not raw_json:
         raw: Dict[str, Any] = {
-            "providers": ["rss"]
-            "rss": {"enabled": True, "urls": list(DEFAULT_RSS_URLS)}
+            "providers": ["rss"],
+            "rss": {"enabled": True, "urls": list(DEFAULT_RSS_URLS)},
         }
     else:
         try:
@@ -83,8 +83,8 @@ def load_sources_config() -> SourcesConfig:
         except Exception:
             # fail-open: если JSON битый — стартуем только с RSS
             raw = {
-                "providers": ["rss"]
-                "rss": {"enabled": True, "urls": list(DEFAULT_RSS_URLS)}
+                "providers": ["rss"],
+                "rss": {"enabled": True, "urls": list(DEFAULT_RSS_URLS)},
             }
 
     providers = raw.get("providers", ["rss"])
@@ -104,9 +104,9 @@ def load_sources_config() -> SourcesConfig:
         return bool(cfg.get("enabled", False))
 
     flags = ProviderFlags(
-        cryptopanic=_enabled("cryptopanic") and have_cp
-        fmp=_enabled("fmp") and have_fmp
-        newsapi=_enabled("newsapi") and have_newsapi
+        cryptopanic=_enabled("cryptopanic") and have_cp,
+        fmp=_enabled("fmp") and have_fmp,
+        newsapi=_enabled("newsapi") and have_newsapi,
         rss=_enabled("rss") if "rss" in raw else True,  # rss по умолчанию включён
     )
 

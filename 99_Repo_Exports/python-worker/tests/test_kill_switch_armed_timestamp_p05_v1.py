@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P0-5: Kill-switch armed-timestamp gauge correctness tests.
 
 Verifies:
@@ -7,7 +8,6 @@ Verifies:
 4. Gauge is set (> 0) at FSM_PROTECTION_ARMING and reset (== 0) at FSM_PROTECTED
    and FSM_EMERGENCY_FLATTENED via a minimal executor-level integration smoke.
 """
-from __future__ import annotations
 
 import time
 import importlib

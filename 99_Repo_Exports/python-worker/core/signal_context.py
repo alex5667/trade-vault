@@ -13,7 +13,7 @@ from dataclasses import dataclass
 class SignalContext:
     """Контекст сигнала для unified processing."""
 
-    symbol: str = ""
+    symbol=""
     confidence: float = 0.0
     score: float = 0.0
     price: Optional[float] = None

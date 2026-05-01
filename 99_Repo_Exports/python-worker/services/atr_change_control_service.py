@@ -34,7 +34,7 @@ def submit_change(
     request_data: Dict[str, Any],
     source: str = "",
     venue: str = "",
-    symbol: str = "",
+    symbol="",
     scenario: str = "",
     regime: str = "",
     risk_horizon_bucket: str = "",

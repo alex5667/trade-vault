@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Signal Quality KPI Worker V1
 
@@ -17,7 +18,6 @@ Writes global config to Redis for Prometheus Exporter:
 - plus regime-specific keys
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

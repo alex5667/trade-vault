@@ -21,11 +21,11 @@ from services.mt5_trailing_move_logger import MT5TrailingMoveLogger
 
 logger = MT5TrailingMoveLogger()
 logger.log_move(
-    sid="signal-XAUUSD-123",
-    symbol="XAUUSD",
+    sid="signal--123",
+    symbol="",
     new_sl=2771.4,
     current_price=2776.5,
-    profile="rocket_v1"
+    profile="rocket_v1",
 )
 ```
 """
@@ -220,7 +220,7 @@ if __name__ == "__main__":
     import json
     signal = {
         "sid": test_sid,
-        "symbol": "XAUUSD",
+        "symbol": "",
         "side": "LONG",
         "entry": 2765.5,
         "sl": 2758.7,
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     for i, (new_sl, current_price) in enumerate(moves, 1):
         success = logger.log_move(
             sid=test_sid,
-            symbol="XAUUSD",
+            symbol="",
             new_sl=new_sl,
             current_price=current_price,
             profile="rocket_v1",

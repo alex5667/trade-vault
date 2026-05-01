@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Phase 2.1 — ATR Candidate Provider.
 
@@ -15,7 +16,6 @@ Design contracts:
   - Freshness enforced by max_age_ms per candidate.
   - Canonical tf_label: 15s / 30s / 1m / 3m / 5m / 15m.
 """
-from __future__ import annotations
 
 import json
 import math

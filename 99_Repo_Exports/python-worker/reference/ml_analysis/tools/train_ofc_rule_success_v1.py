@@ -78,9 +78,9 @@ def train_rule_success_model(rows_jsonl: str, *, out_model_json: str, out_report
         global_pos_rate = 0.5
 
     defaults = {
-        'p_rule_raw': float(global_raw_mean)
-        'p_rule_cal': float(global_pos_rate)
-        'score_min_ctx': float(max(0.50, min(0.80, global_pos_rate)))
+        'p_rule_raw': float(global_raw_mean),
+        'p_rule_cal': float(global_pos_rate),
+        'score_min_ctx': float(max(0.50, min(0.80, global_pos_rate))),
     }
     model_groups: Dict[str, Dict[str, Any]] = {}
     for key, vals in groups.items():
@@ -92,27 +92,27 @@ def train_rule_success_model(rows_jsonl: str, *, out_model_json: str, out_report
         cal = (pos + float(beta_prior) * global_pos_rate) / (n + float(beta_prior))
         score_min = max(0.50, min(0.90, cal))
         model_groups[key] = {
-            'n': int(n)
-            'p_rule_raw': float(raw_mean)
-            'p_rule_cal': float(cal)
-            'score_min_ctx': float(score_min)
+            'n': int(n),
+            'p_rule_raw': float(raw_mean),
+            'p_rule_cal': float(cal),
+            'score_min_ctx': float(score_min),
         }
 
     model = {
-        'kind': 'ofc_rule_success_v1'
-        'version': time.strftime('%Y%m%d_%H%M%S', time.gmtime())
-        'created_ts_ms': _now_ms()
-        'min_group_rows': int(min_group_rows)
-        'beta_prior': float(beta_prior)
-        'defaults': defaults
-        'groups': model_groups
+        'kind': 'ofc_rule_success_v1',
+        'version': time.strftime('%Y%m%d_%H%M%S', time.gmtime()),
+        'created_ts_ms': _now_ms(),
+        'min_group_rows': int(min_group_rows),
+        'beta_prior': float(beta_prior),
+        'defaults': defaults,
+        'groups': model_groups,
     }
     report = {
-        'rows': int(len(all_pairs))
-        'groups_total': int(len(groups))
-        'groups_kept': int(len(model_groups))
-        'global_pos_rate': float(global_pos_rate)
-        'global_raw_mean': float(global_raw_mean)
+        'rows': int(len(all_pairs)),
+        'groups_total': int(len(groups)),
+        'groups_kept': int(len(model_groups)),
+        'global_pos_rate': float(global_pos_rate),
+        'global_raw_mean': float(global_raw_mean),
     }
     _write_json_atomic(out_model_json, model)
     _write_json_atomic(out_report_json, report)

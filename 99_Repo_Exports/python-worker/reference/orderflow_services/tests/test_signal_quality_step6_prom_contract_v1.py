@@ -22,14 +22,14 @@ def test_step6_alerts_yaml_contains_expected_alerts():
     # even in minimal CI containers.
     txt = _read("services/orderflow/prometheus_alerts_signal_quality_v2.yml")
     for name in [
-        "TickGapP95HighWarn"
-        "TickGapP95HighCrit"
-        "TickGapP95Extreme"
-        "TickMissingSeqEmaWarn"
-        "TickMissingSeqEmaCrit"
-        "BookMissingSeqEmaCrit"
-        "DqLevel2ShareWarn"
-        "DqLevel2ShareCrit"
+        "TickGapP95HighWarn",
+        "TickGapP95HighCrit",
+        "TickGapP95Extreme",
+        "TickMissingSeqEmaWarn",
+        "TickMissingSeqEmaCrit",
+        "BookMissingSeqEmaCrit",
+        "DqLevel2ShareWarn",
+        "DqLevel2ShareCrit",
     ]:
         assert name in txt
 

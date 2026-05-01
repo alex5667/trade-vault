@@ -47,7 +47,7 @@ async def _write_result_db_if_possible(payload: Dict[str, Any]) -> None:
         async with await psycopg.AsyncConnection.connect(db_url) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_analysis_runs (
                       analysis_run_id, ts_ms, provider, model_name, task_type,
                       scope_json, input_refs_json, output_json, status, latency_ms, cost_usd,

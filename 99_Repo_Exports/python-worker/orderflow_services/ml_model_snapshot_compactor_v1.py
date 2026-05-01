@@ -19,7 +19,7 @@ Design goals:
 - fail-open
 - no hot-path writes/reads
 - deterministic aggregation and reason codes for future Vertex/LLM Phase 1
-"""
+""",
 
 import json
 import os
@@ -383,7 +383,7 @@ def _connect_db() -> Any:
 def _fetch_registry_rows(conn: Any) -> List[RegistryRow]:
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
-            """
+            """,
             SELECT
               model_id,
               family,
@@ -403,7 +403,7 @@ def _fetch_registry_rows(conn: Any) -> List[RegistryRow]:
               COALESCE(cfg_source, '') AS cfg_source
             FROM ml_model_registry
             ORDER BY family, kind, model_id
-            """
+            """,
         )
         rows = cur.fetchall() or []
     out: List[RegistryRow] = []
@@ -449,7 +449,7 @@ def _parse_json_list(v: Any) -> List[str]:
 def _fetch_runtime_rows(conn: Any, model_id: str, lookback_min: int) -> List[RuntimeRow]:
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
-            """
+            """,
             SELECT DISTINCT ON (symbol)
               ts_ms,
               symbol,

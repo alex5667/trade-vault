@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """World-practice trackers smoke-check (v1)
 
 Goal
@@ -17,7 +18,6 @@ Exit codes:
 Designed for periodic execution (hourly) by `services/of_timers_worker.py`.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

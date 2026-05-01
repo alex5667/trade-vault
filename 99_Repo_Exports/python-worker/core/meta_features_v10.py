@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Meta-features schema v10.
 
 v10 = v9 + scenario-awareness features.
@@ -31,7 +32,6 @@ Notes:
   - Do NOT re-hash v9: v10 has a new distinct hash.
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 import hashlib

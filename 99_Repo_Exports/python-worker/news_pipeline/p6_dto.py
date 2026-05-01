@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 news_pipeline/p6_dto.py — P6 contract DTOs and idempotency helpers.
 
@@ -10,7 +11,6 @@ Design:
   - NewsEventContractDTO has extra="forbid" to catch schema drift early.
   - Only import from here; do not inline these in worker modules.
 """
-from __future__ import annotations
 
 import uuid
 from typing import List, Optional
@@ -76,7 +76,7 @@ class NewsPriorDTO:
     """Prior signal published to Redis key news:prior:<SYMBOL>.
 
     TTL is calculated from expires_ms: px = expires_ms - now_ms.
-    This ensures the key expires exactly when the prior becomes stale
+    This ensures the key expires exactly when the prior becomes stale,
     rather than using a fixed TTL that could be miscalibrated.
     """
     schema_ver: str = "v1"

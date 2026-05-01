@@ -1,6 +1,6 @@
 from services.orderflow.components.book_seq_tracker_uu import (
-    decide_book_seq_uu
-    resolve_book_seq_ema_alpha
+    decide_book_seq_uu,
+    resolve_book_seq_ema_alpha,
 )
 
 

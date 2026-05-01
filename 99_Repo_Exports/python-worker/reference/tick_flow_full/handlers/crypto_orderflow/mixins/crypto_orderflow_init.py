@@ -1,11 +1,11 @@
+from __future__ import annotations
 """
 Initialization logic for CryptoOrderFlowHandler.
 
-This module contains all initialization-related code including __init__ method
+This module contains all initialization-related code including __init__ method,
 configuration setup, and initialization helpers.
 """
 
-from __future__ import annotations
 
 import os
 from typing import Dict, Optional, Any
@@ -50,9 +50,9 @@ from handlers.crypto_orderflow.utils.smt_coherence_gate import SmtLeaderCoherenc
 from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
 from services.feature_drift_alarm import FeatureDriftAlarm
 from handlers.crypto_orderflow.utils.quality_gates import (
-    DataQualityGate
-    RegimeSessionLiquidityGate
-    SignalConsistencyGate
+    DataQualityGate,
+    RegimeSessionLiquidityGate,
+    SignalConsistencyGate,
 )
 
 # New Components
@@ -71,25 +71,25 @@ class CryptoOrderFlowInitMixin:
     """
 
     def __init__(
-        self
-        symbol: str
-        config: Optional[OrderFlowConfig] = None
-        *
-        health_metrics: Optional[object] = None
-        calibrator: Any = None
-        dependencies: Optional[HandlerDependencies] = None
-        **kwargs: Any
+        self,
+        symbol: str,
+        config: Optional[OrderFlowConfig] = None,
+        *,
+        health_metrics: Optional[object] = None,
+        calibrator: Any = None,
+        dependencies: Optional[HandlerDependencies] = None,
+        **kwargs: Any,
     ):
         config = config or get_config(symbol, use_env=True)
         # Create HTF provider (redis available after super().__init__)
         # We'll set it after super().__init__ since redis is initialized there
         super().__init__(
-            symbol
-            config
-            source_name="CryptoOrderFlow"
-            signal_stream_prefix="signals:cryptoorderflow"
-            health_metrics=health_metrics
-            dependencies=dependencies
+            symbol,
+            config,
+            source_name="CryptoOrderFlow",
+            signal_stream_prefix="signals:cryptoorderflow",
+            health_metrics=health_metrics,
+            dependencies=dependencies,
         )
 
         # NOTE: avoid os.getenv() in hot paths; keep all flags/limits in fields.
@@ -102,11 +102,11 @@ class CryptoOrderFlowInitMixin:
         #  - в проде вы хотите RollingPercentileCalibrator
         #    (handlers/crypto_orderflow_calibration.py), т.к. он держит rolling history
         #    по (symbol, kind) и возвращает percentile rank (0..100).
-        #  - CalibrationService по проекту чаще про калибровку метрик/порогов
+        #  - CalibrationService по проекту чаще про калибровку метрик/порогов,
         #    но мы поддерживаем его shape, если вдруг используется для confidence.
         #
         # PERF:
-        #  - все "угадай сигнатуру" / hasattr / TypeError делаем 1 раз в __init__
+        #  - все "угадай сигнатуру" / hasattr / TypeError делаем 1 раз в __init__,
         #    а в hot path остаётся один вызов self._conf_pct_fn(...).
         self._calibrator = calibrator if calibrator is not None else kwargs.get("calibrator")  # RollingPercentileCalibrator | CalibrationService | None
         self._use_calibrator = os.getenv("USE_SCORE_CALIBRATOR", "1").lower() not in {"0", "false", "no"}
@@ -115,8 +115,8 @@ class CryptoOrderFlowInitMixin:
 
         # Pre-bind hot-path fn. If disabled => returns fallback.
         self._conf_pct_fn = build_confidence_pct_fn(
-            self._calibrator if self._use_calibrator else None
-            cap_pct=self._confidence_cap
+            self._calibrator if self._use_calibrator else None,
+            cap_pct=self._confidence_cap,
         )
 
         # 9.7 Perf: cache env/config ONCE (no getenv in hot paths)
@@ -239,19 +239,19 @@ class CryptoOrderFlowInitMixin:
         # This is the strongest quality upgrade because it adapts SL/TP to the
         # actual distribution of outcomes per {kind, symbol, tf, regime}.
         #
-        # Fail-open: if Redis buffers not available or not enough samples
+        # Fail-open: if Redis buffers not available or not enough samples,
         # nothing changes.
         # ---------------------------------------------------------------------
         try:
             self._emp_levels_cfg = EmpiricalLevelsConfig.from_env()
         except Exception:
             self._emp_levels_cfg = EmpiricalLevelsConfig(
-                enabled=False, min_n=60, q_tp1=0.60, q_sl=0.80, q_ttd=0.50
-                use_regime_dim=True, fallback_to_na_regime=True, cache_ms=2000
-                max_bps=2500.0, min_bps=5.0, max_ttd_ms=6 * 60 * 60 * 1000
+                enabled=False, min_n=60, q_tp1=0.60, q_sl=0.80, q_ttd=0.50,
+                use_regime_dim=True, fallback_to_na_regime=True, cache_ms=2000,
+                max_bps=2500.0, min_bps=5.0, max_ttd_ms=6 * 60 * 60 * 1000,
             )
 
-        # Provider needs redis client; if handler uses a different attribute name
+        # Provider needs redis client; if handler uses a different attribute name,
         # we’ll also lazy-create in handler (safe).
         try:
             r = getattr(self, "redis", None) or getattr(self, "_redis", None) or getattr(self, "redis_client", None)
@@ -267,10 +267,10 @@ class CryptoOrderFlowInitMixin:
             buf_max = int(os.getenv("LEVELS_EMPIRICAL_BUF_MAX", "300"))
             use_regime_dim = (os.getenv("LEVELS_EMPIRICAL_USE_REGIME_DIM", "1").strip().lower() in {"1","true","yes","on"})
             provider = RedisEmpiricalStatsProvider(
-                getattr(self, "redis", None)
-                tf=tf
-                buf_max=buf_max
-                use_regime_dim=use_regime_dim
+                getattr(self, "redis", None),
+                tf=tf,
+                buf_max=buf_max,
+                use_regime_dim=use_regime_dim,
             )
             self._empirical_levels = EmpiricalLevels.from_env(provider=provider)
         except Exception:
@@ -300,7 +300,7 @@ class CryptoOrderFlowInitMixin:
         # 2) Regime/session gating + liquidity gating: forbid trades in wrong regimes or poor liquidity.
         # 3) Consistency gate: feature agreement rules per signal kind.
         #
-        # These gates are designed as FAIL-OPEN on missing optional metrics by default
+        # These gates are designed as FAIL-OPEN on missing optional metrics by default,
         # but can be made strict via ENV if you want harder filtering.
         self._data_quality_gate: DataQualityGate = DataQualityGate.from_env()
         self._regime_liquidity_gate: RegimeSessionLiquidityGate = RegimeSessionLiquidityGate.from_env()
@@ -334,10 +334,10 @@ class CryptoOrderFlowInitMixin:
 
         # 5. Signal Gates (Wraps entry/cost/consistency)
         self._gates = CryptoSignalGates(
-            entry_policy=self._entry_policy_gate
-            cost_gate=self._cost_edge_gate
-            consistency_gate=self._consistency_gate
-            regime_liquidity_gate=self._regime_liquidity_gate
+            entry_policy=self._entry_policy_gate,
+            cost_gate=self._cost_edge_gate,
+            consistency_gate=self._consistency_gate,
+            regime_liquidity_gate=self._regime_liquidity_gate,
             smt_gate=getattr(self, "_smt_leader_gate", None)
         )
 
@@ -347,12 +347,12 @@ class CryptoOrderFlowInitMixin:
         # but better to pass specific attributes if they exist.
         # Assuming self._emitter and self._confirmations exist after super init.
         self._orchestrator = SignalOrchestrator(
-            config=self._cfg_manager
-            gates=self._gates
-            liquidity=self._liquidity_comp
-            observability=self._observability
-            confirmations_engine=getattr(self, "_confirmations", None)
-            emitter=getattr(self, "_emitter", None)
+            config=self._cfg_manager,
+            gates=self._gates,
+            liquidity=self._liquidity_comp,
+            observability=self._observability,
+            confirmations_engine=getattr(self, "_confirmations", None),
+            emitter=getattr(self, "_emitter", None),
         )
 
     # ------------------------------------------------------------

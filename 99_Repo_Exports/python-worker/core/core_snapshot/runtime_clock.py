@@ -1,3 +1,4 @@
+from __future__ import annotations
 """tick_flow_full.core.runtime_clock
 
 Monotonic runtime clock helpers.
@@ -16,7 +17,6 @@ This makes the value deterministic with respect to the input event timeline.
 If you do not have an event timestamp, prefer leaving runtime_start_ts_ms=None.
 """
 
-from __future__ import annotations
 
 import time
 from dataclasses import dataclass

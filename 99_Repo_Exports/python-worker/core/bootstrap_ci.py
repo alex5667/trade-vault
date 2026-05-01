@@ -1,3 +1,4 @@
+from __future__ import annotations
 """bootstrap_ci.py — Bootstrap confidence intervals for AB winner evaluation.
 
 Pure Python (no numpy). Deterministic via seeded Random.
@@ -12,7 +13,6 @@ Design:
   - alpha=0.05 → 95% CI by default (nearest-rank quantile on sorted bootstrap diffs)
   - seed ensures reproducibility for the same dataset + config
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from random import Random

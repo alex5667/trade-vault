@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for P59 + P60 Edge Stack exporter configuration and module contracts.
 
 Tests validate:
@@ -7,7 +8,6 @@ Tests validate:
   4. prometheus.yml: both alert rule files referenced, both scrape job names present.
   5. Alert rule YAML files: parse cleanly, use expected metric names in exprs.
 """
-from __future__ import annotations
 
 import os
 import sys

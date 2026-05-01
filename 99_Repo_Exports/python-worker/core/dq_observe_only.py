@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Observe-only warmup logic for DQ veto.
 
 B1 requirement: system should not "die" from book-gap during the first 24–48h
@@ -7,7 +8,6 @@ be visible.
 This module only suppresses hard veto for the `book_seq` bucket.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 import os

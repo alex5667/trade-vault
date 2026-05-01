@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Исправление ошибки ERR_NO_CFG в ML Confirm Gate.
 
@@ -8,7 +9,6 @@
 3. Создает минимальную конфигурацию, если нужно
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

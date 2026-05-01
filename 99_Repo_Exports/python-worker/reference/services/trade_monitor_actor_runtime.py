@@ -23,11 +23,11 @@ class TradeMonitorActorRuntime:
         self.submit_timeout_s = float(os.getenv("TM_ACTOR_SUBMIT_TIMEOUT_S", "2.0"))
 
         self.exec = ShardedSerialExecutor(
-            shards=self.shards
-            queue_max=self.queue_max
-            submit_timeout_s=self.submit_timeout_s
-            name="TMActor"
-            logger=logger
+            shards=self.shards,
+            queue_max=self.queue_max,
+            submit_timeout_s=self.submit_timeout_s,
+            name="TMActor",
+            logger=logger,
         )
         # One core per shard => state is shard-local
         self.cores = [core_factory(i) for i in range(self.shards)]
@@ -71,28 +71,28 @@ class TradeMonitorActorRuntime:
             # dispatch by name (kept minimal; you can replace with explicit methods)
             if fn_name == "sl_hit":
                 return core.apply_external_sl_hit(
-                    signal_id=str(sid or "")
-                    price=float(payload.get("price") or 0.0)
-                    timestamp=int(payload.get("ts") or 0)
-                    source=payload.get("source")
-                    event_id=payload.get("event_id")
+                    signal_id=str(sid or ""),
+                    price=float(payload.get("price") or 0.0),
+                    timestamp=int(payload.get("ts") or 0),
+                    source=payload.get("source"),
+                    event_id=payload.get("event_id"),
                 )
             if fn_name == "trailing_started":
                 return core.update_trailing_sl(
-                    signal_id=str(sid or "")
-                    new_sl=float(payload.get("new_sl") or 0.0)
-                    source=payload.get("source")
-                    profile=payload.get("profile")
-                    event_id=payload.get("event_id")
-                    clear_tp_levels=bool(payload.get("clear_tp_levels") or False)
+                    signal_id=str(sid or ""),
+                    new_sl=float(payload.get("new_sl") or 0.0),
+                    source=payload.get("source"),
+                    profile=payload.get("profile"),
+                    event_id=payload.get("event_id"),
+                    clear_tp_levels=bool(payload.get("clear_tp_levels") or False),
                 )
             if fn_name == "tp_hit":
                 return core.apply_external_tp_hit(
-                    signal_id=str(sid or "")
-                    tp_level=int(payload.get("tp_level") or 0)
-                    price=float(payload.get("price") or 0.0)
-                    timestamp=int(payload.get("ts") or 0)
-                    event_id=payload.get("event_id")
+                    signal_id=str(sid or ""),
+                    tp_level=int(payload.get("tp_level") or 0),
+                    price=float(payload.get("price") or 0.0),
+                    timestamp=int(payload.get("ts") or 0),
+                    event_id=payload.get("event_id"),
                 )
             return True
 

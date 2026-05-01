@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Train confidence calibrator (temperature / Platt) on joined JSONL.
 
 Input JSONL: each line is a dict with at least:
@@ -14,7 +15,6 @@ Why logit-domain?
   raw confidence as a probability proxy and calibrate its logit.
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -179,9 +179,9 @@ def main() -> None:
         payload = {"schema_version": 1, "type": "platt_logit", "a": float(a), "b": float(b0), "eps": float(args.eps)}
 
     report = {
-        "rows": int(len(y))
-        "raw": {"ece": ece(y, p), "brier": brier(y, p)}
-        "cal": {"ece": ece(y, p_cal), "brier": brier(y, p_cal)}
+        "rows": int(len(y)),
+        "raw": {"ece": ece(y, p), "brier": brier(y, p)},
+        "cal": {"ece": ece(y, p_cal), "brier": brier(y, p_cal)},
     }
     payload["train_report"] = report
 

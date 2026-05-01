@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 test_trade_monitor_single_active_guard_v1.py
 
@@ -19,7 +20,6 @@ Scenarios:
   9. Guard ON for symbol A → does not block symbol B
   10. Guard ON, malformed JSON in Redis → fail-open
 """
-from __future__ import annotations
 
 import json
 import os
@@ -66,11 +66,11 @@ class _GuardHolder:
     """
 
     def __init__(
-        self
-        redis: _FakeRedis
-        *
-        guard_on: bool = True
-        key_prefix: str = "orders:active_symbol_sid:"
+        self,
+        redis: _FakeRedis,
+        *,
+        guard_on: bool = True,
+        key_prefix: str = "orders:active_symbol_sid:",
     ):
         self.exec_single_active_position_per_symbol = guard_on
         self._active_symbol_key_prefix = key_prefix

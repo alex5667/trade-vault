@@ -23,12 +23,12 @@ class IcebergTracker:
                 
                 if pass_ice:
                     runtime.last_iceberg_event = {
-                        "side": iceberg_event.get("side")
-                        "refresh": iceberg_event.get("refresh")
-                        "duration": iceberg_event.get("duration")
-                        "price": iceberg_event.get("price")
-                        "ts_ms": book_ts_ms
-                        "total_refresh_qty": iceberg_event.get("total_refresh_qty", 0.0)
+                        "side": iceberg_event.get("side"),
+                        "refresh": iceberg_event.get("refresh"),
+                        "duration": iceberg_event.get("duration"),
+                        "price": iceberg_event.get("price"),
+                        "ts_ms": book_ts_ms,
+                        "total_refresh_qty": iceberg_event.get("total_refresh_qty", 0.0),
                     }
         except Exception:
             pass

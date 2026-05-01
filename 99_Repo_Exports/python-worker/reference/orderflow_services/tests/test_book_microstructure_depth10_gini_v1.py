@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Unit tests for core.book_microstructure_v4.compute_microstructure_v4 (A1).
 
 Coverage (A1):
@@ -8,7 +9,6 @@ Coverage (A1):
   - Guards: bounded outputs, fail-open on partial snapshots and bad quantities
 """
 
-from __future__ import annotations
 
 # Allow running tests from repo root without PYTHONPATH tweaks.
 import sys

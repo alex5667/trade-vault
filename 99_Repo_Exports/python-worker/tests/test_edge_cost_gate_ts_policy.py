@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 EdgeCostGate timestamp policy tests.
 
@@ -6,7 +7,6 @@ Tests that verify:
   - skewed ts => EMA skipped in default profile
   - skewed ts + hard profile => veto slippage returned
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

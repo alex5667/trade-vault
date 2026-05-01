@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """enforce_bucket_ops_validate_p78.py
 
 P78: Preflight checks for Enforce-Bucket system (slippage QA + bucket-aware enforcement).
@@ -27,7 +28,6 @@ Notes:
   - Designed to be fast and fail-open for non-critical optional fields.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

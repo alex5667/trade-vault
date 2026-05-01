@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Test bench_of_confirm_engine.py runs and returns JSON (optional, not in CI)."""
 
-from __future__ import annotations
 
 import json
 import tempfile

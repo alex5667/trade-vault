@@ -42,8 +42,8 @@ class EdgeStackMHModelV1:
         Xs = self._transform(X)
         out: Dict[int, Dict[str, np.ndarray]] = {}
         for h in self.horizons:
-            plr = self.lr[h].predict_proba(Xs)[:, 1]
-            pgb = self.gbdt[h].predict_proba(Xs)[:, 1]
+            plr = self.lr[h].predict_proba(Xs)[: 1]
+            pgb = self.gbdt[h].predict_proba(Xs)[: 1]
             out[h] = {"lr": plr, "gbdt": pgb}
         return out
 
@@ -52,7 +52,7 @@ class EdgeStackMHModelV1:
         out: Dict[int, np.ndarray] = {}
         for h in self.horizons:
             Z = np.column_stack([base[h]["lr"], base[h]["gbdt"]])
-            out[h] = self.meta[h].predict_proba(Z)[:, 1]
+            out[h] = self.meta[h].predict_proba(Z)[: 1]
         return out
 
     def predict_p_cal(self, X: np.ndarray) -> Dict[int, np.ndarray]:

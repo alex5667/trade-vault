@@ -46,8 +46,8 @@ def _redis_client() -> Any:
 
 def override_key(purpose: str, family: str) -> str:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX'
-        'cfg:strategy_research_stats:alert_policy:suppress_override:v1'
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
+        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
     ).rstrip(':')
     return f'{prefix}:{purpose}:{family}'
 
@@ -58,8 +58,8 @@ def ops_stream() -> str:
 
 def override_state_key(purpose: str, family: str) -> str:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_STATE_PREFIX'
-        'cfg:strategy_research_stats:alert_policy:suppress_state:v1'
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_STATE_PREFIX',
+        'cfg:strategy_research_stats:alert_policy:suppress_state:v1',
     ).rstrip(':')
     return f'{prefix}:{purpose}:{family}'
 
@@ -83,23 +83,23 @@ def dual_control_approved_freshness_s() -> int:
 
 def override_limits_defaults_key() -> str:
     return _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY'
-        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults'
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_DEFAULTS_KEY',
+        'cfg:strategy_research_stats:alert_policy:override_limits:v1:defaults',
     )
 
 
 def override_limits_key(purpose: str) -> str:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX'
-        'cfg:strategy_research_stats:alert_policy:override_limits:v1'
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_LIMITS_PREFIX',
+        'cfg:strategy_research_stats:alert_policy:override_limits:v1',
     ).rstrip(':')
     return f'{prefix}:{purpose}'
 
 
 def _read_limits(client: Any, purpose: str) -> tuple[Dict[str, str], Dict[str, str]]:
     return (
-        client.hgetall(override_limits_defaults_key()) or {}
-        client.hgetall(override_limits_key(purpose)) or {}
+        client.hgetall(override_limits_defaults_key()) or {},
+        client.hgetall(override_limits_key(purpose)) or {},
     )
 
 
@@ -109,9 +109,9 @@ def resolve_override_limits(client: Any, purpose: str, family: str) -> Dict[str,
     max_renew_default = max(0, _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_DEFAULT_MAX_RENEW_COUNT', '2'), 2))
     require_escalation_default = 1 if _to_int(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_REQUIRE_ESCALATION_ON_LIMIT', '1'), 1) > 0 else 0
     values = {
-        'max_budget_s': max_budget_default
-        'max_renew_count': max_renew_default
-        'require_escalation': require_escalation_default
+        'max_budget_s': max_budget_default,
+        'max_renew_count': max_renew_default,
+        'require_escalation': require_escalation_default,
     }
     for src in (defaults_hash, purpose_hash):
         if not src:
@@ -146,9 +146,9 @@ def _policy_limit_kind(limits: Dict[str, int], *, proposed_budget_s: int, propos
 
 def _require_escalation_fields(state: Dict[str, str]) -> Dict[str, str]:
     esc = {
-        'ticket': str(state.get('renew_escalation_ticket') or '').strip()
-        'operator': str(state.get('renew_escalation_operator') or '').strip()
-        'reason': str(state.get('renew_escalation_reason') or '').strip()
+        'ticket': str(state.get('renew_escalation_ticket') or '').strip(),
+        'operator': str(state.get('renew_escalation_operator') or '').strip(),
+        'reason': str(state.get('renew_escalation_reason') or '').strip(),
     }
     if not esc['ticket'] or not esc['operator'] or not esc['reason']:
         raise OverrideWorkflowError('renew exceeds policy limits; acknowledge-renew must include escalation-ticket/operator/reason')
@@ -191,13 +191,13 @@ def _dual_control_approval_deadline_ts_ms(state: Dict[str, str]) -> int:
 
 
 def _invalidate_stale_dual_control_approval(
-    client: Any
-    *
-    purpose: str
-    family: str
-    state_key: str
-    state: Dict[str, str]
-    stage: str
+    client: Any,
+    *,
+    purpose: str,
+    family: str,
+    state_key: str,
+    state: Dict[str, str],
+    stage: str,
 ) -> Dict[str, str]:
     approval_state = str(state.get('dual_control_approval_state') or '')
     if approval_state != 'approved':
@@ -211,28 +211,28 @@ def _invalidate_stale_dual_control_approval(
         return state
     updated = dict(state)
     updated.update({
-        'dual_control_required': '1'
-        'dual_control_approval_state': 'invalidated'
-        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms)
-        'dual_control_approved_freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s())))
-        'dual_control_invalidated_ts_ms': str(now_ms)
-        'dual_control_invalidated_reason': 'approval_freshness_expired'
-        'dual_control_invalidated_stage': stage
+        'dual_control_required': '1',
+        'dual_control_approval_state': 'invalidated',
+        'dual_control_approved_deadline_ts_ms': str(deadline_ts_ms),
+        'dual_control_approved_freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))),
+        'dual_control_invalidated_ts_ms': str(now_ms),
+        'dual_control_invalidated_reason': 'approval_freshness_expired',
+        'dual_control_invalidated_stage': stage,
     })
     client.hset(state_key, mapping=updated)
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_dual_control_invalidated',
         {
-            'purpose': purpose
-            'family': family
-            'reason': 'approval_freshness_expired'
-            'stage': stage
-            'approval_ticket': str(state.get('dual_control_approved_ticket') or '')
-            'approver': str(state.get('dual_control_approved_operator') or '')
-            'approved_ts_ms': approved_ts_ms
-            'deadline_ts_ms': deadline_ts_ms
-            'freshness_s': max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))
+            'purpose': purpose,
+            'family': family,
+            'reason': 'approval_freshness_expired',
+            'stage': stage,
+            'approval_ticket': str(state.get('dual_control_approved_ticket') or ''),
+            'approver': str(state.get('dual_control_approved_operator') or ''),
+            'approved_ts_ms': approved_ts_ms,
+            'deadline_ts_ms': deadline_ts_ms,
+            'freshness_s': max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s())),
         }
     )
     return updated
@@ -242,35 +242,35 @@ def _mark_dual_control_pending(client: Any, *, purpose: str, family: str, state_
     now_ms = _now_ms()
     updated = dict(state)
     updated.update({
-        'dual_control_required': '1'
-        'dual_control_approval_state': 'pending'
-        'dual_control_request_ts_ms': str(now_ms)
-        'dual_control_request_ticket': str(state.get('renew_escalation_ticket') or '')
-        'dual_control_request_operator': str(state.get('renew_escalation_operator') or '')
-        'dual_control_request_reason': str(state.get('renew_escalation_reason') or '')
-        'dual_control_approved_ts_ms': '0'
-        'dual_control_approved_ticket': ''
-        'dual_control_approved_operator': ''
-        'dual_control_approved_reason': ''
-        'dual_control_approved_deadline_ts_ms': '0'
-        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s())
-        'dual_control_invalidated_ts_ms': '0'
-        'dual_control_invalidated_reason': ''
-        'dual_control_invalidated_stage': ''
-        'dual_control_consumed_ts_ms': '0'
+        'dual_control_required': '1',
+        'dual_control_approval_state': 'pending',
+        'dual_control_request_ts_ms': str(now_ms),
+        'dual_control_request_ticket': str(state.get('renew_escalation_ticket') or ''),
+        'dual_control_request_operator': str(state.get('renew_escalation_operator') or ''),
+        'dual_control_request_reason': str(state.get('renew_escalation_reason') or ''),
+        'dual_control_approved_ts_ms': '0',
+        'dual_control_approved_ticket': '',
+        'dual_control_approved_operator': '',
+        'dual_control_approved_reason': '',
+        'dual_control_approved_deadline_ts_ms': '0',
+        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
+        'dual_control_invalidated_ts_ms': '0',
+        'dual_control_invalidated_reason': '',
+        'dual_control_invalidated_stage': '',
+        'dual_control_consumed_ts_ms': '0',
     })
     client.hset(state_key, mapping=updated)
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_dual_control_required'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_dual_control_required',
         {
-            'purpose': purpose
-            'family': family
-            'limit_kind': limit_kind
-            'renew_ticket': str(state.get('renew_ack_ticket') or '')
-            'renew_operator': str(state.get('renew_ack_operator') or '')
-            'escalation_ticket': str(state.get('renew_escalation_ticket') or '')
-            'escalation_operator': str(state.get('renew_escalation_operator') or '')
+            'purpose': purpose,
+            'family': family,
+            'limit_kind': limit_kind,
+            'renew_ticket': str(state.get('renew_ack_ticket') or ''),
+            'renew_operator': str(state.get('renew_ack_operator') or ''),
+            'escalation_ticket': str(state.get('renew_escalation_ticket') or ''),
+            'escalation_operator': str(state.get('renew_escalation_operator') or ''),
         }
     )
     return updated
@@ -287,48 +287,48 @@ def _require_dual_control_approval(client: Any, *, purpose: str, family: str, st
 
 
 def _record_limit_block(
-    client: Any
-    *
-    purpose: str
-    family: str
-    state_key: str
-    state: Dict[str, str]
-    limits: Dict[str, int]
-    limit_kind: str
-    proposed_budget_s: int
-    proposed_renew_count: int
+    client: Any,
+    *,
+    purpose: str,
+    family: str,
+    state_key: str,
+    state: Dict[str, str],
+    limits: Dict[str, int],
+    limit_kind: str,
+    proposed_budget_s: int,
+    proposed_renew_count: int,
 ) -> None:
     now_ms = _now_ms()
     client.hset(
-        state_key
+        state_key,
         mapping={
-            'purpose': purpose
-            'family': family
-            'policy_limit_hit_kind': limit_kind
-            'policy_limit_hit_ts_ms': str(now_ms)
-            'policy_limit_requires_escalation': '1' if limits.get('require_escalation', 0) > 0 else '0'
-            'policy_max_budget_s': str(limits.get('max_budget_s', 0))
-            'policy_max_renew_count': str(limits.get('max_renew_count', 0))
-            'policy_budget_used_s': str(_policy_budget_used_s(state))
-            'policy_proposed_budget_s': str(proposed_budget_s)
-            'policy_proposed_renew_count': str(proposed_renew_count)
-            'renew_ack_required': '1'
+            'purpose': purpose,
+            'family': family,
+            'policy_limit_hit_kind': limit_kind,
+            'policy_limit_hit_ts_ms': str(now_ms),
+            'policy_limit_requires_escalation': '1' if limits.get('require_escalation', 0) > 0 else '0',
+            'policy_max_budget_s': str(limits.get('max_budget_s', 0)),
+            'policy_max_renew_count': str(limits.get('max_renew_count', 0)),
+            'policy_budget_used_s': str(_policy_budget_used_s(state)),
+            'policy_proposed_budget_s': str(proposed_budget_s),
+            'policy_proposed_renew_count': str(proposed_renew_count),
+            'renew_ack_required': '1',
         }
     )
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_limit_blocked'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_limit_blocked',
         {
-            'purpose': purpose
-            'family': family
-            'limit_kind': limit_kind
-            'current_ticket': str(state.get('ticket') or '')
-            'current_operator': str(state.get('operator') or '')
-            'policy_max_budget_s': limits.get('max_budget_s', 0)
-            'policy_max_renew_count': limits.get('max_renew_count', 0)
-            'policy_budget_used_s': _policy_budget_used_s(state)
-            'policy_proposed_budget_s': proposed_budget_s
-            'policy_proposed_renew_count': proposed_renew_count
+            'purpose': purpose,
+            'family': family,
+            'limit_kind': limit_kind,
+            'current_ticket': str(state.get('ticket') or ''),
+            'current_operator': str(state.get('operator') or ''),
+            'policy_max_budget_s': limits.get('max_budget_s', 0),
+            'policy_max_renew_count': limits.get('max_renew_count', 0),
+            'policy_budget_used_s': _policy_budget_used_s(state),
+            'policy_proposed_budget_s': proposed_budget_s,
+            'policy_proposed_renew_count': proposed_renew_count,
         }
     )
 
@@ -349,9 +349,9 @@ def _validate_nonempty(name: str, value: str) -> str:
 
 def _emit_event(client: Any, kind: str, payload: Dict[str, Any]) -> None:
     fields = {
-        'ts_ms': str(_now_ms())
-        'kind': kind
-        'source': 'strategy_research_stats_alert_policy_override_v1'
+        'ts_ms': str(_now_ms()),
+        'kind': kind,
+        'source': 'strategy_research_stats_alert_policy_override_v1',
     }
     for key, value in payload.items():
         if isinstance(value, (dict, list, tuple)):
@@ -402,20 +402,20 @@ def _ensure_new_identity(ticket: str, operator: str, reason: str, current: Dict[
 
 
 def _build_active_state_payload(
-    *
-    purpose: str
-    family: str
-    ticket: str
-    operator: str
-    reason: str
-    now_ms: int
-    expire_ts_ms: int
-    ttl_s: int
-    previous: Dict[str, str] | None = None
-    renewal_ack: Dict[str, str] | None = None
-    limits: Dict[str, int] | None = None
-    escalation_ack: Dict[str, str] | None = None
-    dual_control_approval: Dict[str, str] | None = None
+    *,
+    purpose: str,
+    family: str,
+    ticket: str,
+    operator: str,
+    reason: str,
+    now_ms: int,
+    expire_ts_ms: int,
+    ttl_s: int,
+    previous: Dict[str, str] | None = None,
+    renewal_ack: Dict[str, str] | None = None,
+    limits: Dict[str, int] | None = None,
+    escalation_ack: Dict[str, str] | None = None,
+    dual_control_approval: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     """Build the full lifecycle-state hash payload for an active (or renewed) override.
 
@@ -435,81 +435,81 @@ def _build_active_state_payload(
     previous_budget_s = _policy_budget_used_s(prev)
     budget_used_s = previous_budget_s + int(ttl_s)
     return {
-        'purpose': purpose
-        'family': family
-        'ticket': ticket
-        'operator': operator
-        'reason': reason
-        'created_ts_ms': str(now_ms)
-        'expire_ts_ms': str(expire_ts_ms)
-        'ttl_s': str(ttl_s)
-        'active': '1'
-        'lifecycle_state': 'active'
-        'cleared_ts_ms': '0'
-        'expired_ts_ms': '0'
-        'last_reminder_ts_ms': '0'
-        'last_reminder_expire_ts_ms': '0'
-        'last_reminder_kind': ''
+        'purpose': purpose,
+        'family': family,
+        'ticket': ticket,
+        'operator': operator,
+        'reason': reason,
+        'created_ts_ms': str(now_ms),
+        'expire_ts_ms': str(expire_ts_ms),
+        'ttl_s': str(ttl_s),
+        'active': '1',
+        'lifecycle_state': 'active',
+        'cleared_ts_ms': '0',
+        'expired_ts_ms': '0',
+        'last_reminder_ts_ms': '0',
+        'last_reminder_expire_ts_ms': '0',
+        'last_reminder_kind': '',
         # Renewal acknowledgement fields — cleared after renew to prevent double-use
-        'renew_ack_required': '0'
-        'renew_ack_ts_ms': '0'
-        'renew_ack_ticket': ''
-        'renew_ack_operator': ''
-        'renew_ack_reason': ''
+        'renew_ack_required': '0',
+        'renew_ack_ts_ms': '0',
+        'renew_ack_ticket': '',
+        'renew_ack_operator': '',
+        'renew_ack_reason': '',
         # Audit trail: who was renewed from
-        'renewed_from_ticket': str(prev.get('ticket') or '')
-        'renewed_from_operator': str(prev.get('operator') or '')
-        'renewed_from_reason': str(prev.get('reason') or '')
+        'renewed_from_ticket': str(prev.get('ticket') or ''),
+        'renewed_from_operator': str(prev.get('operator') or ''),
+        'renewed_from_reason': str(prev.get('reason') or ''),
         # Renewal counters and consumed-ack audit
-        'last_renew_ts_ms': str(now_ms if is_renewal else _to_int(prev.get('last_renew_ts_ms'), 0))
-        'renew_count': str(renew_count)
-        'renew_ack_consumed_ts_ms': str(now_ms if is_renewal else 0)
-        'renew_ack_consumed_ticket': str(ack.get('ticket') or '')
-        'renew_ack_consumed_operator': str(ack.get('operator') or '')
-        'renew_ack_consumed_reason': str(ack.get('reason') or '')
-        'renew_escalation_ticket': ''
-        'renew_escalation_operator': ''
-        'renew_escalation_reason': ''
-        'policy_chain_started_ts_ms': str(chain_started_ts_ms)
-        'policy_budget_used_s': str(budget_used_s)
-        'policy_max_budget_s': str(policy.get('max_budget_s', 0))
-        'policy_max_renew_count': str(policy.get('max_renew_count', 0))
-        'policy_limit_requires_escalation': str(1 if policy.get('require_escalation', 0) > 0 else 0)
-        'policy_limit_hit_kind': ''
-        'policy_limit_hit_ts_ms': '0'
-        'policy_last_escalation_ticket': str(esc.get('ticket') or '')
-        'policy_last_escalation_operator': str(esc.get('operator') or '')
-        'policy_last_escalation_reason': str(esc.get('reason') or '')
-        'policy_last_escalation_ts_ms': str(now_ms if esc else _to_int(prev.get('policy_last_escalation_ts_ms'), 0))
-        'policy_escalation_count': str(_to_int(prev.get('policy_escalation_count'), 0) + (1 if esc else 0))
-        'dual_control_required': str(1 if approval else 0)
-        'dual_control_approval_state': 'consumed' if approval else 'none'
-        'dual_control_request_ts_ms': str(_to_int(prev.get('dual_control_request_ts_ms'), 0) if approval else 0)
-        'dual_control_request_ticket': str(prev.get('renew_escalation_ticket') or prev.get('dual_control_request_ticket') or '') if approval else ''
-        'dual_control_request_operator': str(prev.get('renew_escalation_operator') or prev.get('dual_control_request_operator') or '') if approval else ''
-        'dual_control_request_reason': str(prev.get('renew_escalation_reason') or prev.get('dual_control_request_reason') or '') if approval else ''
-        'dual_control_approved_ts_ms': str(approval.get('approved_ts_ms') or 0) if approval else '0'
-        'dual_control_approved_ticket': str(approval.get('ticket') or '') if approval else ''
-        'dual_control_approved_operator': str(approval.get('operator') or '') if approval else ''
-        'dual_control_approved_reason': str(approval.get('reason') or '') if approval else ''
-        'dual_control_approved_deadline_ts_ms': str(approval.get('deadline_ts_ms') or 0) if approval else '0'
-        'dual_control_approved_freshness_s': str(approval.get('freshness_s') or 0) if approval else '0'
-        'dual_control_invalidated_ts_ms': '0'
-        'dual_control_invalidated_reason': ''
-        'dual_control_invalidated_stage': ''
-        'dual_control_consumed_ts_ms': str(now_ms if approval else 0)
+        'last_renew_ts_ms': str(now_ms if is_renewal else _to_int(prev.get('last_renew_ts_ms'), 0)),
+        'renew_count': str(renew_count),
+        'renew_ack_consumed_ts_ms': str(now_ms if is_renewal else 0),
+        'renew_ack_consumed_ticket': str(ack.get('ticket') or ''),
+        'renew_ack_consumed_operator': str(ack.get('operator') or ''),
+        'renew_ack_consumed_reason': str(ack.get('reason') or ''),
+        'renew_escalation_ticket': '',
+        'renew_escalation_operator': '',
+        'renew_escalation_reason': '',
+        'policy_chain_started_ts_ms': str(chain_started_ts_ms),
+        'policy_budget_used_s': str(budget_used_s),
+        'policy_max_budget_s': str(policy.get('max_budget_s', 0)),
+        'policy_max_renew_count': str(policy.get('max_renew_count', 0)),
+        'policy_limit_requires_escalation': str(1 if policy.get('require_escalation', 0) > 0 else 0),
+        'policy_limit_hit_kind': '',
+        'policy_limit_hit_ts_ms': '0',
+        'policy_last_escalation_ticket': str(esc.get('ticket') or ''),
+        'policy_last_escalation_operator': str(esc.get('operator') or ''),
+        'policy_last_escalation_reason': str(esc.get('reason') or ''),
+        'policy_last_escalation_ts_ms': str(now_ms if esc else _to_int(prev.get('policy_last_escalation_ts_ms'), 0)),
+        'policy_escalation_count': str(_to_int(prev.get('policy_escalation_count'), 0) + (1 if esc else 0)),
+        'dual_control_required': str(1 if approval else 0),
+        'dual_control_approval_state': 'consumed' if approval else 'none',
+        'dual_control_request_ts_ms': str(_to_int(prev.get('dual_control_request_ts_ms'), 0) if approval else 0),
+        'dual_control_request_ticket': str(prev.get('renew_escalation_ticket') or prev.get('dual_control_request_ticket') or '') if approval else '',
+        'dual_control_request_operator': str(prev.get('renew_escalation_operator') or prev.get('dual_control_request_operator') or '') if approval else '',
+        'dual_control_request_reason': str(prev.get('renew_escalation_reason') or prev.get('dual_control_request_reason') or '') if approval else '',
+        'dual_control_approved_ts_ms': str(approval.get('approved_ts_ms') or 0) if approval else '0',
+        'dual_control_approved_ticket': str(approval.get('ticket') or '') if approval else '',
+        'dual_control_approved_operator': str(approval.get('operator') or '') if approval else '',
+        'dual_control_approved_reason': str(approval.get('reason') or '') if approval else '',
+        'dual_control_approved_deadline_ts_ms': str(approval.get('deadline_ts_ms') or 0) if approval else '0',
+        'dual_control_approved_freshness_s': str(approval.get('freshness_s') or 0) if approval else '0',
+        'dual_control_invalidated_ts_ms': '0',
+        'dual_control_invalidated_reason': '',
+        'dual_control_invalidated_stage': '',
+        'dual_control_consumed_ts_ms': str(now_ms if approval else 0),
     }
 
 
 def set_override(
-    client: Any
-    *
-    purpose: str
-    family: str
-    ticket: str
-    operator: str
-    reason: str
-    ttl_s: int
+    client: Any,
+    *,
+    purpose: str,
+    family: str,
+    ticket: str,
+    operator: str,
+    reason: str,
+    ttl_s: int,
 ) -> Dict[str, Any]:
     """Create or replace a TTL-backed suppress override.
 
@@ -536,64 +536,64 @@ def set_override(
         _ensure_new_identity(ticket, operator, reason, existing or state)
     expire_ts_ms = now_ms + ttl_s * 1000
     payload = {
-        'purpose': purpose
-        'family': family
-        'ticket': ticket
-        'operator': operator
-        'reason': reason
-        'created_ts_ms': str(now_ms)
-        'expire_ts_ms': str(expire_ts_ms)
-        'ttl_s': str(ttl_s)
-        'suppress_active': '1'
+        'purpose': purpose,
+        'family': family,
+        'ticket': ticket,
+        'operator': operator,
+        'reason': reason,
+        'created_ts_ms': str(now_ms),
+        'expire_ts_ms': str(expire_ts_ms),
+        'ttl_s': str(ttl_s),
+        'suppress_active': '1',
     }
     client.hset(key, mapping=payload)
     client.expire(key, ttl_s)
     client.hset(
-        state_key
+        state_key,
         mapping=_build_active_state_payload(
-            purpose=purpose
-            family=family
-            ticket=ticket
-            operator=operator
-            reason=reason
-            now_ms=now_ms
-            expire_ts_ms=expire_ts_ms
-            ttl_s=ttl_s
-            previous=state or existing
-            renewal_ack=None
-            limits=resolve_override_limits(client, purpose, family)
-            escalation_ack=None
-            dual_control_approval=None
+            purpose=purpose,
+            family=family,
+            ticket=ticket,
+            operator=operator,
+            reason=reason,
+            now_ms=now_ms,
+            expire_ts_ms=expire_ts_ms,
+            ttl_s=ttl_s,
+            previous=state or existing,
+            renewal_ack=None,
+            limits=resolve_override_limits(client, purpose, family),
+            escalation_ack=None,
+            dual_control_approval=None,
         )
     )
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_set'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_set',
         {
-            'purpose': purpose
-            'family': family
-            'ticket': ticket
-            'operator': operator
-            'reason': reason
-            'ttl_s': ttl_s
-            'expire_ts_ms': expire_ts_ms
-            'override_key': key
+            'purpose': purpose,
+            'family': family,
+            'ticket': ticket,
+            'operator': operator,
+            'reason': reason,
+            'ttl_s': ttl_s,
+            'expire_ts_ms': expire_ts_ms,
+            'override_key': key,
         }
     )
     return payload
 
 
 def acknowledge_renewal(
-    client: Any
-    *
-    purpose: str
-    family: str
-    ticket: str
-    operator: str
-    reason: str
-    escalation_ticket: str = ''
-    escalation_operator: str = ''
-    escalation_reason: str = ''
+    client: Any,
+    *,
+    purpose: str,
+    family: str,
+    ticket: str,
+    operator: str,
+    reason: str,
+    escalation_ticket: str = '',
+    escalation_operator: str = '',
+    escalation_reason: str = '',
 ) -> Dict[str, Any]:
     """Acknowledge an expiry reminder or expired override with a new ticket/operator/reason.
 
@@ -625,48 +625,48 @@ def acknowledge_renewal(
         escalation_reason = _validate_nonempty('escalation_reason', escalation_reason)
     updated = dict(state)
     updated.update({
-        'renew_ack_required': '1'
-        'renew_ack_ts_ms': str(now_ms)
-        'renew_ack_ticket': ticket
-        'renew_ack_operator': operator
-        'renew_ack_reason': reason
-        'renew_escalation_ticket': escalation_ticket
-        'renew_escalation_operator': escalation_operator
-        'renew_escalation_reason': escalation_reason
-        'dual_control_required': '0'
-        'dual_control_approval_state': 'none'
-        'dual_control_request_ts_ms': '0'
-        'dual_control_request_ticket': ''
-        'dual_control_request_operator': ''
-        'dual_control_request_reason': ''
-        'dual_control_approved_ts_ms': '0'
-        'dual_control_approved_ticket': ''
-        'dual_control_approved_operator': ''
-        'dual_control_approved_reason': ''
-        'dual_control_approved_deadline_ts_ms': '0'
-        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s())
-        'dual_control_invalidated_ts_ms': '0'
-        'dual_control_invalidated_reason': ''
-        'dual_control_invalidated_stage': ''
-        'dual_control_consumed_ts_ms': '0'
+        'renew_ack_required': '1',
+        'renew_ack_ts_ms': str(now_ms),
+        'renew_ack_ticket': ticket,
+        'renew_ack_operator': operator,
+        'renew_ack_reason': reason,
+        'renew_escalation_ticket': escalation_ticket,
+        'renew_escalation_operator': escalation_operator,
+        'renew_escalation_reason': escalation_reason,
+        'dual_control_required': '0',
+        'dual_control_approval_state': 'none',
+        'dual_control_request_ts_ms': '0',
+        'dual_control_request_ticket': '',
+        'dual_control_request_operator': '',
+        'dual_control_request_reason': '',
+        'dual_control_approved_ts_ms': '0',
+        'dual_control_approved_ticket': '',
+        'dual_control_approved_operator': '',
+        'dual_control_approved_reason': '',
+        'dual_control_approved_deadline_ts_ms': '0',
+        'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
+        'dual_control_invalidated_ts_ms': '0',
+        'dual_control_invalidated_reason': '',
+        'dual_control_invalidated_stage': '',
+        'dual_control_consumed_ts_ms': '0',
     })
     client.hset(state_key, mapping=updated)
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_renew_acknowledged'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_renew_acknowledged',
         {
-            'purpose': purpose
-            'family': family
-            'ticket': ticket
-            'operator': operator
-            'reason': reason
-            'current_ticket': str(state.get('ticket') or '')
-            'current_operator': str(state.get('operator') or '')
-            'current_reason': str(state.get('reason') or '')
-            'lifecycle_state': str(state.get('lifecycle_state') or '')
-            'escalation_ticket': escalation_ticket
-            'escalation_operator': escalation_operator
-            'escalation_reason': escalation_reason
+            'purpose': purpose,
+            'family': family,
+            'ticket': ticket,
+            'operator': operator,
+            'reason': reason,
+            'current_ticket': str(state.get('ticket') or ''),
+            'current_operator': str(state.get('operator') or ''),
+            'current_reason': str(state.get('reason') or ''),
+            'lifecycle_state': str(state.get('lifecycle_state') or ''),
+            'escalation_ticket': escalation_ticket,
+            'escalation_operator': escalation_operator,
+            'escalation_reason': escalation_reason,
         }
     )
     return updated
@@ -675,13 +675,13 @@ def acknowledge_renewal(
 
 
 def approve_dual_control_renewal(
-    client: Any
-    *
-    purpose: str
-    family: str
-    approval_ticket: str
-    approver: str
-    approval_reason: str
+    client: Any,
+    *,
+    purpose: str,
+    family: str,
+    approval_ticket: str,
+    approver: str,
+    approval_reason: str,
 ) -> Dict[str, Any]:
     purpose = _validate_nonempty('purpose', purpose)
     family = _validate_family(family)
@@ -693,12 +693,12 @@ def approve_dual_control_renewal(
     if not state:
         raise OverrideWorkflowError('no override lifecycle state found for purpose/family')
     state = _invalidate_stale_dual_control_approval(
-        client
-        purpose=purpose
-        family=family
-        state_key=state_key
-        state=state
-        stage='approve'
+        client,
+        purpose=purpose,
+        family=family,
+        state_key=state_key,
+        state=state,
+        stage='approve',
     )
     if str(state.get('dual_control_approval_state') or '') not in ('pending', 'invalidated') or _to_int(state.get('dual_control_required'), 0) != 1:
         raise OverrideWorkflowError('dual-control approval is only allowed when a pending or invalidated limit-hit escalation approval exists')
@@ -707,43 +707,43 @@ def approve_dual_control_renewal(
     updated = dict(state)
     freshness_s = dual_control_approved_freshness_s()
     updated.update({
-        'dual_control_required': '1'
-        'dual_control_approval_state': 'approved'
-        'dual_control_approved_ts_ms': str(now_ms)
-        'dual_control_approved_ticket': approval_ticket
-        'dual_control_approved_operator': approver
-        'dual_control_approved_reason': approval_reason
-        'dual_control_approved_deadline_ts_ms': str(now_ms + freshness_s * 1000)
-        'dual_control_approved_freshness_s': str(freshness_s)
-        'dual_control_invalidated_ts_ms': '0'
-        'dual_control_invalidated_reason': ''
-        'dual_control_invalidated_stage': ''
+        'dual_control_required': '1',
+        'dual_control_approval_state': 'approved',
+        'dual_control_approved_ts_ms': str(now_ms),
+        'dual_control_approved_ticket': approval_ticket,
+        'dual_control_approved_operator': approver,
+        'dual_control_approved_reason': approval_reason,
+        'dual_control_approved_deadline_ts_ms': str(now_ms + freshness_s * 1000),
+        'dual_control_approved_freshness_s': str(freshness_s),
+        'dual_control_invalidated_ts_ms': '0',
+        'dual_control_invalidated_reason': '',
+        'dual_control_invalidated_stage': '',
     })
     client.hset(state_key, mapping=updated)
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_dual_control_approved'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_dual_control_approved',
         {
-            'purpose': purpose
-            'family': family
-            'approval_ticket': approval_ticket
-            'approver': approver
-            'approval_reason': approval_reason
-            'renew_ticket': str(state.get('renew_ack_ticket') or '')
-            'escalation_ticket': str(state.get('renew_escalation_ticket') or '')
-            'freshness_s': freshness_s
-            'deadline_ts_ms': now_ms + freshness_s * 1000
+            'purpose': purpose,
+            'family': family,
+            'approval_ticket': approval_ticket,
+            'approver': approver,
+            'approval_reason': approval_reason,
+            'renew_ticket': str(state.get('renew_ack_ticket') or ''),
+            'escalation_ticket': str(state.get('renew_escalation_ticket') or ''),
+            'freshness_s': freshness_s,
+            'deadline_ts_ms': now_ms + freshness_s * 1000,
         }
     )
     return updated
 
 
 def renew_override(
-    client: Any
-    *
-    purpose: str
-    family: str
-    ttl_s: int
+    client: Any,
+    *,
+    purpose: str,
+    family: str,
+    ttl_s: int,
 ) -> Dict[str, Any]:
     """Renew a suppression override after a valid acknowledgement.
 
@@ -786,15 +786,15 @@ def renew_override(
     dual_control_approval: Dict[str, str] = {}
     if limit_kind:
         _record_limit_block(
-            client
-            purpose=purpose
-            family=family
-            state_key=state_key
-            state=state
-            limits=limits
-            limit_kind=limit_kind
-            proposed_budget_s=proposed_budget_s
-            proposed_renew_count=proposed_renew_count
+            client,
+            purpose=purpose,
+            family=family,
+            state_key=state_key,
+            state=state,
+            limits=limits,
+            limit_kind=limit_kind,
+            proposed_budget_s=proposed_budget_s,
+            proposed_renew_count=proposed_renew_count,
         )
         state = client.hgetall(state_key) or state
         if limits.get('require_escalation', 0) <= 0:
@@ -803,105 +803,105 @@ def renew_override(
         _ensure_new_escalation_identity(str(escalation_ack.get('ticket') or ''), state, ack_ticket)
         if require_dual_control_on_limit() > 0:
             state = _invalidate_stale_dual_control_approval(
-                client
-                purpose=purpose
-                family=family
-                state_key=state_key
-                state=state
-                stage='renew'
+                client,
+                purpose=purpose,
+                family=family,
+                state_key=state_key,
+                state=state,
+                stage='renew',
             )
             state = _require_dual_control_approval(
-                client
-                purpose=purpose
-                family=family
-                state_key=state_key
-                state=state
-                limit_kind=limit_kind
+                client,
+                purpose=purpose,
+                family=family,
+                state_key=state_key,
+                state=state,
+                limit_kind=limit_kind,
             )
             dual_control_approval = {
-                'approved_ts_ms': str(state.get('dual_control_approved_ts_ms') or '0')
-                'ticket': str(state.get('dual_control_approved_ticket') or '')
-                'operator': str(state.get('dual_control_approved_operator') or '')
-                'reason': str(state.get('dual_control_approved_reason') or '')
-                'deadline_ts_ms': str(_dual_control_approval_deadline_ts_ms(state) or 0)
-                'freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s())))
+                'approved_ts_ms': str(state.get('dual_control_approved_ts_ms') or '0'),
+                'ticket': str(state.get('dual_control_approved_ticket') or ''),
+                'operator': str(state.get('dual_control_approved_operator') or ''),
+                'reason': str(state.get('dual_control_approved_reason') or ''),
+                'deadline_ts_ms': str(_dual_control_approval_deadline_ts_ms(state) or 0),
+                'freshness_s': str(max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s()))),
             }
     expire_ts_ms = now_ms + ttl_s * 1000
     key = override_key(purpose, family)
     payload = {
-        'purpose': purpose
-        'family': family
-        'ticket': ack_ticket
-        'operator': ack_operator
-        'reason': ack_reason
-        'created_ts_ms': str(now_ms)
-        'expire_ts_ms': str(expire_ts_ms)
-        'ttl_s': str(ttl_s)
-        'suppress_active': '1'
-    }
-    client.hset(key, mapping=payload)
-    client.expire(key, ttl_s)
+        'purpose': purpose,
+        'family': family,
+        'ticket': ack_ticket,
+        'operator': ack_operator,
+        'reason': ack_reason,
+        'created_ts_ms': str(now_ms),
+        'expire_ts_ms': str(expire_ts_ms),
+        'ttl_s': str(ttl_s),
+        'suppress_active': '1',
+    },
+    client.hset(key, mapping=payload),
+    client.expire(key, ttl_s),
     client.hset(
-        state_key
+        state_key,
         mapping=_build_active_state_payload(
-            purpose=purpose
-            family=family
-            ticket=ack_ticket
-            operator=ack_operator
-            reason=ack_reason
-            now_ms=now_ms
-            expire_ts_ms=expire_ts_ms
-            ttl_s=ttl_s
-            previous=state
+            purpose=purpose,
+            family=family,
+            ticket=ack_ticket,
+            operator=ack_operator,
+            reason=ack_reason,
+            now_ms=now_ms,
+            expire_ts_ms=expire_ts_ms,
+            ttl_s=ttl_s,
+            previous=state,
             renewal_ack={
-                'ticket': ack_ticket
-                'operator': ack_operator
-                'reason': ack_reason
-            }
-            limits=limits
-            escalation_ack=escalation_ack
-            dual_control_approval=dual_control_approval
+                'ticket': ack_ticket,
+                'operator': ack_operator,
+                'reason': ack_reason,
+            },
+            limits=limits,
+            escalation_ack=escalation_ack,
+            dual_control_approval=dual_control_approval,
         )
     )
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_renewed'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_renewed',
         {
-            'purpose': purpose
-            'family': family
-            'ticket': ack_ticket
-            'operator': ack_operator
-            'reason': ack_reason
-            'previous_ticket': str(state.get('ticket') or '')
-            'previous_operator': str(state.get('operator') or '')
-            'previous_reason': str(state.get('reason') or '')
-            'ttl_s': ttl_s
-            'expire_ts_ms': expire_ts_ms
-            'renew_count': str(_to_int(state.get('renew_count'), 0) + 1)
-            'limit_kind': limit_kind
-            'policy_max_budget_s': limits.get('max_budget_s', 0)
-            'policy_max_renew_count': limits.get('max_renew_count', 0)
-            'policy_proposed_budget_s': proposed_budget_s
-            'policy_proposed_renew_count': proposed_renew_count
-            'escalation_ticket': escalation_ack.get('ticket', '')
-            'escalation_operator': escalation_ack.get('operator', '')
-            'escalation_reason': escalation_ack.get('reason', '')
+            'purpose': purpose,
+            'family': family,
+            'ticket': ack_ticket,
+            'operator': ack_operator,
+            'reason': ack_reason,
+            'previous_ticket': str(state.get('ticket') or ''),
+            'previous_operator': str(state.get('operator') or ''),
+            'previous_reason': str(state.get('reason') or ''),
+            'ttl_s': ttl_s,
+            'expire_ts_ms': expire_ts_ms,
+            'renew_count': str(_to_int(state.get('renew_count'), 0) + 1),
+            'limit_kind': limit_kind,
+            'policy_max_budget_s': limits.get('max_budget_s', 0),
+            'policy_max_renew_count': limits.get('max_renew_count', 0),
+            'policy_proposed_budget_s': proposed_budget_s,
+            'policy_proposed_renew_count': proposed_renew_count,
+            'escalation_ticket': escalation_ack.get('ticket', ''),
+            'escalation_operator': escalation_ack.get('operator', ''),
+            'escalation_reason': escalation_ack.get('reason', ''),
         }
     )
     return payload
 
 
 def clear_override(
-    client: Any
-    *
-    purpose: str
-    family: str
-    ticket: str
-    operator: str
-    reason: str
-    escalation_ticket: str = ''
-    escalation_operator: str = ''
-    escalation_reason: str = ''
+    client: Any,
+    *,
+    purpose: str,
+    family: str,
+    ticket: str,
+    operator: str,
+    reason: str,
+    escalation_ticket: str = '',
+    escalation_operator: str = '',
+    escalation_reason: str = '',
 ) -> Dict[str, Any]:
     purpose = _validate_nonempty('purpose', purpose)
     family = _validate_family(family)
@@ -913,62 +913,62 @@ def clear_override(
     client.delete(key)
     now_ms = _now_ms()
     client.hset(
-        override_state_key(purpose, family)
+        override_state_key(purpose, family),
         mapping={
-            'purpose': purpose
-            'family': family
-            'ticket': existing.get('ticket', '')
-            'operator': existing.get('operator', '')
-            'reason': existing.get('reason', '')
-            'created_ts_ms': existing.get('created_ts_ms', '0')
-            'expire_ts_ms': existing.get('expire_ts_ms', '0')
-            'active': '0'
-            'lifecycle_state': 'cleared'
-            'cleared_ts_ms': str(now_ms)
-            'cleared_by_ticket': ticket
-            'cleared_by_operator': operator
-            'cleared_reason': reason
+            'purpose': purpose,
+            'family': family,
+            'ticket': existing.get('ticket', ''),
+            'operator': existing.get('operator', ''),
+            'reason': existing.get('reason', ''),
+            'created_ts_ms': existing.get('created_ts_ms', '0'),
+            'expire_ts_ms': existing.get('expire_ts_ms', '0'),
+            'active': '0',
+            'lifecycle_state': 'cleared',
+            'cleared_ts_ms': str(now_ms),
+            'cleared_by_ticket': ticket,
+            'cleared_by_operator': operator,
+            'cleared_reason': reason,
             # P6.9: clear any pending renewal ack so it doesn't persist after explicit clear
-            'renew_ack_required': '0'
-            'renew_ack_ts_ms': '0'
-            'renew_ack_ticket': ''
-            'renew_ack_operator': ''
-            'renew_ack_reason': ''
-            'renew_escalation_ticket': ''
-            'renew_escalation_operator': ''
-            'renew_escalation_reason': ''
-            'dual_control_required': '0'
-            'dual_control_approval_state': 'none'
-            'dual_control_request_ts_ms': '0'
-            'dual_control_request_ticket': ''
-            'dual_control_request_operator': ''
-            'dual_control_request_reason': ''
-            'dual_control_approved_ts_ms': '0'
-            'dual_control_approved_ticket': ''
-            'dual_control_approved_operator': ''
-            'dual_control_approved_reason': ''
-            'dual_control_approved_deadline_ts_ms': '0'
-            'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s())
-            'dual_control_invalidated_ts_ms': '0'
-            'dual_control_invalidated_reason': ''
-            'dual_control_invalidated_stage': ''
-            'dual_control_consumed_ts_ms': '0'
+            'renew_ack_required': '0',
+            'renew_ack_ts_ms': '0',
+            'renew_ack_ticket': '',
+            'renew_ack_operator': '',
+            'renew_ack_reason': '',
+            'renew_escalation_ticket': '',
+            'renew_escalation_operator': '',
+            'renew_escalation_reason': '',
+            'dual_control_required': '0',
+            'dual_control_approval_state': 'none',
+            'dual_control_request_ts_ms': '0',
+            'dual_control_request_ticket': '',
+            'dual_control_request_operator': '',
+            'dual_control_request_reason': '',
+            'dual_control_approved_ts_ms': '0',
+            'dual_control_approved_ticket': '',
+            'dual_control_approved_operator': '',
+            'dual_control_approved_reason': '',
+            'dual_control_approved_deadline_ts_ms': '0',
+            'dual_control_approved_freshness_s': str(dual_control_approved_freshness_s()),
+            'dual_control_invalidated_ts_ms': '0',
+            'dual_control_invalidated_reason': '',
+            'dual_control_invalidated_stage': '',
+            'dual_control_consumed_ts_ms': '0',
         }
     )
     _emit_event(
-        client
-        'strategy_research_stats_alert_policy_suppress_override_cleared'
+        client,
+        'strategy_research_stats_alert_policy_suppress_override_cleared',
         {
-            'purpose': purpose
-            'family': family
-            'ticket': ticket
-            'operator': operator
-            'reason': reason
-            'previous_ticket': existing.get('ticket', '')
-            'previous_operator': existing.get('operator', '')
-            'previous_reason': existing.get('reason', '')
-            'previous_expire_ts_ms': existing.get('expire_ts_ms', '')
-            'override_key': key
+            'purpose': purpose,
+            'family': family,
+            'ticket': ticket,
+            'operator': operator,
+            'reason': reason,
+            'previous_ticket': existing.get('ticket', ''),
+            'previous_operator': existing.get('operator', ''),
+            'previous_reason': existing.get('reason', ''),
+            'previous_expire_ts_ms': existing.get('expire_ts_ms', ''),
+            'override_key': key,
         }
     )
     return existing
@@ -976,8 +976,8 @@ def clear_override(
 
 def list_active_overrides(client: Any, *, purpose: str = '') -> list[Dict[str, Any]]:
     prefix = _env(
-        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX'
-        'cfg:strategy_research_stats:alert_policy:suppress_override:v1'
+        'STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_PREFIX',
+        'cfg:strategy_research_stats:alert_policy:suppress_override:v1',
     ).rstrip(':')
     pattern = f'{prefix}:{purpose}:*' if purpose else f'{prefix}:*'
     now_ms = _now_ms()
@@ -991,15 +991,15 @@ def list_active_overrides(client: Any, *, purpose: str = '') -> list[Dict[str, A
             continue
         items.append(
             {
-                'key': key
-                'purpose': raw.get('purpose', '')
-                'family': raw.get('family', '')
-                'ticket': raw.get('ticket', '')
-                'operator': raw.get('operator', '')
-                'reason': raw.get('reason', '')
-                'created_ts_ms': _to_int(raw.get('created_ts_ms'), 0)
-                'expire_ts_ms': expire_ts_ms
-                'remaining_s': max(0, (expire_ts_ms - now_ms) // 1000)
+                'key': key,
+                'purpose': raw.get('purpose', ''),
+                'family': raw.get('family', ''),
+                'ticket': raw.get('ticket', ''),
+                'operator': raw.get('operator', ''),
+                'reason': raw.get('reason', ''),
+                'created_ts_ms': _to_int(raw.get('created_ts_ms'), 0),
+                'expire_ts_ms': expire_ts_ms,
+                'remaining_s': max(0, (expire_ts_ms - now_ms) // 1000),
             }
         )
     return items
@@ -1058,58 +1058,58 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if ns.cmd == 'suppress':
             payload = set_override(
-                client
-                purpose=ns.purpose
-                family=ns.family
-                ticket=ns.ticket
-                operator=ns.operator
-                reason=ns.reason
-                ttl_s=ns.ttl_s
+                client,
+                purpose=ns.purpose,
+                family=ns.family,
+                ticket=ns.ticket,
+                operator=ns.operator,
+                reason=ns.reason,
+                ttl_s=ns.ttl_s,
             )
             sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
             return 0
         if ns.cmd == 'acknowledge-renew':
             payload = acknowledge_renewal(
-                client
-                purpose=ns.purpose
-                family=ns.family
-                ticket=ns.ticket
-                operator=ns.operator
-                reason=ns.reason
-                escalation_ticket=getattr(ns, 'escalation_ticket', '')
-                escalation_operator=getattr(ns, 'escalation_operator', '')
-                escalation_reason=getattr(ns, 'escalation_reason', '')
+                client,
+                purpose=ns.purpose,
+                family=ns.family,
+                ticket=ns.ticket,
+                operator=ns.operator,
+                reason=ns.reason,
+                escalation_ticket=getattr(ns, 'escalation_ticket', ''),
+                escalation_operator=getattr(ns, 'escalation_operator', ''),
+                escalation_reason=getattr(ns, 'escalation_reason', ''),
             )
             sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
             return 0
         if ns.cmd == 'approve-renew-escalation':
             payload = approve_dual_control_renewal(
-                client
-                purpose=ns.purpose
-                family=ns.family
-                approval_ticket=ns.approval_ticket
-                approver=ns.approver
-                approval_reason=ns.approval_reason
+                client,
+                purpose=ns.purpose,
+                family=ns.family,
+                approval_ticket=ns.approval_ticket,
+                approver=ns.approver,
+                approval_reason=ns.approval_reason,
             )
             sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
             return 0
         if ns.cmd == 'renew':
             payload = renew_override(
-                client
-                purpose=ns.purpose
-                family=ns.family
-                ttl_s=ns.ttl_s
+                client,
+                purpose=ns.purpose,
+                family=ns.family,
+                ttl_s=ns.ttl_s,
             )
             sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
             return 0
         if ns.cmd == 'clear':
             payload = clear_override(
-                client
-                purpose=ns.purpose
-                family=ns.family
-                ticket=ns.ticket
-                operator=ns.operator
-                reason=ns.reason
+                client,
+                purpose=ns.purpose,
+                family=ns.family,
+                ticket=ns.ticket,
+                operator=ns.operator,
+                reason=ns.reason,
             )
             sys.stdout.write(json.dumps(payload, sort_keys=True) + '\n')
             return 0

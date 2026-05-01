@@ -19,14 +19,14 @@ import time
 from typing import Any, Dict, Tuple
 
 from services.orderflow.exec_health_freeze_service_identity import (
-    IDENTITY_ENFORCE_ENV
-    IDENTITY_REQUIRE_LIBNAME_ENV
-    _b
-    _read_current_client_line_async
-    _read_current_client_line_sync
-    get_expected_service
-    normalize_client_entry
-    verify_entry_against_expected
+    IDENTITY_ENFORCE_ENV,
+    IDENTITY_REQUIRE_LIBNAME_ENV,
+    _b,
+    _read_current_client_line_async,
+    _read_current_client_line_sync,
+    get_expected_service,
+    normalize_client_entry,
+    verify_entry_against_expected,
 )
 
 DEFAULT_EVENT_STREAM = 'ops:exec_health:freeze_events:v1'
@@ -125,21 +125,21 @@ def _build_state(prev: Dict[str, Any], *, service: str, client_id: int, before: 
     entry = dict(after.get('entry') or before.get('entry') or {})
     out = dict(prev or {})
     out.update({
-        'schema_name': 'exec_health_freeze_client_heal_state'
-        'schema_version': 1
-        'service': service
-        'updated_ts_ms': int(now_ms)
-        'last_check_ts_ms': int(now_ms)
-        'last_client_id': int(client_id)
-        'last_user': _s(entry.get('user'))
-        'last_name': _s(entry.get('name'))
-        'last_lib_name': _s(entry.get('lib-name'))
-        'last_result_ok': 1 if after.get('ok') else 0
-        'last_reconnect_detected': 1 if reconnect_detected else 0
-        'last_repair_attempted': 1 if repair_attempted else 0
-        'last_recovered': 1 if recovered else 0
-        'last_before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False)
-        'last_after_violations_json': json.dumps(list(after.get('violations') or []), ensure_ascii=False)
+        'schema_name': 'exec_health_freeze_client_heal_state',
+        'schema_version': 1,
+        'service': service,
+        'updated_ts_ms': int(now_ms),
+        'last_check_ts_ms': int(now_ms),
+        'last_client_id': int(client_id),
+        'last_user': _s(entry.get('user')),
+        'last_name': _s(entry.get('name')),
+        'last_lib_name': _s(entry.get('lib-name')),
+        'last_result_ok': 1 if after.get('ok') else 0,
+        'last_reconnect_detected': 1 if reconnect_detected else 0,
+        'last_repair_attempted': 1 if repair_attempted else 0,
+        'last_recovered': 1 if recovered else 0,
+        'last_before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False),
+        'last_after_violations_json': json.dumps(list(after.get('violations') or []), ensure_ascii=False),
     })
     if reconnect_detected:
         out['reconnect_seen_total'] = int(_i(prev.get('reconnect_seen_total'), 0) + 1)
@@ -197,17 +197,17 @@ def heal_service_identity_sync(r: Any, service: str, *, enforce: bool | None = N
         recovered = bool(after.get('ok'))
         if recovered:
             event_id = _emit_event_sync(r, {
-                'ts_ms': now
-                'kind': 'redis_client_identity_recovered'
-                'service': service
-                'role': expected.role
-                'redis_user': expected.redis_user
-                'client_id': int(client_id)
-                'reconnect_detected': 1 if reconnect_detected else 0
-                'before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False)
-                'client_name': expected.client_name
-                'lib_name': expected.lib_name
-                'source': service
+                'ts_ms': now,
+                'kind': 'redis_client_identity_recovered',
+                'service': service,
+                'role': expected.role,
+                'redis_user': expected.redis_user,
+                'client_id': int(client_id),
+                'reconnect_detected': 1 if reconnect_detected else 0,
+                'before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False),
+                'client_name': expected.client_name,
+                'lib_name': expected.lib_name,
+                'source': service,
             })
     state = _build_state(_read_state_sync(r, service), service=service, client_id=client_id, before=before, after=after, recovered=recovered, reconnect_detected=bool(reconnect_detected), event_id=event_id, now_ms=now, repair_attempted=repair_attempted)
     _write_state_sync(r, service, state)
@@ -239,17 +239,17 @@ async def heal_service_identity_async(r: Any, service: str, *, enforce: bool | N
         recovered = bool(after.get('ok'))
         if recovered:
             event_id = await _emit_event_async(r, {
-                'ts_ms': now
-                'kind': 'redis_client_identity_recovered'
-                'service': service
-                'role': expected.role
-                'redis_user': expected.redis_user
-                'client_id': int(client_id)
-                'reconnect_detected': 1 if reconnect_detected else 0
-                'before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False)
-                'client_name': expected.client_name
-                'lib_name': expected.lib_name
-                'source': service
+                'ts_ms': now,
+                'kind': 'redis_client_identity_recovered',
+                'service': service,
+                'role': expected.role,
+                'redis_user': expected.redis_user,
+                'client_id': int(client_id),
+                'reconnect_detected': 1 if reconnect_detected else 0,
+                'before_violations_json': json.dumps(list(before.get('violations') or []), ensure_ascii=False),
+                'client_name': expected.client_name,
+                'lib_name': expected.lib_name,
+                'source': service,
             })
     state = _build_state(await _read_state_async(r, service), service=service, client_id=client_id, before=before, after=after, recovered=recovered, reconnect_detected=bool(reconnect_detected), event_id=event_id, now_ms=now, repair_attempted=repair_attempted)
     await _write_state_async(r, service, state)

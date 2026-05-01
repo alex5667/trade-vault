@@ -16,10 +16,10 @@ def get_dir_size_gb(directory: Path) -> float:
     return total_size / (1024**3)
 
 def prune_archives(
-    archive_dir: str
-    retention_days: int = 30
-    keep_last_days: int = 3
-    max_total_gb: float = 100.0
+    archive_dir: str,
+    retention_days: int = 30,
+    keep_last_days: int = 3,
+    max_total_gb: float = 100.0,
     dry_run: bool = False
 ) -> Dict[str, Any]:
     """Prune old archives based on age and total size occupancy."""
@@ -78,8 +78,8 @@ def prune_archives(
                 break
 
     return {
-        "deleted_count": deleted_count
-        "deleted_size_gb": deleted_size_gb
+        "deleted_count": deleted_count,
+        "deleted_size_gb": deleted_size_gb,
         "remaining_size_gb": current_size_gb
     }
 
@@ -96,15 +96,15 @@ def update_manifest(archive_dir: str):
             continue
         mtime = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc)
         inventory.append({
-            "name": f.name
-            "size_bytes": f.stat().st_size
+            "name": f.name,
+            "size_bytes": f.stat().st_size,
             "mtime": mtime.isoformat()
         })
         
     manifest = {
-        "updated_at": datetime.now(timezone.utc).isoformat()
-        "total_files": len(inventory)
-        "total_size_gb": sum(i['size_bytes'] for i in inventory) / (1024**3)
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "total_files": len(inventory),
+        "total_size_gb": sum(i['size_bytes'] for i in inventory) / (1024**3),
         "inventory": inventory
     }
     
@@ -127,10 +127,10 @@ if __name__ == "__main__":
     
     logger.info(f"Starting maintenance on {args.dir}")
     stats = prune_archives(
-        args.dir
-        retention_days=args.retention_days
-        keep_last_days=args.keep_last_days
-        max_total_gb=args.max_gb
+        args.dir,
+        retention_days=args.retention_days,
+        keep_last_days=args.keep_last_days,
+        max_total_gb=args.max_gb,
         dry_run=args.dry_run
     )
     

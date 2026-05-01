@@ -1,18 +1,18 @@
+from __future__ import annotations
 """
 Execution Planner: builds detailed execution plans for signals.
 Includes risk management, entry zones, stop levels, and TP targets.
 """
 
-from __future__ import annotations
 
 from typing import Tuple, List, Optional
 
 from .models import (
-    ExtendedSignalContext
-    ExecutionPlan
-    Side
-    SwingPoint
-    SymbolSetupConfig
+    ExtendedSignalContext,
+    ExecutionPlan,
+    Side,
+    SwingPoint,
+    SymbolSetupConfig,
 )
 from .setup_config import ExecutionSetupRepository
 
@@ -24,8 +24,8 @@ class ExecutionPlanner:
     """
 
     def __init__(
-        self
-        setup_repo: ExecutionSetupRepository
+        self,
+        setup_repo: ExecutionSetupRepository,
     ):
         """
         setup_repo: репозиторий конфигураций сетапов.
@@ -54,8 +54,8 @@ class ExecutionPlanner:
         - type == 'low'
         - price < price_at_signal
         - сортируем по:
-            1) максимальному volume
-            2) максимальной delta (купили много)
+            1) максимальному volume,
+            2) максимальной delta (купили много),
             3) близости к текущей цене
         """
         lows = [s for s in ctx.local_swings if s.type == "low" and s.price < ctx.price_at_signal]
@@ -153,12 +153,12 @@ class ExecutionPlanner:
         return levels
 
     def _build_tp_levels(
-        self
-        ctx: ExtendedSignalContext
-        cfg: SymbolSetupConfig
-        stop_price: float
-        entry_zone_low: float
-        entry_zone_high: float
+        self,
+        ctx: ExtendedSignalContext,
+        cfg: SymbolSetupConfig,
+        stop_price: float,
+        entry_zone_low: float,
+        entry_zone_high: float,
     ) -> List[float]:
         """
         Построить уровни тейк-профита: HTF-уровни + дефолтные R-based цели.
@@ -212,10 +212,10 @@ class ExecutionPlanner:
             return m_top
 
     def _compute_position_size(
-        self
-        ctx: ExtendedSignalContext
-        cfg: SymbolSetupConfig
-        stop_price: float
+        self,
+        ctx: ExtendedSignalContext,
+        cfg: SymbolSetupConfig,
+        stop_price: float,
     ) -> Tuple[float, float, float]:
         """
         Рассчитать размер позиции на основе риска и состояния счета.
@@ -304,17 +304,17 @@ class ExecutionPlanner:
         expiry_bars = cfg.expiry_bars
 
         plan = ExecutionPlan(
-            signal_id=ctx.signal_id
-            symbol=ctx.symbol
-            side=ctx.side
-            entry_zone_low=entry_low
-            entry_zone_high=entry_high
-            stop_price=stop_price
-            tp_levels=tp_levels
-            partials=partials
-            pos_risk_R=pos_risk_R
-            risk_usd=risk_usd
-            position_size=position_size
-            expiry_bars=expiry_bars
+            signal_id=ctx.signal_id,
+            symbol=ctx.symbol,
+            side=ctx.side,
+            entry_zone_low=entry_low,
+            entry_zone_high=entry_high,
+            stop_price=stop_price,
+            tp_levels=tp_levels,
+            partials=partials,
+            pos_risk_R=pos_risk_R,
+            risk_usd=risk_usd,
+            position_size=position_size,
+            expiry_bars=expiry_bars,
         )
         return plan

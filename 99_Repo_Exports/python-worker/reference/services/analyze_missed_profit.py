@@ -2,7 +2,7 @@
 """
 Анализ упущенной прибыли (TP→SL метрики).
 
-Скрипт для детального анализа сделок, которые достигли тейк-профита
+Скрипт для детального анализа сделок, которые достигли тейк-профита,
 но затем развернулись и закрылись по стоп-лоссу.
 
 Использование:
@@ -158,9 +158,9 @@ def compare_sources_missed_profit(strategy: str, symbol: str, tf: str):
             reliability = 100.0 - tp1_sl_rate
             
             sources_data.append({
-                "source": source
-                "tp1_sl": tp1_sl
-                "tp2_sl": tp2_sl
+                "source": source,
+                "tp1_sl": tp1_sl,
+                "tp2_sl": tp2_sl,
                 "reliability": reliability
             })
             
@@ -216,15 +216,15 @@ def find_problematic_trades(strategy: str, symbol: str, tf: str, min_tp_level: i
             signal = redis_client.hgetall(f"signal:{trade_id}")
             
             problematic_trades.append({
-                "id": trade_id
-                "source": trade.get("source", "unknown")
-                "direction": trade.get("direction", "N/A")
-                "entry_price": float(trade.get("entry_price", 0))
-                "exit_price": float(trade.get("exit_price", 0))
-                "pnl": float(trade.get("pnl", 0))
-                "tp_reached": tp_before
-                "atr": float(signal.get("atr", 0))
-                "entry_time": int(trade.get("entry_time", 0))
+                "id": trade_id,
+                "source": trade.get("source", "unknown"),
+                "direction": trade.get("direction", "N/A"),
+                "entry_price": float(trade.get("entry_price", 0)),
+                "exit_price": float(trade.get("exit_price", 0)),
+                "pnl": float(trade.get("pnl", 0)),
+                "tp_reached": tp_before,
+                "atr": float(signal.get("atr", 0)),
+                "entry_time": int(trade.get("entry_time", 0)),
                 "duration": int(trade.get("duration_sec", 0))
             })
     
@@ -320,44 +320,44 @@ def generate_optimization_report(strategy: str, symbol: str, tf: str):
         # Увеличиваем долю на TP1
         new_tp_ratio = [0.65, 0.25, 0.10]
         recommendations.append({
-            "level": "HIGH"
-            "type": "TP_RATIO"
-            "message": f"Высокий TP1→SL ({tp1_reversal:.1f}%): увеличьте TP1 до 65%"
+            "level": "HIGH",
+            "type": "TP_RATIO",
+            "message": f"Высокий TP1→SL ({tp1_reversal:.1f}%): увеличьте TP1 до 65%",
             "new_ratio": new_tp_ratio
         })
     elif tp1_reversal > 15:
         new_tp_ratio = [0.60, 0.25, 0.15]
         recommendations.append({
-            "level": "MEDIUM"
-            "type": "TP_RATIO"
-            "message": f"Умеренный TP1→SL ({tp1_reversal:.1f}%): увеличьте TP1 до 60%"
+            "level": "MEDIUM",
+            "type": "TP_RATIO",
+            "message": f"Умеренный TP1→SL ({tp1_reversal:.1f}%): увеличьте TP1 до 60%",
             "new_ratio": new_tp_ratio
         })
     
     if tp2_reversal > 15:
         recommendations.append({
-            "level": "HIGH"
-            "type": "TRAILING_STOP"
-            "message": f"Высокий TP2→SL ({tp2_reversal:.1f}%): используйте trailing stop"
+            "level": "HIGH",
+            "type": "TRAILING_STOP",
+            "message": f"Высокий TP2→SL ({tp2_reversal:.1f}%): используйте trailing stop",
         })
     elif tp2_reversal > 10:
         recommendations.append({
-            "level": "MEDIUM"
-            "type": "TRAILING_STOP"
-            "message": f"Умеренный TP2→SL ({tp2_reversal:.1f}%): рассмотрите trailing stop"
+            "level": "MEDIUM",
+            "type": "TRAILING_STOP",
+            "message": f"Умеренный TP2→SL ({tp2_reversal:.1f}%): рассмотрите trailing stop",
         })
     
     if winrate < 55 and tp1_reversal > 15:
         recommendations.append({
-            "level": "HIGH"
-            "type": "STOP_LOSS"
-            "message": f"Низкий WinRate + высокий TP1→SL: стоп-лосс может быть слишком близко"
+            "level": "HIGH",
+            "type": "STOP_LOSS",
+            "message": f"Низкий WinRate + высокий TP1→SL: стоп-лосс может быть слишком близко",
         })
     
     if not recommendations:
         recommendations.append({
-            "level": "INFO"
-            "type": "OK"
+            "level": "INFO",
+            "type": "OK",
             "message": "Показатели в норме, изменения не требуются"
         })
     
@@ -406,13 +406,13 @@ def compare_sources_reliability():
             reliability = 100.0 - ((tp1_sl_rate + tp2_sl_rate) / 2.0)
             
             reliability_data.append({
-                "source": source
-                "trades": int(stats.get("total_trades", 0))
-                "winrate": float(stats.get("winrate", 0))
-                "tp1_sl": int(stats.get("tp1_then_sl", 0))
-                "tp2_sl": int(stats.get("tp2_then_sl", 0))
-                "tp1_sl_rate": tp1_sl_rate
-                "tp2_sl_rate": tp2_sl_rate
+                "source": source,
+                "trades": int(stats.get("total_trades", 0)),
+                "winrate": float(stats.get("winrate", 0)),
+                "tp1_sl": int(stats.get("tp1_then_sl", 0)),
+                "tp2_sl": int(stats.get("tp2_then_sl", 0)),
+                "tp1_sl_rate": tp1_sl_rate,
+                "tp2_sl_rate": tp2_sl_rate,
                 "reliability": reliability
             })
     
@@ -454,7 +454,7 @@ def main():
     parser.add_argument("--symbol", default="XAUUSD", help="Символ")
     parser.add_argument("--tf", default="tick", help="Таймфрейм")
     parser.add_argument("--mode", default="all", 
-                       choices=["metrics", "sources", "trades", "optimize", "all"]
+                       choices=["metrics", "sources", "trades", "optimize", "all"],
                        help="Режим анализа")
     
     args = parser.parse_args()

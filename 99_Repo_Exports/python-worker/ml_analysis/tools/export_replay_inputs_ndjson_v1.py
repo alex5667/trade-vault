@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """export_replay_inputs_ndjson_v1.py
 
 Phase2 helper: export a time-window slice of replay inputs archive into a single NDJSON.
@@ -22,7 +23,6 @@ Env:
   - None
 """
 
-from __future__ import annotations
 
 import argparse
 import gzip

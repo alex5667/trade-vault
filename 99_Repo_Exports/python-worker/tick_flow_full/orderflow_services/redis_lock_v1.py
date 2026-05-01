@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """redis_lock_v1.py (mirror)
 
 Keep in sync with orderflow_services/redis_lock_v1.py.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

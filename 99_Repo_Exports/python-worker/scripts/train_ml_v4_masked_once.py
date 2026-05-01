@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Единоразовый скрипт: Обогащенная ретроспективная фильтрация + переобучение Scorer V4.
 
 Добавляет 7 "золотых" признаков (риск исполнения, дельта, OFI и др.)
 и применяет маскировку по liq_book_stale_ms.
 """
-from __future__ import annotations
 import argparse, hashlib, json, logging, math, os, shutil, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -40,12 +40,12 @@ def _notify(r, text: str):
 # Features (Обогащенный набор V4)
 # ---------------------------------------------------------------------------
 NUMERIC_FEATURES = [
-    "atr_14","obi_avg_20","weak_progress_ratio"
-    "l3_spread_bps","l3_microprice_shift_bps_20","l3_microprice_velocity_bps"
-    "l3_obi_5","l3_obi_20","l3_obi_50","l3_obi_persistence_score"
-    "l3_cancel_to_trade_bid_5s","l3_cancel_to_trade_ask_5s"
-    "l3_cancel_to_trade_bid_20s","l3_cancel_to_trade_ask_20s"
-    "l3_queue_pressure_bid","l3_queue_pressure_ask","l3_market_depth_imbalance"
+    "atr_14","obi_avg_20","weak_progress_ratio",
+    "l3_spread_bps","l3_microprice_shift_bps_20","l3_microprice_velocity_bps",
+    "l3_obi_5","l3_obi_20","l3_obi_50","l3_obi_persistence_score",
+    "l3_cancel_to_trade_bid_5s","l3_cancel_to_trade_ask_5s",
+    "l3_cancel_to_trade_bid_20s","l3_cancel_to_trade_ask_20s",
+    "l3_queue_pressure_bid","l3_queue_pressure_ask","l3_market_depth_imbalance",
     # Golden Features (Execution & Microstructure)
     "exec_risk_bps", "fill_prob_proxy", "delta_z", "ofi_z", "spread_bps", "burst_z", "data_health"
 ]
@@ -53,50 +53,50 @@ DERIVED = ["direction_long","cancel_to_trade_max","obi_spread","queue_imbalance"
 
 FETCH_SQL = """
 SELECT
-    s.ts
-    EXTRACT(EPOCH FROM s.ts)::BIGINT * 1000 AS ts_ms
-    s.signal_id
-    s.symbol
-    s.direction
-    s.signal_family
-    s.conf_score
-    s.atr_14
-    s.delta_spike_z
-    s.obi_avg_20
-    s.weak_progress_ratio
-    s.l3_spread_bps
-    s.l3_microprice_shift_bps_20
-    s.l3_microprice_velocity_bps
-    s.l3_obi_5
-    s.l3_obi_20
-    s.l3_obi_50
-    s.l3_obi_persistence_score
-    s.l3_cancel_to_trade_bid_5s
-    s.l3_cancel_to_trade_ask_5s
-    s.l3_cancel_to_trade_bid_20s
-    s.l3_cancel_to_trade_ask_20s
-    s.l3_queue_pressure_bid
-    s.l3_queue_pressure_ask
-    s.l3_market_depth_imbalance
-    t.r          AS pnl_r
-    t.hit        AS is_win
-    t.slippage_bps
-    t.adverse_bps
-    t.holding_ms
-    t.close_reason_bucket
+    s.ts,
+    EXTRACT(EPOCH FROM s.ts)::BIGINT * 1000 AS ts_ms,
+    s.signal_id,
+    s.symbol,
+    s.direction,
+    s.signal_family,
+    s.conf_score,
+    s.atr_14,
+    s.delta_spike_z,
+    s.obi_avg_20,
+    s.weak_progress_ratio,
+    s.l3_spread_bps,
+    s.l3_microprice_shift_bps_20,
+    s.l3_microprice_velocity_bps,
+    s.l3_obi_5,
+    s.l3_obi_20,
+    s.l3_obi_50,
+    s.l3_obi_persistence_score,
+    s.l3_cancel_to_trade_bid_5s,
+    s.l3_cancel_to_trade_ask_5s,
+    s.l3_cancel_to_trade_bid_20s,
+    s.l3_cancel_to_trade_ask_20s,
+    s.l3_queue_pressure_bid,
+    s.l3_queue_pressure_ask,
+    s.l3_market_depth_imbalance,
+    t.r          AS pnl_r,
+    t.hit        AS is_win,
+    t.slippage_bps,
+    t.adverse_bps,
+    t.holding_ms,
+    t.close_reason_bucket,
     -- book_stale
     COALESCE(
-        (tc.config_json->'indicators'->>'liq_book_stale_ms')::BIGINT
-        (tc.config_json->'indicators'->>'book_ts_gap_ms')::BIGINT
+        (tc.config_json->'indicators'->>'liq_book_stale_ms')::BIGINT,
+        (tc.config_json->'indicators'->>'book_ts_gap_ms')::BIGINT,
         0
-    ) AS ind_book_stale_ms
+    ) AS ind_book_stale_ms,
     -- Golden Features
-    COALESCE((tc.config_json->'indicators'->>'exec_risk_bps')::FLOAT, 0.0) AS exec_risk_bps
-    COALESCE((tc.config_json->'indicators'->>'fill_prob_proxy')::FLOAT, 0.0) AS fill_prob_proxy
-    COALESCE((tc.config_json->'indicators'->>'delta_z')::FLOAT, 0.0) AS delta_z
-    COALESCE((tc.config_json->'indicators'->>'ofi_z')::FLOAT, 0.0) AS ofi_z
-    COALESCE((tc.config_json->'indicators'->>'spread_bps')::FLOAT, 0.0) AS spread_bps
-    COALESCE((tc.config_json->'indicators'->>'burst_z')::FLOAT, 0.0) AS burst_z
+    COALESCE((tc.config_json->'indicators'->>'exec_risk_bps')::FLOAT, 0.0) AS exec_risk_bps,
+    COALESCE((tc.config_json->'indicators'->>'fill_prob_proxy')::FLOAT, 0.0) AS fill_prob_proxy,
+    COALESCE((tc.config_json->'indicators'->>'delta_z')::FLOAT, 0.0) AS delta_z,
+    COALESCE((tc.config_json->'indicators'->>'ofi_z')::FLOAT, 0.0) AS ofi_z,
+    COALESCE((tc.config_json->'indicators'->>'spread_bps')::FLOAT, 0.0) AS spread_bps,
+    COALESCE((tc.config_json->'indicators'->>'burst_z')::FLOAT, 0.0) AS burst_z,
     COALESCE((tc.config_json->'indicators'->>'data_health')::FLOAT, 1.0) AS data_health
 FROM signal_facts s
 JOIN trade_performance t ON s.signal_id = t.signal_id
@@ -104,7 +104,7 @@ LEFT JOIN trades_closed tc ON tc.sid = s.signal_id
 WHERE s.ts > NOW() - INTERVAL '{lookback} days'
   AND t.r IS NOT NULL
   AND ABS(t.r) < 20.0
-  AND s.symbol NOT IN ('XAUUSDT','XAUUSD','GOLD','XAGUSD','XAGUSDT')
+  AND s.symbol NOT IN ('XAUUSDT','','GOLD')
 ORDER BY s.ts ASC
 """
 
@@ -188,8 +188,8 @@ def train_model(X, y, ts_ms):
     try: import lightgbm as lgb
     except ImportError: raise SystemExit("pip install lightgbm")
     
-    params = {"objective":"binary","metric":"auc","verbose":-1,"learning_rate":0.05
-              "num_leaves":31,"min_data_in_leaf":50,"max_depth":5,"feature_fraction":0.8
+    params = {"objective":"binary","metric":"auc","verbose":-1,"learning_rate":0.05,
+              "num_leaves":31,"min_data_in_leaf":50,"max_depth":5,"feature_fraction":0.8,
               "bagging_fraction":0.8,"bagging_freq":5,"reg_lambda":5.0,"seed":42,"n_jobs":2}
 
     ts_arr = np.asarray(ts_ms, dtype=np.int64)
@@ -266,9 +266,9 @@ def main() -> int:
 
     # Save
     pack = {
-        "schema_version": 3, "kind": "ml_scorer_v4_enriched"
-        "model": model, "feature_cols": names
-        "robust_scaler": scaler, "metrics": metrics
+        "schema_version": 3, "kind": "ml_scorer_v4_enriched",
+        "model": model, "feature_cols": names,
+        "robust_scaler": scaler, "metrics": metrics,
         "trained_at_ms": int(time.time()*1000), "n_samples": len(X)
     }
     out = Path(args.output)

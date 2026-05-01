@@ -63,10 +63,10 @@ def test_snapshot_breakdown_and_hot_symbols():
     store.acquire_or_refresh(symbol='BTCUSDT', sid='sid-a', payload_patch={'guard_release_pending': False}, writer='executor')
     store.acquire_or_refresh(symbol='ETHUSDT', sid='sid-b', payload_patch={'guard_release_pending': True, 'state_terminalish': True}, writer='projection')
     r.set('orders:active_symbol_sid:SOLUSDT', json.dumps({
-        'symbol': 'SOLUSDT', 'sid': 'sid-c', 'guard_status': 'released', 'released_at_ms': now_ms - 30_000, 'guard_version': 2
+        'symbol': 'SOLUSDT', 'sid': 'sid-c', 'guard_status': 'released', 'released_at_ms': now_ms - 30_000, 'guard_version': 2,
     }))
     r.set('orders:active_symbol_sid:XRPUSDT', json.dumps({
-        'symbol': 'XRPUSDT', 'sid': 'sid-d', 'guard_status': 'released', 'released_at_ms': now_ms - 700_000, 'guard_version': 4
+        'symbol': 'XRPUSDT', 'sid': 'sid-d', 'guard_status': 'released', 'released_at_ms': now_ms - 700_000, 'guard_version': 4,
     }))
     store._record_conflict(symbol='ETHUSDT', writer='projection', operation='acquire_or_refresh', reason='held_by_other_sid')
     store._record_conflict(symbol='ETHUSDT', writer='projection', operation='acquire_or_refresh', reason='held_by_other_sid')

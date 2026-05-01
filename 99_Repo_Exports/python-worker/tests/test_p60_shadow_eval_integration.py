@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for P60 Shadow Eval + Exporters integration.
 
 Tests cover:
@@ -7,7 +8,6 @@ Tests cover:
 4. ml_analysis/tools/edge_stack_shadow_eval_bundle_v1 - module importable
 """
 
-from __future__ import annotations
 
 import ast
 import json

@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for canary router (deterministic routing)."""
 
-from __future__ import annotations
 
 import pytest
 

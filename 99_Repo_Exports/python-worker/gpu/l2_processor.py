@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 L2GPUProcessor - GPU-accelerated L2 orderbook processing.
 
@@ -5,7 +6,6 @@ This module provides GPU-accelerated processing for Level 2 (L2) orderbook data,
 including batch processing of orderbook snapshots and real-time updates.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time

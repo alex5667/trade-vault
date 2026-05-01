@@ -1,77 +1,77 @@
 #!/usr/bin/env python3
-"""
-Simple test for the trailing analyzer with mock data.
-"""
+""",
+Simple test for the trailing analyzer with mock data.,
+""",
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.abspath(__file__))),
 
 from analyze_trailing_vs_baseline_postgres import (
-    TradeRow, TagStats, analyze_global, analyze_by_tag
-    print_global_report, print_tag_report, mean, stddev, max_drawdown
+    TradeRow, TagStats, analyze_global, analyze_by_tag,
+    print_global_report, print_tag_report, mean, stddev, max_drawdown,
 )
 
 
 def create_mock_trades():
-    """Create mock trades for testing."""
+    """Create mock trades for testing.""",
     return [
         TradeRow(
-            symbol="ETHUSDT"
-            source="CryptoOrderFlow"
-            entry_tag="bullish_signal"
-            pnl_net=150.0
-            pnl_fixed=100.0
-            one_r=100.0
-            mfe_pnl=200.0
-            mae_pnl=-50.0
-            giveback=50.0
-            missed_profit=0.0
-            trailing_started=True
-            trailing_active=False
-            close_reason="TRAILING_PROFIT"
-            close_reason_raw="trailing_profit"
-            close_reason_detail="TRAILING_PROFIT"
-            notional_usd=1000.0
-            exit_ts_ms=1700000000000
-        )
+            symbol="ETHUSDT",
+            source="CryptoOrderFlow",
+            entry_tag="bullish_signal",
+            pnl_net=150.0,
+            pnl_fixed=100.0,
+            one_r=100.0,
+            mfe_pnl=200.0,
+            mae_pnl=-50.0,
+            giveback=50.0,
+            missed_profit=0.0,
+            trailing_started=True,
+            trailing_active=False,
+            close_reason="TRAILING_PROFIT",
+            close_reason_raw="trailing_profit",
+            close_reason_detail="TRAILING_PROFIT",
+            notional_usd=1000.0,
+            exit_ts_ms=1700000000000,
+        ),
         TradeRow(
-            symbol="ETHUSDT"
-            source="CryptoOrderFlow"
-            entry_tag="bullish_signal"
-            pnl_net=-80.0
-            pnl_fixed=-100.0
-            one_r=100.0
-            mfe_pnl=50.0
-            mae_pnl=-150.0
-            giveback=0.0
-            missed_profit=130.0
-            trailing_started=False
-            trailing_active=False
-            close_reason="STOP_LOSS"
-            close_reason_raw="stop_loss"
-            close_reason_detail="STOP_LOSS"
-            notional_usd=1000.0
-            exit_ts_ms=1700000100000
-        )
+            symbol="ETHUSDT",
+            source="CryptoOrderFlow",
+            entry_tag="bullish_signal",
+            pnl_net=-80.0,
+            pnl_fixed=-100.0,
+            one_r=100.0,
+            mfe_pnl=50.0,
+            mae_pnl=-150.0,
+            giveback=0.0,
+            missed_profit=130.0,
+            trailing_started=False,
+            trailing_active=False,
+            close_reason="STOP_LOSS",
+            close_reason_raw="stop_loss",
+            close_reason_detail="STOP_LOSS",
+            notional_usd=1000.0,
+            exit_ts_ms=1700000100000,
+        ),
         TradeRow(
-            symbol="ETHUSDT"
-            source="CryptoOrderFlow"
-            entry_tag="bearish_signal"
-            pnl_net=120.0
-            pnl_fixed=90.0
-            one_r=100.0
-            mfe_pnl=180.0
-            mae_pnl=-30.0
-            giveback=60.0
-            missed_profit=0.0
-            trailing_started=True
-            trailing_active=True
-            close_reason="TRAILING_PROFIT"
-            close_reason_raw="trailing_profit"
-            close_reason_detail="TRAILING_PROFIT"
-            notional_usd=1000.0
-            exit_ts_ms=1700000200000
+            symbol="ETHUSDT",
+            source="CryptoOrderFlow",
+            entry_tag="bearish_signal",
+            pnl_net=120.0,
+            pnl_fixed=90.0,
+            one_r=100.0,
+            mfe_pnl=180.0,
+            mae_pnl=-30.0,
+            giveback=60.0,
+            missed_profit=0.0,
+            trailing_started=True,
+            trailing_active=True,
+            close_reason="TRAILING_PROFIT",
+            close_reason_raw="trailing_profit",
+            close_reason_detail="TRAILING_PROFIT",
+            notional_usd=1000.0,
+            exit_ts_ms=1700000200000,
         )
     ]
 
@@ -102,23 +102,23 @@ def test_trade_properties():
     print("Testing TradeRow properties...")
 
     trade = TradeRow(
-        symbol="ETHUSDT"
-        source="CryptoOrderFlow"
-        entry_tag="test"
-        pnl_net=150.0
-        pnl_fixed=100.0
-        one_r=100.0
-        mfe_pnl=200.0
-        mae_pnl=-50.0
-        giveback=50.0
-        missed_profit=0.0
-        trailing_started=True
-        trailing_active=False
-        close_reason="TRAILING_PROFIT"
-        close_reason_raw="trailing_profit"
-        close_reason_detail="TRAILING_PROFIT"
-        notional_usd=1000.0
-        exit_ts_ms=1700000000000
+        symbol="ETHUSDT",
+        source="CryptoOrderFlow",
+        entry_tag="test",
+        pnl_net=150.0,
+        pnl_fixed=100.0,
+        one_r=100.0,
+        mfe_pnl=200.0,
+        mae_pnl=-50.0,
+        giveback=50.0,
+        missed_profit=0.0,
+        trailing_started=True,
+        trailing_active=False,
+        close_reason="TRAILING_PROFIT",
+        close_reason_raw="trailing_profit",
+        close_reason_detail="TRAILING_PROFIT",
+        notional_usd=1000.0,
+        exit_ts_ms=1700000000000,
     )
 
     assert trade.r_managed == 1.5  # 150/100

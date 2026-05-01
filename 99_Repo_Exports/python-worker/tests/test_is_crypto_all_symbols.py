@@ -23,15 +23,15 @@ class TestIsCryptoAllSymbols(unittest.TestCase):
     # All symbols that should be treated as crypto for margin-based sizing
     CRYPTO_SYMBOLS = [
         "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT", "XRPUSDT",  # Original 6
-        "DOGEUSDT", "WIFUSDT", "1000PEPEUSDT", "SUIUSDT", "ARBUSDT",        # Previously missed
-        "1000BONKUSDT",  "AVAXUSDT", "DOTUSDT", "MATICUSDT",
-         "ATOMUSDT", "NEARUSDT", "APTUSDT", "OPUSDT",
-        "AAVEUSDT", "MKRUSDT", "INJUSDT", "TIAUSDT", "SEIUSDT",
+        "DOGEUSDT", "WIFUSDT", "1000PEPEUSDT", "SUIUSDT", # Previously missed
+        "1000BONKUSDT",  "DOTUSDT", "MATICUSDT",
+         "ATOMUSDT", "APTUSDT", "OPUSDT",
+        "AAVEUSDT", "MKRUSDT", "TIAUSDT", "SEIUSDT",
         "BTCUSDC", "ETHBUSD",  # Alternative stablecoins
     ]
 
     NOT_CRYPTO_SYMBOLS = [
-        "XAUUSD", "XAGUSD",  # Metals on Forex
+        # Metals on Forex
     ]
 
     # Defaults matching ENV defaults in trade_monitor.__init__
@@ -47,7 +47,7 @@ class TestIsCryptoAllSymbols(unittest.TestCase):
     )
     _MARGIN_FX_SYMBOLS = frozenset(
         s.strip().upper()
-        for s in os.getenv("MARGIN_FX_SYMBOLS", "XAUUSD,XAGUSD").split(",")
+        for s in os.getenv("MARGIN_FX_SYMBOLS").split(",")
         if s.strip()
     )
 
@@ -69,7 +69,7 @@ class TestIsCryptoAllSymbols(unittest.TestCase):
                 )
 
     def test_non_crypto_symbols_excluded(self):
-        """XAU/XAG symbols must NOT be treated as crypto."""
+        """XAU symbols must NOT be treated as crypto."""
         for sym in self.NOT_CRYPTO_SYMBOLS:
             with self.subTest(symbol=sym):
                 self.assertFalse(

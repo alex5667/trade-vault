@@ -1,3 +1,4 @@
+from __future__ import annotations
 """tests/test_phase0_horizon_contract.py
 
 Phase 0 contract tests.
@@ -12,7 +13,6 @@ Phase 0 contract tests.
   7. signal_id до/после Phase 0 одинаков — новые поля не входят в dedup-base.
   8. build_horizon_meta_for_payload не перезаписывает существующие meta-поля.
 """
-from __future__ import annotations
 
 import json
 import os

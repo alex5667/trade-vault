@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Test: Calibration fields propagation through trade_close_joiner_worker_v5.
 
@@ -6,7 +7,6 @@ are correctly transferred from close_payload / signal_payload / decision
 into the trades:closed output.
 """
 
-from __future__ import annotations
 
 import asyncio
 import json

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Doubly-Robust uplift estimator for Confidence Calibration A/B.
 
@@ -12,7 +13,6 @@ and estimates the average treatment effect (challenger - champion) using AIPW/DR
 This script is designed to be run offline (cron/systemd timer) and write a JSON report that
 the promotion manager can consume.
 """
-from __future__ import annotations
 
 import argparse
 import gzip

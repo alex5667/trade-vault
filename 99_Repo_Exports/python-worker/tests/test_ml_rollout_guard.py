@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for ML rollout guard (freeze/unfreeze proposals)."""
 
-from __future__ import annotations
 
 import json
 import time

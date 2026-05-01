@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """P58: Multi-archive retention + inventory.
 
 Deletes old day-partitioned NDJSON files and writes a manifest per archive directory.
@@ -17,7 +18,6 @@ Env:
   MANIFEST_NAME (default: manifest.json)
 """
 
-from __future__ import annotations
 
 import json
 import os

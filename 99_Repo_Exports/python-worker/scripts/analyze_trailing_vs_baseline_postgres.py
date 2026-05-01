@@ -91,7 +91,7 @@ def _to_bool(v) -> bool:
 def parse_ts_arg(val: Optional[str]) -> Optional[int]:
     """
     Парсер для --from / --to:
-    - если только цифры → считаем это exit_ts_ms (ms от эпохи)
+    - если только цифры → считаем это exit_ts_ms (ms от эпохи),
     - иначе пытаемся разобрать как дату/время (UTC) и конвертировать в ms.
       Поддерживаются:
       - 'YYYY-MM-DD'
@@ -130,11 +130,11 @@ def parse_ts_arg(val: Optional[str]) -> Optional[int]:
 # ----------------------------
 
 def load_trades_from_postgres(
-    conn
-    source: str
-    symbol: str
-    limit: int = 200
-    since_days: Optional[int] = None
+    conn,
+    source: str,
+    symbol: str,
+    limit: int = 200,
+    since_days: Optional[int] = None,
 ) -> List[Trade]:
     """
     Загружает сделки из PostgreSQL для анализа trailing vs baseline.
@@ -143,24 +143,24 @@ def load_trades_from_postgres(
 
     # Базовый запрос
     cols = """
-        source
-        symbol
-        exit_ts_ms
-        pnl_net
-        pnl_if_fixed_exit
-        one_r_money
-        giveback
-        missed_profit
-        mfe_pnl
-        mae_pnl
-        trailing_started
-        trailing_active
-        close_reason
-        close_reason_raw
-        close_reason_detail
-        entry_tag
-        strategy
-        strong_gate_ok
+        source,
+        symbol,
+        exit_ts_ms,
+        pnl_net,
+        pnl_if_fixed_exit,
+        one_r_money,
+        giveback,
+        missed_profit,
+        mfe_pnl,
+        mae_pnl,
+        trailing_started,
+        trailing_active,
+        close_reason,
+        close_reason_raw,
+        close_reason_detail,
+        entry_tag,
+        strategy,
+        strong_gate_ok,
     """
 
     sql = f"SELECT {cols} FROM trades_closed WHERE source = %s AND symbol = %s"
@@ -182,45 +182,45 @@ def load_trades_from_postgres(
 
     for row in rows:
         (
-            source_val
-            symbol_val
-            exit_ts_ms
-            pnl_net
-            pnl_if_fixed_exit
-            one_r_money
-            giveback
-            missed_profit
-            mfe_pnl
-            mae_pnl
-            trailing_started
-            trailing_active
-            close_reason
-            close_reason_raw
-            close_reason_detail
-            entry_tag
-            strategy
-            strong_gate_ok
+            source_val,
+            symbol_val,
+            exit_ts_ms,
+            pnl_net,
+            pnl_if_fixed_exit,
+            one_r_money,
+            giveback,
+            missed_profit,
+            mfe_pnl,
+            mae_pnl,
+            trailing_started,
+            trailing_active,
+            close_reason,
+            close_reason_raw,
+            close_reason_detail,
+            entry_tag,
+            strategy,
+            strong_gate_ok,
         ) = row
 
         t = Trade(
-            source=source_val or "Unknown"
-            symbol=symbol_val or "UNKNOWN"
-            exit_ts_ms=_to_int(exit_ts_ms)
-            pnl_net=_to_float(pnl_net)
-            pnl_if_fixed_exit=_to_float(pnl_if_fixed_exit)
-            one_r_money=_to_float(one_r_money)
-            giveback=_to_float(giveback)
-            missed_profit=_to_float(missed_profit)
-            mfe_pnl=_to_float(mfe_pnl)
-            mae_pnl=_to_float(mae_pnl)
-            trailing_started=_to_bool(trailing_started)
-            trailing_active=_to_bool(trailing_active)
-            close_reason=close_reason or ""
-            close_reason_raw=close_reason_raw or ""
-            close_reason_detail=close_reason_detail or ""
-            entry_tag=entry_tag or ""
-            strategy=(strategy or "")
-            strong_gate_ok=_to_bool(strong_gate_ok)
+            source=source_val or "Unknown",
+            symbol=symbol_val or "UNKNOWN",
+            exit_ts_ms=_to_int(exit_ts_ms),
+            pnl_net=_to_float(pnl_net),
+            pnl_if_fixed_exit=_to_float(pnl_if_fixed_exit),
+            one_r_money=_to_float(one_r_money),
+            giveback=_to_float(giveback),
+            missed_profit=_to_float(missed_profit),
+            mfe_pnl=_to_float(mfe_pnl),
+            mae_pnl=_to_float(mae_pnl),
+            trailing_started=_to_bool(trailing_started),
+            trailing_active=_to_bool(trailing_active),
+            close_reason=close_reason or "",
+            close_reason_raw=close_reason_raw or "",
+            close_reason_detail=close_reason_detail or "",
+            entry_tag=entry_tag or "",
+            strategy=(strategy or ""),
+            strong_gate_ok=_to_bool(strong_gate_ok),
         )
         trades.append(t)
 
@@ -308,9 +308,9 @@ def main():
         description="Анализ trailing vs baseline для принятия решений о настройках трейлинга"
     )
     parser.add_argument(
-        "--dsn"
-        required=True
-        help="PostgreSQL DSN, например: postgresql://user:pass@localhost:5432/scanner_analytics"
+        "--dsn",
+        required=True,
+        help="PostgreSQL DSN, например: postgresql://user:pass@localhost:5432/scanner_analytics",
     )
     parser.add_argument("--source", default="CryptoOrderFlow", help="Источник стратегии")
     parser.add_argument("--symbol", required=True, help="Символ (ETHUSDT, BTCUSDT и т.д.)")
@@ -325,11 +325,11 @@ def main():
     try:
         # Загружаем сделки
         trades = load_trades_from_postgres(
-            conn=conn
-            source=args.source
-            symbol=args.symbol
-            limit=args.limit
-            since_days=args.since_days
+            conn=conn,
+            source=args.source,
+            symbol=args.symbol,
+            limit=args.limit,
+            since_days=args.since_days,
         )
 
         if not trades:

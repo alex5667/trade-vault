@@ -161,7 +161,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_low_quality_rate": parse_float(raw.get("max_low_quality_rate"), DEFAULT_MAX_LOW_QUALITY_RATE),
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
-    }
+    },
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -195,7 +195,7 @@ def rollup_feedback(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "avg_usefulness": 0.0,
             "accepted_rate": 0.0,
             "low_quality_rate": 0.0,
-        }
+        },
     q = [parse_float(r.get("quality_score"), 0.0) for r in recent]
     u = [parse_float(r.get("usefulness_score"), 0.0) for r in recent]
     a = [parse_int(r.get("accepted"), 0) for r in recent]
@@ -206,7 +206,7 @@ def rollup_feedback(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "avg_usefulness": round(sum(u) / n, 6),
         "accepted_rate": round(sum(a) / n, 6),
         "low_quality_rate": round(sum(low_q) / n, 6),
-    }
+    },
 
 
 def evaluate_governance(rollup: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -230,7 +230,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
         with conn.cursor() as cur:
             if feedback_row is not None:
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_feedback (
                         request_id, bundle_id, ts_ms, quality_score, usefulness_score, accepted, reason_code, feedback_json
                     ) VALUES (
@@ -249,7 +249,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                     },
                 )
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_feedback_rollups (
                     ts_ms, window_min, n, avg_quality, avg_usefulness, accepted_rate, low_quality_rate, rollup_json
                 ) VALUES (
@@ -264,7 +264,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                 },
             )
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_governance_decisions (
                     ts_ms, decision, reason_code, target_bridge_mode, decision_json
                 ) VALUES (

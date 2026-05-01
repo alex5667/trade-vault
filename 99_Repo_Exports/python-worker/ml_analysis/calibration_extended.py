@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Extended calibration diagnostics for confidence models.
 
 Complements classic ECE/Brier with:
@@ -6,7 +7,6 @@ Complements classic ECE/Brier with:
 - sharpness mean / entropy
 - probability mass near 0.5
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple

@@ -27,8 +27,8 @@ class OrderFlowMonitor:
             redis_port: Порт Redis (6380 для сигналов)
         """
         self.redis = redis.Redis(
-            host=redis_host
-            port=redis_port
+            host=redis_host,
+            port=redis_port,
             decode_responses=True
         )
         self.consumer_group = 'example-of-monitor'
@@ -44,9 +44,9 @@ class OrderFlowMonitor:
         try:
             # Создание consumer group
             self.redis.xgroup_create(
-                'stream:of-spike'
-                self.consumer_group
-                id='$'
+                'stream:of-spike',
+                self.consumer_group,
+                id='$',
                 mkstream=True
             )
             print(f"✅ Consumer group '{self.consumer_group}' создана")
@@ -59,10 +59,10 @@ class OrderFlowMonitor:
         while True:
             try:
                 messages = self.redis.xreadgroup(
-                    self.consumer_group
-                    self.consumer_name
-                    {'stream:of-spike': '>'}
-                    count=10
+                    self.consumer_group,
+                    self.consumer_name,
+                    {'stream:of-spike': '>'},
+                    count=10,
                     block=1000
                 )
                 
@@ -147,8 +147,8 @@ class OrderFlowMonitor:
         for symbol, deltas in symbol_deltas.items():
             avg_delta = sum(deltas) / len(deltas)
             avg_deltas.append({
-                'symbol': symbol
-                'avg_abs_delta': avg_delta
+                'symbol': symbol,
+                'avg_abs_delta': avg_delta,
                 'bars_count': len(deltas)
             })
         
@@ -208,8 +208,8 @@ def example_3_cvd_analysis():
     
     # Сортируем по абсолютному CVD
     sorted_symbols = sorted(
-        cvd_stats.items()
-        key=lambda x: abs(x[1]['latest_cvd'])
+        cvd_stats.items(),
+        key=lambda x: abs(x[1]['latest_cvd']),
         reverse=True
     )
     

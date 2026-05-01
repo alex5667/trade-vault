@@ -70,15 +70,15 @@ def _to_plain(obj: Any) -> Any:
 
 
 def diff_objects(
-    a: Any
-    b: Any
-    *
-    abs_tol: float = 1e-6
-    rel_tol: float = 1e-6
-    ignore_paths: Optional[Iterable[str]] = None
-    max_diffs: int = 200
-    _path: str = ""
-    _out: Optional[List[DiffItem]] = None
+    a: Any,
+    b: Any,
+    *,
+    abs_tol: float = 1e-6,
+    rel_tol: float = 1e-6,
+    ignore_paths: Optional[Iterable[str]] = None,
+    max_diffs: int = 200,
+    _path: str = "",
+    _out: Optional[List[DiffItem]] = None,
 ) -> List[DiffItem]:
     """Recursive diff with float tolerance and path-based ignore."""
     if _out is None:
@@ -110,12 +110,12 @@ def diff_objects(
             return _out
         for i, (ai, bi) in enumerate(zip(a, b)):
             diff_objects(
-                ai, bi
-                abs_tol=abs_tol, rel_tol=rel_tol
-                ignore_paths=ignore_paths
-                max_diffs=max_diffs
-                _path=f"{_path}[{i}]" if _path else f"[{i}]"
-                _out=_out
+                ai, bi,
+                abs_tol=abs_tol, rel_tol=rel_tol,
+                ignore_paths=ignore_paths,
+                max_diffs=max_diffs,
+                _path=f"{_path}[{i}]" if _path else f"[{i}]",
+                _out=_out,
             )
             if len(_out) >= max_diffs:
                 break
@@ -130,12 +130,12 @@ def diff_objects(
             _out.append(DiffItem(path=_path + ".__keys__", a=miss_b, b=miss_a, kind="keys"))
         for k in sorted(list(akeys & bkeys)):
             diff_objects(
-                a.get(k), b.get(k)
-                abs_tol=abs_tol, rel_tol=rel_tol
-                ignore_paths=ignore_paths
-                max_diffs=max_diffs
-                _path=f"{_path}.{k}" if _path else str(k)
-                _out=_out
+                a.get(k), b.get(k),
+                abs_tol=abs_tol, rel_tol=rel_tol,
+                ignore_paths=ignore_paths,
+                max_diffs=max_diffs,
+                _path=f"{_path}.{k}" if _path else str(k),
+                _out=_out,
             )
             if len(_out) >= max_diffs:
                 break

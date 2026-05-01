@@ -1,3 +1,4 @@
+from __future__ import annotations
 """E2E-ish tests for OF-gate ok_rate / soft_rate logic.
 
 Goal:
@@ -8,7 +9,6 @@ These tests intentionally avoid Redis and operate on parsed rows —
 they are pure-Python unit/e2e tests that can run without any
 infrastructure (no Redis, no Postgres).
 """
-from __future__ import annotations
 
 import os
 import sys
@@ -34,28 +34,28 @@ class TestOfGateOkRateE2E(unittest.TestCase):
     def _make_row(self, ok: int, ok_soft: int, scenario: str = "cont") -> dict:
         """Build a minimal valid of_gate row for testing."""
         return {
-            "ts_ms": "1700000000000"
-            "ok": str(ok)
-            "ok_soft": str(ok_soft)
-            "scenario_v4": scenario
-            "missing_legs": "[]"
-            "latency_us": "100"
-            "ml_latency_us": "50"
-            "exec_risk_norm": "0.5"
-            "book_health_ok": "1"
-            "source_consistency_ok": "1"
-            "data_health": "0.9"
-            "meta_veto": "0"
-            "symbol": "BTCUSDT"
+            "ts_ms": "1700000000000",
+            "ok": str(ok),
+            "ok_soft": str(ok_soft),
+            "scenario_v4": scenario,
+            "missing_legs": "[]",
+            "latency_us": "100",
+            "ml_latency_us": "50",
+            "exec_risk_norm": "0.5",
+            "book_health_ok": "1",
+            "source_consistency_ok": "1",
+            "data_health": "0.9",
+            "meta_veto": "0",
+            "symbol": "BTCUSDT",
         }
 
     def test_ok_rate_and_soft_rate(self):
         """4 rows: 2 ok, 1 ok_soft, 1 none → ok_rate=0.5, soft_rate=0.25."""
         rows = [
-            self._make_row(ok=1, ok_soft=0, scenario="cont")
-            self._make_row(ok=1, ok_soft=0, scenario="cont")
-            self._make_row(ok=0, ok_soft=1, scenario="rev")
-            self._make_row(ok=0, ok_soft=0, scenario="rev")
+            self._make_row(ok=1, ok_soft=0, scenario="cont"),
+            self._make_row(ok=1, ok_soft=0, scenario="cont"),
+            self._make_row(ok=0, ok_soft=1, scenario="rev"),
+            self._make_row(ok=0, ok_soft=0, scenario="rev"),
         ]
 
         stats = compute_stats(rows, prev=None, dh_bad_th=0.70)

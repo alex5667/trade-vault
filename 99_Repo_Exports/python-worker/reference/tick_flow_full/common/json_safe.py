@@ -24,13 +24,13 @@ def _finite_float(x: float) -> Optional[float]:
 
 
 def to_json_safe(
-    obj: Any
-    *
-    max_depth: int = 8
-    max_items: int = 500
-    max_str: int = 4096
-    _depth: int = 0
-    _seen: Optional[Set[int]] = None
+    obj: Any,
+    *,
+    max_depth: int = 8,
+    max_items: int = 500,
+    max_str: int = 4096,
+    _depth: int = 0,
+    _seen: Optional[Set[int]] = None,
 ) -> JsonType:
     """
     Гарантирует: результат состоит ТОЛЬКО из:

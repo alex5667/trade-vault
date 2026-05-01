@@ -175,43 +175,43 @@ def build_scorecard(change_id: str) -> Dict[str, Any]:
             WHERE status = 'active' AND override_class = 'TEMP_RELEASE_OVERRIDE'
               AND scope_kind IN ('global', %s)
             ORDER BY created_at DESC LIMIT 1
-        """, (scope_kind,))
-        active_rel_override = cur.fetchone()
+        """, (scope_kind,)),
+        active_rel_override = cur.fetchone(),
         
         # Determine Decision
         if len(blockers) > 0:
             if active_rel_override and "INV_UNRESOLVED_CRITICAL_INVARIANTS_ON_SCOPE" not in blockers and "INV_NO_LIVE_SCOPE_WITH_OPEN_CRITICAL_INCIDENT" not in blockers:
-                decision = "allow_with_override"
-                infos.append(f"blockers_bypassed_via_override_{active_rel_override['override_id']}")
+                decision = "allow_with_override",
+                infos.append(f"blockers_bypassed_via_override_{active_rel_override['override_id']}"),
             else:
-                decision = "deny"
+                decision = "deny",
         elif len(warnings) > 0:
-            decision = "allow_with_override"
+            decision = "allow_with_override",
         else:
-            decision = "allow"
+            decision = "allow",
             
         scorecard = {
-            "scorecard_id": _generate_id("sc")
-            "change_id": change_id
+            "scorecard_id": _generate_id("sc"),
+            "change_id": change_id,
             "scope": {
-                "source": change.get("source")
-                "symbol": change.get("symbol")
-                "scenario": change.get("scenario")
-                "regime": change.get("regime")
-                "risk_horizon_bucket": change.get("risk_horizon_bucket")
-                "layer": change.get("layer")
+                "source": change.get("source"),
+                "symbol": change.get("symbol"),
+                "scenario": change.get("scenario"),
+                "regime": change.get("regime"),
+                "risk_horizon_bucket": change.get("risk_horizon_bucket"),
+                "layer": change.get("layer"),
                 "policy_ver": change.get("policy_ver")
-            }
-            "decision": decision
-            "readiness_score": score
-            "blockers": blockers
-            "warnings": warnings
-            "infos": infos
+            },
+            "decision": decision,
+            "readiness_score": score,
+            "blockers": blockers,
+            "warnings": warnings,
+            "infos": infos,
             "summary": {
-                "replay_status": replay_status
-                "rollout_cert_status": rollout_cert_status
-                "rollback_cert_status": "not_applicable"
-                "incidents_open": sev1_open
+                "replay_status": replay_status,
+                "rollout_cert_status": rollout_cert_status,
+                "rollback_cert_status": "not_applicable",
+                "incidents_open": sev1_open,
                 "overdue_actions": overdue_actions
             }
         }
@@ -219,20 +219,20 @@ def build_scorecard(change_id: str) -> Dict[str, Any]:
         # Persist Scorecard
         cur.execute("""
             INSERT INTO atr_release_scorecards (
-                scorecard_id, change_id, scope_kind, source, venue, symbol
-                scenario, regime, risk_horizon_bucket, layer, policy_ver
+                scorecard_id, change_id, scope_kind, source, venue, symbol,
+                scenario, regime, risk_horizon_bucket, layer, policy_ver,
                 readiness_score, decision, blockers_json, warnings_json, infos_json, summary_json
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s
             )
         """, (
-            scorecard["scorecard_id"], change_id, scope_kind, scorecard["scope"]["source"]
-            change.get("venue"), scorecard["scope"]["symbol"], scorecard["scope"]["scenario"]
-            scorecard["scope"]["regime"], scorecard["scope"]["risk_horizon_bucket"]
-            scorecard["scope"]["layer"], scorecard["scope"]["policy_ver"]
-            scorecard["readiness_score"], scorecard["decision"]
-            json.dumps(scorecard["blockers"]), json.dumps(scorecard["warnings"])
+            scorecard["scorecard_id"], change_id, scope_kind, scorecard["scope"]["source"],
+            change.get("venue"), scorecard["scope"]["symbol"], scorecard["scope"]["scenario"],
+            scorecard["scope"]["regime"], scorecard["scope"]["risk_horizon_bucket"],
+            scorecard["scope"]["layer"], scorecard["scope"]["policy_ver"],
+            scorecard["readiness_score"], scorecard["decision"],
+            json.dumps(scorecard["blockers"]), json.dumps(scorecard["warnings"]),
             json.dumps(scorecard["infos"]), json.dumps(scorecard["summary"])
         ))
         conn.commit()
@@ -331,10 +331,10 @@ def record_release_decision(change_id: str, scorecard_id: str, actor: str, actio
                 
                 # Phase 8.8: Graph Authority Check
                 if ATRGraphReconciliationService.detect_out_of_band_legacy_write(
-                    component="release"
-                    scope_value=symbol
-                    actor=actor
-                    reason_code=reason_code
+                    component="release",
+                    scope_value=symbol,
+                    actor=actor,
+                    reason_code=reason_code,
                     payload_json={"action": action, "change_id": change_id, "scorecard_id": scorecard_id}
                 ):
                     logger.warning(f"Blocked legacy release write for {symbol} due to Graph Primary Authority.")
@@ -349,9 +349,9 @@ def record_release_decision(change_id: str, scorecard_id: str, actor: str, actio
                 """, (change_id, old_status, "APPROVED", "RELEASE_DECISION_"+action.upper(), json.dumps({"decision_id": decision_id, "scorecard_id": scorecard_id})))
                 
             ControlPlaneGraphService.emit_graph_event(
-                scope_kind=scope_kind
-                scope_value=symbol
-                event_type="release_decided"
+                scope_kind=scope_kind,
+                scope_value=symbol,
+                event_type="release_decided",
                 payload={"action": action}
             )
 

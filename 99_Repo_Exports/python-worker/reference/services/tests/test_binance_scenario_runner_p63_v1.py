@@ -35,52 +35,52 @@ from services.testing.binance_scenario_runner import BinanceScenarioRunner
 # ---------------------------------------------------------------------------
 
 def _configure_env(
-    monkeypatch
-    *
-    base_url: str
-    maker: bool = False
-    fill_timeout_s: str = "0.25"
+    monkeypatch,
+    *,
+    base_url: str,
+    maker: bool = False,
+    fill_timeout_s: str = "0.25",
 ) -> None:
     """Set all required ENV vars so BinanceExecutor + BinanceUserStreamWorker
     can be instantiated without a real Binance account."""
     values = {
-        "BINANCE_CLIENT_MODE": "real"
-        "BINANCE_FUTURES_BASE_URL": base_url
-        "BINANCE_POSITION_MODE": "oneway"
-        "BINANCE_SYMBOL_ALLOWLIST": "BTCUSDT"
-        "BINANCE_INIT_SYMBOL_SETTINGS": "0"
-        "BINANCE_FILL_TIMEOUT_S": fill_timeout_s
-        "BINANCE_FILL_POLL_S": "0.05"
-        "BINANCE_RECV_WINDOW_MS": "3000"
-        "PROTECTION_ARM_TIMEOUT_MS": "2500"
+        "BINANCE_CLIENT_MODE": "real",
+        "BINANCE_FUTURES_BASE_URL": base_url,
+        "BINANCE_POSITION_MODE": "oneway",
+        "BINANCE_SYMBOL_ALLOWLIST": "BTCUSDT",
+        "BINANCE_INIT_SYMBOL_SETTINGS": "0",
+        "BINANCE_FILL_TIMEOUT_S": fill_timeout_s,
+        "BINANCE_FILL_POLL_S": "0.05",
+        "BINANCE_RECV_WINDOW_MS": "3000",
+        "PROTECTION_ARM_TIMEOUT_MS": "2500",
         # TP watchdog: short timeout so the fallback fires in tests
-        "TP_LIMIT_WATCHDOG_ENABLE": "1"
-        "TP_LIMIT_WATCHDOG_TIMEOUT_MS": "120"
-        "TP_TRIGGER_MONITOR_TIMEOUT_S": "1.0"
-        "BINANCE_TRAIL_ARM_POLL_S": "0.05"
-        "BINANCE_TRAIL_NOTIFY": "0"
+        "TP_LIMIT_WATCHDOG_ENABLE": "1",
+        "TP_LIMIT_WATCHDOG_TIMEOUT_MS": "120",
+        "TP_TRIGGER_MONITOR_TIMEOUT_S": "1.0",
+        "BINANCE_TRAIL_ARM_POLL_S": "0.05",
+        "BINANCE_TRAIL_NOTIFY": "0",
         # Reconcile: prefer user-stream cache on 503-unknown
-        "EXEC_RECONCILE_ENABLE": "1"
-        "EXEC_RECONCILE_ON_503_UNKNOWN": "1"
-        "EXEC_RECONCILE_PREFER_USER_STREAM": "1"
-        "EXEC_REHYDRATE_ON_STATE_MISS": "1"
+        "EXEC_RECONCILE_ENABLE": "1",
+        "EXEC_RECONCILE_ON_503_UNKNOWN": "1",
+        "EXEC_RECONCILE_PREFER_USER_STREAM": "1",
+        "EXEC_REHYDRATE_ON_STATE_MISS": "1",
         # SQL sinks disabled (no Postgres in test env)
-        "EXEC_JOURNAL_SQL_ENABLE": "0"
-        "EXECUTION_JOURNAL_DSN": ""
-        "EXECUTION_QUARANTINE_LEDGER_DSN": ""
+        "EXEC_JOURNAL_SQL_ENABLE": "0",
+        "EXECUTION_JOURNAL_DSN": "",
+        "EXECUTION_QUARANTINE_LEDGER_DSN": "",
         # Redis / stream keys
-        "REDIS_URL": "redis://mock/0"
-        "EXEC_STREAM": "orders:exec"
-        "ORDERS_QUEUE_BINANCE": "orders:queue:binance"
-        "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing"
-        "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq"
-        "USER_STREAM_STREAM": "orders:user_stream"
-        "USER_STREAM_CACHE_PREFIX": "orders:user_stream:"
+        "REDIS_URL": "redis://mock/0",
+        "EXEC_STREAM": "orders:exec",
+        "ORDERS_QUEUE_BINANCE": "orders:queue:binance",
+        "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing",
+        "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq",
+        "USER_STREAM_STREAM": "orders:user_stream",
+        "USER_STREAM_CACHE_PREFIX": "orders:user_stream:",
         # Execution policy
-        "EXEC_POLICY_DEFAULT": "MAKER_FIRST" if maker else "SAFETY_FIRST"
-        "EXEC_POLICY_MAKER_ALLOWED_SYMBOLS": "BTCUSDT" if maker else "DO_NOT_USE"
-        "EXEC_FORCE_SAFETY_FIRST": "0" if maker else "1"
-    }
+        "EXEC_POLICY_DEFAULT": "MAKER_FIRST" if maker else "SAFETY_FIRST",
+        "EXEC_POLICY_MAKER_ALLOWED_SYMBOLS": "BTCUSDT" if maker else "DO_NOT_USE",
+        "EXEC_FORCE_SAFETY_FIRST": "0" if maker else "1",
+    },
     for k, v in values.items():
         monkeypatch.setenv(k, v)
 
@@ -113,38 +113,38 @@ def test_scripted_timeline_partial_restart_trigger_delayed_fill(monkeypatch):
 
         sid = "sid-timeline-1"
         payload = {
-            "action": "open"
-            "sid": sid
-            "symbol": "BTCUSDT"
-            "side": "BUY"
-            "qty": 1
-            "type": "MARKET"
-            "sl": 95
-            "tp_levels": [101]
-        }
+            "action": "open",
+            "sid": sid,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "qty": 1,
+            "type": "MARKET",
+            "sl": 95,
+            "tp_levels": [101],
+        },
 
         # Script the entry order to return PARTIAL_FILLED on first query
         mock.state.set_plain_order_script(
-            _make_cid(sid, "entry")
+            _make_cid(sid, "entry"),
             query_sequence=[
                 {"status": "PARTIALLY_FILLED", "executedQty": "0.4", "avgPrice": "100.0"}
-            ]
+            ],
         )
 
         report = runner.run_timeline([
-            {"at": "t0", "op": "queue_open", "payload": payload}
-            {"at": "t0", "op": "run_executor_once"}
-            {"at": "t1", "op": "drain_user_stream"}
-            {"at": "t2", "op": "restart_executor"}
+            {"at": "t0", "op": "queue_open", "payload": payload},
+            {"at": "t0", "op": "run_executor_once"},
+            {"at": "t1", "op": "drain_user_stream"},
+            {"at": "t2", "op": "restart_executor"},
             # Re-queue: executor should detect duplicate and skip
-            {"at": "t2", "op": "queue_raw", "payload": payload}
-            {"at": "t2", "op": "run_executor_once"}
-            {"at": "t2", "op": "drain_user_stream"}
+            {"at": "t2", "op": "queue_raw", "payload": payload},
+            {"at": "t2", "op": "run_executor_once"},
+            {"at": "t2", "op": "drain_user_stream"},
             # Raise mark: TP1 at 101 should now be triggered
-            {"at": "t3", "op": "set_mark_price", "symbol": "BTCUSDT", "price": 101.5}
+            {"at": "t3", "op": "set_mark_price", "symbol": "BTCUSDT", "price": 101.5},
             # Sleep > watchdog timeout (120 ms + buffer for TP limit not filled)
-            {"at": "t4", "op": "sleep_ms", "ms": 350}
-            {"at": "t4", "op": "drain_user_stream"}
+            {"at": "t4", "op": "sleep_ms", "ms": 350},
+            {"at": "t4", "op": "drain_user_stream"},
         ], sid=sid, symbol="BTCUSDT")
 
         # t1 snapshot should show partially_filled state
@@ -193,36 +193,36 @@ def test_degraded_rest_with_live_user_stream_bridge_reconciles_without_query(mon
 
         sid = "sid-ws-reconcile-1"
         payload = {
-            "action": "open"
-            "sid": sid
-            "symbol": "BTCUSDT"
-            "side": "BUY"
-            "qty": 1
-            "type": "MARKET"
-            "sl": 95
-            "tp_levels": [110]
-        }
+            "action": "open",
+            "sid": sid,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "qty": 1,
+            "type": "MARKET",
+            "sl": 95,
+            "tp_levels": [110],
+        },
 
         entry_cid = _make_cid(sid, "entry")
         # POST returns 503 unknown but order IS created (simulates Binance fire-and-error)
         mock.state.set_plain_order_script(
-            entry_cid
+            entry_cid,
             post_error={
-                "status": 503
+                "status": 503,
                 "payload": {
-                    "code": 0
-                    "msg": "Unknown error, please check your request or try again later."
-                }
-            }
-            create_on_post_error=True
+                    "code": 0,
+                    "msg": "Unknown error, please check your request or try again later.",
+                },
+            },
+            create_on_post_error=True,
         )
 
         # P6.3: bridge routes the harness MARKET fill event synchronously into
         # handle_message() — executor sees user-stream cache hit and uses it for reconcile
         report = runner.run_timeline([
-            {"at": "t0", "op": "attach_live_user_stream_bridge"}
-            {"at": "t0", "op": "queue_open", "payload": payload}
-            {"at": "t0", "op": "run_executor_once"}
+            {"at": "t0", "op": "attach_live_user_stream_bridge"},
+            {"at": "t0", "op": "queue_open", "payload": payload},
+            {"at": "t0", "op": "run_executor_once"},
         ], sid=sid)
 
         assert report[-1]["result"]["processed"] is True
@@ -268,14 +268,14 @@ def test_burst_with_worker_reconnect_smoke_pack(monkeypatch):
         runner = BinanceScenarioRunner(mock_server=mock)
 
         runner.enqueue_open_burst(
-            sid_prefix="sid-burst-reconnect"
-            count=12
-            symbol="BTCUSDT"
-            side="BUY"
-            qty=1
-            order_type="MARKET"
-            sl=95
-            tp_levels=[110]
+            sid_prefix="sid-burst-reconnect",
+            count=12,
+            symbol="BTCUSDT",
+            side="BUY",
+            qty=1,
+            order_type="MARKET",
+            sl=95,
+            tp_levels=[110],
         )
 
         # Process first 6

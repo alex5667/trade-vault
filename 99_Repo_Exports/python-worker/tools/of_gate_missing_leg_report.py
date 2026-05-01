@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Report most frequent missing legs directly from metrics:of_gate.
 
 Why:
@@ -9,7 +10,6 @@ Usage:
   REDIS_URL=redis://redis-worker-1:6379/0 python3 tools/of_gate_missing_leg_report.py --limit 8000 --only-veto
 """
 
-from __future__ import annotations
 
 import argparse
 import json

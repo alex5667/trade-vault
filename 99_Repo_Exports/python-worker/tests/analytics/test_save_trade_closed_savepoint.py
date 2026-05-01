@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P0-3 regression: trades_closed_p0 failure must NOT abort the main trades_closed insert.
 
@@ -5,7 +6,6 @@ Uses a fake psycopg2 cursor that raises on the second execute() (P0 insert)
 to confirm that the SAVEPOINT mechanism prevents the main transaction from
 being rolled back.
 """
-from __future__ import annotations
 
 import sys
 import types

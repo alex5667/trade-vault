@@ -2,8 +2,8 @@ import json
 import pytest
 
 from services.orderflow.of_inputs_v3_circuit import (
-    refresh_disabled_state
-    record_downgrade_and_maybe_trip
+    refresh_disabled_state,
+    record_downgrade_and_maybe_trip,
 )
 
 
@@ -148,24 +148,24 @@ async def test_record_and_trip_sets_cfg_and_auto_apply_keys():
 
     # 1st / 2nd do not trip
     res1 = await record_downgrade_and_maybe_trip(
-        r, sym=sym, now_ms=now, downgrade_reason="book_stale"
-        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000
-        block_auto_apply=True, auto_apply_reason="of_inputs_v3"
+        r, sym=sym, now_ms=now, downgrade_reason="book_stale",
+        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000,
+        block_auto_apply=True, auto_apply_reason="of_inputs_v3",
     )
     assert res1["tripped"] == 0
 
     res2 = await record_downgrade_and_maybe_trip(
-        r, sym=sym, now_ms=now + 10_000, downgrade_reason="book_stale"
-        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000
-        block_auto_apply=True, auto_apply_reason="of_inputs_v3"
+        r, sym=sym, now_ms=now + 10_000, downgrade_reason="book_stale",
+        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000,
+        block_auto_apply=True, auto_apply_reason="of_inputs_v3",
     )
     assert res2["tripped"] == 0
 
     # 3rd trips
     res3 = await record_downgrade_and_maybe_trip(
-        r, sym=sym, now_ms=now + 20_000, downgrade_reason="book_stale"
-        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000
-        block_auto_apply=True, auto_apply_reason="of_inputs_v3"
+        r, sym=sym, now_ms=now + 20_000, downgrade_reason="book_stale",
+        window_ms=60_000, max_downgrades_in_window=3, disable_ms=300_000,
+        block_auto_apply=True, auto_apply_reason="of_inputs_v3",
     )
     assert res3["tripped"] == 1
     assert res3["disabled_until_ms"] == (now + 20_000 + 300_000)
@@ -247,8 +247,8 @@ async def test_refresh_disabled_state_sets_phase_hard_then_cooldown():
     payload = {
         "until_ms": now + 300_000 + 60_000,  # full period = disable_ms + cooldown_ms
         "hard_until_ms": now + 300_000,       # hard-disable period = disable_ms
-        "cooldown_ms": 60_000
-        "reason": "book_stale"
+        "cooldown_ms": 60_000,
+        "reason": "book_stale",
     }
     await r.set(disable_key, json.dumps(payload), px=360_000)
 

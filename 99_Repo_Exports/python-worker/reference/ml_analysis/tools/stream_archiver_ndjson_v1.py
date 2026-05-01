@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Generic Redis Stream → NDJSON archiver (P58).
 
 Goal:
@@ -29,7 +30,6 @@ Continuous:
   python -m ml_analysis.tools.stream_archiver_ndjson_v1 --loop-s 1 --batch 2000
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -184,23 +184,23 @@ def _env_bool(name: str, default: str = "0") -> bool:
 def load_cfg(args: argparse.Namespace) -> Cfg:
     consumer = args.consumer or _env_str("ARCHIVER_CONSUMER", f"archiver-{os.getpid()}")
     return Cfg(
-        redis_url=args.redis_url or _env_str("REDIS_URL", "redis://localhost:6379/0")
-        stream=args.stream or _env_str("ARCHIVE_STREAM", "")
-        group=args.group or _env_str("ARCHIVER_GROUP", "archiver_v1")
-        consumer=consumer
-        archive_dir=Path(args.archive_dir or _env_str("ARCHIVE_DIR", "./archives")).expanduser().resolve()
-        gzip_enabled=bool(args.gzip_enabled) if args.gzip_enabled is not None else _env_bool("GZIP", "0")
-        payload_field=str(args.payload_field or _env_str("PAYLOAD_FIELD", "payload"))
-        batch=int(args.batch or _env_int("BATCH", 2000))
-        max_messages=int(args.max_messages or _env_int("MAX_MESSAGES", 0))
-        loop_s=float(args.loop_s if args.loop_s is not None else float(_env_str("LOOP_S", "1")))
-        once=bool(args.once) if args.once is not None else _env_bool("ONCE", "0")
-        flush_every=int(args.flush_every or _env_int("FLUSH_EVERY", 1000))
-        fsync_every=int(args.fsync_every or _env_int("FSYNC_EVERY", 20000))
-        seen_prefix=str(args.seen_prefix or _env_str("SEEN_PREFIX", ""))
-        seen_ttl_sec=int(args.seen_ttl_sec or _env_int("SEEN_TTL_SEC", 7 * 24 * 3600))
-        delete_after_ack=bool(args.delete_after_ack) if args.delete_after_ack is not None else _env_bool("DELETE_AFTER_ACK", "0")
-        metrics_hash=str(args.metrics_hash or _env_str("ARCHIVER_METRICS_HASH", f"metrics:archiver:{args.stream or ''}"))
+        redis_url=args.redis_url or _env_str("REDIS_URL", "redis://localhost:6379/0"),
+        stream=args.stream or _env_str("ARCHIVE_STREAM", ""),
+        group=args.group or _env_str("ARCHIVER_GROUP", "archiver_v1"),
+        consumer=consumer,
+        archive_dir=Path(args.archive_dir or _env_str("ARCHIVE_DIR", "./archives")).expanduser().resolve(),
+        gzip_enabled=bool(args.gzip_enabled) if args.gzip_enabled is not None else _env_bool("GZIP", "0"),
+        payload_field=str(args.payload_field or _env_str("PAYLOAD_FIELD", "payload")),
+        batch=int(args.batch or _env_int("BATCH", 2000)),
+        max_messages=int(args.max_messages or _env_int("MAX_MESSAGES", 0)),
+        loop_s=float(args.loop_s if args.loop_s is not None else float(_env_str("LOOP_S", "1"))),
+        once=bool(args.once) if args.once is not None else _env_bool("ONCE", "0"),
+        flush_every=int(args.flush_every or _env_int("FLUSH_EVERY", 1000)),
+        fsync_every=int(args.fsync_every or _env_int("FSYNC_EVERY", 20000)),
+        seen_prefix=str(args.seen_prefix or _env_str("SEEN_PREFIX", "")),
+        seen_ttl_sec=int(args.seen_ttl_sec or _env_int("SEEN_TTL_SEC", 7 * 24 * 3600)),
+        delete_after_ack=bool(args.delete_after_ack) if args.delete_after_ack is not None else _env_bool("DELETE_AFTER_ACK", "0"),
+        metrics_hash=str(args.metrics_hash or _env_str("ARCHIVER_METRICS_HASH", f"metrics:archiver:{args.stream or ''}")),
     )
 
 

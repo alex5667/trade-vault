@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Check Auto Calibration Status
 
 Проверить статус автоматической калибровки параметров торговли.
 """
 
-from __future__ import annotations
 
 import json
 import os

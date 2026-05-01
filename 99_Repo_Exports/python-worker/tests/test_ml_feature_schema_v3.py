@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for ML Feature Schema V3 — continuation-context quality features.
 
@@ -9,7 +10,6 @@ Validates:
   5. cont_ctx_recent is intentionally EXCLUDED (train≠serve drift)
 """
 
-from __future__ import annotations
 
 import os
 import sys

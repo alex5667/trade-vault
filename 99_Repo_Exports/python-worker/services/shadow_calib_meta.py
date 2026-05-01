@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Shadow/Calibration metadata field definitions — single source of truth.
 
@@ -9,7 +10,6 @@ to avoid drift.
 Fail-open: extraction helpers never raise; missing fields are silently skipped.
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, Sequence, Tuple
 

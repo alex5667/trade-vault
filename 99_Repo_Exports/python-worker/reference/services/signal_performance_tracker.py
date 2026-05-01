@@ -64,32 +64,32 @@ from prometheus_client import Counter, Gauge, Histogram, start_http_server
 # Define metrics globally to prevent "Duplicated timeseries" if instantiated multiple times.
 METRIC_SIGNAL_LATENCY = Histogram(
     "signal_processing_time_ms", 
-    "End-to-end signal processing time (entry_ts to processing)"
-    ["strategy", "symbol"]
+    "End-to-end signal processing time (entry_ts to processing)",
+    ["strategy", "symbol"],
     buckets=[100, 500, 1000, 3000, 5000, 10000]
 )
 METRIC_TICK_LATENCY = Histogram(
-    "tracker_tick_processing_time_us"
-    "Latency of tick processing in SignalPerformanceTracker"
-    ["symbol"]
+    "tracker_tick_processing_time_us",
+    "Latency of tick processing in SignalPerformanceTracker",
+    ["symbol"],
     buckets=[50, 200, 500, 1000, 5000, 20000]
 )
 
 # COUNTERS
 METRIC_SIGNAL_LOGGING_FAILED = Counter(
-    "signal_logging_failed_total"
+    "signal_logging_failed_total",
     "Total number of signal logging failures to PostgreSQL"
 )
 METRIC_DEDUP_HITS = Counter(
-    "dedup_hits_total"
-    "Total number of deduplicator hits"
+    "dedup_hits_total",
+    "Total number of deduplicator hits",
     ["type"] # signal or event
 )
 
 # GAUGES
 METRIC_STREAM_LAG = Gauge(
-    "redis_stream_lag_ms"
-    "Lag between last entry in Redis stream and current processing time"
+    "redis_stream_lag_ms",
+    "Lag between last entry in Redis stream and current processing time",
     ["stream"]
 )
 # --------------------------------------------------------------------
@@ -214,13 +214,13 @@ class SignalPerformanceTracker:
 
         # Инициализируем компоненты
         self.trade_monitor = TradeMonitorService(
-            redis_url=self.redis_url
-            config=self.config
+            redis_url=self.redis_url,
+            config=self.config,
             regime_guard=self.regime_guard
         )
 
         self.reporting_service = ReportingService(
-            redis_url=self.redis_url
+            redis_url=self.redis_url,
             telegram_config=self.config.get("telegram")
         )
         self.periodic_reporter = EmbeddedPeriodicReporter()
@@ -316,9 +316,9 @@ class SignalPerformanceTracker:
         initial_dynamic_symbols = self._refresh_symbols_from_redis(initial=True)
         if initial_dynamic_symbols:
             self.logger.info(
-                "🆕 Добавлены символы из %s: %s"
-                self.dynamic_symbols_key
-                ", ".join(sorted(initial_dynamic_symbols))
+                "🆕 Добавлены символы из %s: %s",
+                self.dynamic_symbols_key,
+                ", ".join(sorted(initial_dynamic_symbols)),
             )
         
         # Consumer группы
@@ -333,23 +333,23 @@ class SignalPerformanceTracker:
         
         # Статистика
         self.stats = {
-            "signals_processed": 0
-            "ticks_processed": 0
-            "positions_opened": 0
-            "positions_closed": 0
-            "last_signal_time": None
-            "last_tick_time": None
-            "start_time": time.time()
-            "trailing_updates_applied": 0
-            "trailing_updates_missed": 0
-            "external_sl_synced": 0
-            "external_sl_missed": 0
-            "tp1_internal_hits": 0
-            "trailing_internal_started": 0
-            "trailing_internal_failed": 0
-            "dedup_signals_skipped": 0
-            "dedup_events_skipped": 0
-            "dedup_reports_skipped": 0
+            "signals_processed": 0,
+            "ticks_processed": 0,
+            "positions_opened": 0,
+            "positions_closed": 0,
+            "last_signal_time": None,
+            "last_tick_time": None,
+            "start_time": time.time(),
+            "trailing_updates_applied": 0,
+            "trailing_updates_missed": 0,
+            "external_sl_synced": 0,
+            "external_sl_missed": 0,
+            "tp1_internal_hits": 0,
+            "trailing_internal_started": 0,
+            "trailing_internal_failed": 0,
+            "dedup_signals_skipped": 0,
+            "dedup_events_skipped": 0,
+            "dedup_reports_skipped": 0,
         }
 
         # Recommendation 4: Observability (Prometheus)
@@ -399,8 +399,8 @@ class SignalPerformanceTracker:
         # For now, create isolated instances (each with its own state)
         # In production, you'd want TradeMonitorCore without locks
         core = TradeMonitorService(
-            redis_url=self.redis_url
-            config=self.config
+            redis_url=self.redis_url,
+            config=self.config,
             regime_guard=self.regime_guard
         )
         # Mark as shard-local (conceptually single-threaded)
@@ -411,46 +411,46 @@ class SignalPerformanceTracker:
         """Загрузка конфигурации из переменных окружения."""
         
         # Загружаем из файла если указан
-        config_path = os.getenv("TRACKER_CONFIG_PATH")
+        config_path = os.getenv("TRACKER_CONFIG_PATH"),
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
-                    return json.load(f)
+                    return json.load(f),
             except Exception as e:
-                self.logger.warning(f"⚠️ Не удалось загрузить конфиг из {config_path}: {e}")
+                self.logger.warning(f"⚠️ Не удалось загрузить конфиг из {config_path}: {e}"),
         
         # Конфигурация по умолчанию из ENV
-        symbols = _parse_csv_env("SYMBOLS", ["XAUUSD", "BTCUSDT", "ETHUSDT"])
-        strategies = _parse_csv_env("STRATEGIES", ["orderflow", "ta", "aggregated", "cryptoorderflow"])
+        symbols = _parse_csv_env("SYMBOLS", ["XAUUSD", "BTCUSDT", "ETHUSDT"]),
+        strategies = _parse_csv_env("STRATEGIES", ["orderflow", "ta", "aggregated", "cryptoorderflow"]),
         # Preserve order while normalizing casing
-        symbols = list(dict.fromkeys(sym.upper() for sym in symbols))
-        strategies = list(dict.fromkeys(strategy.lower() for strategy in strategies))
+        symbols = list(dict.fromkeys(sym.upper() for sym in symbols)),
+        strategies = list(dict.fromkeys(strategy.lower() for strategy in strategies)),
 
-        periodic_hours = int(os.getenv("PERIODIC_REPORT_HOURS", "1"))
+        periodic_hours = int(os.getenv("PERIODIC_REPORT_HOURS", "1")),
 
         return {
             "streams": {
-                "symbols": symbols
+                "symbols": symbols,
                 # ✅ Стратегии нормализованы в lower-case
-                "strategies": strategies
-            }
-            "consumer_group": os.getenv("CONSUMER_GROUP", "signal-tracker-group")
-            "consumer_name": os.getenv("CONSUMER_NAME", f"tracker-{int(time.time())}")
+                "strategies": strategies,
+            },
+            "consumer_group": os.getenv("CONSUMER_GROUP", "signal-tracker-group"),
+            "consumer_name": os.getenv("CONSUMER_NAME", f"tracker-{int(time.time())}"),
             "monitor": {
-                "default_lot": float(os.getenv("DEFAULT_LOT", "1.0"))
-                "risk_pct": float(os.getenv("RISK_PCT", "1.0"))
-                "stop_atr_mult": float(os.getenv("STOP_ATR_MULT", "1.0"))
-                "rr_levels": [1.0, 2.0, 3.0]
-                "tp_ratio": _parse_tp_ratio()
+                "default_lot": float(os.getenv("DEFAULT_LOT", "1.0")),
+                "risk_pct": float(os.getenv("RISK_PCT", "1.0")),
+                "stop_atr_mult": float(os.getenv("STOP_ATR_MULT", "1.0")),
+                "rr_levels": [1.0, 2.0, 3.0],
+                "tp_ratio": _parse_tp_ratio(),
                 "notify_on_trade_close": os.getenv("NOTIFY_ON_TRADE_CLOSE", "false").lower() == "true"
-            }
+            },
             "telegram": {
-                "bot_token": os.getenv("TELEGRAM_BOT_TOKEN")
+                "bot_token": os.getenv("TELEGRAM_BOT_TOKEN"),
                 "chat_id": os.getenv("TELEGRAM_CHAT_ID")
-            }
+            },
             "reporting": {
-                "periodic_interval_hours": periodic_hours
-                "daily_summary_enabled": os.getenv("DAILY_SUMMARY", "true").lower() == "true"
+                "periodic_interval_hours": periodic_hours,
+                "daily_summary_enabled": os.getenv("DAILY_SUMMARY", "true").lower() == "true",
                 "daily_summary_hour": int(os.getenv("DAILY_SUMMARY_HOUR", "0"))
             }
         }
@@ -480,10 +480,10 @@ class SignalPerformanceTracker:
         added = alias_upper not in self.symbol_alias_lookup
         if existing and existing != canonical_upper:
             self.logger.warning(
-                "⚠️ Перезапись алиаса символа %s: %s → %s"
-                alias_upper
-                existing
-                canonical_upper
+                "⚠️ Перезапись алиаса символа %s: %s → %s",
+                alias_upper,
+                existing,
+                canonical_upper,
             )
 
         self.symbol_alias_lookup[alias_upper] = canonical_upper
@@ -766,7 +766,7 @@ class SignalPerformanceTracker:
                     if entry_ts > 0:
                         lat_ms = get_ny_time_millis() - entry_ts
                         self.metric_signal_latency.labels(
-                            strategy=payload.get("strategy", "unknown")
+                            strategy=payload.get("strategy", "unknown"),
                             symbol=payload.get("symbol", "unknown")
                         ).observe(lat_ms)
                 except Exception:
@@ -915,15 +915,15 @@ class SignalPerformanceTracker:
             # Use actor runtime if available (preferred)
             if self._use_actor_runtime and self.tm_runtime is not None:
                 fut = self.tm_runtime.submit_event(
-                    symbol=sym
-                    sid=str(sid)
-                    fn_name="trailing_started"
+                    symbol=sym,
+                    sid=str(sid),
+                    fn_name="trailing_started",
                     payload={
-                        "new_sl": new_sl
-                        "source": data.get("source")
-                        "profile": data.get("profile")
-                        "clear_tp_levels": clear_tp_levels
-                        "event_id": msg_id
+                        "new_sl": new_sl,
+                        "source": data.get("source"),
+                        "profile": data.get("profile"),
+                        "clear_tp_levels": clear_tp_levels,
+                        "event_id": msg_id,
                     }
                 )
                 try:
@@ -940,12 +940,12 @@ class SignalPerformanceTracker:
             # Fallback to direct call or executor
             def _run():
                 ok = self.trade_monitor.update_trailing_sl(
-                    signal_id=sid
-                    new_sl=new_sl
-                    source=data.get("source")
-                    profile=data.get("profile")
-                    event_id=msg_id
-                    clear_tp_levels=clear_tp_levels
+                    signal_id=sid,
+                    new_sl=new_sl,
+                    source=data.get("source"),
+                    profile=data.get("profile"),
+                    event_id=msg_id,
+                    clear_tp_levels=clear_tp_levels,
                 )
                 if ok:
                     self.stats["trailing_updates_applied"] += 1
@@ -969,14 +969,14 @@ class SignalPerformanceTracker:
             # Use actor runtime if available (preferred)
             if self._use_actor_runtime and self.tm_runtime is not None:
                 fut = self.tm_runtime.submit_event(
-                    symbol=sym
-                    sid=str(sid)
-                    fn_name="sl_hit"
+                    symbol=sym,
+                    sid=str(sid),
+                    fn_name="sl_hit",
                     payload={
-                        "price": price_value
-                        "ts": ts_value
-                        "source": data.get("source")
-                        "event_id": msg_id
+                        "price": price_value,
+                        "ts": ts_value,
+                        "source": data.get("source"),
+                        "event_id": msg_id,
                     }
                 )
                 try:
@@ -993,11 +993,11 @@ class SignalPerformanceTracker:
             # Fallback to direct call or executor
             def _run():
                 applied = self.trade_monitor.apply_external_sl_hit(
-                    signal_id=sid
-                    price=price_value
-                    timestamp=ts_value
-                    source=data.get("source")
-                    event_id=msg_id
+                    signal_id=sid,
+                    price=price_value,
+                    timestamp=ts_value,
+                    source=data.get("source"),
+                    event_id=msg_id,
                 )
                 if applied:
                     self.stats["external_sl_synced"] += 1
@@ -1016,7 +1016,7 @@ class SignalPerformanceTracker:
 
             if not position.sid:
                 self.logger.debug(
-                    "TP1 event for position %s without sid, skip trailing"
+                    "TP1 event for position %s without sid, skip trailing",
                     position.id
                 )
                 return
@@ -1024,7 +1024,7 @@ class SignalPerformanceTracker:
             price_raw = tp_event.get("price")
             if price_raw is None:
                 self.logger.debug(
-                    "TP1 event for %s without price, skip trailing"
+                    "TP1 event for %s without price, skip trailing",
                     position.sid
                 )
                 return
@@ -1033,8 +1033,8 @@ class SignalPerformanceTracker:
                 price_value = float(price_raw)
             except (TypeError, ValueError):
                 self.logger.warning(
-                    "⚠️ Invalid TP1 price for %s: %s"
-                    position.sid
+                    "⚠️ Invalid TP1 price for %s: %s",
+                    position.sid,
                     price_raw
                 )
                 return
@@ -1044,18 +1044,18 @@ class SignalPerformanceTracker:
             self.stats["tp1_internal_hits"] += 1
 
             trailing_result = self.trailing_orchestrator.start_trailing(
-                sid=position.sid
-                symbol=position.symbol
-                price=price_value
-                position_id=None
-                source=position.source
+                sid=position.sid,
+                symbol=position.symbol,
+                price=price_value,
+                position_id=None,
+                source=position.source,
                 event_ts=normalize_ts_ms(tp_event.get("timestamp")) or get_ny_time_millis()
             )
 
             if trailing_result.skipped:
                 self.logger.info(
-                    "ℹ️ Trailing skipped for %s (reason=%s)"
-                    position.sid
+                    "ℹ️ Trailing skipped for %s (reason=%s)",
+                    position.sid,
                     trailing_result.error or "skipped"
                 )
                 return
@@ -1063,8 +1063,8 @@ class SignalPerformanceTracker:
             if not trailing_result.success or trailing_result.new_sl is None:
                 self.stats["trailing_internal_failed"] += 1
                 self.logger.warning(
-                    "⚠️ Trailing failed for %s: %s"
-                    position.sid
+                    "⚠️ Trailing failed for %s: %s",
+                    position.sid,
                     trailing_result.error or "unknown_error"
                 )
                 return
@@ -1075,35 +1075,35 @@ class SignalPerformanceTracker:
             point_size = metadata.get("point_size")
 
             applied = self.trade_monitor.apply_trailing_sl_sync(
-                sid=position.sid
-                new_sl=trailing_result.new_sl
-                ts_ms=int(tp_event.get("timestamp") or get_ny_time_millis())
-                trailing_distance=trail_dist if trail_dist else 0.0
-                point_size=point_size if point_size else 0.0
-                clear_future_tp_levels=clear_tp
+                sid=position.sid,
+                new_sl=trailing_result.new_sl,
+                ts_ms=int(tp_event.get("timestamp") or get_ny_time_millis()),
+                trailing_distance=trail_dist if trail_dist else 0.0,
+                point_size=point_size if point_size else 0.0,
+                clear_future_tp_levels=clear_tp,
             )
 
             if applied:
                 self.stats["trailing_internal_started"] += 1
                 # Note: PositionState doesn't have signal_payload, trailing is handled by TradeMonitorService
                 self.logger.info(
-                    "✅ Trailing SL applied for %s new_sl=%.5f"
-                    position.sid
+                    "✅ Trailing SL applied for %s new_sl=%.5f",
+                    position.sid,
                     trailing_result.new_sl
                 )
             else:
                 self.stats["trailing_internal_failed"] += 1
                 self.logger.warning(
-                    "⚠️ Trailing SL update skipped for %s (position already closed)"
+                    "⚠️ Trailing SL update skipped for %s (position already closed)",
                     position.sid
                 )
 
         except Exception as exc:
             self.stats["trailing_internal_failed"] += 1
             self.logger.error(
-                "❌ Unexpected error handling TP1 event for %s: %s"
-                position.sid or "unknown"
-                exc
+                "❌ Unexpected error handling TP1 event for %s: %s",
+                position.sid or "unknown",
+                exc,
             )
 
     def _create_consumer_groups(self) -> None:
@@ -1235,26 +1235,26 @@ class SignalPerformanceTracker:
         Использует единый StreamWorker для обработки.
         """
         policy = WorkerPolicy(
-            ack_mode=os.getenv("SIGNALS_ACK_MODE", "lossless")
-            read_count=int(os.getenv("SIGNALS_READ_COUNT", "20"))
-            block_ms=int(os.getenv("SIGNALS_BLOCK_MS", "5000"))
-            drain_pending_every_s=int(os.getenv("SIGNALS_DRAIN_PENDING_EVERY_S", "10"))
-            claim_orphan_every_s=int(os.getenv("SIGNALS_CLAIM_ORPHAN_EVERY_S", "60"))
-            min_idle_ms=int(os.getenv("SIGNALS_MIN_IDLE_MS", "60000"))
-            max_attempts=int(os.getenv("SIGNALS_MAX_ATTEMPTS", "5"))
-            dlq_stream=os.getenv("SIGNALS_DLQ_STREAM", "dlq:signals")
+            ack_mode=os.getenv("SIGNALS_ACK_MODE", "lossless"),
+            read_count=int(os.getenv("SIGNALS_READ_COUNT", "20")),
+            block_ms=int(os.getenv("SIGNALS_BLOCK_MS", "5000")),
+            drain_pending_every_s=int(os.getenv("SIGNALS_DRAIN_PENDING_EVERY_S", "10")),
+            claim_orphan_every_s=int(os.getenv("SIGNALS_CLAIM_ORPHAN_EVERY_S", "60")),
+            min_idle_ms=int(os.getenv("SIGNALS_MIN_IDLE_MS", "60000")),
+            max_attempts=int(os.getenv("SIGNALS_MAX_ATTEMPTS", "5")),
+            dlq_stream=os.getenv("SIGNALS_DLQ_STREAM", "dlq:signals"),
         )
 
         worker = StreamWorker(
-            name="signals_listener"
-            client=self.redis
-            group=self.signal_group
-            consumer=self.consumer_name
-            build_streams=self._build_signal_streams
-            process=self._process_signal_message
-            policy=policy
-            logger=self.logger
-            health_cb=lambda comp, status, extra: self._update_health_status(comp, status=status, extra=extra)
+            name="signals_listener",
+            client=self.redis,
+            group=self.signal_group,
+            consumer=self.consumer_name,
+            build_streams=self._build_signal_streams,
+            process=self._process_signal_message,
+            policy=policy,
+            logger=self.logger,
+            health_cb=lambda comp, status, extra: self._update_health_status(comp, status=status, extra=extra),
         )
 
         worker.run_loop(lambda: self.running)
@@ -1266,22 +1266,22 @@ class SignalPerformanceTracker:
         Использует единый StreamWorker для обработки (realtime режим).
         """
         policy = WorkerPolicy(
-            ack_mode=os.getenv("TICKS_ACK_MODE", "realtime")
-            read_count=int(os.getenv("TICKS_READ_COUNT", "200"))
-            block_ms=int(os.getenv("TICKS_BLOCK_MS", "1000"))
-            dlq_stream=os.getenv("TICKS_DLQ_STREAM", "dlq:ticks")
+            ack_mode=os.getenv("TICKS_ACK_MODE", "realtime"),
+            read_count=int(os.getenv("TICKS_READ_COUNT", "200")),
+            block_ms=int(os.getenv("TICKS_BLOCK_MS", "1000")),
+            dlq_stream=os.getenv("TICKS_DLQ_STREAM", "dlq:ticks"),
         )
 
         worker = StreamWorker(
-            name="ticks_listener"
-            client=self.redis_ticks
-            group=self.tick_group
-            consumer=self.consumer_name + "-ticks"
-            build_streams=self._build_tick_streams
-            process=self._process_tick_message
-            policy=policy
-            logger=self.logger
-            health_cb=lambda comp, status, extra: self._update_health_status(comp, status=status, extra=extra)
+            name="ticks_listener",
+            client=self.redis_ticks,
+            group=self.tick_group,
+            consumer=self.consumer_name + "-ticks",
+            build_streams=self._build_tick_streams,
+            process=self._process_tick_message,
+            policy=policy,
+            logger=self.logger,
+            health_cb=lambda comp, status, extra: self._update_health_status(comp, status=status, extra=extra),
         )
 
         worker.run_loop(lambda: self.running)
@@ -1293,29 +1293,29 @@ class SignalPerformanceTracker:
         Использует единый StreamWorker для обработки (lossless режим).
         """
         policy = WorkerPolicy(
-            ack_mode=os.getenv("EVENTS_ACK_MODE", "lossless")
-            read_count=int(os.getenv("EVENTS_READ_COUNT", "50"))
-            block_ms=int(os.getenv("EVENTS_BLOCK_MS", "2000"))
-            drain_pending_every_s=int(os.getenv("EVENTS_DRAIN_PENDING_EVERY_S", "10"))
-            claim_orphan_every_s=int(os.getenv("EVENTS_CLAIM_ORPHAN_EVERY_S", "60"))
-            min_idle_ms=int(os.getenv("EVENTS_MIN_IDLE_MS", "60000"))
-            max_attempts=int(os.getenv("EVENTS_MAX_ATTEMPTS", "8"))
-            dlq_stream=os.getenv("EVENTS_DLQ_STREAM", "dlq:events")
+            ack_mode=os.getenv("EVENTS_ACK_MODE", "lossless"),
+            read_count=int(os.getenv("EVENTS_READ_COUNT", "50")),
+            block_ms=int(os.getenv("EVENTS_BLOCK_MS", "2000")),
+            drain_pending_every_s=int(os.getenv("EVENTS_DRAIN_PENDING_EVERY_S", "10")),
+            claim_orphan_every_s=int(os.getenv("EVENTS_CLAIM_ORPHAN_EVERY_S", "60")),
+            min_idle_ms=int(os.getenv("EVENTS_MIN_IDLE_MS", "60000")),
+            max_attempts=int(os.getenv("EVENTS_MAX_ATTEMPTS", "8")),
+            dlq_stream=os.getenv("EVENTS_DLQ_STREAM", "dlq:events"),
         )
 
         def build_events():
             return ["events:trades"]
 
         worker = StreamWorker(
-            name="events_listener"
-            client=self.redis
-            group=self.events_group
-            consumer=self.consumer_name + "-events"
-            build_streams=build_events
-            process=self._process_event_message
-            policy=policy
-            logger=self.logger
-            health_cb=lambda comp, status, extra: self._update_health_status(comp, status=status, extra=extra)
+            name="events_listener",
+            client=self.redis,
+            group=self.events_group,
+            consumer=self.consumer_name + "-events",
+            build_streams=build_events,
+            process=self._process_event_message,
+            policy=policy,
+            logger=self.logger,
+            health_cb=lambda comp, status, extra: self._update_health_status(comp, status=status, extra=extra),
         )
 
         worker.run_loop(lambda: self.running)
@@ -1365,17 +1365,17 @@ class SignalPerformanceTracker:
                 new_symbols = self._refresh_symbols_from_redis()
                 if new_symbols:
                     self.logger.info(
-                        "🆕 Выявлены новые символы из %s: %s"
-                        self.dynamic_symbols_key
-                        ", ".join(sorted(new_symbols))
+                        "🆕 Выявлены новые символы из %s: %s",
+                        self.dynamic_symbols_key,
+                        ", ".join(sorted(new_symbols)),
                     )
                     self._ensure_signal_groups_for_symbols(new_symbols)
                 
                 self._update_health_status(
-                    "periodic_tasks"
+                    "periodic_tasks",
                     extra={
-                        "last_periodic_report": last_periodic_report
-                        "last_daily_report_date": str(last_daily_report_date)
+                        "last_periodic_report": last_periodic_report,
+                        "last_daily_report_date": str(last_daily_report_date),
                     }
                 )
                 
@@ -1430,8 +1430,8 @@ class SignalPerformanceTracker:
                         # Опционально — быстрый анализ entry_tag для пары
                         self._maybe_log_entry_tag_stats(strategy, symbol)
                         self.reporting_service.send_strategy_report(
-                            strategy=strategy
-                            symbol=symbol
+                            strategy=strategy,
+                            symbol=symbol,
                             tf="tick"
                         )
             
@@ -1452,9 +1452,9 @@ class SignalPerformanceTracker:
             redis_symbols = self.redis.smembers(self.dynamic_symbols_key)
         except RedisError as exc:
             self.logger.warning(
-                "⚠️ Не удалось загрузить символы из %s: %s"
-                self.dynamic_symbols_key
-                exc
+                "⚠️ Не удалось загрузить символы из %s: %s",
+                self.dynamic_symbols_key,
+                exc,
             )
             return []
 
@@ -1497,8 +1497,8 @@ class SignalPerformanceTracker:
 
         if new_symbols and not initial:
             self.logger.debug(
-                "📥 Добавлены символы в отслеживание: %s"
-                ", ".join(sorted(new_symbols))
+                "📥 Добавлены символы в отслеживание: %s",
+                ", ".join(sorted(new_symbols)),
             )
 
         return new_symbols
@@ -1527,11 +1527,11 @@ class SignalPerformanceTracker:
             f"uptime={uptime_str}"
         )
         self._update_health_status(
-            component="stats_logger"
+            component="stats_logger",
             extra={
-                "signals_processed": self.stats["signals_processed"]
-                "ticks_processed": self.stats["ticks_processed"]
-                "positions_open": open_positions
+                "signals_processed": self.stats["signals_processed"],
+                "ticks_processed": self.stats["ticks_processed"],
+                "positions_open": open_positions,
             }
         )
 
@@ -1574,19 +1574,19 @@ class SignalPerformanceTracker:
             self.logger.debug("entry_tag analytics failed for %s/%s: %s", source, symbol, e)
 
     def _update_health_status(
-        self
-        component: str
-        status: str = "ok"
-        extra: Optional[Dict[str, Any]] = None
+        self,
+        component: str,
+        status: str = "ok",
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not self.health_key:
             return
         payload = {
-            "ts": int(time.time())
-            "status": status
-            "component": component
-            "signals_processed": self.stats.get("signals_processed")
-            "ticks_processed": self.stats.get("ticks_processed")
+            "ts": int(time.time()),
+            "status": status,
+            "component": component,
+            "signals_processed": self.stats.get("signals_processed"),
+            "ticks_processed": self.stats.get("ticks_processed"),
         }
         if extra:
             payload["extra"] = extra
@@ -1668,25 +1668,25 @@ class SignalPerformanceTracker:
         # Critical: keep lossless semantics by waiting for task completion before ACK.
         if self._use_symbol_exec and self._exec is None:
             self._exec = ShardedSerialExecutor(
-                shards=self._exec_shards
-                queue_max=self._exec_queue_max
-                submit_timeout_s=self._exec_submit_timeout_s
-                name="SymbolExec"
-                logger=self.logger
+                shards=self._exec_shards,
+                queue_max=self._exec_queue_max,
+                submit_timeout_s=self._exec_submit_timeout_s,
+                name="SymbolExec",
+                logger=self.logger,
             )
 
         # --- Actor runtime (core-per-shard, eliminates global locks) ---
         # Higher level: each shard owns its state, no shared dicts between threads
         if self._use_actor_runtime and self.tm_runtime is None:
             self.tm_runtime = TradeMonitorActorRuntime(
-                core_factory=self._trade_monitor_core_factory
-                logger=self.logger
+                core_factory=self._trade_monitor_core_factory,
+                logger=self.logger,
             )
 
         # Поток сигналов
         signals_thread = threading.Thread(
-            target=self._signals_listener_thread
-            name="SignalsListener"
+            target=self._signals_listener_thread,
+            name="SignalsListener",
             daemon=True
         )
         signals_thread.start()
@@ -1694,8 +1694,8 @@ class SignalPerformanceTracker:
         
         # Поток тиков
         ticks_thread = threading.Thread(
-            target=self._ticks_listener_thread
-            name="TicksListener"
+            target=self._ticks_listener_thread,
+            name="TicksListener",
             daemon=True
         )
         ticks_thread.start()
@@ -1703,8 +1703,8 @@ class SignalPerformanceTracker:
         
         # Поток периодических задач
         periodic_thread = threading.Thread(
-            target=self._periodic_tasks_thread
-            name="PeriodicTasks"
+            target=self._periodic_tasks_thread,
+            name="PeriodicTasks",
             daemon=True
         )
         periodic_thread.start()
@@ -1712,8 +1712,8 @@ class SignalPerformanceTracker:
 
         # Поток событий (trailing updates)
         events_thread = threading.Thread(
-            target=self._events_listener_thread
-            name="EventsListener"
+            target=self._events_listener_thread,
+            name="EventsListener",
             daemon=True
         )
         events_thread.start()

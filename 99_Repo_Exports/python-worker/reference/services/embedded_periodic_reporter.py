@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 Lightweight wrapper around PeriodicReporter so other services can reuse
 the reporting logic without duplicating imports or scheduling.
 """
 
-from __future__ import annotations
 
 from typing import Optional
 

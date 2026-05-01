@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Build confirm_train_v7 NDJSON dataset by joining decisions:final + trades:closed.
 
 Produces two files consumed by downstream nightly timers:
@@ -18,7 +19,6 @@ CLI example:
     --out_outcomes  /var/lib/trade/training/latest_outcomes.ndjson \\
     --out_report    /var/lib/trade/training/confirm_v7_report.json
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -106,7 +106,7 @@ def _safe_json_loads(x: Any) -> Any:
         return None
 
 
-def _normalize_sid(raw_sid: Any, *, symbol: str = "", ts_ms: int = 0) -> str:
+def _normalize_sid(raw_sid: Any, *, symbol="", ts_ms: int = 0) -> str:
     """Normalize/derive canonical SID: crypto-of:{SYMBOL}:{ts_ms}."""
     s = _as_str(raw_sid).strip()
     if s.startswith("crypto-of:"):

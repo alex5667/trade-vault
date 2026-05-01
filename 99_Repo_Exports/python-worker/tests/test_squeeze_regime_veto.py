@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Regression pack — Squeeze-режим: publish_signal должен вернуться без публикации.
 
@@ -7,7 +8,6 @@ Regression pack — Squeeze-режим: publish_signal должен вернут
   - Ни один метод publisher-а не вызывается с payload-ом сигнала
   - range-режим и trending-режим НЕ блокируются (проверка false-positive)
 """
-from __future__ import annotations
 
 import time
 import pytest

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Edge Stack Feature Contract v1.
 
 This defines the *interface* between:
@@ -14,7 +15,6 @@ Inference uses the feature_cols embedded in the model pack; if you also provide 
 contract file, it can be compared out-of-band.
 """
 
-from __future__ import annotations
 
 import hashlib
 import json

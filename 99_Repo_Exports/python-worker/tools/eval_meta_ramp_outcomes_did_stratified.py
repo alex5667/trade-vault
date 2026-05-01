@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 eval_meta_ramp_outcomes_did_stratified.py
 
@@ -17,7 +18,6 @@ Usage:
     --window-hours 72.0 --min-n-per-cell 120 --min-cells 3
 """
 
-from __future__ import annotations
 
 import argparse
 import json

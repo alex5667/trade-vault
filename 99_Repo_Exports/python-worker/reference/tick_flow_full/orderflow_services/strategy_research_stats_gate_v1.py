@@ -53,13 +53,13 @@ def _extract_updated_ts_ms(blocker: Mapping[str, str], summary: Mapping[str, str
 
 
 def evaluate_strategy_research_stats_gate(
-    redis_url: str
-    blocker_key: str
-    summary_key: str
-    *
-    max_age_sec: float = 0.0
-    fail_closed_missing: int = 1
-    client: Any | None = None
+    redis_url: str,
+    blocker_key: str,
+    summary_key: str,
+    *,
+    max_age_sec: float = 0.0,
+    fail_closed_missing: int = 1,
+    client: Any | None = None,
 ) -> Dict[str, Any]:
     """Evaluate the strategy research stats gate state from Redis.
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Quality Gate Blocker Tests — B1, B2, B3, B4
 
@@ -6,7 +7,6 @@ B2: _get_ml_executor() является singleton
 B3: is_of_sync_build() читает ENV корректно
 B4: OF_SYNC_BUILD kill-switch присутствует в ml_confirm_gate
 """
-from __future__ import annotations
 
 import os
 import time

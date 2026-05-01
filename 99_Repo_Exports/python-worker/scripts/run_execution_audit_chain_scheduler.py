@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 P5.7 execution audit-chain scheduler / compose runner.
 
@@ -15,7 +16,6 @@ It only adds orchestration suitable for:
 
 Systemd timer should still invoke the checker directly as a one-shot job.
 """
-from __future__ import annotations
 
 import importlib.util
 import logging
@@ -30,9 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER_PATH = ROOT / "scripts" / "check_execution_audit_chain.py"
 
 logging.basicConfig(
-    level=getattr(logging, os.getenv("EXEC_AUDIT_LOG_LEVEL", "INFO").upper(), logging.INFO)
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    datefmt="%Y-%m-%d %H:%M:%S"
+    level=getattr(logging, os.getenv("EXEC_AUDIT_LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("execution_audit_chain_scheduler")
 
@@ -80,16 +80,16 @@ def run_once() -> int:
     Returns the checker's exit code (0 = ok, 2 = error).
     """
     argv = [
-        "--dsn"
-        os.getenv("TRADES_DB_DSN", os.getenv("DATABASE_URL", ""))
-        "--lookback-hours"
-        str(env_int("EXEC_AUDIT_LOOKBACK_HOURS", 24))
-        "--limit"
-        str(env_int("EXEC_AUDIT_LIMIT", 10000))
-        "--report-json"
-        os.getenv("EXEC_AUDIT_REPORT_JSON", "latest_execution_audit_chain.json")
-        "--report-prom"
-        os.getenv("EXEC_AUDIT_REPORT_PROM", "latest_execution_audit_chain.prom")
+        "--dsn",
+        os.getenv("TRADES_DB_DSN", os.getenv("DATABASE_URL", "")),
+        "--lookback-hours",
+        str(env_int("EXEC_AUDIT_LOOKBACK_HOURS", 24)),
+        "--limit",
+        str(env_int("EXEC_AUDIT_LIMIT", 10000)),
+        "--report-json",
+        os.getenv("EXEC_AUDIT_REPORT_JSON", "latest_execution_audit_chain.json"),
+        "--report-prom",
+        os.getenv("EXEC_AUDIT_REPORT_PROM", "latest_execution_audit_chain.prom"),
     ]
     return int(CHECKER.main(argv))
 
@@ -146,10 +146,10 @@ def main() -> int:
                 )
             else:
                 logger.warning(
-                    "execution audit-chain run failed iteration=%s rc=%s elapsed=%.3fs"
-                    iteration
-                    rc
-                    elapsed
+                    "execution audit-chain run failed iteration=%s rc=%s elapsed=%.3fs",
+                    iteration,
+                    rc,
+                    elapsed,
                 )
         else:
             logger.info("skipping first run due to EXEC_AUDIT_LOOP_RUN_ON_START=0")

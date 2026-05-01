@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OF-Gate DLQ drilldown tool (P83).
 
 Purpose
@@ -31,7 +32,6 @@ Examples
     --ids 1700000000000-0,1700000000001-0 --yes
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -97,12 +97,12 @@ def _parse_dlq_msg(dlq_id: str, fields: Dict[str, Any]) -> DlqMsg:
         payload_raw = f.get("data")
     payload = _json_loads_maybe(payload_raw)
     return DlqMsg(
-        dlq_id=str(dlq_id)
-        fields=f
-        src_stream=src_stream
-        src_stream_id=src_stream_id
-        err=err
-        payload=payload
+        dlq_id=str(dlq_id),
+        fields=f,
+        src_stream=src_stream,
+        src_stream_id=src_stream_id,
+        err=err,
+        payload=payload,
     )
 
 
@@ -151,11 +151,11 @@ def _ts_ms_from_stream_id(sid: str) -> Optional[int]:
 def _extract_keys(msg: DlqMsg) -> Dict[str, Any]:
     p = msg.payload if isinstance(msg.payload, dict) else {}
     out = {
-        "dq_code": p.get("dq_code") or p.get("why") or ""
-        "reason_code": p.get("reason_code") or ""
-        "schema_version": p.get("schema_version") or p.get("schema_version_mode") or ""
-        "scenario_v4": p.get("scenario_v4") or ""
-        "symbol": p.get("symbol") or ""
+        "dq_code": p.get("dq_code") or p.get("why") or "",
+        "reason_code": p.get("reason_code") or "",
+        "schema_version": p.get("schema_version") or p.get("schema_version_mode") or "",
+        "scenario_v4": p.get("scenario_v4") or "",
+        "symbol": p.get("symbol") or "",
     }
     # err prefix
     out["err_prefix"] = (msg.err.split(":", 1)[0] if msg.err else "")
@@ -255,11 +255,11 @@ def cmd_sample(args: argparse.Namespace) -> int:
 
     for m in out:
         print(json.dumps({
-            "dlq_id": m.dlq_id
-            "src_stream": m.src_stream
-            "src_stream_id": m.src_stream_id
-            "err": m.err
-            "payload": m.payload
+            "dlq_id": m.dlq_id,
+            "src_stream": m.src_stream,
+            "src_stream_id": m.src_stream_id,
+            "err": m.err,
+            "payload": m.payload,
         }, ensure_ascii=False))
 
     return 0
@@ -371,9 +371,9 @@ def cmd_purge(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="of_gate_dlq_drilldown_p83")
     p.add_argument(
-        "--streams"
-        default=env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")
-        help="comma-separated DLQ streams"
+        "--streams",
+        default=env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine"),
+        help="comma-separated DLQ streams",
     )
 
     sub = p.add_subparsers(dest="cmd", required=True)

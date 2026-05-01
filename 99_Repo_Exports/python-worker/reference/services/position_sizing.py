@@ -21,13 +21,13 @@ def _env_float(name: str, default: float) -> float:
     return float(default)
 
 def calculate_qty_fixed_risk(
-    risk_usd: float
-    sl_dist: float
-    entry_price: float
-    lot_step: float
-    min_lot: float
-    max_lot: float
-    min_notional: float = 5.0
+    risk_usd: float,
+    sl_dist: float,
+    entry_price: float,
+    lot_step: float,
+    min_lot: float,
+    max_lot: float,
+    min_notional: float = 5.0,
 ) -> SizingResult:
     """
     Calculate quantity for fixed USD risk on linear contracts.
@@ -221,12 +221,12 @@ def apply_position_sizing_to_ctx(
 
         # 4. Calculation
         res = calculate_qty_fixed_risk(
-            risk_usd=risk_usd
-            sl_dist=sl_dist
-            entry_price=entry
-            lot_step=lot_step
-            min_lot=min_lot
-            max_lot=max_lot
+            risk_usd=risk_usd,
+            sl_dist=sl_dist,
+            entry_price=entry,
+            lot_step=lot_step,
+            min_lot=min_lot,
+            max_lot=max_lot,
             min_notional=min_notional
         )
 

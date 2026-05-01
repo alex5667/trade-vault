@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for P113: OF-gate alert rules normalization + bundle discovery fixes.
 
 Covers:
@@ -15,7 +16,6 @@ Covers:
 Component: Python (orderflow_services tests)
 """
 
-from __future__ import annotations
 
 import os
 import tempfile

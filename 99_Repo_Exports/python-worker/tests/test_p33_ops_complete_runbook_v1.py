@@ -1,10 +1,10 @@
+from __future__ import annotations
 """P3.3-ops-complete test: runbook server /api/rebuild/latest endpoint.
 
 Verifies that:
 - The server source exposes /api/rebuild/latest
 - The ops-complete runbook file exists
 """
-from __future__ import annotations
 
 from pathlib import Path
 

@@ -1,8 +1,8 @@
+from __future__ import annotations
 """
 Тесты для replay capture, метрик и selective prediction в MLConfirmGate.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

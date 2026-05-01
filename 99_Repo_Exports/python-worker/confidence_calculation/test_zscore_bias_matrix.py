@@ -15,7 +15,7 @@ def _std_eff(values):
 
 
 @pytest.mark.parametrize(
-    "N,x"
+    "N,x",
     [
         # Typical regimes that yield ~10–20% self-inclusion bias for |z|
         (20, 3.0),   # ~18.35%
@@ -25,7 +25,7 @@ def _std_eff(values):
         (50, 5.0),   # ~18.89%
         (60, 5.0),   # ~16.47%
         (80, 5.0),   # ~13.13%
-    ]
+    ],
 )
 def test_self_inclusion_bias_is_10_20_percent_for_typical_cases(N, x):
     """

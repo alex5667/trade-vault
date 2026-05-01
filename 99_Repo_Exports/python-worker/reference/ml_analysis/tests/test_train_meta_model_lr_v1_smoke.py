@@ -25,31 +25,31 @@ def test_train_meta_model_lr_from_df_smoke(tmp_path: Path):
     ts0 = 1_700_000_000_000
     df = pd.DataFrame(
         {
-            "sid": np.arange(n, dtype=np.int64)
-            "ts_ms": ts0 + np.arange(n, dtype=np.int64) * 1000
-            "symbol": ["BTCUSDT"] * n
+            "sid": np.arange(n, dtype=np.int64),
+            "ts_ms": ts0 + np.arange(n, dtype=np.int64) * 1000,
+            "symbol": ["BTCUSDT"] * n,
             # A few typical flattened indicator columns (parquet uses f_*).
-            "f_delta_z": np.random.normal(size=n)
-            "f_ofi": np.random.normal(size=n)
-            "f_spread_bps": np.abs(np.random.normal(size=n) * 2.0)
-            "f_liq_score": np.clip(np.random.normal(loc=1.0, scale=0.3, size=n), 0.0, 10.0)
+            "f_delta_z": np.random.normal(size=n),
+            "f_ofi": np.random.normal(size=n),
+            "f_spread_bps": np.abs(np.random.normal(size=n) * 2.0),
+            "f_liq_score": np.clip(np.random.normal(loc=1.0, scale=0.3, size=n), 0.0, 10.0),
             # One-hot scenarios (trainer decodes scenario_v4_* keys).
-            "scenario_v4_trend": [1.0] * n
+            "scenario_v4_trend": [1.0] * n,
             # Label (example: horizon 60s)
-            "y_util_pos_60000": (np.arange(n) % 5 == 0).astype(int)
+            "y_util_pos_60000": (np.arange(n) % 5 == 0).astype(int),
         }
     )
 
     model, summary = train_meta_model_lr_from_df(
-        df
-        schema_name="meta_feat_v8"
-        y_col="y_util_pos_60000"
-        n_splits=4
-        purge_ms=10_000
-        embargo_ms=10_000
-        C=1.0
-        max_iter=200
-        threshold=0.5
+        df,
+        schema_name="meta_feat_v8",
+        y_col="y_util_pos_60000",
+        n_splits=4,
+        purge_ms=10_000,
+        embargo_ms=10_000,
+        C=1.0,
+        max_iter=200,
+        threshold=0.5,
     )
 
     assert isinstance(model, MetaModelLR)

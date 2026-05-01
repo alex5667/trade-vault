@@ -4,12 +4,12 @@ from ml_analysis.common.feature_groups_e_v1 import build_e_groups, group_feature
 def test_group_features_e_block_smoke() -> None:
     groups = build_e_groups()
     feats = [
-        "n:hawkes_taker_buy_lam"
-        "n:hawkes_cancel_bid_lam"
-        "n:vpin_tox_z"
-        "n:limit_add_total_rate_ema"
-        "n:lambda_trade_buy"
-        "n:some_other_feature"
+        "n:hawkes_taker_buy_lam",
+        "n:hawkes_cancel_bid_lam",
+        "n:vpin_tox_z",
+        "n:limit_add_total_rate_ema",
+        "n:lambda_trade_buy",
+        "n:some_other_feature",
     ]
     m = group_features(feats, groups)
     assert "E_vpin" in m and "vpin_tox_z" in m["E_vpin"]

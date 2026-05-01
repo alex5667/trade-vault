@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly runner for feature-denylist proposals (AB gate).
 
 Scans proposals dir for manifests with status=pending_ab and runs
@@ -21,7 +22,6 @@ FEATURE_DENYLIST_AB_METRICS_KEY (default metrics:feature_denylist_ab:last)
 
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Burstiness Tracker - отслеживание кластеризации и взрывности торгов.
 
@@ -11,7 +12,6 @@ Burstiness Tracker - отслеживание кластеризации и вз
 O(1) на тик, без аллокаций на горячем пути.
 """
 
-from __future__ import annotations
 
 import math
 from collections import deque

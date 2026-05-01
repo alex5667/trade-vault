@@ -30,8 +30,8 @@ import numpy as np
 
 # Configure Logging
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("conf_cal_train_v2")
@@ -227,7 +227,7 @@ def get_hierarchical_keys(context: Dict[str, Any], s_ver: int = 3) -> List[str]:
 def load_data_hierarchical(
     jsonl_path: str, 
     key: str, 
-    hierarchical: bool = True
+    hierarchical: bool = True,
     min_rows: int = 100
 ) -> Dict[str, Dict[str, List]]:
     """
@@ -367,30 +367,30 @@ def fit_and_select(
     
     # Final Report (Val performance of selected method, and Raw)
     # Validate selected on Val
-    val_y_final = y_val if len(y_val) > 0 else y_train
-    val_p_final = p_val if len(y_val) > 0 else y_train
+    val_y_final = y_val if len(y_val) > 0 else y_train,
+    val_p_final = p_val if len(y_val) > 0 else y_train,
     
-    cal_val_p = apply_calibration(val_p_final, best_method, final_params)
+    cal_val_p = apply_calibration(val_p_final, best_method, final_params),
     
-    raw_ece = calc_ece(val_y_final, val_p_final)
-    raw_brier = calc_brier(val_y_final, val_p_final)
-    final_ece = calc_ece(val_y_final, cal_val_p)
-    final_brier = calc_brier(val_y_final, cal_val_p)
+    raw_ece = calc_ece(val_y_final, val_p_final),
+    raw_brier = calc_brier(val_y_final, val_p_final),
+    final_ece = calc_ece(val_y_final, cal_val_p),
+    final_brier = calc_brier(val_y_final, cal_val_p),
 
     report = {
-        "n": n
-        "n_train": len(y_train)
-        "n_val": len(y_val)
-        "method_selected": best_method
-        "candidates": results
+        "n": n,
+        "n_train": len(y_train),
+        "n_val": len(y_val),
+        "method_selected": best_method,
+        "candidates": results,
         "raw": {
-            "ece": raw_ece
-            "brier": raw_brier
-            "mean_conf": float(np.mean(val_p_final))
+            "ece": raw_ece,
+            "brier": raw_brier,
+            "mean_conf": float(np.mean(val_p_final)),
             "accuracy": float(np.mean(val_y_final))
-        }
+        },
         "cal": {
-            "ece": final_ece
+            "ece": final_ece,
             "brier": final_brier
         }
     }
@@ -417,15 +417,15 @@ def main():
     
     # 2. Train Bundle
     bundle = {
-        "schema_version": 3
-        "input_key": args.key
-        "generated_at": time.time()
+        "schema_version": 3,
+        "input_key": args.key,
+        "generated_at": time.time(),
         "meta": {
-            "method_global": "auto" if args.method == "auto" else args.method
-            "training_source": args.in_jsonl
+            "method_global": "auto" if args.method == "auto" else args.method,
+            "training_source": args.in_jsonl,
             "hierarchical": hier
-        }
-        "buckets": {}
+        },
+        "buckets": {},
         "train_report": {} 
     }
     
@@ -437,8 +437,8 @@ def main():
         logger.info(f"Training GLOBAL on {len(g_data['y'])} rows...")
         params, report = fit_and_select(g_data["y"], g_data["p"], g_data["ts"], args.method, args.min_rows)
         bundle["buckets"]["global"] = {
-            "method": report["method_selected"]
-            "params": params
+            "method": report["method_selected"],
+            "params": params,
             "metrics": report
         }
         global_report = report
@@ -454,8 +454,8 @@ def main():
         
         params, report = fit_and_select(bdata["y"], bdata["p"], bdata["ts"], args.method, args.min_rows)
         bundle["buckets"][bkey] = {
-            "method": report["method_selected"]
-            "params": params
+            "method": report["method_selected"],
+            "params": params,
             "metrics": report
         }
         

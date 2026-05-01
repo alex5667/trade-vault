@@ -1,6 +1,6 @@
+from __future__ import annotations
 """One-time processing script for TB labeler to process pending/old data."""
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -6,32 +6,32 @@ def test_derive_fgh_rows_relative_velocity_replenishment():
 
     rows = [
         {
-            "symbol": "BTCUSDT"
-            "ts_ms": 1_000
-            "indicators": {"ofi_ml_norm": 0.25, "lob_micro_shift_bps": 1.5}
-        }
+            "symbol": "BTCUSDT",
+            "ts_ms": 1_000,
+            "indicators": {"ofi_ml_norm": 0.25, "lob_micro_shift_bps": 1.5},
+        },
         {
-            "symbol": "ETHUSDT"
-            "ts_ms": 1_000
+            "symbol": "ETHUSDT",
+            "ts_ms": 1_000,
             "indicators": {
-                "ofi_ml_norm": 0.10
-                "lob_micro_shift_bps": 2.0
-                "hawkes_taker_buy_lam": 9.0
-                "hawkes_limit_add_ask_lam": 6.0
-                "hawkes_taker_sell_lam": 7.0
-                "hawkes_limit_add_bid_lam": 10.0
-            }
-        }
+                "ofi_ml_norm": 0.10,
+                "lob_micro_shift_bps": 2.0,
+                "hawkes_taker_buy_lam": 9.0,
+                "hawkes_limit_add_ask_lam": 6.0,
+                "hawkes_taker_sell_lam": 7.0,
+                "hawkes_limit_add_bid_lam": 10.0,
+            },
+        },
         {
-            "symbol": "ETHUSDT"
-            "ts_ms": 2_000
-            "indicators": {"ofi_ml_wsum": 12.0, "lob_micro_shift_bps": 2.2}
-        }
+            "symbol": "ETHUSDT",
+            "ts_ms": 2_000,
+            "indicators": {"ofi_ml_wsum": 12.0, "lob_micro_shift_bps": 2.2},
+        },
         {
-            "symbol": "ETHUSDT"
-            "ts_ms": 3_000
-            "indicators": {"ofi_ml_wsum": 18.0, "lob_micro_shift_bps": 2.5}
-        }
+            "symbol": "ETHUSDT",
+            "ts_ms": 3_000,
+            "indicators": {"ofi_ml_wsum": 18.0, "lob_micro_shift_bps": 2.5},
+        },
     ]
 
     rep = derive_fgh_rows(rows, leader_symbol="BTCUSDT", leader_max_lag_ms=10_000)

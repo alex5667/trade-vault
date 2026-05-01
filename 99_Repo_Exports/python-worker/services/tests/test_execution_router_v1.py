@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for ExecutionRouter — intent→queue routing with scale-in redirect.
 
 Tests:
@@ -9,7 +10,6 @@ Tests:
 6. Max legs check blocks excessive legs
 7. No existing position → passthrough
 """
-from __future__ import annotations
 
 import json
 import os
@@ -81,12 +81,12 @@ def _seed_guard(r: FakeRedis, symbol: str, sid: str, side: str = "LONG") -> None
     """Seed an active symbol guard."""
     key = f"orders:active_symbol_sid:{symbol}"
     doc = {
-        "sid": sid
-        "symbol": symbol
-        "side": side
-        "guard_status": "active"
-        "guard_release_pending": False
-        "guard_version": 1
+        "sid": sid,
+        "symbol": symbol,
+        "side": side,
+        "guard_status": "active",
+        "guard_release_pending": False,
+        "guard_version": 1,
     }
     r.store[key] = json.dumps(doc)
 
@@ -147,14 +147,14 @@ class TestScaleInRedirect:
         r = FakeRedis()
         router = _mk_router(r)
         _seed_guard(r, "BTCUSDT", "owner-1", side="LONG")
-        _seed_state(r, "owner-1", symbol="BTCUSDT", side="LONG"
-                    exec_price=100000, qty=0.001, fsm_state="PROTECTED"
+        _seed_state(r, "owner-1", symbol="BTCUSDT", side="LONG",
+                    exec_price=100000, qty=0.001, fsm_state="PROTECTED",
                     sl_requested=98000, tp_levels_requested=[102000, 104000, 106000])
 
         payload = json.dumps({
-            "action": "open", "sid": "new-signal-1", "symbol": "BTCUSDT"
-            "side": "LONG", "qty": 0.001, "entry": 100500
-            "sl": 98000, "tp_levels": [102000, 104000, 106000]
+            "action": "open", "sid": "new-signal-1", "symbol": "BTCUSDT",
+            "side": "LONG", "qty": 0.001, "entry": 100500,
+            "sl": 98000, "tp_levels": [102000, 104000, 106000],
         })
         result = router.route_one(payload)
 
@@ -177,12 +177,12 @@ class TestScaleInRedirect:
         r = FakeRedis()
         router = _mk_router(r)
         _seed_guard(r, "BTCUSDT", "owner-1", side="LONG")
-        _seed_state(r, "owner-1", symbol="BTCUSDT", side="LONG"
+        _seed_state(r, "owner-1", symbol="BTCUSDT", side="LONG",
                     exec_price=100000, qty=0.001)
 
         payload = json.dumps({
-            "action": "open", "sid": "new-signal-2", "symbol": "BTCUSDT"
-            "side": "SHORT", "qty": 0.001
+            "action": "open", "sid": "new-signal-2", "symbol": "BTCUSDT",
+            "side": "SHORT", "qty": 0.001,
         })
         result = router.route_one(payload)
 
@@ -193,12 +193,12 @@ class TestScaleInRedirect:
         r = FakeRedis()
         router = _mk_router(r, max_legs=2)
         _seed_guard(r, "BTCUSDT", "owner-1", side="LONG")
-        _seed_state(r, "owner-1", symbol="BTCUSDT", side="LONG"
+        _seed_state(r, "owner-1", symbol="BTCUSDT", side="LONG",
                     exec_price=100000, qty=0.001, scale_in_seq=1)
 
         payload = json.dumps({
-            "action": "open", "sid": "s3", "symbol": "BTCUSDT"
-            "side": "LONG", "qty": 0.001
+            "action": "open", "sid": "s3", "symbol": "BTCUSDT",
+            "side": "LONG", "qty": 0.001,
         })
         result = router.route_one(payload)
 
@@ -211,12 +211,12 @@ class TestScaleInRedirect:
         router = _mk_router(r)
         key = "orders:active_symbol_sid:BTCUSDT"
         r.store[key] = json.dumps({
-            "sid": "old-1", "guard_status": "released"
+            "sid": "old-1", "guard_status": "released",
         })
 
         payload = json.dumps({
-            "action": "open", "sid": "s4", "symbol": "BTCUSDT"
-            "side": "LONG", "qty": 0.001
+            "action": "open", "sid": "s4", "symbol": "BTCUSDT",
+            "side": "LONG", "qty": 0.001,
         })
         result = router.route_one(payload)
         assert result["status"] == "passthrough"
@@ -229,14 +229,14 @@ class TestScaleInTpSchema:
         r = FakeRedis()
         router = _mk_router(r)
         _seed_guard(r, "ETHUSDT", "owner-eth-1", side="LONG")
-        _seed_state(r, "owner-eth-1", symbol="ETHUSDT", side="LONG"
-                    exec_price=3000, qty=0.1, sl_requested=2900
+        _seed_state(r, "owner-eth-1", symbol="ETHUSDT", side="LONG",
+                    exec_price=3000, qty=0.1, sl_requested=2900,
                     tp_levels_requested=[3100, 3200, 3300])
 
         payload = json.dumps({
-            "action": "open", "sid": "new-eth-1", "symbol": "ETHUSDT"
-            "side": "LONG", "qty": 0.05, "entry": 3050
-            "tp_levels": [3100, 3200, 3300]
+            "action": "open", "sid": "new-eth-1", "symbol": "ETHUSDT",
+            "side": "LONG", "qty": 0.05, "entry": 3050,
+            "tp_levels": [3100, 3200, 3300],
         })
         result = router.route_one(payload)
         assert result["status"] == "scale_in"

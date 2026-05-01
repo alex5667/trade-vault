@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for P5 book sanity + BookSanityGate.
 
 Covers:
@@ -6,7 +7,6 @@ Covers:
 - BookSanityGate: monitor / veto modes
 """
 
-from __future__ import annotations
 
 import math
 import pytest
@@ -21,10 +21,10 @@ class TestCheckBookSanity:
         if asks is None:
             asks = [(ba, 10.0), (ba + 0.1, 5.0)]
         return type("Book", (), {
-            "best_bid_px": bb
-            "best_ask_px": ba
-            "top5_bids": bids
-            "top5_asks": asks
+            "best_bid_px": bb,
+            "best_ask_px": ba,
+            "top5_bids": bids,
+            "top5_asks": asks,
         })()
 
     def test_ok_book(self):

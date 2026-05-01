@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for prom_rules_loaded_probe_v1 (v18).
 
 Covers:
@@ -6,7 +7,6 @@ Covers:
   - _compute_loaded_expected helper
   - runbook mentions (links P91 section exists)
 """
-from __future__ import annotations
 
 import json
 import os
@@ -16,9 +16,9 @@ import pytest
 import yaml
 
 from orderflow_services.prom_rules_loaded_probe_v1 import (
-    _compute_loaded_expected
-    _extract_loaded_rule_files
-    _get_repo_root
+    _compute_loaded_expected,
+    _extract_loaded_rule_files,
+    _get_repo_root,
 )
 
 # ── YAML parse: alert rules file ─────────────────────────────────────────────
@@ -26,9 +26,9 @@ from orderflow_services.prom_rules_loaded_probe_v1 import (
 _HERE = Path(__file__).resolve().parent
 _RULES_CANDIDATES = [
     # In orderflow_services tree (default)
-    _HERE.parent / "prometheus_alerts_prom_rules_loaded_probe_v1.yml"
+    _HERE.parent / "prometheus_alerts_prom_rules_loaded_probe_v1.yml",
     # In tick_flow_full mirrorring
-    _HERE.parent.parent / "tick_flow_full" / "orderflow_services" / "prometheus_alerts_prom_rules_loaded_probe_v1.yml"
+    _HERE.parent.parent / "tick_flow_full" / "orderflow_services" / "prometheus_alerts_prom_rules_loaded_probe_v1.yml",
 ]
 
 
@@ -109,8 +109,8 @@ def test_alert_rules_stall_check_refers_to_correct_metric():
 # ── Runbook existence and P91 mention ────────────────────────────────────────
 
 _RUNBOOK_CANDIDATES = [
-    _HERE.parent / "runbook_world_practice_trackers_v1.md"
-    _HERE.parent.parent / "tick_flow_full" / "orderflow_services" / "runbook_world_practice_trackers_v1.md"
+    _HERE.parent / "runbook_world_practice_trackers_v1.md",
+    _HERE.parent.parent / "tick_flow_full" / "orderflow_services" / "runbook_world_practice_trackers_v1.md",
 ]
 
 
@@ -143,11 +143,11 @@ def test_runbook_mentions_p91_section():
 
 def test_extract_loaded_rule_files():
     payload = {
-        "status": "success"
+        "status": "success",
         "data": {
             "groups": [
-                {"file": "/etc/prometheus/rules/bundle/orderflow_services/prometheus_alerts_foo.yml"}
-                {"file": "/etc/prometheus/rules/bundle/orderflow_services/prometheus_rules_bar.yml"}
+                {"file": "/etc/prometheus/rules/bundle/orderflow_services/prometheus_alerts_foo.yml"},
+                {"file": "/etc/prometheus/rules/bundle/orderflow_services/prometheus_rules_bar.yml"},
             ]
         }
     }
@@ -168,11 +168,11 @@ def test_extract_loaded_rule_files_bad_status():
 
 def test_extract_loaded_rule_files_skips_blank():
     payload = {
-        "status": "success"
+        "status": "success",
         "data": {
             "groups": [
-                {"file": "   "}
-                {"file": "/etc/prometheus/rules/foo.yml"}
+                {"file": "   "},
+                {"file": "/etc/prometheus/rules/foo.yml"},
             ]
         }
     }
@@ -185,13 +185,13 @@ def test_extract_loaded_rule_files_skips_blank():
 
 def test_compute_loaded_expected_all_ok():
     expected_rel = [
-        "orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml"
-        "orderflow_services/prometheus_alerts_prom_rules_loaded_probe_v1.yml"
+        "orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml",
+        "orderflow_services/prometheus_alerts_prom_rules_loaded_probe_v1.yml",
     ]
     loaded_files = {
-        "/etc/prometheus/rules/bundle/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml"
-        "/etc/prometheus/rules/bundle/orderflow_services/prometheus_alerts_prom_rules_loaded_probe_v1.yml"
-        "/etc/prometheus/rules/bundle/other_file.yml"
+        "/etc/prometheus/rules/bundle/orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml",
+        "/etc/prometheus/rules/bundle/orderflow_services/prometheus_alerts_prom_rules_loaded_probe_v1.yml",
+        "/etc/prometheus/rules/bundle/other_file.yml",
     }
     loaded_n, missing = _compute_loaded_expected(expected_rel=expected_rel, loaded_files=loaded_files)
     assert loaded_n == 2
@@ -200,8 +200,8 @@ def test_compute_loaded_expected_all_ok():
 
 def test_compute_loaded_expected_one_missing():
     expected_rel = [
-        "orderflow_services/prometheus_rules_bundle_manifest_v2.yml"
-        "orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml"
+        "orderflow_services/prometheus_rules_bundle_manifest_v2.yml",
+        "orderflow_services/prometheus_alerts_prom_rules_bundle_health_v1.yml",
     ]
     loaded_files_missing = {
         "/etc/prometheus/rules/bundle/orderflow_services/prometheus_rules_bundle_manifest_v2.yml"

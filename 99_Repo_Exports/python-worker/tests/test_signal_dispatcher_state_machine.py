@@ -43,7 +43,7 @@ class SpanStub:
 class TraceStub:
     trace_id: str = ""
     sid: str = ""
-    symbol: str = ""
+    symbol=""
     kind: str = ""
     events: List[Dict[str, Any]] = None  # type: ignore[assignment]
 

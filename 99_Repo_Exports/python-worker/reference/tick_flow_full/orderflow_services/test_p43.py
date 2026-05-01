@@ -36,9 +36,9 @@ class TestMetaCovOutcomeGuard(unittest.TestCase):
         self.mock_redis.get.side_effect = lambda k: {
             'settings:dynamic_cfg': json.dumps({
                 'meta_cov_ops_last_ts_ms': 1000, # Mock NOW-small
-                'meta_cov_ops_last_ok': 1
-                'meta_cov_ops_last_preflight_rc': 0
-                'meta_cov_ops_last_blocked_reasons': []
+                'meta_cov_ops_last_ok': 1,
+                'meta_cov_ops_last_preflight_rc': 0,
+                'meta_cov_ops_last_blocked_reasons': [],
                 'meta_cov_quarantine_until_ms_a': 0
             })
         }.get(k)
@@ -54,7 +54,7 @@ class TestMetaCovOutcomeGuard(unittest.TestCase):
         self.mock_redis.get.side_effect = lambda k: {
             'settings:dynamic_cfg': json.dumps({
                 'meta_cov_ops_last_ts_ms': 100, # Very old
-                'meta_cov_ops_last_ok': 1
+                'meta_cov_ops_last_ok': 1,
                 'meta_cov_ops_last_preflight_rc': 0
             })
         }.get(k)

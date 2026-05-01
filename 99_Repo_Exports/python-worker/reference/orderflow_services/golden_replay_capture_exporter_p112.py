@@ -1,3 +1,4 @@
+from __future__ import annotations
 """B7: Prometheus exporter for golden replay capture + nightly parity state.
 
 Exposes gauges by scraping:
@@ -8,7 +9,6 @@ Designed to run as a standalone process because production workers may not expos
 /metrics endpoints.
 """
 
-from __future__ import annotations
 
 import json
 import os

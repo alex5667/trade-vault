@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """nightly_slippage_calibrator_v1.py
 
 Nightly calibrator for slippage decomposition impact coefficient.
@@ -32,7 +33,6 @@ Exit codes:
   2 soft-fail (missing deps / missing DSN)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

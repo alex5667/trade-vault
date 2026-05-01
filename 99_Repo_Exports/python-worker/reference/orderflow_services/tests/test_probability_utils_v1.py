@@ -15,15 +15,15 @@ from tick_flow_full.services.orderflow.probability_utils_v1 import extract_prob 
 
 
 @pytest.mark.parametrize(
-    "decision, expected_p, expected_src"
+    "decision, expected_p, expected_src",
     [
-        ({"ml": {"p_edge": 0.72, "p": 0.55, "score": 0.33, "p_min": 0.95}}, 0.72, "p_edge")
-        ({"ml": {"p": 0.61, "score": 0.12, "p_min": 0.20}}, 0.61, "p")
-        ({"ml": {"score": 0.44, "p_min": 0.90}}, 0.44, "score")
-        ({"ml": {"score": 1.44, "p_min": 0.10}}, None, "none")
-        ({"ml": {"p_min": 0.55}}, None, "none")
-        ({}, None, "none")
-    ]
+        ({"ml": {"p_edge": 0.72, "p": 0.55, "score": 0.33, "p_min": 0.95}}, 0.72, "p_edge"),
+        ({"ml": {"p": 0.61, "score": 0.12, "p_min": 0.20}}, 0.61, "p"),
+        ({"ml": {"score": 0.44, "p_min": 0.90}}, 0.44, "score"),
+        ({"ml": {"score": 1.44, "p_min": 0.10}}, None, "none"),
+        ({"ml": {"p_min": 0.55}}, None, "none"),
+        ({}, None, "none"),
+    ],
 )
 def test_extract_prob_with_source_main(decision, expected_p, expected_src):
     p, src = extract_main(decision)
@@ -33,15 +33,15 @@ def test_extract_prob_with_source_main(decision, expected_p, expected_src):
 
 
 @pytest.mark.parametrize(
-    "decision, expected_p, expected_src"
+    "decision, expected_p, expected_src",
     [
-        ({"ml": {"p_edge": 0.72, "p": 0.55, "score": 0.33, "p_min": 0.95}}, 0.72, "p_edge")
-        ({"ml": {"p": 0.61, "score": 0.12, "p_min": 0.20}}, 0.61, "p")
-        ({"ml": {"score": 0.44, "p_min": 0.90}}, 0.44, "score")
-        ({"ml": {"score": 1.44, "p_min": 0.10}}, None, "none")
-        ({"ml": {"p_min": 0.55}}, None, "none")
-        ({}, None, "none")
-    ]
+        ({"ml": {"p_edge": 0.72, "p": 0.55, "score": 0.33, "p_min": 0.95}}, 0.72, "p_edge"),
+        ({"ml": {"p": 0.61, "score": 0.12, "p_min": 0.20}}, 0.61, "p"),
+        ({"ml": {"score": 0.44, "p_min": 0.90}}, 0.44, "score"),
+        ({"ml": {"score": 1.44, "p_min": 0.10}}, None, "none"),
+        ({"ml": {"p_min": 0.55}}, None, "none"),
+        ({}, None, "none"),
+    ],
 )
 def test_extract_prob_with_source_tick(decision, expected_p, expected_src):
     p, src = extract_tick(decision)

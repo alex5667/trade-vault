@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Comprehensive regression diff analyzer.
 
 Analyzes diff.json from regression tests to:
@@ -11,7 +12,6 @@ Usage:
   python -m tools.analyze_regress_diff --find-latest  # finds latest diff.json in OUT_DIR
 """
 
-from __future__ import annotations
 
 import argparse
 import json

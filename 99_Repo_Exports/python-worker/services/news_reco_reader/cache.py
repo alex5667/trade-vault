@@ -1,3 +1,4 @@
+from __future__ import annotations
 """services.news_reco_reader.cache
 
 In-memory TTL cache for trade-side news recommendations (reco).
@@ -14,10 +15,10 @@ The trade-side cache consumer is expected to write a single Redis key:
 with JSON:
 
     {
-      "schema_ver": "v1"
-      "ts_ms": 1710000000000
+      "schema_ver": "v1",
+      "ts_ms": 1710000000000,
       "reco": {
-        "BTCUSDT": {"expires_ms": 1710000005000, ...}
+        "BTCUSDT": {"expires_ms": 1710000005000, ...},
         "ETHUSDT": {"expires_ms": 1710000006000, ...}
       }
     }
@@ -26,7 +27,6 @@ Only "reco" and per-symbol "expires_ms" are strictly required. Everything
 else is treated as opaque payload (forward compatible).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from dataclasses import dataclass
@@ -142,10 +142,10 @@ class NewsRecoCache:
                 payload.setdefault("map_ts_ms", ts_ms)
 
             self._by_symbol[sym] = NewsRecoSnapshot(
-                symbol=sym
-                expires_ms=exp_ms
-                received_ts_ms=nowv
-                payload=payload
+                symbol=sym,
+                expires_ms=exp_ms,
+                received_ts_ms=nowv,
+                payload=payload,
             )
             updated += 1
 

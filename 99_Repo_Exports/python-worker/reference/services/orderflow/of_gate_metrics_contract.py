@@ -14,15 +14,15 @@ OF_GATE_SCHEMA_VERSION = str(SCHEMA_VERSION_V1)
 
 # Required fields for producers (consumer-side can be more permissive).
 REQUIRED_FIELDS_V1 = [
-    "schema_name"
-    "schema_version"
-    "ts_ms"
-    "symbol"
-    "ok"
-    "ok_soft"
-    "missing_legs"
-    "scenario_v4"
-    "reason_code"
+    "schema_name",
+    "schema_version",
+    "ts_ms",
+    "symbol",
+    "ok",
+    "ok_soft",
+    "missing_legs",
+    "scenario_v4",
+    "reason_code",
 ]
 
 # Conservative time range checks (epoch ms).

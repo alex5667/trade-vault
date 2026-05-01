@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for position_leg_policy — pure-math scale-in module.
 
 Tests:
@@ -6,7 +7,6 @@ Tests:
 3. max_add_qty_for_budget — remaining qty within risk budget
 4. build_scale_in_tp_schema — TP1 closes second leg, monotonicity, edge cases
 """
-from __future__ import annotations
 
 import sys
 from pathlib import Path
@@ -18,11 +18,11 @@ if str(ROOT) not in sys.path:
 import pytest
 
 from services.position_leg_policy import (
-    PositionLeg
-    blended_entry_price
-    worst_case_loss_usdt
-    max_add_qty_for_budget
-    build_scale_in_tp_schema
+    PositionLeg,
+    blended_entry_price,
+    worst_case_loss_usdt,
+    max_add_qty_for_budget,
+    build_scale_in_tp_schema,
 )
 
 
@@ -37,16 +37,16 @@ class TestBlendedEntryPrice:
 
     def test_two_legs_equal_qty(self):
         legs = [
-            PositionLeg(entry=100.0, qty=1.0, side="LONG")
-            PositionLeg(entry=110.0, qty=1.0, side="LONG")
+            PositionLeg(entry=100.0, qty=1.0, side="LONG"),
+            PositionLeg(entry=110.0, qty=1.0, side="LONG"),
         ]
         assert blended_entry_price(legs) == pytest.approx(105.0)
 
     def test_two_legs_unequal_qty(self):
         """Qty-weighted: (100*3 + 120*1) / 4 = 105."""
         legs = [
-            PositionLeg(entry=100.0, qty=3.0, side="LONG")
-            PositionLeg(entry=120.0, qty=1.0, side="LONG")
+            PositionLeg(entry=100.0, qty=3.0, side="LONG"),
+            PositionLeg(entry=120.0, qty=1.0, side="LONG"),
         ]
         assert blended_entry_price(legs) == pytest.approx(105.0)
 
@@ -81,8 +81,8 @@ class TestWorstCaseLoss:
     def test_two_legs_combined_loss(self):
         """Two LONG legs, SL=95 → loss = (100-95)*1 + (105-95)*0.5 = 5 + 5 = 10."""
         legs = [
-            PositionLeg(entry=100.0, qty=1.0, side="LONG")
-            PositionLeg(entry=105.0, qty=0.5, side="LONG")
+            PositionLeg(entry=100.0, qty=1.0, side="LONG"),
+            PositionLeg(entry=105.0, qty=0.5, side="LONG"),
         ]
         assert worst_case_loss_usdt(legs, sl=95.0) == pytest.approx(10.0)
 

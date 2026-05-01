@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Export Reliability Calibration Data to CSV
 
@@ -9,7 +10,6 @@ Creates separate files for:
 - Configuration performance
 """
 
-from __future__ import annotations
 
 import os
 import sys
@@ -21,8 +21,8 @@ from typing import Dict, List, Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from scripts.analyze_reliability_calibration import (
-    get_all_relcal_keys
-    parse_relcal_key
+    get_all_relcal_keys,
+    parse_relcal_key,
     get_relcal_data
 )
 from core.redis_client import get_redis
@@ -32,7 +32,7 @@ def export_summary_csv(data_by_key: Dict[str, Dict], filename: str):
     """Export summary statistics to CSV."""
     with open(filename, 'w', newline='') as csvfile:
         fieldnames = [
-            'outcome', 'kind', 'symbol', 'venue', 'session', 'tf', 'regime'
+            'outcome', 'kind', 'symbol', 'venue', 'session', 'tf', 'regime',
             'samples_total', 'hits_total', 'hit_rate', 'last_ts_ms'
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -41,9 +41,9 @@ def export_summary_csv(data_by_key: Dict[str, Dict], filename: str):
         for key_info, data in data_by_key.items():
             row = dict(key_info)
             row.update({
-                'samples_total': data.get('samples_total', 0)
-                'hits_total': data.get('hits_total', 0)
-                'hit_rate': data.get('hits_total', 0) / max(1, data.get('samples_total', 0))
+                'samples_total': data.get('samples_total', 0),
+                'hits_total': data.get('hits_total', 0),
+                'hit_rate': data.get('hits_total', 0) / max(1, data.get('samples_total', 0)),
                 'last_ts_ms': data.get('last_ts_ms', 0)
             })
             writer.writerow(row)
@@ -55,7 +55,7 @@ def export_bucket_csv(data_by_key: Dict[str, Dict], filename: str):
     """Export bucket-level data to CSV."""
     with open(filename, 'w', newline='') as csvfile:
         fieldnames = [
-            'outcome', 'kind', 'symbol', 'venue', 'session', 'tf', 'regime'
+            'outcome', 'kind', 'symbol', 'venue', 'session', 'tf', 'regime',
             'confidence_bucket', 'samples', 'hits', 'hit_rate'
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -65,9 +65,9 @@ def export_bucket_csv(data_by_key: Dict[str, Dict], filename: str):
             for conf_pct, bucket_data in data.get('buckets', {}).items():
                 row = dict(key_info)
                 row.update({
-                    'confidence_bucket': conf_pct
-                    'samples': bucket_data['samples']
-                    'hits': bucket_data['hits']
+                    'confidence_bucket': conf_pct,
+                    'samples': bucket_data['samples'],
+                    'hits': bucket_data['hits'],
                     'hit_rate': bucket_data['hit_rate']
                 })
                 writer.writerow(row)
@@ -89,9 +89,9 @@ def export_outcome_analysis(data_by_key: Dict[str, Dict], filename: str):
 
         for outcome, stats in outcome_analysis.items():
             writer.writerow({
-                'outcome': outcome
-                'total_samples': stats['total_samples']
-                'total_hits': stats['total_hits']
+                'outcome': outcome,
+                'total_samples': stats['total_samples'],
+                'total_hits': stats['total_hits'],
                 'overall_hit_rate': stats.get('overall_hit_rate', 0)
             })
 

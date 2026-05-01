@@ -610,7 +610,7 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
         "drift": {
             "scenario_l1": 0.40,  # Above 0.30 cap
         },
-    }
+    },
     mock_redis.set("sre:of_gate:last_stats", json.dumps(sre_stats))
     
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")

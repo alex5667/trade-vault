@@ -93,8 +93,8 @@ def is_redis_connection_error(e: BaseException) -> bool:
         if rex:
             classes = tuple(
                 c for c in (
-                    getattr(rex, "ConnectionError", None)
-                    getattr(rex, "TimeoutError", None)
+                    getattr(rex, "ConnectionError", None),
+                    getattr(rex, "TimeoutError", None),
                 ) if c is not None
             )
             if classes and isinstance(e, classes):
@@ -224,13 +224,13 @@ def is_transient_error(exc: BaseException) -> bool:
 
 
 def retry_redis_operation(
-    operation: Callable[[], T]
-    operation_name: str = "Redis operation"
-    max_retries: int = 10
-    base_delay: float = 1.0
-    max_delay: float = 30.0
-    on_final_failure: Optional[Callable[[Exception], T]] = None
-    logger_instance: Optional[logging.Logger] = None
+    operation: Callable[[], T],
+    operation_name: str = "Redis operation",
+    max_retries: int = 10,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    on_final_failure: Optional[Callable[[Exception], T]] = None,
+    logger_instance: Optional[logging.Logger] = None,
 ) -> T:
     """
     Retry a Redis operation with exponential backoff and jitter.
@@ -256,11 +256,11 @@ def retry_redis_operation(
     """
     log = logger_instance or logger
     backoff = Backoff(
-        base_delay=base_delay
-        max_delay=max_delay
-        multiplier=2.0
+        base_delay=base_delay,
+        max_delay=max_delay,
+        multiplier=2.0,
         jitter=True,  # Add jitter to prevent thundering herd
-        max_attempts=max_retries
+        max_attempts=max_retries,
     )
     
     last_exception: Optional[Exception] = None
@@ -283,22 +283,22 @@ def retry_redis_operation(
                 delay = backoff.get_delay()
                 error_category = get_redis_error_category(e)
                 log.warning(
-                    "%s: Redis transient error [%s] (attempt %d/%d), retrying in %.1fs..."
-                    operation_name
-                    error_category
-                    attempt + 1
-                    max_retries
-                    delay
+                    "%s: Redis transient error [%s] (attempt %d/%d), retrying in %.1fs...",
+                    operation_name,
+                    error_category,
+                    attempt + 1,
+                    max_retries,
+                    delay,
                 )
                 time.sleep(delay)
             else:
                 # Final attempt failed
                 error_category = get_redis_error_category(e)
                 log.error(
-                    "%s: Redis still failing [%s] after %d attempts"
-                    operation_name
-                    error_category
-                    max_retries
+                    "%s: Redis still failing [%s] after %d attempts",
+                    operation_name,
+                    error_category,
+                    max_retries,
                 )
                 if on_final_failure is not None:
                     result = on_final_failure(e)

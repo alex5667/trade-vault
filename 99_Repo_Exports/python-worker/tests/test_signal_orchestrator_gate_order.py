@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Gate sequence contract test for SignalOrchestrator.
 
@@ -8,7 +9,6 @@ Gate sequence contract test for SignalOrchestrator.
 Это sentinel: при refactor orchestrator.process() порядок должен быть явно
 пересмотрен и тест обновлён осознанно.
 """
-from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call

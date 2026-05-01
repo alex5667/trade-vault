@@ -40,44 +40,44 @@ def test_of_confirm_engine_liqmap_gate_shadow_sets_bits_and_exports_indicators()
 
     # Indicators must include a minimal set for a stable build path.
     indicators = {
-        "price": 100.0
-        "atr_bps": 50.0
-        "tick_time_age_ms": 0.0
-        "data_health": 1.0
-        "book_health_ok": 1.0
+        "price": 100.0,
+        "atr_bps": 50.0,
+        "tick_time_age_ms": 0.0,
+        "data_health": 1.0,
+        "book_health_ok": 1.0,
         # LiqMap features used by the gate (window=1h)
-        "liqmap_1h_dist_dn_bps": 5.0
-        "liqmap_1h_dist_up_bps": 250.0
-        "liqmap_1h_peak_dn1_usd": 600_000.0
-        "liqmap_1h_peak_up1_usd": 50_000.0
-        "liqmap_1h_age_ms": 500.0
+        "liqmap_1h_dist_dn_bps": 5.0,
+        "liqmap_1h_dist_up_bps": 250.0,
+        "liqmap_1h_peak_dn1_usd": 600_000.0,
+        "liqmap_1h_peak_up1_usd": 50_000.0,
+        "liqmap_1h_age_ms": 500.0,
         # Totals/near are optional for v1 gate, but often logged.
-        "liqmap_1h_total_usd": 1_000_000.0
-        "liqmap_1h_near_total_usd": 800_000.0
-        "liqmap_1h_near_imb": -0.2
+        "liqmap_1h_total_usd": 1_000_000.0,
+        "liqmap_1h_near_total_usd": 800_000.0,
+        "liqmap_1h_near_imb": -0.2,
     }
 
     cfg = {
         # Keep the rest defaults; only set liqmap gate controls.
-        "liqmap_gate_mode": "shadow"
-        "liqmap_gate_window": "1h"
+        "liqmap_gate_mode": "shadow",
+        "liqmap_gate_window": "1h",
         # Soft/hard are irrelevant in shadow; choose conservative.
-        "liqmap_gate_peak_min_usd": 250_000.0
-        "liqmap_gate_sl_band_mult": 2.0
+        "liqmap_gate_peak_min_usd": 250_000.0,
+        "liqmap_gate_sl_band_mult": 2.0,
     }
 
     # Should not raise.
     confirm, _gate_decision = engine.build(
-        symbol="BTCUSDT"
-        tf="1m"
-        direction="LONG"
-        tick_ts_ms=1_000_000
-        price=100.0
-        delta_z=1.5
-        runtime=_Runtime()
-        cfg=cfg
-        indicators=indicators
-        absorption=None
+        symbol="BTCUSDT",
+        tf="1m",
+        direction="LONG",
+        tick_ts_ms=1_000_000,
+        price=100.0,
+        delta_z=1.5,
+        runtime=_Runtime(),
+        cfg=cfg,
+        indicators=indicators,
+        absorption=None,
     )
 
     # Wiring sanity: stable exports.

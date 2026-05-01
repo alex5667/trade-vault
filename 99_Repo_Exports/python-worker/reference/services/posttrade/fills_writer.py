@@ -178,15 +178,15 @@ class Cfg:
     def from_env() -> "Cfg":
         host = socket.gethostname()
         return Cfg(
-            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
-            stream=_env("TRADE_EVENTS_STREAM", "events:trades")
-            group=_env("TRADE_EVENTS_GROUP", "fills_writer_v1")
-            consumer=_env("TRADE_EVENTS_CONSUMER", f"{host}:{os.getpid()}")
-            block_ms=_env_int("FILLS_WRITER_BLOCK_MS", "5000")
-            count=_env_int("FILLS_WRITER_COUNT", "256")
-            dlq_stream=_env("FILLS_DLQ_STREAM", "events:fills:dlq")
-            dlq_maxlen=_env_int("FILLS_DLQ_MAXLEN", "200000")
-            batch_size=_env_int("FILLS_WRITER_BATCH_SIZE", "256")
+            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
+            stream=_env("TRADE_EVENTS_STREAM", "events:trades"),
+            group=_env("TRADE_EVENTS_GROUP", "fills_writer_v1"),
+            consumer=_env("TRADE_EVENTS_CONSUMER", f"{host}:{os.getpid()}"),
+            block_ms=_env_int("FILLS_WRITER_BLOCK_MS", "5000"),
+            count=_env_int("FILLS_WRITER_COUNT", "256"),
+            dlq_stream=_env("FILLS_DLQ_STREAM", "events:fills:dlq"),
+            dlq_maxlen=_env_int("FILLS_DLQ_MAXLEN", "200000"),
+            batch_size=_env_int("FILLS_WRITER_BATCH_SIZE", "256"),
         )
 
 
@@ -212,18 +212,18 @@ def _to_fill_row(ev: Dict[str, Any], *, stream_id: str) -> Tuple[Optional[Dict[s
 
     # Map trade events to canonical fill event keys
     evt: Dict[str, Any] = {
-        "sid": ev.get("sid") or ev.get("signal_id")
-        "order_id": ev.get("order_id") or ev.get("exit_order_id") or ev.get("position_id") or ev.get("event_id") or ""
-        "ts_fill_ms": ev.get("ts_fill_ms") or ev.get("exit_ts_ms") or ev.get("ts") or ev.get("ts_ms")
-        "px": ev.get("px") or ev.get("price")
-        "qty": ev.get("qty") or ev.get("lot")
-        "fee_bps": _best_effort_fee_bps(ev)
-        "venue": ev.get("venue") or ev.get("source")
-        "symbol": ev.get("symbol")
-        "side": ev.get("side") or ev.get("direction")
-        "bid_at_fill": ev.get("bid_at_fill")
-        "ask_at_fill": ev.get("ask_at_fill")
-        "mid_at_fill": ev.get("mid_at_fill")
+        "sid": ev.get("sid") or ev.get("signal_id"),
+        "order_id": ev.get("order_id") or ev.get("exit_order_id") or ev.get("position_id") or ev.get("event_id") or "",
+        "ts_fill_ms": ev.get("ts_fill_ms") or ev.get("exit_ts_ms") or ev.get("ts") or ev.get("ts_ms"),
+        "px": ev.get("px") or ev.get("price"),
+        "qty": ev.get("qty") or ev.get("lot"),
+        "fee_bps": _best_effort_fee_bps(ev),
+        "venue": ev.get("venue") or ev.get("source"),
+        "symbol": ev.get("symbol"),
+        "side": ev.get("side") or ev.get("direction"),
+        "bid_at_fill": ev.get("bid_at_fill"),
+        "ask_at_fill": ev.get("ask_at_fill"),
+        "mid_at_fill": ev.get("mid_at_fill"),
     }
 
     norm = normalize_fill_event(evt)
@@ -236,23 +236,23 @@ def _to_fill_row(ev: Dict[str, Any], *, stream_id: str) -> Tuple[Optional[Dict[s
         return None, "missing:" + ",".join(missing)
 
     row = {
-        "ts_fill_ms": int(norm["ts_fill_ms"])
-        "sid": str(norm["sid"])
-        "order_id": str(norm["order_id"])
-        "sym": str(norm["symbol"]).upper()
-        "venue": str(norm["venue"]).lower()
-        "side": str(norm["side"]).upper()
-        "fill_role": role
-        "px": float(norm["px"])
-        "qty": float(norm["qty"])
-        "fee_bps": float(norm["fee_bps"])
-        "bid_at_fill": norm.get("bid_at_fill")
-        "ask_at_fill": norm.get("ask_at_fill")
-        "mid_at_fill": norm.get("mid_at_fill")
-        "event_type": et
-        "event_id": str(ev.get("event_id") or "")
-        "stream_id": stream_id
-        "ts_insert_ms": _now_ms()
+        "ts_fill_ms": int(norm["ts_fill_ms"]),
+        "sid": str(norm["sid"]),
+        "order_id": str(norm["order_id"]),
+        "sym": str(norm["symbol"]).upper(),
+        "venue": str(norm["venue"]).lower(),
+        "side": str(norm["side"]).upper(),
+        "fill_role": role,
+        "px": float(norm["px"]),
+        "qty": float(norm["qty"]),
+        "fee_bps": float(norm["fee_bps"]),
+        "bid_at_fill": norm.get("bid_at_fill"),
+        "ask_at_fill": norm.get("ask_at_fill"),
+        "mid_at_fill": norm.get("mid_at_fill"),
+        "event_type": et,
+        "event_id": str(ev.get("event_id") or ""),
+        "stream_id": stream_id,
+        "ts_insert_ms": _now_ms(),
     }
     return row, ""
 
@@ -275,11 +275,11 @@ async def main() -> None:
     while True:
         try:
             res = await r.xreadgroup(
-                groupname=cfg.group
-                consumername=cfg.consumer
-                streams={cfg.stream: ">"}
-                count=cfg.count
-                block=cfg.block_ms
+                groupname=cfg.group,
+                consumername=cfg.consumer,
+                streams={cfg.stream: ">"},
+                count=cfg.count,
+                block=cfg.block_ms,
             )
             if not res:
                 continue
@@ -294,14 +294,14 @@ async def main() -> None:
                     if row is None:
                         if not reason.startswith("skip:"):
                             await publish_dlq(
-                                r
-                                dlq_stream=cfg.dlq_stream
-                                reason=reason
-                                error="invalid_fill_event"
-                                stream=cfg.stream
-                                entry_id=mid_s
-                                payload=ev
-                                maxlen=cfg.dlq_maxlen
+                                r,
+                                dlq_stream=cfg.dlq_stream,
+                                reason=reason,
+                                error="invalid_fill_event",
+                                stream=cfg.stream,
+                                entry_id=mid_s,
+                                payload=ev,
+                                maxlen=cfg.dlq_maxlen,
                             )
                         # Always ACK so the group doesn't get stuck.
                         await r.xack(cfg.stream, cfg.group, mid)

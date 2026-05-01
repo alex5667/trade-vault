@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OF Inputs DLQ/Quarantine drilldown (P96).
 
 Prints quick triage info (top dq_code / err_prefix, sample payloads).
@@ -11,7 +12,6 @@ Usage:
   python -m orderflow_services.of_inputs_dlq_drilldown_p96 --dlq 200 --quarantine 200 --samples 3
 """
 
-from __future__ import annotations
 
 import argparse
 import json

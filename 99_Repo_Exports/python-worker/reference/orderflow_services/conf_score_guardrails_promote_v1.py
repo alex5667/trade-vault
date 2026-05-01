@@ -41,11 +41,11 @@ import redis
 # -------------------------------------------------------------------------
 
 def check_health_gates(
-    state_path: str
-    max_age_sec: float
-    ece_margin: float
-    brier_margin: float
-    min_n: int
+    state_path: str,
+    max_age_sec: float,
+    ece_margin: float,
+    brier_margin: float,
+    min_n: int,
     allow_missing: int = 0
 ) -> Tuple[bool, str, Dict[str, Any]]:
     """
@@ -135,9 +135,9 @@ def load_staged_bundle(bundle_dir: Path) -> Tuple[Optional[str], Optional[Dict[s
 
 
 def apply_bundle_to_live(
-    r: redis.Redis
-    bundle_data: Dict[str, Any]
-    key_prefix: str
+    r: redis.Redis,
+    bundle_data: Dict[str, Any],
+    key_prefix: str,
     dry_run: bool = False
 ) -> int:
     """Applies decisions from bundle to LIVE keys."""
@@ -190,12 +190,12 @@ def update_live_pointer(bundle_dir: Path, staged_file: str, staged_sha: str) -> 
             pass
 
     new_pointer = {
-        "current_file": staged_file
-        "current_ts": get_ny_time_millis()
-        "current_sha": staged_sha
-        "updated_at_iso": datetime.now(timezone.utc).isoformat()
-        "prev_file": prev_info.get("current_file")
-        "prev_ts": prev_info.get("current_ts")
+        "current_file": staged_file,
+        "current_ts": get_ny_time_millis(),
+        "current_sha": staged_sha,
+        "updated_at_iso": datetime.now(timezone.utc).isoformat(),
+        "prev_file": prev_info.get("current_file"),
+        "prev_ts": prev_info.get("current_ts"),
         "promoted_from": "staged.json"
     }
 
@@ -240,11 +240,11 @@ def main():
     # 2. Check Health
     if args.require_health:
         is_healthy, reason, hdata = check_health_gates(
-            args.health_state_path
-            args.max_age_sec
-            args.ece_margin
-            args.brier_margin
-            args.min_n
+            args.health_state_path,
+            args.max_age_sec,
+            args.ece_margin,
+            args.brier_margin,
+            args.min_n,
             args.allow_missing
         )
         

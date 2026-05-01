@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Active Mirror Service — Phase 3.8 (Disaster Layer).
 
 Maintains a last-good snapshot of cfg:atr_policy:active:* ONLY after verifier
@@ -17,7 +18,6 @@ ENV:
   ATR_POLICY_MIRROR_ADVISORY_ONLY       default 0  (1 = never mutate last_good)
   REDIS_URL
 """
-from __future__ import annotations
 
 import json
 import logging

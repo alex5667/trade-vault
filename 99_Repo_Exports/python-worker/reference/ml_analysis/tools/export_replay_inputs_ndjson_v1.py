@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """export_replay_inputs_ndjson_v1.py
 
 Phase2 helper: export a time-window slice of replay inputs archive into a single NDJSON.
@@ -22,7 +23,6 @@ Env:
   - None
 """
 
-from __future__ import annotations
 
 import argparse
 import gzip
@@ -100,13 +100,13 @@ def main() -> None:
                 break
 
     print(json.dumps({
-        "archive_dir": archive_dir
-        "start_ts_ms": int(args.start_ts_ms)
-        "end_ts_ms": int(args.end_ts_ms)
-        "symbol": sym_filter
-        "scanned": n
-        "written": n_written
-        "out": out_path
+        "archive_dir": archive_dir,
+        "start_ts_ms": int(args.start_ts_ms),
+        "end_ts_ms": int(args.end_ts_ms),
+        "symbol": sym_filter,
+        "scanned": n,
+        "written": n_written,
+        "out": out_path,
     }, ensure_ascii=False))
 
 

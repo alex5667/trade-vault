@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly regression test with automatic emergency disable ENFORCE on fail.
 
 On regression mismatch:
@@ -10,7 +11,6 @@ Usage:
   (reads BASELINE_INPUTS, BASELINE_OUTPUT from env)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -76,7 +76,7 @@ def apply_emergency_bundle(
         "who": who,
         "ops": ops,
         "meta": meta,
-    }
+    },
 
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec)
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=ttl_sec)

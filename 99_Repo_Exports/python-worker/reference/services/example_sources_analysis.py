@@ -50,15 +50,15 @@ def compare_sources():
             
             if total_trades > 0:
                 comparison.append({
-                    "source": source
-                    "trades": total_trades
-                    "wins": int(stats.get("wins", 0))
-                    "losses": int(stats.get("losses", 0))
-                    "winrate": float(stats.get("winrate", 0))
-                    "total_pnl": float(stats.get("total_pnl", 0))
-                    "avg_pnl": float(stats.get("avg_pnl", 0))
-                    "tp1_rate": float(stats.get("tp1_rate", 0))
-                    "tp2_rate": float(stats.get("tp2_rate", 0))
+                    "source": source,
+                    "trades": total_trades,
+                    "wins": int(stats.get("wins", 0)),
+                    "losses": int(stats.get("losses", 0)),
+                    "winrate": float(stats.get("winrate", 0)),
+                    "total_pnl": float(stats.get("total_pnl", 0)),
+                    "avg_pnl": float(stats.get("avg_pnl", 0)),
+                    "tp1_rate": float(stats.get("tp1_rate", 0)),
+                    "tp2_rate": float(stats.get("tp2_rate", 0)),
                     "tp3_rate": float(stats.get("tp3_rate", 0))
                 })
     
@@ -166,14 +166,14 @@ def export_sources_comparison():
     
     # Формируем детальный отчёт
     detailed_report = {
-        "timestamp": int(__import__('time').time() * 1000)
-        "strategy": "orderflow"
-        "symbol": "XAUUSD"
-        "tf": "tick"
-        "sources": sources_summary
+        "timestamp": int(__import__('time').time() * 1000),
+        "strategy": "orderflow",
+        "symbol": "XAUUSD",
+        "tf": "tick",
+        "sources": sources_summary,
         "summary": {
-            "total_trades": sum(d['total_trades'] for d in sources_summary.values())
-            "total_wins": sum(d['wins'] for d in sources_summary.values())
+            "total_trades": sum(d['total_trades'] for d in sources_summary.values()),
+            "total_wins": sum(d['wins'] for d in sources_summary.values()),
             "total_pnl": sum(d['total_pnl'] for d in sources_summary.values())
         }
     }
@@ -349,13 +349,13 @@ def main():
     print("=" * 70 + "\n")
     
     examples = {
-        "1": ("Сравнение источников", compare_sources)
-        "2": ("Сводка по всем источникам", sources_summary_report)
-        "3": ("Экспорт данных", export_sources_comparison)
-        "4": ("Определение лучшего источника", get_best_source)
-        "5": ("Мониторинг в реальном времени", monitor_source_performance)
-        "6": ("Детальный отчёт OrderFlow", lambda: detailed_source_report("OrderFlow"))
-        "7": ("Детальный отчёт AggregatedHub-V2", lambda: detailed_source_report("AggregatedHub-V2"))
+        "1": ("Сравнение источников", compare_sources),
+        "2": ("Сводка по всем источникам", sources_summary_report),
+        "3": ("Экспорт данных", export_sources_comparison),
+        "4": ("Определение лучшего источника", get_best_source),
+        "5": ("Мониторинг в реальном времени", monitor_source_performance),
+        "6": ("Детальный отчёт OrderFlow", lambda: detailed_source_report("OrderFlow")),
+        "7": ("Детальный отчёт AggregatedHub-V2", lambda: detailed_source_report("AggregatedHub-V2")),
     }
     
     print("Доступные примеры:")

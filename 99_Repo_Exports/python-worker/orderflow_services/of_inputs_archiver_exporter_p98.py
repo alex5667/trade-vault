@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Prometheus exporter for OFInputs DLQ/quarantine DB archiver status (P98).
 
 Reads Redis hashes written by of_inputs_dlq_archive_to_db_p98.py:
@@ -22,7 +23,6 @@ ENV:
   OF_INPUTS_QUARANTINE_DB_ARCHIVE_METRICS_KEY (default metrics:of_inputs_quarantine_db_archive)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

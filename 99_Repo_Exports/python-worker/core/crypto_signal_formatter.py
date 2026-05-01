@@ -1,8 +1,9 @@
+from __future__ import annotations
 """
 CryptoSignalFormatter
 
 Унифицированный формат сигналов для криптовалютных инструментов (BTCUSDT, ETHUSDT и т.д.).
-Формирует Telegram-сообщение в стиле XAUUSD formatter:
+Формирует Telegram-сообщение в стиле  formatter:
 
 🚨 🔴 BTCUSDT SHORT @ 52000.00, Volume 5.00 USDT
 📝 mix:p_delta=0.13,p_speed=0.04,p_cluster=0.07,p_legacy=0.05
@@ -14,7 +15,6 @@ CryptoSignalFormatter
 Примечание: Volume отображается в USDT (размер позиции в долларах), а не в количестве монет.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

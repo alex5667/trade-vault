@@ -121,8 +121,8 @@ def safe_json_dumps(data: Any, **kwargs) -> str:
     except Exception as e:
         # If sanitization fails, create a minimal error representation
         return json.dumps({
-            "error": "Failed to serialize data"
-            "error_type": type(e).__name__
-            "error_message": str(e)
+            "error": "Failed to serialize data",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
             "data_type": type(data).__name__
         }, **kwargs)

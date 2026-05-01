@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 AB Winner Eval Store (Redis)
 ============================
@@ -22,7 +23,6 @@ AB Winner Eval Store (Redis)
   => инкрементальный ingest + собственное окно.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time

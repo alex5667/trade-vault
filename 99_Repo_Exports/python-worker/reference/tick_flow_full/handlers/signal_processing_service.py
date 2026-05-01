@@ -1,9 +1,9 @@
 # signal_processing_service.py
+from __future__ import annotations
 """
 Signal processing functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Optional, List, TYPE_CHECKING, Any, Dict, Iterable
@@ -29,13 +29,13 @@ class SignalProcessingService:
     """
 
     def __init__(
-        self
-        symbol: str
-        *
-        unified_pipeline: Any = None
-        signal_generator: Any = None
-        health_metrics: Optional["HealthMetrics"] = None
-        outbox: Any = None
+        self,
+        symbol: str,
+        *,
+        unified_pipeline: Any = None,
+        signal_generator: Any = None,
+        health_metrics: Optional["HealthMetrics"] = None,
+        outbox: Any = None,
     ):
         self.symbol = symbol
         self.unified_pipeline = unified_pipeline
@@ -109,10 +109,10 @@ class SignalProcessingService:
         from contexts import PipelineSignalContext
         ts_ms = self._normalize_epoch_ms(getattr(of_ctx, "ts", 0))
         return PipelineSignalContext(
-            symbol=getattr(of_ctx, "symbol", self.symbol)
-            ts=ts_ms
-            price=float(getattr(of_ctx, "price", 0.0) or 0.0)
-            volume=float(getattr(of_ctx, "volume", 0.0) or 0.0)
+            symbol=getattr(of_ctx, "symbol", self.symbol),
+            ts=ts_ms,
+            price=float(getattr(of_ctx, "price", 0.0) or 0.0),
+            volume=float(getattr(of_ctx, "volume", 0.0) or 0.0),
         )
 
     def _call_unified(self, of_ctx: "OrderflowSignalContext") -> Any:
@@ -182,14 +182,14 @@ class SignalProcessingService:
 
             try:
                 pr_id = self.outbox.publish(
-                    source=env.get("source", "unified")
-                    strategy=env.get("strategy", "unknown")
-                    symbol=env.get("symbol", self.symbol)
-                    side=env.get("side", "none")
-                    kind=env.get("kind", "unknown")
-                    level_key=env.get("level_key", "")
-                    ts_ms=env["ts_ms"]
-                    envelope=env
+                    source=env.get("source", "unified"),
+                    strategy=env.get("strategy", "unknown"),
+                    symbol=env.get("symbol", self.symbol),
+                    side=env.get("side", "none"),
+                    kind=env.get("kind", "unknown"),
+                    level_key=env.get("level_key", ""),
+                    ts_ms=env["ts_ms"],
+                    envelope=env,
                 )
                 if pr_id:
                     sent_any = True
@@ -203,16 +203,16 @@ class SignalProcessingService:
                 self.logger.warning("Failed to publish unified envelope: %s", e)
                 # Fail-aware return: если часть уже ушла, сохраняем sent=True
                 return PublishResult(
-                    sent=sent_any
-                    dedup=(not sent_any and dedup_any)
-                    msg_id=last_msg_id
+                    sent=sent_any,
+                    dedup=(not sent_any and dedup_any),
+                    msg_id=last_msg_id,
                     confidence=last_conf
                 )
 
         return PublishResult(
-            sent=sent_any
-            dedup=(not sent_any and dedup_any)
-            msg_id=last_msg_id
+            sent=sent_any,
+            dedup=(not sent_any and dedup_any),
+            msg_id=last_msg_id,
             confidence=last_conf
         )
 
@@ -295,8 +295,8 @@ class SignalProcessingService:
         """
         from contexts import OrderflowSignalContext
         ctx = OrderflowSignalContext(
-            symbol=self.symbol
-            ts=int(getattr(bar, "ts", 0) or 0)
-            price=float(getattr(bar, "close", 0.0) or 0.0)
+            symbol=self.symbol,
+            ts=int(getattr(bar, "ts", 0) or 0),
+            price=float(getattr(bar, "close", 0.0) or 0.0),
         )
         return self.process_orderflow_context(ctx)

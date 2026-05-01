@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Integration module for bad time quarantine with Redis stream and Prometheus metrics.
 
@@ -7,7 +8,6 @@ This module wires up TickTimeGuard + BadTimeQuarantine with:
 - Signal quality impact tracking
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -22,13 +22,13 @@ from common.tick_time import TickTimeGuard, TickTimePolicy, SanitizeResult
 from common.time_quarantine import BadTimeQuarantine, BadTimeQuarantinePolicy
 
 from services.orderflow.metrics import (
-    tick_time_quarantine_active_gauge
-    tick_time_quarantine_enabled_total
-    tick_time_hard_drop_total
-    tick_time_soft_event_total
-    tick_time_state_freeze_total
-    tick_time_recovery_passed_total
-    tick_time_quarantine_score_gauge
+    tick_time_quarantine_active_gauge,
+    tick_time_quarantine_enabled_total,
+    tick_time_hard_drop_total,
+    tick_time_soft_event_total,
+    tick_time_state_freeze_total,
+    tick_time_recovery_passed_total,
+    tick_time_quarantine_score_gauge,
 )
 
 logger = logging.getLogger("tick_time_quarantine")
@@ -40,13 +40,13 @@ class TickTimeQuarantineIntegration:
     """
 
     def __init__(
-        self
-        symbol: str
-        redis_client: Optional[Any] = None
-        *
+        self,
+        symbol: str,
+        redis_client: Optional[Any] = None,
+        *,
         sample_rate: float = 0.01,  # 1% sampling for Redis stream
-        stream_name: Optional[str] = None
-        stream_maxlen: int = 50000
+        stream_name: Optional[str] = None,
+        stream_maxlen: int = 50000,
     ):
         self.symbol = str(symbol)
         self.redis_client = redis_client
@@ -58,13 +58,13 @@ class TickTimeQuarantineIntegration:
 
         # Initialize TickTimeGuard
         policy = TickTimePolicy(
-            max_future_ms=int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "5000"))
-            max_past_ms=int(os.getenv("TICK_TIME_MAX_PAST_MS", "120000"))
-            max_reorder_ms=int(os.getenv("TICK_TIME_MAX_REORDER_MS", "1500"))
+            max_future_ms=int(os.getenv("TICK_TIME_MAX_FUTURE_MS", "5000")),
+            max_past_ms=int(os.getenv("TICK_TIME_MAX_PAST_MS", "120000")),
+            max_reorder_ms=int(os.getenv("TICK_TIME_MAX_REORDER_MS", "1500")),
             clamp_soft_future=os.getenv("TICK_TIME_CLAMP_SOFT_FUTURE", "1").lower()
-            in {"1", "true", "yes"}
+            in {"1", "true", "yes"},
             allow_soft_reorder=os.getenv("TICK_TIME_ALLOW_SOFT_REORDER", "1").lower()
-            in {"1", "true", "yes"}
+            in {"1", "true", "yes"},
         )
         self.tick_time_guard = TickTimeGuard(policy)
 
@@ -128,10 +128,10 @@ class TickTimeQuarantineIntegration:
 
         try:
             fields = {
-                "symbol": self.symbol
-                "ts_ms": str(now_ms)
-                "payload": json.dumps(payload, ensure_ascii=False)
-            }
+                "symbol": self.symbol,
+                "ts_ms": str(now_ms),
+                "payload": json.dumps(payload, ensure_ascii=False),
+            },
             await self.redis_client.xadd(
                 self.stream_name, fields, maxlen=self.stream_maxlen, approximate=True
             )
@@ -160,12 +160,12 @@ class TickTimeQuarantineIntegration:
                     safe_create_task(
                         self._publish_to_redis_stream(
                             {
-                                "reason": "bad_ts"
-                                "ts": str(ts)
-                                "now_ms": now_ms
-                                "error": "cannot_parse"
-                            }
-                            now_ms
+                                "reason": "bad_ts",
+                                "ts": str(ts),
+                                "now_ms": now_ms,
+                                "error": "cannot_parse",
+                            },
+                            now_ms,
                         )
                     )
             except Exception:
@@ -182,12 +182,12 @@ class TickTimeQuarantineIntegration:
                     safe_create_task(
                         self._publish_to_redis_stream(
                             {
-                                "reason": str(ts_res.drop_reason)
-                                "ts_ms": ts_res.ts_ms
-                                "now_ms": now_ms
-                                "flags": ts_res.flags
-                            }
-                            now_ms
+                                "reason": str(ts_res.drop_reason),
+                                "ts_ms": ts_res.ts_ms,
+                                "now_ms": now_ms,
+                                "flags": ts_res.flags,
+                            },
+                            now_ms,
                         )
                     )
             except Exception:
@@ -205,12 +205,12 @@ class TickTimeQuarantineIntegration:
                                 safe_create_task(
                                     self._publish_to_redis_stream(
                                         {
-                                            "reason": "soft_event"
-                                            "flag": str(flag)
-                                            "ts_ms": ts_res.ts_ms
-                                            "now_ms": now_ms
-                                        }
-                                        now_ms
+                                            "reason": "soft_event",
+                                            "flag": str(flag),
+                                            "ts_ms": ts_res.ts_ms,
+                                            "now_ms": now_ms,
+                                        },
+                                        now_ms,
                                     )
                                 )
                         except Exception:

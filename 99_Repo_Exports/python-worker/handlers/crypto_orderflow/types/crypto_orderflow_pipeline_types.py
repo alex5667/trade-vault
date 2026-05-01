@@ -77,30 +77,30 @@ class SignalDTO:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "kind": self.kind
-            "side": self.side
-            "symbol": self.symbol
-            "ts": self.ts
-            "price": self.price
-            "raw_score": self.raw_score
-            "final_score": self.final_score
-            "confidence": self.confidence
-            "level_price": self.level_price
-            "reasons": self.reasons
-            "parts": self.parts
-            "signal_id": self.signal_id
-            "conf_factor": self.conf_factor
-            "decision_code": self.decision_code
-            "decision_u16": self.decision_u16
-            "level_key": self.level_key
-            "spread_bps": self.spread_bps
-            "taker_rate": self.taker_rate
-            "geometry_score": self.geometry_score
-            "labels": self.labels
-            "rc": self.rc
-            "rc16": self.rc16
-            "reason_code": self.reason_code
-            "qf": self.qf
-            "qf16": self.qf16
-            "atr_pct": self.atr_pct
+            "kind": self.kind,
+            "side": self.side,
+            "symbol": self.symbol,
+            "ts": self.ts,
+            "price": self.price,
+            "raw_score": self.raw_score,
+            "final_score": self.final_score,
+            "confidence": self.confidence,
+            "level_price": self.level_price,
+            "reasons": self.reasons,
+            "parts": self.parts,
+            "signal_id": self.signal_id,
+            "conf_factor": self.conf_factor,
+            "decision_code": self.decision_code,
+            "decision_u16": self.decision_u16,
+            "level_key": self.level_key,
+            "spread_bps": self.spread_bps,
+            "taker_rate": self.taker_rate,
+            "geometry_score": self.geometry_score,
+            "labels": self.labels,
+            "rc": self.rc,
+            "rc16": self.rc16,
+            "reason_code": self.reason_code,
+            "qf": self.qf,
+            "qf16": self.qf16,
+            "atr_pct": self.atr_pct,
         }

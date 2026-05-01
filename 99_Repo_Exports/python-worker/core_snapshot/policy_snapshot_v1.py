@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Policy snapshot for Train==Serve determinism.
 
 Why this file exists:
@@ -11,7 +12,6 @@ Design:
   - Runtime/uptime values are NOT included here (they go to decision record separately).
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, Optional, Tuple

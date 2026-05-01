@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Golden regression harness: baseline inputs → candidate output → diff → alert/fail.
 
 Compares baseline engine replay output with candidate output and reports mismatches.
@@ -7,7 +8,6 @@ Usage:
   python -m tools.of_regress_baseline_check --baseline /path/to/baseline.ndjson --candidate /path/to/candidate.ndjson --out /path/to/diff.json
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -49,7 +49,7 @@ def row_key(r: Dict[str, Any]) -> str:
 FIELDS = ["ok", "score", "have", "need", "scenario", "reason", "scenario_v4", "need_reason"]
 
 
-def diff(baseline_path: str, cand_path: str, *, symbol: str = "") -> Dict[str, Any]:
+def diff(baseline_path: str, cand_path: str, *, symbol="") -> Dict[str, Any]:
     """
     Compare baseline and candidate outputs.
     

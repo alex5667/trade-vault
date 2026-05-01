@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OFInputs DLQ + quarantine streams -> Postgres/Timescale archiver (P98).
 
 Goal
@@ -37,7 +38,6 @@ Rollback
   - table is append-only.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

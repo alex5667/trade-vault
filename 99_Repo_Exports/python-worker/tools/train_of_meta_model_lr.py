@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ML Meta-Labeling Trainer: Train LogisticRegression + Platt/Isotonic calibration.
 
 Why:
@@ -8,7 +9,6 @@ Usage:
   python -m tools.train_of_meta_model_lr --dataset /tmp/dataset.ndjson --out-model /tmp/model.json --out-report /tmp/report.json
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -97,7 +97,7 @@ def main() -> None:
         }
         model = {
             "kind": "logreg_v1_dummy", "features": feat, "intercept": 0.0, "coef": [0.0] * len(feat),
-            "threshold": float(args.threshold)
+            "threshold": float(args.threshold),
         }
         with open(args.out_model, "w", encoding="utf-8") as f:
             json.dump(model, f, ensure_ascii=False, indent=2)

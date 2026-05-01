@@ -195,23 +195,23 @@ def main() -> None:
                     pch = float(pred.get("p_edge_chal", 0.0) or 0.0)
 
                     row = {
-                        "ts_ms": str(int(ts))
-                        "sid": sid
-                        "symbol": sym
-                        "scenario_v4": scenario
-                        "bucket": bucket
-                        "y": str(int(y))
-                        "r_mult": str(float(rmult))
-                        "p_edge": str(float(p))
-                        "brier": str(float(_brier(p, y)))
-                        "model_ver": str(pred.get("model_ver", "na"))
-                        "enforce": str(int(pred.get("enforce", 0) or 0))
+                        "ts_ms": str(int(ts)),
+                        "sid": sid,
+                        "symbol": sym,
+                        "scenario_v4": scenario,
+                        "bucket": bucket,
+                        "y": str(int(y)),
+                        "r_mult": str(float(rmult)),
+                        "p_edge": str(float(p)),
+                        "brier": str(float(_brier(p, y))),
+                        "model_ver": str(pred.get("model_ver", "na")),
+                        "enforce": str(int(pred.get("enforce", 0) or 0)),
                     }
                     if pch > 0.0 and str(pred.get("chal_ver", "")).strip():
                         row.update({
-                            "p_edge_chal": str(float(pch))
-                            "brier_chal": str(float(_brier(pch, y)))
-                            "chal_ver": str(pred.get("chal_ver", ""))
+                            "p_edge_chal": str(float(pch)),
+                            "brier_chal": str(float(_brier(pch, y))),
+                            "chal_ver": str(pred.get("chal_ver", "")),
                         })
 
                     r.xadd(out_stream, row, maxlen=500000, approximate=True)

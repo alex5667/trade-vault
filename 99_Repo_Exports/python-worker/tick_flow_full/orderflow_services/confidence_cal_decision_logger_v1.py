@@ -59,7 +59,7 @@ def schedule_conf_cal_decision_log(
     stream: Optional[str] = None,
     maxlen: Optional[int] = None,
     sample_rate: Optional[float] = None,
-    symbol: str = "",
+    symbol="",
     stage: str = "",
     served_arm: str = "",
     mode: str = "",

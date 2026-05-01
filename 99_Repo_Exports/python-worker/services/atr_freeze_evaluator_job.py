@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ATR Freeze Evaluator Background Job
-Reads invariant exhaustions and incidents, evaluates precedence via ATRFreezeMatrixService
+Reads invariant exhaustions and incidents, evaluates precedence via ATRFreezeMatrixService,
 and writes freeze states to DB and Redis projection (cfg:atr_degrade:*).
 """
 
@@ -58,7 +58,7 @@ def run_evaluator_cycle(conn, r):
 
             # 3. Pull new triggers from budget actions (status='requested')
             cur.execute("""
-                SELECT a.action_id, a.state_id, a.auto_action, a.reason_code
+                SELECT a.action_id, a.state_id, a.auto_action, a.reason_code,
                        s.scope_kind, s.scope_value
                 FROM atr_invariant_budget_actions a
                 JOIN atr_invariant_budget_states s ON a.state_id = s.state_id
@@ -69,9 +69,9 @@ def run_evaluator_cycle(conn, r):
             for action_row in pending_actions:
                 trigger = {
                     "trigger_kind": action_row["auto_action"], # e.g. 'runtime_budget_exhausted'
-                    "scope_kind": action_row["scope_kind"]
-                    "scope_value": action_row["scope_value"]
-                    "severity": "critical"
+                    "scope_kind": action_row["scope_kind"],
+                    "scope_value": action_row["scope_value"],
+                    "severity": "critical",
                     "reason_code": action_row["reason_code"]
                 }
 
@@ -83,10 +83,10 @@ def run_evaluator_cycle(conn, r):
                     
                     # Phase 8.8: Graph Authority Check
                     if ATRGraphReconciliationService.detect_out_of_band_legacy_write(
-                        component="freeze"
-                        scope_value=fpayload["scope_value"]
-                        actor="system_evaluator"
-                        reason_code="legacy_freeze_evaluator"
+                        component="freeze",
+                        scope_value=fpayload["scope_value"],
+                        actor="system_evaluator",
+                        reason_code="legacy_freeze_evaluator",
                         payload_json=fpayload
                     ):
                         logger.warning(f"Blocked legacy freeze evaluator write for {fpayload['scope_value']} due to Graph Primary Authority.")
@@ -96,19 +96,19 @@ def run_evaluator_cycle(conn, r):
                         
                     cur.execute("""
                         INSERT INTO atr_active_freezes (
-                            freeze_id, trigger_kind, scope_kind, scope_value, freeze_state
+                            freeze_id, trigger_kind, scope_kind, scope_value, freeze_state,
                             source_reason_code, status, started_at, expires_at, recovery_not_before, freeze_json
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (freeze_id) DO UPDATE SET
-                            freeze_state = EXCLUDED.freeze_state
-                            status = EXCLUDED.status
-                            expires_at = EXCLUDED.expires_at
-                            recovery_not_before = EXCLUDED.recovery_not_before
+                            freeze_state = EXCLUDED.freeze_state,
+                            status = EXCLUDED.status,
+                            expires_at = EXCLUDED.expires_at,
+                            recovery_not_before = EXCLUDED.recovery_not_before,
                             freeze_json = EXCLUDED.freeze_json
                     """, (
-                        eval_result["freeze_id"], fpayload["trigger_kind"], fpayload["scope_kind"]
-                        fpayload["scope_value"], fpayload["freeze_state"], fpayload["source_reason_code"]
-                        fpayload["status"], fpayload["started_at"], fpayload["expires_at"]
+                        eval_result["freeze_id"], fpayload["trigger_kind"], fpayload["scope_kind"],
+                        fpayload["scope_value"], fpayload["freeze_state"], fpayload["source_reason_code"],
+                        fpayload["status"], fpayload["started_at"], fpayload["expires_at"],
                         fpayload["recovery_not_before"], json.dumps(fpayload["freeze_json"])
                     ))
                     
@@ -124,12 +124,12 @@ def run_evaluator_cycle(conn, r):
                     active_freezes.append(fpayload)
 
                     ControlPlaneGraphService.emit_graph_event(
-                        scope_kind=fpayload["scope_kind"]
-                        scope_value=fpayload["scope_value"]
-                        event_type="freeze_escalated" if eval_result.get("status") == "escalated" else "freeze_applied"
+                        scope_kind=fpayload["scope_kind"],
+                        scope_value=fpayload["scope_value"],
+                        event_type="freeze_escalated" if eval_result.get("status") == "escalated" else "freeze_applied",
                         payload={
                             "level": fpayload["freeze_state"], 
-                            "is_active": True
+                            "is_active": True,
                             "reason_code": fpayload["source_reason_code"]
                         }
                     )
@@ -138,8 +138,8 @@ def run_evaluator_cycle(conn, r):
                     try:
                         msg_text = ATRFreezeTelegramSurface.format_freeze_event(fpayload, ADVISORY_ONLY)
                         r.xadd("notify:telegram", {
-                            "type": "report"
-                            "source": "atr_freeze_evaluator"
+                            "type": "report",
+                            "source": "atr_freeze_evaluator",
                             "text": msg_text
                         }, maxlen=5000)
                     except Exception as te:
@@ -156,9 +156,9 @@ def run_evaluator_cycle(conn, r):
                     orig_scope_kind = trigger["scope_kind"]
                     orig_scope_value = trigger["scope_value"]
                     ControlPlaneGraphService.emit_graph_event(
-                        scope_kind=orig_scope_kind
-                        scope_value=orig_scope_value
-                        event_type="freeze_applied"
+                        scope_kind=orig_scope_kind,
+                        scope_value=orig_scope_value,
+                        event_type="freeze_applied",
                         payload={"level": active_freezes[-1]["freeze_state"] if active_freezes else "unknown", "is_active": True}
                     )
                 
@@ -170,8 +170,8 @@ def run_evaluator_cycle(conn, r):
             if UNFREEZE_ENABLE:
                 health_context = {
                     "burn_rate_healthy": True,  # Ideally queried from budget logic
-                    "allocator_fresh": True
-                    "open_critical_incidents": 0
+                    "allocator_fresh": True,
+                    "open_critical_incidents": 0,
                     "recent_violations": 0
                 }
                 
@@ -204,12 +204,12 @@ def run_evaluator_cycle(conn, r):
                             mem_fw.update(upid)
 
                     ControlPlaneGraphService.emit_graph_event(
-                        scope_kind=target_scope_kind
-                        scope_value=target_scope_value
-                        event_type="freeze_released" if trans["new_status"] == "released" else "freeze_recovering"
+                        scope_kind=target_scope_kind,
+                        scope_value=target_scope_value,
+                        event_type="freeze_released" if trans["new_status"] == "released" else "freeze_recovering",
                         payload={
                             "level": trans["new_status"], 
-                            "is_active": trans["new_status"] != "released"
+                            "is_active": trans["new_status"] != "released",
                             "reason_code": trans.get("reason_code")
                         }
                     )
@@ -218,8 +218,8 @@ def run_evaluator_cycle(conn, r):
                     try:
                         msg_text = ATRFreezeTelegramSurface.format_unfreeze_event(trans)
                         r.xadd("notify:telegram", {
-                            "type": "report"
-                            "source": "atr_freeze_evaluator"
+                            "type": "report",
+                            "source": "atr_freeze_evaluator",
                             "text": msg_text
                         }, maxlen=5000)
                     except Exception as te:
@@ -232,10 +232,10 @@ def run_evaluator_cycle(conn, r):
             for row in cur.fetchall():
                 # Only need enough for generate_redis_keys
                 current_active.append({
-                    "status": row["status"]
-                    "scope_kind": row["scope_kind"]
-                    "scope_value": row["scope_value"]
-                    "freeze_state": row["freeze_state"]
+                    "status": row["status"],
+                    "scope_kind": row["scope_kind"],
+                    "scope_value": row["scope_value"],
+                    "freeze_state": row["freeze_state"],
                     "freeze_id": row["freeze_id"]
                 })
                 

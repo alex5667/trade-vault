@@ -4,12 +4,12 @@ from typing import Any, Dict
 from services.orderflow.runtime import SymbolRuntime, BookSnapshot
 from core.lob_pressure import compute_lob_pressure
 from services.orderflow.metrics import (
-    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge
-    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge
-    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge
-    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge
-    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge
-    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge
+    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
+    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
+    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
+    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
+    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge,
+    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
 )
 from services.orderflow.metrics import log_silent_error
 
@@ -20,11 +20,11 @@ class LOBPressureTracker:
     def update(runtime: SymbolRuntime, snap: BookSnapshot, prev_snap: BookSnapshot, book_ts_ms: int) -> None:
         try:
             lp = compute_lob_pressure(
-                bids=list(snap.top5_bids or [])
-                asks=list(snap.top5_asks or [])
-                prev_bids=list(prev_snap.top5_bids) if prev_snap else None
-                prev_asks=list(prev_snap.top5_asks) if prev_snap else None
-                depth=int(runtime.config.get("lob_depth", 5) or 5)
+                bids=list(snap.top5_bids or []),
+                asks=list(snap.top5_asks or []),
+                prev_bids=list(prev_snap.top5_bids) if prev_snap else None,
+                prev_asks=list(prev_snap.top5_asks) if prev_snap else None,
+                depth=int(runtime.config.get("lob_depth", 5) or 5),
             )
 
             # Store aggregates on runtime for tick_processor to read
@@ -69,12 +69,12 @@ class LOBPressureTracker:
 
             # Atomic snapshot dict (consumed by tick_processor indicators)
             runtime.last_lob_event = {
-                "ts_ms": int(book_ts_ms)
-                **{k: float(v) for k, v in lp.items() if isinstance(v, (int, float))}
-                "dw_obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0)
-                "dw_obi_stability_score": float(getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0)
-                "dw_obi_stable_secs": float(getattr(runtime, "dw_obi_stable_secs", 0.0) or 0.0)
-                "dw_obi_stable": 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0
+                "ts_ms": int(book_ts_ms),
+                **{k: float(v) for k, v in lp.items() if isinstance(v, (int, float))},
+                "dw_obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0),
+                "dw_obi_stability_score": float(getattr(runtime, "dw_obi_stability_score", 0.0) or 0.0),
+                "dw_obi_stable_secs": float(getattr(runtime, "dw_obi_stable_secs", 0.0) or 0.0),
+                "dw_obi_stable": 1 if bool(getattr(runtime, "dw_obi_stable", False)) else 0,
             }
 
             # Prometheus gauges (best-effort, never break book pipeline)

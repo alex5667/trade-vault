@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: Zombie Janitor Age Check Math (Before Canary 3.5)
 
 Tests that the _get_position_age_sec safely parses different time representations
 (ms vs sec, missing fields, malformed floats) without throwing exceptions.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import pytest

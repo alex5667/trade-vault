@@ -29,7 +29,7 @@ from core.retention import MAXLEN_PER_SYMBOL, MAXLEN_GLOBAL
 class UnifiedSignal:
     """Универсальный формат сигнала для любого символа"""
     sid: str                    # Signal ID
-    symbol: str                 # XAUUSD, BTCUSD, ETHUSD, etc
+    symbol: str                 #  BTCUSD, ETHUSD, etc
     side: str                   # LONG or SHORT
     lot: float                  # Position size
     entry: Optional[float]      # Entry price
@@ -65,7 +65,7 @@ class UnifiedSignalGenerator:
     ):
         """
         Args:
-            symbol: Торговый символ (XAUUSD, BTCUSD, etc)
+            symbol: Торговый символ ( BTCUSD, etc)
             symbol_specs: Спецификации инструмента
             config: Конфигурация OrderFlow
             redis_client: Redis client для публикации
@@ -133,8 +133,8 @@ class UnifiedSignalGenerator:
             'obi': obi,
             'weak_progress': weak_progress,
             'iceberg_detected': iceberg_detected,
-            'atr': atr
-        }
+            'atr': atr,
+        },
         
         # Логика генерации сигнала
         signal_type, confidence, reason = self._evaluate_signal(
@@ -188,7 +188,7 @@ class UnifiedSignalGenerator:
             'macd_histogram': histogram,
             'atr': atr,
             'atr_pct': (atr / price * 100) if price > 0 else 0
-        }
+        },
     
     def _evaluate_signal(
         self,
@@ -499,9 +499,9 @@ class UnifiedSignalGenerator:
         
         # Формула: lot = risk_amount / (sl_distance * contract_size)
         # Для криптовалют contract_size обычно = 1
-        # Для XAUUSD contract_size = 100 (oz)
+        # Для  contract_size = 100 (oz)
         
-        contract_size = 100 if self.symbol == "XAUUSD" else 1
+        contract_size = 100 if self.symbol == "" else 1
         lot = risk_amount / (sl_distance * contract_size)
         
         # Округляем до step

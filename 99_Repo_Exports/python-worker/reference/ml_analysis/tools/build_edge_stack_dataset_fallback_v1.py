@@ -12,13 +12,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def build_dataset(
-    redis_url: str
-    signal_stream: str
-    closed_stream: str
-    archive_dir: Optional[str] = None
-    signals_count: int = 200000
-    closes_count: int = 200000
-    out_jsonl: str = "dataset.jsonl"
+    redis_url: str,
+    signal_stream: str,
+    closed_stream: str,
+    archive_dir: Optional[str] = None,
+    signals_count: int = 200000,
+    closes_count: int = 200000,
+    out_jsonl: str = "dataset.jsonl",
     fallback_enabled: bool = True
 ):
     """Build dataset by joining signals and closed trades."""
@@ -111,12 +111,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     build_dataset(
-        redis_url=args.redis_url
-        signal_stream=args.signal_stream
-        closed_stream=args.closed_stream
-        archive_dir=args.archive_dir
-        signals_count=args.signals_count
-        closes_count=args.closes_count
-        out_jsonl=args.out
+        redis_url=args.redis_url,
+        signal_stream=args.signal_stream,
+        closed_stream=args.closed_stream,
+        archive_dir=args.archive_dir,
+        signals_count=args.signals_count,
+        closes_count=args.closes_count,
+        out_jsonl=args.out,
         fallback_enabled=not args.no_fallback
     )

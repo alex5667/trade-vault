@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 nightly_meta_unfreeze_cells_bundle.py
 
@@ -21,7 +22,6 @@ Usage:
   (reads ENV vars for thresholds, symbols, bootstrap params)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

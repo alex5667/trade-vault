@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P1-2 regression: tick dedupe UID does NOT use Redis stream_id for market-level dedup.
 
@@ -7,7 +8,6 @@ Coverage:
   - trade_id present → always takes priority, stream_id ignored
   - UID uses exchange_ts_ms (payload ts), not resolved event_ts_ms
 """
-from __future__ import annotations
 
 import unittest
 

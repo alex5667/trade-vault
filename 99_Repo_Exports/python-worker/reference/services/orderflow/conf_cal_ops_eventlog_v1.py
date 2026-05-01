@@ -36,21 +36,21 @@ def _encode(v: Any) -> Any:
 
 
 def write_stream_event(
-    r: "redis.Redis"
-    *
-    stream_key: str
-    event_type: str
-    payload: Dict[str, Any]
-    run_id: str = ""
-    maxlen: int = 10000
+    r: "redis.Redis",
+    *,
+    stream_key: str,
+    event_type: str,
+    payload: Dict[str, Any],
+    run_id: str = "",
+    maxlen: int = 10000,
 ) -> Optional[str]:
     if not r:
         return None
     try:
         fields: Dict[str, Any] = {
-            "ts_ms": now_ms()
-            "event": str(event_type)
-            "run_id": str(run_id or "")
+            "ts_ms": now_ms(),
+            "event": str(event_type),
+            "run_id": str(run_id or ""),
         }
         for k, v in (payload or {}).items():
             fields[str(k)] = _encode(v)
@@ -62,12 +62,12 @@ def write_stream_event(
 
 
 def publish_event(
-    r: "redis.Redis"
-    *
-    channel: str
-    event_type: str
-    payload: Dict[str, Any]
-    run_id: str = ""
+    r: "redis.Redis",
+    *,
+    channel: str,
+    event_type: str,
+    payload: Dict[str, Any],
+    run_id: str = "",
 ) -> None:
     if not r:
         return

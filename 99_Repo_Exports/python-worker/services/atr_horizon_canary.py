@@ -1,3 +1,4 @@
+from __future__ import annotations
 """atr_horizon_canary.py — Phase 2.3A: canary-enforce router for horizon DQ gate.
 
 Modes (ATR_HORIZON_GATE_MODE):
@@ -13,7 +14,6 @@ ENV:
 
 Rollback: ATR_HORIZON_GATE_MODE=shadow  →  instant, no code deploy.
 """
-from __future__ import annotations
 
 import hashlib
 import os

@@ -53,15 +53,15 @@ def fetch_rss_feed(url: str, timeout: int = 10) -> Optional[List[Dict[str, Any]]
             uid = stable_uid(f"rss:{url}", link, title, bucket)
 
             items.append({
-                'uid': uid
-                'source': f'rss:{url}'
-                'title': title
-                'url': link
-                'ts_ms': published_ts * 1000
+                'uid': uid,
+                'source': f'rss:{url}',
+                'title': title,
+                'url': link,
+                'ts_ms': published_ts * 1000,
                 'symbol': '',  # Will be filled by analyzer
                 'asset_class': '',  # Will be filled by analyzer
-                'summary': (entry.get('summary') or '')[:500]
-                'published_ts_ms': published_ts * 1000
+                'summary': (entry.get('summary') or '')[:500],
+                'published_ts_ms': published_ts * 1000,
             })
 
         return items

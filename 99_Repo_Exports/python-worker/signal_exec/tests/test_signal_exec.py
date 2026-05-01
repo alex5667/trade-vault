@@ -1,30 +1,30 @@
+from __future__ import annotations
 """
 Comprehensive pytest test suite for signal_exec module.
 
 All tests are self-contained: no Redis, no Postgres required.
 """
 
-from __future__ import annotations
 
 import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock
 
 from signal_exec.models import (
-    Side
-    AccountState
-    SwingPoint
-    HTFLevel
-    OrderBookSnapshot
-    Bar1m
-    ExecutionPlan
-    SymbolSetupConfig
+    Side,
+    AccountState,
+    SwingPoint,
+    HTFLevel,
+    OrderBookSnapshot,
+    Bar1m,
+    ExecutionPlan,
+    SymbolSetupConfig,
 )
 from signal_exec.context import SignalContext
 from signal_exec.execution_planner import ExecutionPlanner
 from signal_exec.performance_tracker import (
-    SignalPerformanceTracker
-    Outcome
+    SignalPerformanceTracker,
+    Outcome,
 )
 from signal_exec.bus import SignalBus
 
@@ -35,64 +35,64 @@ from signal_exec.bus import SignalBus
 
 def _make_account(equity: float = 10_000.0, open_risk: float = 0.0) -> AccountState:
     return AccountState(
-        equity_usd=equity
-        open_risk_usd=open_risk
-        max_risk_per_trade_pct=0.5
-        max_portfolio_risk_pct=5.0
+        equity_usd=equity,
+        open_risk_usd=open_risk,
+        max_risk_per_trade_pct=0.5,
+        max_portfolio_risk_pct=5.0,
     )
 
 
 def _make_config(**kwargs) -> SymbolSetupConfig:
     defaults = dict(
-        symbol="XAUUSD"
-        setup_type="breakout"
-        expiry_bars=5
-        min_stop_ticks=10
-        max_stop_R=3.0
-        atr_buffer_ratio=0.15
-        entry_zone_min_R=0.3
-        entry_zone_max_R=0.7
-        default_tp_R=(1.0, 2.0, 3.0)
-        score_buckets=(0.4, 0.7, 0.85)
-        risk_multipliers=(0.5, 1.0, 1.5, 2.0)
-        max_risk_R_per_trade=2.0
-        max_portfolio_risk_pct=5.0
+        symbol="",
+        setup_type="breakout",
+        expiry_bars=5,
+        min_stop_ticks=10,
+        max_stop_R=3.0,
+        atr_buffer_ratio=0.15,
+        entry_zone_min_R=0.3,
+        entry_zone_max_R=0.7,
+        default_tp_R=(1.0, 2.0, 3.0),
+        score_buckets=(0.4, 0.7, 0.85),
+        risk_multipliers=(0.5, 1.0, 1.5, 2.0),
+        max_risk_R_per_trade=2.0,
+        max_portfolio_risk_pct=5.0,
     )
     defaults.update(kwargs)
     return SymbolSetupConfig(**defaults)
 
 
 def _make_ctx(
-    side: Side = Side.LONG
-    price: float = 2000.0
-    atr: float = 2.0
-    score: float = 0.8
-    swings=None
-    htf=None
-    ttd_expiry_bars=None
+    side: Side = Side.LONG,
+    price: float = 2000.0,
+    atr: float = 2.0,
+    score: float = 0.8,
+    swings=None,
+    htf=None,
+    ttd_expiry_bars=None,
 ) -> SignalContext:
     return SignalContext(
-        signal_id="test-signal-001"
-        symbol="XAUUSD"
-        setup_type="breakout"
-        side=side
-        ts_signal=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-        price_at_signal=price
-        atr_1m=atr
-        tick_size=0.1
-        contract_size=100.0
-        final_score=score
-        account_state=_make_account()
-        local_swings=swings or []
-        htf_levels=htf or []
-        ttd_expiry_bars=ttd_expiry_bars
+        signal_id="test-signal-001",
+        symbol="",
+        setup_type="breakout",
+        side=side,
+        ts_signal=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+        price_at_signal=price,
+        atr_1m=atr,
+        tick_size=0.1,
+        contract_size=100.0,
+        final_score=score,
+        account_state=_make_account(),
+        local_swings=swings or [],
+        htf_levels=htf or [],
+        ttd_expiry_bars=ttd_expiry_bars,
     )
 
 
 def _make_planner(cfg: SymbolSetupConfig | None = None) -> ExecutionPlanner:
     if cfg is None:
         cfg = _make_config()
-    return ExecutionPlanner({("XAUUSD", "breakout"): cfg})
+    return ExecutionPlanner({("breakout"): cfg})
 
 
 def _make_bar(ts: datetime, high: float, low: float, close: float = 0.0) -> Bar1m:
@@ -132,22 +132,22 @@ class TestModelsInstantiation:
 
     def test_execution_plan(self):
         plan = ExecutionPlan(
-            signal_id="s1"
-            symbol="XAUUSD"
-            side=Side.LONG
-            setup_type="breakout"
-            ts_signal=datetime.now(timezone.utc)
-            price_at_signal=2000.0
-            entry_zone_low=1998.0
-            entry_zone_high=2000.0
-            stop_price=1995.0
-            tp_levels=[2010.0, 2020.0]
-            partials=[0.5, 0.5]
-            pos_risk_R=1.0
-            risk_usd=50.0
-            position_size=0.02
-            expiry_bars=5
-            created_at=datetime.now(timezone.utc)
+            signal_id="s1",
+            symbol="",
+            side=Side.LONG,
+            setup_type="breakout",
+            ts_signal=datetime.now(timezone.utc),
+            price_at_signal=2000.0,
+            entry_zone_low=1998.0,
+            entry_zone_high=2000.0,
+            stop_price=1995.0,
+            tp_levels=[2010.0, 2020.0],
+            partials=[0.5, 0.5],
+            pos_risk_R=1.0,
+            risk_usd=50.0,
+            position_size=0.02,
+            expiry_bars=5,
+            created_at=datetime.now(timezone.utc),
         )
         assert plan.signal_id == "s1"
 
@@ -168,7 +168,7 @@ class TestExecutionPlanner:
         plan = planner.build_plan(ctx)
 
         assert plan is not None
-        assert plan.symbol == "XAUUSD"
+        assert plan.symbol == ""
         assert plan.side == Side.LONG
         assert plan.stop_price < plan.entry_zone_low <= plan.entry_zone_high
         assert all(tp > plan.entry_zone_high for tp in plan.tp_levels)
@@ -202,15 +202,15 @@ class TestExecutionPlanner:
 
     def test_risk_R_buckets_all_covered(self):
         cfg = _make_config(
-            score_buckets=(0.4, 0.7, 0.85)
-            risk_multipliers=(0.5, 1.0, 1.5, 2.0)
-            max_risk_R_per_trade=2.0
+            score_buckets=(0.4, 0.7, 0.85),
+            risk_multipliers=(0.5, 1.0, 1.5, 2.0),
+            max_risk_R_per_trade=2.0,
         )
         scores_and_expected = [
-            (0.3, 0.5)
-            (0.5, 1.0)
-            (0.75, 1.5)
-            (0.9, 2.0)
+            (0.3, 0.5),
+            (0.5, 1.0),
+            (0.75, 1.5),
+            (0.9, 2.0),
         ]
         for score, expected_mult in scores_and_expected:
             result = ExecutionPlanner._compute_risk_R(score, cfg)
@@ -239,24 +239,24 @@ class TestExecutionPlanner:
     def test_portfolio_risk_exhausted_returns_none(self):
         """When open_risk >= portfolio limit, build_plan returns None."""
         account = AccountState(
-            equity_usd=10_000.0
+            equity_usd=10_000.0,
             open_risk_usd=600.0,   # already over 5% max
-            max_risk_per_trade_pct=0.5
-            max_portfolio_risk_pct=5.0
+            max_risk_per_trade_pct=0.5,
+            max_portfolio_risk_pct=5.0,
         )
         ctx = _make_ctx()
         ctx = SignalContext(
-            signal_id="s2"
-            symbol="XAUUSD"
-            setup_type="breakout"
-            side=Side.LONG
-            ts_signal=datetime.now(timezone.utc)
-            price_at_signal=2000.0
-            atr_1m=2.0
-            tick_size=0.1
-            contract_size=100.0
-            final_score=0.8
-            account_state=account
+            signal_id="s2",
+            symbol="",
+            setup_type="breakout",
+            side=Side.LONG,
+            ts_signal=datetime.now(timezone.utc),
+            price_at_signal=2000.0,
+            atr_1m=2.0,
+            tick_size=0.1,
+            contract_size=100.0,
+            final_score=0.8,
+            account_state=account,
         )
         planner = _make_planner()
         plan = planner.build_plan(ctx)
@@ -289,11 +289,11 @@ class TestSignalContextRoundtrip:
     def test_roundtrip_with_orderbook(self):
         ctx = _make_ctx()
         ctx.orderbook = OrderBookSnapshot(
-            ts=datetime.now(timezone.utc)
-            best_bid=1999.9
-            best_ask=2000.1
-            bids=[1999.9, 1999.8]
-            asks=[2000.1, 2000.2]
+            ts=datetime.now(timezone.utc),
+            best_bid=1999.9,
+            best_ask=2000.1,
+            bids=[1999.9, 1999.8],
+            asks=[2000.1, 2000.2],
         )
         restored = SignalContext.from_dict(ctx.to_dict())
         assert restored.orderbook is not None
@@ -313,10 +313,10 @@ class TestSignalContextRoundtrip:
 def _make_tracker() -> tuple[SignalPerformanceTracker, MagicMock]:
     repo = MagicMock()
     tracker = SignalPerformanceTracker(
-        repo=repo
-        ttd_target_R=1.0
-        max_ttd_bars=10
-        max_lifetime_bars_after_entry=20
+        repo=repo,
+        ttd_target_R=1.0,
+        max_ttd_bars=10,
+        max_lifetime_bars_after_entry=20,
         max_lifetime_ms_after_entry=0,  # disable time fallback in tests
     )
     return tracker, repo
@@ -342,7 +342,7 @@ class TestSignalPerformanceTracker:
         tracker, _ = _make_tracker()
         ctx, plan = _register_signal(tracker)
         ts = datetime(2024, 1, 15, 10, 1, tzinfo=timezone.utc)
-        tracker.on_bar_1m("XAUUSD", _make_bar(ts, high=2005.0, low=1998.0))
+        tracker.on_bar_1m(_make_bar(ts, high=2005.0, low=1998.0))
         st = tracker._states.get(plan.signal_id)
         if st:
             assert st.bars_seen == 1
@@ -355,7 +355,7 @@ class TestSignalPerformanceTracker:
         ts = datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc)
         for i in range(expiry + 1):
             bar_ts = ts + timedelta(minutes=i + 1)
-            tracker.on_bar_1m("XAUUSD", _make_bar(bar_ts, high=1999.0, low=1998.0))
+            tracker.on_bar_1m(_make_bar(bar_ts, high=1999.0, low=1998.0))
 
         assert repo.insert_signal_performance.called
         call_args = repo.insert_signal_performance.call_args[0][0]
@@ -438,7 +438,7 @@ class TestSignalPerformanceTracker:
         ts = datetime(2024, 1, 15, 10, 3, tzinfo=timezone.utc)
         for i in range(25):  # > max_lifetime_bars_after_entry=20
             bar_ts = ts + timedelta(minutes=i)
-            tracker.on_bar_1m("XAUUSD", _make_bar(bar_ts, high=2001.0, low=1999.0))
+            tracker.on_bar_1m(_make_bar(bar_ts, high=2001.0, low=1999.0))
 
         assert repo.insert_signal_performance.called
         call_args = repo.insert_signal_performance.call_args[0][0]
@@ -453,7 +453,7 @@ class TestSignalPerformanceTracker:
 
         # Bar with favorable high
         bar1_ts = datetime(2024, 1, 15, 10, 3, tzinfo=timezone.utc)
-        tracker.on_bar_1m("XAUUSD", _make_bar(bar1_ts, high=2004.0, low=1999.0))
+        tracker.on_bar_1m(_make_bar(bar1_ts, high=2004.0, low=1999.0))
 
         st = tracker._states.get(plan.signal_id)
         if st:
@@ -467,8 +467,8 @@ class TestSignalPerformanceTracker:
         stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=timezone.utc)
         tracker.on_execution_event(plan.signal_id, "STOP_HIT", stop_ts, 1996.0)
 
-        # After finalization, the symbol index should be empty for XAUUSD
-        remaining = tracker._ids_by_symbol.get("XAUUSD", set())
+        # After finalization, the symbol index should be empty for 
+        remaining = tracker._ids_by_symbol.get(set())
         assert plan.signal_id not in remaining
 
 
@@ -479,29 +479,29 @@ class TestSignalPerformanceTracker:
 class TestSignalBusPlanDict:
     def test_plan_to_dict_contains_all_fields(self):
         plan = ExecutionPlan(
-            signal_id="s1"
-            symbol="XAUUSD"
-            side=Side.LONG
-            setup_type="breakout"
-            ts_signal=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc)
-            price_at_signal=2000.0
-            entry_zone_low=1998.0
-            entry_zone_high=2000.0
-            stop_price=1995.0
-            tp_levels=[2010.0, 2020.0, 2030.0]
-            partials=[0.33, 0.33, 0.34]
-            pos_risk_R=1.0
-            risk_usd=50.0
-            position_size=0.025
-            expiry_bars=5
-            created_at=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc)
+            signal_id="s1",
+            symbol="",
+            side=Side.LONG,
+            setup_type="breakout",
+            ts_signal=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
+            price_at_signal=2000.0,
+            entry_zone_low=1998.0,
+            entry_zone_high=2000.0,
+            stop_price=1995.0,
+            tp_levels=[2010.0, 2020.0, 2030.0],
+            partials=[0.33, 0.33, 0.34],
+            pos_risk_R=1.0,
+            risk_usd=50.0,
+            position_size=0.025,
+            expiry_bars=5,
+            created_at=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
         )
         d = SignalBus._plan_to_dict(plan)
         required_keys = {
-            "signal_id", "symbol", "setup_type", "side", "ts_signal"
-            "price_at_signal", "entry_zone_low", "entry_zone_high"
-            "stop_price", "tp_levels", "partials", "pos_risk_R"
-            "risk_usd", "position_size", "expiry_bars", "created_at"
+            "signal_id", "symbol", "setup_type", "side", "ts_signal",
+            "price_at_signal", "entry_zone_low", "entry_zone_high",
+            "stop_price", "tp_levels", "partials", "pos_risk_R",
+            "risk_usd", "position_size", "expiry_bars", "created_at",
         }
         assert required_keys.issubset(d.keys())
         assert d["side"] == "long"  # enum serialized as string
@@ -509,22 +509,22 @@ class TestSignalBusPlanDict:
 
     def test_plan_to_dict_json_serializable(self):
         plan = ExecutionPlan(
-            signal_id="s2"
-            symbol="BTCUSDT"
-            side=Side.SHORT
-            setup_type="fade"
-            ts_signal=datetime(2024, 2, 1, tzinfo=timezone.utc)
-            price_at_signal=50000.0
-            entry_zone_low=49900.0
-            entry_zone_high=50000.0
-            stop_price=50200.0
-            tp_levels=[49500.0]
-            partials=[1.0]
-            pos_risk_R=1.5
-            risk_usd=75.0
-            position_size=0.001
-            expiry_bars=3
-            created_at=datetime(2024, 2, 1, tzinfo=timezone.utc)
+            signal_id="s2",
+            symbol="BTCUSDT",
+            side=Side.SHORT,
+            setup_type="fade",
+            ts_signal=datetime(2024, 2, 1, tzinfo=timezone.utc),
+            price_at_signal=50000.0,
+            entry_zone_low=49900.0,
+            entry_zone_high=50000.0,
+            stop_price=50200.0,
+            tp_levels=[49500.0],
+            partials=[1.0],
+            pos_risk_R=1.5,
+            risk_usd=75.0,
+            position_size=0.001,
+            expiry_bars=3,
+            created_at=datetime(2024, 2, 1, tzinfo=timezone.utc),
         )
         d = SignalBus._plan_to_dict(plan)
         json_str = json.dumps(d)

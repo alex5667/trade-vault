@@ -24,8 +24,8 @@ from services.orderflow.book_sanity import trade_outside_bbo
 
 try:
     from services.orderflow.metrics_stream_integrity_p5 import (
-        emit_book_staleness_metrics
-        emit_trade_to_book_metrics
+        emit_book_staleness_metrics,
+        emit_trade_to_book_metrics,
     )
 except Exception:  # pragma: no cover
     emit_book_staleness_metrics = None  # type: ignore
@@ -154,13 +154,13 @@ class BookTradeConsistencyGate:
     @classmethod
     def from_env(cls) -> 'BookTradeConsistencyGate':
         return cls(
-            enabled=_env_bool('BOOK_TRADE_CONSISTENCY_ENABLED', True)
-            mode=str(os.getenv('BOOK_TRADE_CONSISTENCY_MODE', 'auto') or 'auto')
-            max_book_staleness_ms=_env_float('BOOK_TRADE_CONSISTENCY_MAX_BOOK_STALENESS_MS', 1200.0)
-            outside_bbo_eps_bps=_env_float('BOOK_TRADE_CONSISTENCY_OUTSIDE_BBO_EPS_BPS', 1.0)
-            adverse_cross_bps=_env_float('BOOK_TRADE_CONSISTENCY_ADVERSE_CROSS_BPS', 1.5)
-            veto_on_stale_book=_env_bool('BOOK_TRADE_CONSISTENCY_VETO_ON_STALE_BOOK', True)
-            veto_on_adverse_cross=_env_bool('BOOK_TRADE_CONSISTENCY_VETO_ON_ADVERSE_CROSS', True)
+            enabled=_env_bool('BOOK_TRADE_CONSISTENCY_ENABLED', True),
+            mode=str(os.getenv('BOOK_TRADE_CONSISTENCY_MODE', 'auto') or 'auto'),
+            max_book_staleness_ms=_env_float('BOOK_TRADE_CONSISTENCY_MAX_BOOK_STALENESS_MS', 1200.0),
+            outside_bbo_eps_bps=_env_float('BOOK_TRADE_CONSISTENCY_OUTSIDE_BBO_EPS_BPS', 1.0),
+            adverse_cross_bps=_env_float('BOOK_TRADE_CONSISTENCY_ADVERSE_CROSS_BPS', 1.5),
+            veto_on_stale_book=_env_bool('BOOK_TRADE_CONSISTENCY_VETO_ON_STALE_BOOK', True),
+            veto_on_adverse_cross=_env_bool('BOOK_TRADE_CONSISTENCY_VETO_ON_ADVERSE_CROSS', True),
         )
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str = '') -> BookTradeConsistencyDecision:
@@ -174,9 +174,9 @@ class BookTradeConsistencyGate:
         best_ask = _safe_float(_metric(ctx, ('best_ask_px', 'best_ask', 'ask', 'a')), 0.0)
         event_ts_ms = _safe_int(_metric(ctx, ('ts_event_ms', 'ts_ms', 'ts')))
         book_ts_ms = _safe_int(_metric(ctx, (
-            'book_ts_ms', 'bbo_ts_ms', 'l2_ts_ms'
-            'book_last_update_ms', 'last_book_ts_ms'
-            'best_bid_ts_ms', 'best_ask_ts_ms'
+            'book_ts_ms', 'bbo_ts_ms', 'l2_ts_ms',
+            'book_last_update_ms', 'last_book_ts_ms',
+            'best_bid_ts_ms', 'best_ask_ts_ms',
         )))
 
         # Compute book staleness: how old is our best BBO vs the incoming event timestamp.
@@ -207,10 +207,10 @@ class BookTradeConsistencyGate:
         adverse_cross_bps = 0.0
         if best_bid > 0 and best_ask > 0:
             outside, adverse_cross_bps = trade_outside_bbo(
-                trade_px=float(trade_px)
-                best_bid=float(best_bid)
-                best_ask=float(best_ask)
-                eps_bps=float(self.outside_bbo_eps_bps)
+                trade_px=float(trade_px),
+                best_bid=float(best_bid),
+                best_ask=float(best_ask),
+                eps_bps=float(self.outside_bbo_eps_bps),
             )
             if outside and float(adverse_cross_bps) >= float(self.adverse_cross_bps):
                 flags.append('adverse_cross')
@@ -239,13 +239,13 @@ class BookTradeConsistencyGate:
         if emit_trade_to_book_metrics is not None:
             try:
                 emit_trade_to_book_metrics(
-                    symbol=str(symbol)
-                    stream=stream
-                    book_staleness_ms=float(book_staleness_ms)
-                    adverse_cross_bps=float(max(0.0, adverse_cross_bps))
-                    stale_book=stale_book
-                    adverse_cross=adverse
-                    veto_reason=reason if veto else ''
+                    symbol=str(symbol),
+                    stream=stream,
+                    book_staleness_ms=float(book_staleness_ms),
+                    adverse_cross_bps=float(max(0.0, adverse_cross_bps)),
+                    stale_book=stale_book,
+                    adverse_cross=adverse,
+                    veto_reason=reason if veto else '',
                 )
             except Exception:
                 pass
@@ -259,12 +259,12 @@ class BookTradeConsistencyGate:
             )[:256]
 
         return BookTradeConsistencyDecision(
-            apply=bool(flags)
-            veto=veto
-            reason_code=str(reason)
-            flags=list(flags)
-            book_staleness_ms=float(book_staleness_ms)
-            adverse_cross_bps=float(max(0.0, adverse_cross_bps))
-            stream=stream
-            notes=notes
+            apply=bool(flags),
+            veto=veto,
+            reason_code=str(reason),
+            flags=list(flags),
+            book_staleness_ms=float(book_staleness_ms),
+            adverse_cross_bps=float(max(0.0, adverse_cross_bps)),
+            stream=stream,
+            notes=notes,
         )

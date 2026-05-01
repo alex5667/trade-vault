@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly meta ENFORCE ramp proposal: progressive share increase (0.10→0.25→0.50→1.00).
 
 Checks safety gates (streak + no recent emergency) and proposes next share level
@@ -8,7 +9,6 @@ Usage:
   (reads ENV vars for schedule, thresholds, symbols)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

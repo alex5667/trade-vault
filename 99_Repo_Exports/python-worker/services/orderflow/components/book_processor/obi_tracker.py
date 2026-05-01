@@ -22,14 +22,14 @@ class OBITracker:
                 except Exception:
                     pass
                 runtime.last_obi_event = {
-                    "direction": obi_event.get("direction")
-                    "obi": obi_event.get("obi")
-                    "ts_ms": book_ts_ms
-                    "stable_secs": float(getattr(runtime, "obi_stable_secs", 0.0) or 0.0)
-                    "stability_score": float(getattr(runtime, "obi_stability_score", 0.0) or 0.0)
-                    "obi_z": float(obi_event.get("obi_z", 0.0) or 0.0)
-                    "stacking": float(obi_event.get("stacking", 0.0) or 0.0)
-                    "concentration": float(obi_event.get("concentration", 0.0) or 0.0)
+                    "direction": obi_event.get("direction"),
+                    "obi": obi_event.get("obi"),
+                    "ts_ms": book_ts_ms,
+                    "stable_secs": float(getattr(runtime, "obi_stable_secs", 0.0) or 0.0),
+                    "stability_score": float(getattr(runtime, "obi_stability_score", 0.0) or 0.0),
+                    "obi_z": float(obi_event.get("obi_z", 0.0) or 0.0),
+                    "stacking": float(obi_event.get("stacking", 0.0) or 0.0),
+                    "concentration": float(obi_event.get("concentration", 0.0) or 0.0),
                 }
 
             # OBI fallback: feed obi_tracker unconditionally from raw BBO imbalance.
@@ -56,14 +56,14 @@ class OBITracker:
                             if runtime.obi_stable:
                                 direction = "LONG" if raw_obi > 0 else "SHORT"
                                 runtime.last_obi_event = {
-                                    "direction": direction
-                                    "obi": float(raw_obi)
-                                    "ts_ms": book_ts_ms
-                                    "stable_secs": float(secs)
-                                    "stability_score": float(q)
-                                    "obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0)
-                                    "stacking": 0.0
-                                    "concentration": 0.0
+                                    "direction": direction,
+                                    "obi": float(raw_obi),
+                                    "ts_ms": book_ts_ms,
+                                    "stable_secs": float(secs),
+                                    "stability_score": float(q),
+                                    "obi_z": float(getattr(runtime, "dw_obi_z", 0.0) or 0.0),
+                                    "stacking": 0.0,
+                                    "concentration": 0.0,
                                 }
                 except Exception:
                     pass

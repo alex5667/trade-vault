@@ -75,11 +75,11 @@ def _sanitize_bins(edges: Sequence[float]) -> np.ndarray:
 
 
 def quantile_bins(
-    ref: Sequence[float | int | None]
-    *
-    n_bins: int = 10
-    clip_q_lo: float = 0.005
-    clip_q_hi: float = 0.995
+    ref: Sequence[float | int | None],
+    *,
+    n_bins: int = 10,
+    clip_q_lo: float = 0.005,
+    clip_q_hi: float = 0.995,
 ) -> Tuple[np.ndarray, float, float]:
     """Build stable reference bins and clip bounds.
 
@@ -117,10 +117,10 @@ def quantile_bins(
 
 
 def distribution_from_bins(
-    xs: Sequence[float | int | None]
-    edges: Sequence[float]
-    *
-    epsilon: float = 1e-6
+    xs: Sequence[float | int | None],
+    edges: Sequence[float],
+    *,
+    epsilon: float = 1e-6,
 ) -> np.ndarray:
     a = _as_float_array(xs)
     if a.size == 0:
@@ -196,15 +196,15 @@ def clip_rate(xs: Sequence[float | int | None], *, lo: float, hi: float) -> floa
 
 
 def psi_report(
-    ref: Sequence[float | int | None]
-    cur: Sequence[float | int | None]
-    *
-    n_bins: int = 10
-    clip_q_lo: float = 0.005
-    clip_q_hi: float = 0.995
-    epsilon: float = 1e-6
-    total_ref_n: int | None = None
-    total_cur_n: int | None = None
+    ref: Sequence[float | int | None],
+    cur: Sequence[float | int | None],
+    *,
+    n_bins: int = 10,
+    clip_q_lo: float = 0.005,
+    clip_q_hi: float = 0.995,
+    epsilon: float = 1e-6,
+    total_ref_n: int | None = None,
+    total_cur_n: int | None = None,
 ) -> PsiResult:
     edges, clip_lo, clip_hi = quantile_bins(ref, n_bins=n_bins, clip_q_lo=clip_q_lo, clip_q_hi=clip_q_hi)
     ref_p = distribution_from_bins(ref, edges, epsilon=epsilon)
@@ -222,19 +222,19 @@ def psi_report(
     cr_cur = clip_rate(cur, lo=clip_lo, hi=clip_hi)
 
     return PsiResult(
-        psi=float(psi)
-        n_ref=int(n_ref)
-        n_cur=int(n_cur)
-        missing_rate_ref=float(mr_ref)
-        missing_rate_cur=float(mr_cur)
-        missing_rate_delta=float(mr_cur - mr_ref)
-        zero_rate_ref=float(zr_ref)
-        zero_rate_cur=float(zr_cur)
-        zero_rate_delta=float(zr_cur - zr_ref)
-        clip_rate_ref=float(cr_ref)
-        clip_rate_cur=float(cr_cur)
-        clip_rate_delta=float(cr_cur - cr_ref)
-        clip_lo=float(clip_lo)
-        clip_hi=float(clip_hi)
-        bins=max(1, len(edges) - 1)
+        psi=float(psi),
+        n_ref=int(n_ref),
+        n_cur=int(n_cur),
+        missing_rate_ref=float(mr_ref),
+        missing_rate_cur=float(mr_cur),
+        missing_rate_delta=float(mr_cur - mr_ref),
+        zero_rate_ref=float(zr_ref),
+        zero_rate_cur=float(zr_cur),
+        zero_rate_delta=float(zr_cur - zr_ref),
+        clip_rate_ref=float(cr_ref),
+        clip_rate_cur=float(cr_cur),
+        clip_rate_delta=float(cr_cur - cr_ref),
+        clip_lo=float(clip_lo),
+        clip_hi=float(clip_hi),
+        bins=max(1, len(edges) - 1),
     )

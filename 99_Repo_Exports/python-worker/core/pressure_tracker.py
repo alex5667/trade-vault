@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 PressureTracker
 ===============
@@ -13,7 +14,6 @@ PressureTracker
   - pressure -> динамический burst window (800..2500ms)
 """
 
-from __future__ import annotations
 
 import math
 from collections import deque

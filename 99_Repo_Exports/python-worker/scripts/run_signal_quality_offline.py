@@ -28,8 +28,8 @@ def main():
 
     try:
         run_offline_quality_job(
-            pg_dsn=pg_dsn
-            horizon=horizon
+            pg_dsn=pg_dsn,
+            horizon=horizon,
             lookback_days=lookback_days
         )
         print("\n✅ Offline quality computation completed successfully!")

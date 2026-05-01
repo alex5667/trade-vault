@@ -1,8 +1,8 @@
+from __future__ import annotations
 """
 Тесты для bootstrap и алертов в ml_promo_callbacks_worker_tb_v10_4.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Диагностика проблемы загрузки ML модели.
 
@@ -11,7 +12,6 @@
 6. Проверка логов на ошибки загрузки
 """
 
-from __future__ import annotations
 
 import os
 import sys

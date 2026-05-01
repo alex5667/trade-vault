@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 SRE мониторинг ML метрик (metrics:ml_confirm) и Triple Barrier Labeler (tb:last_ts_ms).
 
@@ -12,7 +13,6 @@ SRE мониторинг ML метрик (metrics:ml_confirm) и Triple Barrier 
 - TB: input_lag, label_stale, pending, group_lag
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -1,9 +1,9 @@
 # l2_processing_service.py
+from __future__ import annotations
 """
 L2 processing functionality extracted from base_orderflow_handler.py
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Optional, Tuple, TYPE_CHECKING

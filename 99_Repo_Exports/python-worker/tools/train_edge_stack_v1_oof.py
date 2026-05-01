@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 train_edge_stack_v1_oof.py
 
@@ -24,7 +25,6 @@ Output:
   calibrator.json: PlattLogitCalibrator параметры (a, b, eps)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -371,7 +371,7 @@ def main() -> None:
             tree_method="hist",
             device=_XGBOOST_DEVICE,
             eval_metric="logloss",
-            random_state=42
+            random_state=42,
         )
     else:
         gbdt = HistGradientBoostingClassifier(
@@ -418,7 +418,7 @@ def main() -> None:
                 tree_method="hist",
                 device=_XGBOOST_DEVICE,
                 eval_metric="logloss",
-                random_state=42
+                random_state=42,
             ).fit(Xtr, ytr)
         else:
             gbdt_fold = HistGradientBoostingClassifier(

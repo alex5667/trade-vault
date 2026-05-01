@@ -157,11 +157,11 @@ def _load_tb_labels(path: str) -> Dict[str, Dict[str, Any]]:
 
 
 def _emit_wide_cols(
-    rows: List[Dict[str, Any]]
-    *
-    schema_ver: str
-    out_meta: Optional[str]
-    drop_indicators: bool
+    rows: List[Dict[str, Any]],
+    *,
+    schema_ver: str,
+    out_meta: Optional[str],
+    drop_indicators: bool,
 ) -> List[Dict[str, Any]]:
     """Добавляет к каждому row-у плоские колонки по схеме Feature Registry.
 
@@ -225,11 +225,11 @@ def _emit_wide_cols(
                     ind = json.loads(ind) if ind.strip().startswith("{") else {}
                 cancel_spike_veto = bool(ind.get("cancel_spike_veto", False))
                 return _schema_obj.vectorize(
-                    ts_ms=int(row.get("ts_ms") or 0)
-                    direction=str(row.get("direction") or "")
-                    scenario=str(row.get("scenario_v4") or row.get("scenario") or "")
-                    indicators=ind
-                    cancel_spike_veto=cancel_spike_veto
+                    ts_ms=int(row.get("ts_ms") or 0),
+                    direction=str(row.get("direction") or ""),
+                    scenario=str(row.get("scenario_v4") or row.get("scenario") or ""),
+                    indicators=ind,
+                    cancel_spike_veto=cancel_spike_veto,
                 )
             except Exception:
                 pass
@@ -250,12 +250,12 @@ def _emit_wide_cols(
     if out_meta:
         column_map = dict(zip(feat_names, col_names))
         meta = {
-            "ver": schema_ver
-            "schema_hash": schema_info.schema_hash
-            "n_features": len(feat_names)
-            "feature_names": list(feat_names)
-            "column_names": list(col_names)
-            "column_map": column_map
+            "ver": schema_ver,
+            "schema_hash": schema_info.schema_hash,
+            "n_features": len(feat_names),
+            "feature_names": list(feat_names),
+            "column_names": list(col_names),
+            "column_map": column_map,
         }
         os.makedirs(os.path.dirname(os.path.abspath(out_meta)) or ".", exist_ok=True)
         with open(out_meta, "w", encoding="utf-8") as f:
@@ -271,10 +271,10 @@ def main() -> None:
     ap.add_argument("--closed", required=True, help="ndjson exported from events:trades (POSITION_CLOSED)")
     ap.add_argument("--out", required=True, help="output path (format depends on --out-format)")
     ap.add_argument(
-        "--out-format"
-        default=os.environ.get("ML_DATASET_OUT_FORMAT", "parquet")
-        choices=["parquet", "csv", "jsonl"]
-        help="output format. Default: parquet. If parquet engine is unavailable, use csv/jsonl."
+        "--out-format",
+        default=os.environ.get("ML_DATASET_OUT_FORMAT", "parquet"),
+        choices=["parquet", "csv", "jsonl"],
+        help="output format. Default: parquet. If parquet engine is unavailable, use csv/jsonl.",
     )
 
     # Closed-label threshold (legacy / baseline)
@@ -283,55 +283,55 @@ def main() -> None:
     # Triple-barrier labels export (optional)
     ap.add_argument("--tb-labels", default="", help="ndjson exported from labels:tb (optional)")
     ap.add_argument(
-        "--label-source"
-        default="closed"
-        choices=["closed", "tb_primary", "tb_util"]
-        help="which label to use for y/r_mult: closed | tb_primary (primary.y_edge/r_mult) | tb_util (util_r threshold)"
+        "--label-source",
+        default="closed",
+        choices=["closed", "tb_primary", "tb_util"],
+        help="which label to use for y/r_mult: closed | tb_primary (primary.y_edge/r_mult) | tb_util (util_r threshold)",
     )
     ap.add_argument("--tb-util-min-r", type=float, default=0.0, help="for label-source=tb_util: y=1 if util_r>=tb_util_min_r")
 
     # Feature Registry: wide cols (опциональные флаги, по умолчанию не меняют пайплайн)
     ap.add_argument(
-        "--schema-ver"
-        default=os.environ.get("ML_FEATURE_SCHEMA_VER", "v3")
-        choices=_schema_choices(include_empty=False)
-        help="версия Feature Registry для --emit-wide-cols (default: v3). Use v5_of_stable for stable baseline."
+        "--schema-ver",
+        default=os.environ.get("ML_FEATURE_SCHEMA_VER", "v3"),
+        choices=_schema_choices(include_empty=False),
+        help="версия Feature Registry для --emit-wide-cols (default: v3). Use v5_of_stable for stable baseline.",
     )
     ap.add_argument(
-        "--emit-wide-cols"
-        type=int
-        default=0
-        help="1 = добавить плоские колонки по схеме Feature Registry (default: 0)"
+        "--emit-wide-cols",
+        type=int,
+        default=0,
+        help="1 = добавить плоские колонки по схеме Feature Registry (default: 0)",
     )
     ap.add_argument(
-        "--drop-indicators"
-        type=int
-        default=0
-        help="1 = удалить blob 'indicators' когда emit-wide-cols=1 (default: 0)"
+        "--drop-indicators",
+        type=int,
+        default=0,
+        help="1 = удалить blob 'indicators' когда emit-wide-cols=1 (default: 0)",
     )
     ap.add_argument(
-        "--out-meta"
-        default=""
-        help="путь к .meta.json с schema_hash и column_map (default: <out>.meta.json при emit-wide-cols=1)"
+        "--out-meta",
+        default="",
+        help="путь к .meta.json с schema_hash и column_map (default: <out>.meta.json при emit-wide-cols=1)",
     )
 
     # Offline-only derived features (F/G/H) for ablation; does NOT touch runtime pipeline.
     ap.add_argument("--derive-fgh", type=int, default=int(os.environ.get("DERIVE_FGH", "0")))
     ap.add_argument("--fgh-leader-symbol", default=os.environ.get("FGH_LEADER_SYMBOL", "BTCUSDT"))
     ap.add_argument(
-        "--fgh-leader-max-lag-ms"
-        type=int
-        default=int(os.environ.get("FGH_LEADER_MAX_LAG_MS", "2000"))
+        "--fgh-leader-max-lag-ms",
+        type=int,
+        default=int(os.environ.get("FGH_LEADER_MAX_LAG_MS", "2000")),
     )
     ap.add_argument(
-        "--fgh-vel-z-alpha"
-        type=float
-        default=float(os.environ.get("FGH_VEL_Z_ALPHA", "0.06"))
+        "--fgh-vel-z-alpha",
+        type=float,
+        default=float(os.environ.get("FGH_VEL_Z_ALPHA", "0.06")),
     )
     ap.add_argument(
-        "--fgh-store-debug-flags"
-        type=int
-        default=int(os.environ.get("FGH_STORE_DEBUG_FLAGS", "0"))
+        "--fgh-store-debug-flags",
+        type=int,
+        default=int(os.environ.get("FGH_STORE_DEBUG_FLAGS", "0")),
     )
 
     args = ap.parse_args()
@@ -434,23 +434,23 @@ def main() -> None:
             ts_ms *= 1000
 
         row: Dict[str, Any] = {
-            "sid": sid
-            "ts_ms": int(ts_ms)
-            "symbol": str(o.get("symbol") or "")
-            "direction": str(o.get("direction") or "")
-            "scenario_v4": str(o.get("scenario_v4") or o.get("scenario") or "")
+            "sid": sid,
+            "ts_ms": int(ts_ms),
+            "symbol": str(o.get("symbol") or ""),
+            "direction": str(o.get("direction") or ""),
+            "scenario_v4": str(o.get("scenario_v4") or o.get("scenario") or ""),
             "indicators": _scrub_empty_dicts(o),  # full payload; training expects indicators.*
             
             # baseline label
-            "r_mult_closed": float(r_mult_closed)
-            "y_closed": int(y_closed)
+            "r_mult_closed": float(r_mult_closed),
+            "y_closed": int(y_closed),
 
             # active label
-            "label_source": str(label_source)
-            "r_mult": float(r_mult)
-            "y": int(y)
+            "label_source": str(label_source),
+            "r_mult": float(r_mult),
+            "y": int(y),
             
-            "closed_event_type": str(c.get("event_type") or "") if c else ""
+            "closed_event_type": str(c.get("event_type") or "") if c else "",
         }
 
         # TB diagnostics (optional columns)
@@ -478,11 +478,11 @@ def main() -> None:
             print("[WARN] derive-fgh requested but ml_analysis.common.derived_fgh is unavailable")
         else:
             rep = derive_fgh_rows(
-                rows
-                leader_symbol=str(getattr(args, "fgh_leader_symbol", "BTCUSDT") or "BTCUSDT")
-                leader_max_lag_ms=int(getattr(args, "fgh_leader_max_lag_ms", 2000) or 2000)
-                vel_z_alpha=float(getattr(args, "fgh_vel_z_alpha", 0.06) or 0.06)
-                store_debug_flags=int(getattr(args, "fgh_store_debug_flags", 0) or 0) == 1
+                rows,
+                leader_symbol=str(getattr(args, "fgh_leader_symbol", "BTCUSDT") or "BTCUSDT"),
+                leader_max_lag_ms=int(getattr(args, "fgh_leader_max_lag_ms", 2000) or 2000),
+                vel_z_alpha=float(getattr(args, "fgh_vel_z_alpha", 0.06) or 0.06),
+                store_debug_flags=int(getattr(args, "fgh_store_debug_flags", 0) or 0) == 1,
             )
             print(f"[derive_fgh] ok stats={rep.get('stats', {}) if isinstance(rep, dict) else {}}")
 
@@ -491,10 +491,10 @@ def main() -> None:
         # определить путь к .meta.json
         meta_path: Optional[str] = str(args.out_meta).strip() or f"{args.out}.meta.json"
         rows = _emit_wide_cols(
-            rows
-            schema_ver=str(args.schema_ver)
-            out_meta=meta_path
-            drop_indicators=bool(int(args.drop_indicators))
+            rows,
+            schema_ver=str(args.schema_ver),
+            out_meta=meta_path,
+            drop_indicators=bool(int(args.drop_indicators)),
         )
 
     df = pd.DataFrame(rows)
@@ -518,15 +518,15 @@ def main() -> None:
         raise SystemExit(f"Unsupported --out-format={out_fmt}")
 
     summary: Dict[str, Any] = {
-        "inputs_rows": int(len(rows) + miss)
-        "joined_rows": int(len(rows))
-        "missing_closed": int(miss)
-        "label_r_min": float(args.r_min)
-        "pos_rate": float(df["y"].mean()) if len(df) else 0.0
-        "label_src_counts": df["label_source"].value_counts().to_dict() if len(df) else {}
-        "emit_wide_cols": int(args.emit_wide_cols)
-        "schema_ver": str(args.schema_ver)
-        "out_format": str(out_fmt)
+        "inputs_rows": int(len(rows) + miss),
+        "joined_rows": int(len(rows)),
+        "missing_closed": int(miss),
+        "label_r_min": float(args.r_min),
+        "pos_rate": float(df["y"].mean()) if len(df) else 0.0,
+        "label_src_counts": df["label_source"].value_counts().to_dict() if len(df) else {},
+        "emit_wide_cols": int(args.emit_wide_cols),
+        "schema_ver": str(args.schema_ver),
+        "out_format": str(out_fmt),
     }
     # добавляем schema_hash в summary когда wide cols активны
     if int(args.emit_wide_cols) == 1 and _REGISTRY_AVAILABLE:

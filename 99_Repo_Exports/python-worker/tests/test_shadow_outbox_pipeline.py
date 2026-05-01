@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Shadow Outbox Pipeline Tests
 ============================
@@ -10,7 +11,6 @@ Shadow Outbox Pipeline Tests
 4. Dispatcher dedup: same signal_id не дублируется
 5. Dispatcher DLQ: envelope без sid попадает в DLQ
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import asyncio

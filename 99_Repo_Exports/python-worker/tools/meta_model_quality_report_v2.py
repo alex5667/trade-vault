@@ -1,4 +1,5 @@
 # python-worker/tools/meta_model_quality_report_v2.py
+from __future__ import annotations
 """
 Regime/session aware quality report for MetaModelLR.
 
@@ -12,7 +13,6 @@ Design notes:
 - Works with nested parquet where 'indicators' column stores dict/struct.
 - Avoids high-cardinality Prometheus labels: exports only global + worst-group summaries by default.
 """
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """conf_score_guardrails_autopromo_exporter_v1.py
 
 Prometheus exporter for the autopromo controller state.
@@ -12,7 +13,6 @@ Env:
   CONF_SCORE_GUARD_AUTOPROMO_EXPORTER_PORT
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

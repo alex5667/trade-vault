@@ -77,7 +77,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    }
+    },
 
 def safe_float(v: Any, default: float = 0.0) -> float:
     try:
@@ -158,7 +158,7 @@ def build_scorecards(exposures: List[Dict[str, Any]], results: List[Dict[str, An
             "score_raw": score_raw,
             "score": score,
             "eligible": 1 if eligible else 0
-        }
+        },
     return scorecards
 
 def evaluate_winner(scorecards: Dict[str, Dict[str, float]]) -> Tuple[str, str]:
@@ -191,7 +191,7 @@ async def persist_scorecards(db_url: str, decision_id: str, scorecards: Dict[str
         with conn.cursor() as cur:
             for arm, sc in scorecards.items():
                 cur.execute(
-                    """
+                    """,
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_scorecards (
                         decision_id, arm, exposure_n, result_n, feedback_n, 
                         avg_quality, avg_usefulness, accepted_rate, result_coverage, feedback_coverage, 
@@ -226,7 +226,7 @@ async def persist_decision(db_url: str, decision_id: str, recommendation: str, w
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_evaluator_decisions (
                     decision_id, recommendation, winner_arm, incumbent_arm, score_margin, ts_ms
                 ) VALUES (

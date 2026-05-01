@@ -28,13 +28,13 @@ def test_feature_selection_loop_v1_runs(tmp_path):
 
     df = pd.DataFrame(
         {
-            "sid": [f"s{i}" for i in range(n)]
-            "ts_ms": ts_ms
-            "scenario_v4": scenario_v4
-            "y": y
-            "n_good": good
-            "n_unstable": unstable
-            "n_noise": noise
+            "sid": [f"s{i}" for i in range(n)],
+            "ts_ms": ts_ms,
+            "scenario_v4": scenario_v4,
+            "y": y,
+            "n_good": good,
+            "n_unstable": unstable,
+            "n_noise": noise,
         }
     )
 
@@ -42,10 +42,10 @@ def test_feature_selection_loop_v1_runs(tmp_path):
     df.to_csv(data_path, index=False)
 
     meta = {
-        "ver": "v_test"
-        "schema_hash": "deadbeef" * 4
-        "feature_names": ["n:good", "n:unstable", "n:noise"]
-        "column_names": ["n_good", "n_unstable", "n_noise"]
+        "ver": "v_test",
+        "schema_hash": "deadbeef" * 4,
+        "feature_names": ["n:good", "n:unstable", "n:noise"],
+        "column_names": ["n_good", "n_unstable", "n_noise"],
     }
     meta_path = tmp_path / "ds.csv.meta.json"
     meta_path.write_text(json.dumps(meta), encoding="utf-8")
@@ -56,33 +56,33 @@ def test_feature_selection_loop_v1_runs(tmp_path):
 
     main(
         [
-            "--data_path"
-            str(data_path)
-            "--meta_json"
-            str(meta_path)
-            "--out_dir"
-            str(out_dir)
-            "--model"
-            "lr"
-            "--max_val_rows"
-            "4000"
-            "--n_repeats"
-            "1"
-            "--min_group_rows"
-            "200"
+            "--data_path",
+            str(data_path),
+            "--meta_json",
+            str(meta_path),
+            "--out_dir",
+            str(out_dir),
+            "--model",
+            "lr",
+            "--max_val_rows",
+            "4000",
+            "--n_repeats",
+            "1",
+            "--min_group_rows",
+            "200",
         ]
     )
 
     # Outputs exist
     for fn in [
-        "summary.json"
-        "importance_global.csv"
-        "importance_by_regime.csv"
-        "importance_by_hour.csv"
-        "stability_table.csv"
-        "perf_by_regime.csv"
-        "perf_by_hour.csv"
-        "report.md"
+        "summary.json",
+        "importance_global.csv",
+        "importance_by_regime.csv",
+        "importance_by_hour.csv",
+        "stability_table.csv",
+        "perf_by_regime.csv",
+        "perf_by_hour.csv",
+        "report.md",
     ]:
         assert (out_dir / fn).exists(), fn
 

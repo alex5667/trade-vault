@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for P81 OF-gate Timescale Policy Probe.
 
 Covers:
@@ -5,7 +6,6 @@ Covers:
   - of_gate_timescale_policy_probe_v1: _bool, _match_jobs, _timescale_present, main()
   - of_gate_archiver_exporter_v1: _emit_timescale_policies() gauge updates
 """
-from __future__ import annotations
 
 import importlib
 import os

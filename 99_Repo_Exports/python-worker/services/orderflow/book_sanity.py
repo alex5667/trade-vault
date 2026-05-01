@@ -48,13 +48,13 @@ class BookSanityResult:
 
 
 _ALLOWED_FLAGS = {
-    "missing_bbo"
-    "crossed_bbo"
-    "bad_mid"
-    "bad_depth"
-    "nan_depth"
-    "nan_px"
-    "neg_qty"
+    "missing_bbo",
+    "crossed_bbo",
+    "bad_mid",
+    "bad_depth",
+    "nan_depth",
+    "nan_px",
+    "neg_qty",
 }
 
 

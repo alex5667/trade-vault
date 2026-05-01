@@ -1,4 +1,5 @@
 # core/pressure_tier_calibrator.py
+from __future__ import annotations
 """
 Pressure Tier Calibrator - Adaptive DN threshold calibration
 
@@ -11,7 +12,6 @@ Key Features:
 - Hold-down: enforces minimum time between updates
 - Jump limiting: prevents extreme threshold changes
 """
-from __future__ import annotations
 from dataclasses import dataclass, field
 from collections import deque
 from typing import Deque, Dict, Tuple

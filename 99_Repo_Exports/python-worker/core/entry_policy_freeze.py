@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Entry Policy Freeze Schema V1
 
@@ -17,7 +18,6 @@ Expert review:
   - DevOps/SRE: Redis-based state, no DB dependency, observable via keys
   - Professor Statistics: Freeze triggers on 2-of-4 metrics (reduces false positives)
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from dataclasses import dataclass, asdict, field
@@ -75,7 +75,7 @@ class EntryPolicyFreezeV1:
         metrics: Snapshot of metrics that triggered freeze
     """
     ver: int = 1
-    symbol: str = ""
+    symbol=""
     group: str = "default"
     scenario: str = ""
     until_ts_ms: int = 0

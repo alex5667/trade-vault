@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for run_feature_denylist_proposal_exporter (P104).
 
 Covers:
@@ -10,7 +11,6 @@ Covers:
   - Default env vars (FEATURE_DENYLIST_EXPORT_PATH, FEATURE_DENYLIST_PROPOSALS_DIR) are set
 """
 
-from __future__ import annotations
 
 import subprocess
 from unittest.mock import MagicMock, patch

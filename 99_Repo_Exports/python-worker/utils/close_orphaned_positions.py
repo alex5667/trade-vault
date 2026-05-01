@@ -117,11 +117,11 @@ def close_orphaned_positions(dry_run: bool = True):
 
         # Step 2: Market Close
         params = {
-            "symbol": sym
-            "side": close_side
+            "symbol": sym,
+            "side": close_side,
             "positionSide": pos_side, # Assuming hedge mode. Will fallback if one-way
-            "type": "MARKET"
-            "quantity": amt
+            "type": "MARKET",
+            "quantity": amt,
         }
         print(f"  Sending trade: {params}")
         try:

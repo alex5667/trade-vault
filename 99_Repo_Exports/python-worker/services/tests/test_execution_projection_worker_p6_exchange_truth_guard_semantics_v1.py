@@ -117,30 +117,30 @@ def _mk_inline_exec(redis_obj):
 def test_projection_worker_keeps_terminal_guard_pending_when_exchange_truth_release_enabled():
     r = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
-        r
-        exec_stream='orders:exec'
-        state_key_prefix='orders:state:'
-        active_symbol_key_prefix='orders:active_symbol_sid:'
-        exchange_truth_release=True
-        cursor_key='orders:exec:projection:cursor'
+        r,
+        exec_stream='orders:exec',
+        state_key_prefix='orders:state:',
+        active_symbol_key_prefix='orders:active_symbol_sid:',
+        exchange_truth_release=True,
+        cursor_key='orders:exec:projection:cursor',
     )
     r.xadd('orders:exec', {
-        'sid': 'sid-1'
-        'symbol': 'BTCUSDT'
-        'action': 'open'
-        'event_type': 'state_transition'
-        'status': 'ok'
-        'fsm_state': 'PROTECTED'
-        'ts_event_ms': '1700000000001'
+        'sid': 'sid-1',
+        'symbol': 'BTCUSDT',
+        'action': 'open',
+        'event_type': 'state_transition',
+        'status': 'ok',
+        'fsm_state': 'PROTECTED',
+        'ts_event_ms': '1700000000001',
     })
     r.xadd('orders:exec', {
-        'sid': 'sid-1'
-        'symbol': 'BTCUSDT'
-        'action': 'close'
-        'event_type': 'state_transition'
-        'status': 'closed'
-        'fsm_state': 'EXIT_FILLED'
-        'ts_event_ms': '1700000000002'
+        'sid': 'sid-1',
+        'symbol': 'BTCUSDT',
+        'action': 'close',
+        'event_type': 'state_transition',
+        'status': 'closed',
+        'fsm_state': 'EXIT_FILLED',
+        'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
     guard = json.loads(r.get('orders:active_symbol_sid:BTCUSDT'))
@@ -155,32 +155,32 @@ def test_projection_worker_keeps_terminal_guard_pending_when_exchange_truth_rele
 def test_projection_worker_still_deletes_terminal_guard_when_exchange_truth_release_disabled():
     r = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
-        r
-        exec_stream='orders:exec'
-        state_key_prefix='orders:state:'
-        active_symbol_key_prefix='orders:active_symbol_sid:'
-        exchange_truth_release=False
-        cursor_key='orders:exec:projection:cursor'
+        r,
+        exec_stream='orders:exec',
+        state_key_prefix='orders:state:',
+        active_symbol_key_prefix='orders:active_symbol_sid:',
+        exchange_truth_release=False,
+        cursor_key='orders:exec:projection:cursor',
     )
     r.xadd('orders:exec', {
-        'sid': 'sid-2'
-        'symbol': 'ETHUSDT'
-        'action': 'open'
-        'event_type': 'state_transition'
-        'status': 'ok'
-        'fsm_state': 'PROTECTED'
-        'ts_event_ms': '1700000000001'
+        'sid': 'sid-2',
+        'symbol': 'ETHUSDT',
+        'action': 'open',
+        'event_type': 'state_transition',
+        'status': 'ok',
+        'fsm_state': 'PROTECTED',
+        'ts_event_ms': '1700000000001',
     })
     worker.run_until_idle()
     assert json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))['sid'] == 'sid-2'
     r.xadd('orders:exec', {
-        'sid': 'sid-2'
-        'symbol': 'ETHUSDT'
-        'action': 'close'
-        'event_type': 'state_transition'
-        'status': 'closed'
-        'fsm_state': 'EXIT_FILLED'
-        'ts_event_ms': '1700000000002'
+        'sid': 'sid-2',
+        'symbol': 'ETHUSDT',
+        'action': 'close',
+        'event_type': 'state_transition',
+        'status': 'closed',
+        'fsm_state': 'EXIT_FILLED',
+        'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
     raw_eth = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
@@ -193,11 +193,11 @@ def test_inline_executor_and_projection_worker_use_same_pending_release_contract
     r = FakeRedis()
     ex = _mk_inline_exec(r)
     ex._persist_materialized_state_cache('sid-inline', {
-        'sid': 'sid-inline'
-        'symbol': 'SOLUSDT'
-        'fsm_state': 'EXIT_FILLED'
-        'status': 'closed'
-        'closed': True
+        'sid': 'sid-inline',
+        'symbol': 'SOLUSDT',
+        'fsm_state': 'EXIT_FILLED',
+        'status': 'closed',
+        'closed': True,
     })
     inline_guard = json.loads(r.get('orders:active_symbol_sid:SOLUSDT'))
     assert inline_guard['guard_release_policy'] == 'exchange_truth'
@@ -206,21 +206,21 @@ def test_inline_executor_and_projection_worker_use_same_pending_release_contract
 
     r2 = FakeRedis()
     worker = worker_mod.ExecutionProjectionWorker(
-        r2
-        exec_stream='orders:exec'
-        state_key_prefix='orders:state:'
-        active_symbol_key_prefix='orders:active_symbol_sid:'
-        exchange_truth_release=True
-        cursor_key='orders:exec:projection:cursor'
+        r2,
+        exec_stream='orders:exec',
+        state_key_prefix='orders:state:',
+        active_symbol_key_prefix='orders:active_symbol_sid:',
+        exchange_truth_release=True,
+        cursor_key='orders:exec:projection:cursor',
     )
     r2.xadd('orders:exec', {
-        'sid': 'sid-inline'
-        'symbol': 'SOLUSDT'
-        'action': 'close'
-        'event_type': 'state_transition'
-        'status': 'closed'
-        'fsm_state': 'EXIT_FILLED'
-        'ts_event_ms': '1700000000002'
+        'sid': 'sid-inline',
+        'symbol': 'SOLUSDT',
+        'action': 'close',
+        'event_type': 'state_transition',
+        'status': 'closed',
+        'fsm_state': 'EXIT_FILLED',
+        'ts_event_ms': '1700000000002',
     })
     worker.run_until_idle()
     projected_guard = json.loads(r2.get('orders:active_symbol_sid:SOLUSDT'))
@@ -234,12 +234,12 @@ def test_inline_executor_and_projection_worker_use_same_pending_release_contract
 def test_guard_repair_worker_clears_projection_pending_release_after_exchange_flat():
     r = FakeRedis()
     r.set('orders:active_symbol_sid:BTCUSDT', json.dumps({
-        'symbol': 'BTCUSDT'
-        'sid': 'sid-flat'
-        'guard_release_policy': 'exchange_truth'
-        'guard_release_pending': True
-        'state_terminalish': True
-        'guard_release_reason': 'await_exchange_flat_no_orders'
+        'symbol': 'BTCUSDT',
+        'sid': 'sid-flat',
+        'guard_release_policy': 'exchange_truth',
+        'guard_release_pending': True,
+        'state_terminalish': True,
+        'guard_release_reason': 'await_exchange_flat_no_orders',
     }))
     worker = repair_mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=FlatClient())
     out = worker.run_once()

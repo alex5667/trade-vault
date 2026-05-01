@@ -80,12 +80,12 @@ class BookStateUpdater:
             # Atomic Snapshot
             try:
                 runtime.book_state = BookState(
-                    raw=book_raw
-                    snap=snap
-                    prev_snap=prev_snap
-                    ts_ms=_safe_int(book_ts_ms)
-                    prev_ts_ms=_safe_int(prev_ts_ms)
-                    ingest_ts_ms=_safe_int(ingest_ts_ms)
+                    raw=book_raw,
+                    snap=snap,
+                    prev_snap=prev_snap,
+                    ts_ms=_safe_int(book_ts_ms),
+                    prev_ts_ms=_safe_int(prev_ts_ms),
+                    ingest_ts_ms=_safe_int(ingest_ts_ms),
                 )
             except Exception as exc:
                 log_silent_error(exc, 'book_state_failure', runtime.symbol, 'BookProcessor:book_state')
@@ -102,8 +102,8 @@ class BookStateUpdater:
             from services.orderflow.metrics import book_parse_errors_total
             try:
                 book_parse_errors_total.labels(
-                    symbol=str(runtime.symbol)
-                    reason=type(exc).__name__
+                    symbol=str(runtime.symbol),
+                    reason=type(exc).__name__,
                 ).inc()
             except Exception:
                 pass

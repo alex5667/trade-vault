@@ -12,22 +12,22 @@ class SentimentContextDecision:
     veto_reason: str
 
 def evaluate_sentiment_context(
-    *
-    profile: str
-    side: str
-    sentiment_regime: str
-    fear_greed_value: int
-    fear_greed_delta_1d: int
-    fear_greed_delta_7d: int
-    base_risk_multiplier: float
-    tighten_cap_bps: float
+    *,
+    profile: str,
+    side: str,
+    sentiment_regime: str,
+    fear_greed_value: int,
+    fear_greed_delta_1d: int,
+    fear_greed_delta_7d: int,
+    base_risk_multiplier: float,
+    tighten_cap_bps: float,
 ) -> SentimentContextDecision:
     mode = {
-        "default": "monitor"
-        "monitor": "monitor"
-        "soft": "monitor"
-        "strict": "tighten"
-        "tighten": "tighten"
+        "default": "monitor",
+        "monitor": "monitor",
+        "soft": "monitor",
+        "strict": "tighten",
+        "tighten": "tighten",
         "hard": "tighten",  # intentionally no veto
     }.get(str(profile or "monitor").lower(), "monitor")
 
@@ -61,11 +61,11 @@ def evaluate_sentiment_context(
 
     # Never hard-veto from daily sentiment.
     return SentimentContextDecision(
-        hit=bool(flags)
-        mode=mode
-        flags=flags
-        risk_multiplier=float(rm)
-        tighten_add_bps=float(tighten)
-        veto=False
-        veto_reason=""
+        hit=bool(flags),
+        mode=mode,
+        flags=flags,
+        risk_multiplier=float(rm),
+        tighten_add_bps=float(tighten),
+        veto=False,
+        veto_reason="",
     )

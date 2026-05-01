@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 v12_of — Feature schema v12 (OrderFlow), pinned snapshot + anti-overfit signal extensions.
 
@@ -27,7 +28,6 @@ Design notes
 - Append-only: new schema versions always add keys, never remove.
 """
 
-from __future__ import annotations
 
 from typing import List
 

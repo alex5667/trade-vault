@@ -82,10 +82,10 @@ def _expire_compat(redis_client: Any, key: str, ttl_s: int) -> None:
 
 
 def update_slippage_ema(
-    redis_client: Any
-    *
-    closed: Dict[str, Any]
-    pos: Optional[Dict[str, Any]] = None
+    redis_client: Any,
+    *,
+    closed: Dict[str, Any],
+    pos: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Writer for:

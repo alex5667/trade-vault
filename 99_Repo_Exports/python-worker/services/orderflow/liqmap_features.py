@@ -46,13 +46,13 @@ def try_parse_liqmap_snapshot_json(raw: Optional[bytes | str]) -> Optional[Dict]
         return None
 
 def compute_liqmap_features_from_snapshot(
-    payload: Dict
-    mid_px: float
-    now_ms: int
-    max_stale_ms: int
-    peak_range_bps: float
-    front_run_bps: float
-    sl_buffer_bps: float
+    payload: Dict,
+    mid_px: float,
+    now_ms: int,
+    max_stale_ms: int,
+    peak_range_bps: float,
+    front_run_bps: float,
+    sl_buffer_bps: float,
 ) -> Dict[str, float]:
     """
     Извлекает пики ликвидаций (long/short USD) и возвращает словарь метрик.
@@ -72,9 +72,9 @@ def compute_liqmap_features_from_snapshot(
 
     Returns:
         Словарь, где ключи:
-        is_stale, stale_ms, levels_n, squeeze_bias
-        long_peak_usd, long_peak_price, short_peak_usd, short_peak_price
-        tp1_anchor_bps_long, sl_reco_bps_long
+        is_stale, stale_ms, levels_n, squeeze_bias,
+        long_peak_usd, long_peak_price, short_peak_usd, short_peak_price,
+        tp1_anchor_bps_long, sl_reco_bps_long,
         tp1_anchor_bps_short, sl_reco_bps_short
     """
     if not (isinstance(mid_px, (int, float)) and mid_px > 0):
@@ -87,10 +87,10 @@ def compute_liqmap_features_from_snapshot(
     num_levels = payload.get("_num_levels", [])
 
     feats = {
-        "stale_ms": float(stale_ms)
-        "is_stale": float(is_stale)
-        "levels_n": float(len(levels))
-        "squeeze_bias": 0.0
+        "stale_ms": float(stale_ms),
+        "is_stale": float(is_stale),
+        "levels_n": float(len(levels)),
+        "squeeze_bias": 0.0,
     }
 
     if not num_levels:
@@ -163,23 +163,23 @@ def compute_liqmap_features_from_snapshot(
 
 # --- apply_liqmap_tp_sl_adjustment v1 (MIRROR SYNC D1) BEGIN ---
 def apply_liqmap_tp_sl_adjustment(
-    *
+    *,
     # Backward-compatible parameter aliases:
     #   - old callers: direction + entry_price
     #   - new callers/tests: side + entry
-    direction: Optional[str] = None
-    entry_price: Optional[float] = None
-    side: Optional[str] = None
-    entry: Optional[float] = None
-    base_sl: float
-    base_tp1: float
+    direction: Optional[str] = None,
+    entry_price: Optional[float] = None,
+    side: Optional[str] = None,
+    entry: Optional[float] = None,
+    base_sl: float,
+    base_tp1: float,
     indicators: Dict[str, Any],  # already contains liqmap_{w}_* keys from injection
-    window: str = "1h"
-    min_usd: float = 250_000.0
-    buffer_bps: float = 5.0
-    max_sl_widen_bps: float = 25.0
-    enable_tp1: bool = True
-    enable_sl: bool = True
+    window: str = "1h",
+    min_usd: float = 250_000.0,
+    buffer_bps: float = 5.0,
+    max_sl_widen_bps: float = 25.0,
+    enable_tp1: bool = True,
+    enable_sl: bool = True,
 ) -> Tuple[float, float, Dict[str, Any]]:
     """Apply liquidation-map TP1/SL overlay (safe v1).
 
@@ -215,7 +215,7 @@ def apply_liqmap_tp_sl_adjustment(
 
       - "Safe v1" policy is intentionally conservative:
         * TP1: avoid a strong peak if it sits between entry and base TP1.
-        * SL: hide behind a strong adverse peak if it sits between base SL and entry
+        * SL: hide behind a strong adverse peak if it sits between base SL and entry,
               but cap any widening (max_sl_widen_bps) to avoid uncontrolled risk.
     """
 
@@ -260,14 +260,14 @@ def apply_liqmap_tp_sl_adjustment(
     s_side = _norm_side(side)
 
     out: Dict[str, Any] = {
-        "liqmap_levels_applied": 0.0
-        "liqmap_tp1_adj_bps": 0.0
-        "liqmap_sl_adj_bps": 0.0
-        "liqmap_tp1_anchor_price": 0.0
-        "liqmap_sl_anchor_price": 0.0
-        "liqmap_tp1_anchor_usd": 0.0
-        "liqmap_sl_anchor_usd": 0.0
-        "liqmap_levels_reason": "no_peak"
+        "liqmap_levels_applied": 0.0,
+        "liqmap_tp1_adj_bps": 0.0,
+        "liqmap_sl_adj_bps": 0.0,
+        "liqmap_tp1_anchor_price": 0.0,
+        "liqmap_sl_anchor_price": 0.0,
+        "liqmap_tp1_anchor_usd": 0.0,
+        "liqmap_sl_anchor_usd": 0.0,
+        "liqmap_levels_reason": "no_peak",
     }
 
     # hard fail-open: if inputs are invalid, return base levels and zero patch

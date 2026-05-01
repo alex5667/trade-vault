@@ -74,7 +74,7 @@ ALLOWED_TASKS = {
     "offline_debug",
     "local_report",
     "vertex_unavailable_fallback",
-}
+},
 
 
 def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
@@ -171,7 +171,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_schema_bytes": parse_int(raw.get("max_schema_bytes"), DEFAULT_MAX_SCHEMA_BYTES),
         "require_vertex_degraded": parse_int(raw.get("require_vertex_degraded"), DEFAULT_REQUIRE_VERTEX_DEGRADED),
         "task_allowlist": {str(x) for x in allowlist},
-    }
+    },
 
 
 def build_prompt(row: Dict[str, Any]) -> str:
@@ -203,7 +203,7 @@ def evaluate_request(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, A
         "reason_code": "REJECTED",
         "task_type": task_type,
         "task_mode": policy["mode"],
-    }
+    },
 
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
@@ -280,7 +280,7 @@ async def persist_result_if_configured(db_url: str, row: Dict[str, Any], result:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_local_fallback_results (
                     request_id,
                     ts_ms,
@@ -318,7 +318,7 @@ async def persist_rejection_if_configured(db_url: str, row: Dict[str, Any], eval
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_local_fallback_rejections (
                     request_id,
                     ts_ms,
@@ -422,7 +422,7 @@ async def main() -> None:  # pragma: no cover
                         "result_json": stable_json(result),
                         "meta_json": stable_json(meta),
                         "ts_ms": str(now_ms()),
-                    }
+                    },
                     await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await r.xadd(
                         AUDIT_STREAM,

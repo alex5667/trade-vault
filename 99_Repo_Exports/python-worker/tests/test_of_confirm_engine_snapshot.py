@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for OFConfirmEngine runtime snapshot (golden replay support)."""
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Signal Ensemble — weighted voting layer across independent signal sources.
 
@@ -18,7 +19,6 @@ Algorithm:
 Weights are recalculated hourly by ensemble_weight_calibrator.py based on 30-day
 OOS Sharpe ratio per source.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -258,7 +258,7 @@ def build_microstructure_vote(
         "obi_avg": obi_avg,
         "book_churn": book_churn,
         "cl_conf": cl_conf,
-    }
+    },
 
     return SignalVote(
         source="microstructure",
@@ -404,7 +404,7 @@ class SignalEnsemble:
                 "weighted_confidence": round(sig.confidence * w, 4),
                 "veto": sig.veto,
                 "meta": sig.meta,
-            }
+            },
             active_votes[source] = vote_details[source]
 
         # --- Veto check ---
@@ -471,7 +471,7 @@ class SignalEnsemble:
                     str(k): float(v)
                     for k, v in raw.items()
                     if str(k) in self.SOURCES
-                }
+                },
         except Exception:
             pass
         return {s: self.DEFAULT_WEIGHT for s in self.SOURCES}

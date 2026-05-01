@@ -33,11 +33,11 @@ def _bucket_from_scenario(s: str) -> str:
 
 
 def build_feature_row(
-    model: Any
-    indicators: Dict[str, Any]
-    direction: str
-    scenario: str
-    ts_ms: int
+    model: Any,
+    indicators: Dict[str, Any],
+    direction: str,
+    scenario: str,
+    ts_ms: int,
     forbid_scenario_v4_onehot: bool = False
 ) -> Tuple[List[float], List[str]]:
     """Build feature row for model inference."""

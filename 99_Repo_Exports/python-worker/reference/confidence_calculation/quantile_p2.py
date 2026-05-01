@@ -135,13 +135,13 @@ class P2Quantile:
         JSON-serializable internal state for persistence.
         """
         return {
-            "p": float(self.p)
-            "count": int(self._count)
-            "init": list(self._init) if self._init is not None else []
-            "n": list(self._n) if self._n is not None else [0, 0, 0, 0, 0]
-            "np": list(self._np) if self._np is not None else [0.0] * 5
-            "dn": list(self._dn) if self._dn is not None else [0.0] * 5
-            "q": list(self._q) if self._q is not None else [0.0] * 5
+            "p": float(self.p),
+            "count": int(self._count),
+            "init": list(self._init) if self._init is not None else [],
+            "n": list(self._n) if self._n is not None else [0, 0, 0, 0, 0],
+            "np": list(self._np) if self._np is not None else [0.0] * 5,
+            "dn": list(self._dn) if self._dn is not None else [0.0] * 5,
+            "q": list(self._q) if self._q is not None else [0.0] * 5,
         }
 
     @staticmethod

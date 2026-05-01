@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Strong Gate Calibrator Service — IO layer (PG + Redis + Telegram).
 
@@ -26,7 +27,6 @@ Usage:
   - python -m services.strong_gate_calibrator_service
   - Called from of_timers_worker.py as an hourly timer task
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hashlib

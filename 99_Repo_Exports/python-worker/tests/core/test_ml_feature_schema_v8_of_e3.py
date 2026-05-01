@@ -1,3 +1,4 @@
+from __future__ import annotations
 """E3: Tests for MLFeatureSchemaV8OF.
 
 Goals
@@ -9,7 +10,6 @@ Goals
 These tests are intentionally lightweight (no Redis, no heavy engine wiring).
 """
 
-from __future__ import annotations
 
 from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
 from core.ml_feature_schema_v8_of import MLFeatureSchemaV8OF, MLFeatureSchemaV8OFStable

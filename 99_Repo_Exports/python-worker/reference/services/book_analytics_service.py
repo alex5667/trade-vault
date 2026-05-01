@@ -146,8 +146,8 @@ def _get_gpu_service():
     return _gpu_service_cache
 
 def calculate_obi_metrics(
-    bids: List[Tuple[float, float]]
-    asks: List[Tuple[float, float]]
+    bids: List[Tuple[float, float]],
+    asks: List[Tuple[float, float]],
     depth: int
 ) -> Tuple[float, float, float, float, float, float]:
     """
@@ -236,28 +236,28 @@ def prune_old(symbol: str) -> None:
 # ═══════════════════════════════════════════════════════════════
 
 app = FastAPI(
-    title="Book Analytics Service"
-    description="Advanced OBI analysis and monitoring"
-    version="7.1.0"
-)
+    title="Book Analytics Service",
+    description="Advanced OBI analysis and monitoring",
+    version="7.1.0",
+),
 
 
 def notify_event(event: OBIEvent) -> None:
-    """Send event notification to external service."""
+    """Send event notification to external service.""",
     if not NOTIFY_URL:
         return
     
     try:
         requests.post(
-            NOTIFY_URL
+            NOTIFY_URL,
             json={
-                "ts": int(event.ts * 1000)
-                "type": event.kind
-                "symbol": event.symbol
-                "duration_ms": event.duration_ms
-                "obi": event.value
-                "threshold": OBI_THRESHOLD
-            }
+                "ts": int(event.ts * 1000),
+                "type": event.kind,
+                "symbol": event.symbol,
+                "duration_ms": event.duration_ms,
+                "obi": event.value,
+                "threshold": OBI_THRESHOLD,
+            },
             timeout=1.5
         )
     except Exception as e:
@@ -295,18 +295,18 @@ def receive_book(payload: BookPayload):
     depth_cfg = OBI_DEPTH if is_crypto_payload else OBI_WINDOW_LEVELS
 
     obi_s, obi_r, bid_sum, ask_sum, spread, mid = calculate_obi_metrics(
-        bids
-        asks
+        bids,
+        asks,
         depth_cfg
     )
     
     point = BookPoint(
-        ts=payload.ts / 1000.0
-        obi_signed=obi_s
-        obi_ratio=obi_r
-        bid_sum=bid_sum
-        ask_sum=ask_sum
-        spread=spread
+        ts=payload.ts / 1000.0,
+        obi_signed=obi_s,
+        obi_ratio=obi_r,
+        bid_sum=bid_sum,
+        ask_sum=ask_sum,
+        spread=spread,
         mid=mid
     )
     
@@ -337,10 +337,10 @@ def receive_book(payload: BookPayload):
                 kind = "obi_sustain_up" if dir_now > 0 else "obi_sustain_down"
                 
                 event = OBIEvent(
-                    ts=now_ms / 1000.0
-                    symbol=symbol
-                    kind=kind
-                    duration_ms=int(now_ms - st["since"])
+                    ts=now_ms / 1000.0,
+                    symbol=symbol,
+                    kind=kind,
+                    duration_ms=int(now_ms - st["since"]),
                     value=obi_s
                 )
                 
@@ -351,8 +351,8 @@ def receive_book(payload: BookPayload):
                 st["since"] = now_ms
     
     return {
-        "ok": True
-        "symbol": symbol
+        "ok": True,
+        "symbol": symbol,
         "metrics": asdict(point)
     }
 
@@ -376,12 +376,12 @@ def get_obi_features(symbol: str, last: int = 200):
     arr = list(dq)[-last:]
     
     return {
-        "symbol": symbol
-        "count": len(arr)
-        "points": [asdict(p) for p in arr]
+        "symbol": symbol,
+        "count": len(arr),
+        "points": [asdict(p) for p in arr],
         "config": {
-            "threshold": OBI_THRESHOLD
-            "window_levels": OBI_WINDOW_LEVELS
+            "threshold": OBI_THRESHOLD,
+            "window_levels": OBI_WINDOW_LEVELS,
             "ring_seconds": RING_SECONDS
         }
     }
@@ -434,13 +434,13 @@ def get_latest_obi(symbol: str):
     sustained = abs(avg_obi) >= OBI_THRESHOLD
     
     return {
-        "symbol": symbol
-        "latest": asdict(latest)
+        "symbol": symbol,
+        "latest": asdict(latest),
         "recent_60": {
-            "avg_obi": float(avg_obi)
-            "std_obi": float(std_obi)
+            "avg_obi": float(avg_obi),
+            "std_obi": float(std_obi),
             "sustained": sustained
-        }
+        },
         "total_points": len(dq)
     }
 
@@ -460,12 +460,12 @@ def pull_events(symbol: str, last: int = 50):
     arr = list(events.get(symbol, []))[-last:]
     
     return {
-        "symbol": symbol
-        "count": len(arr)
+        "symbol": symbol,
+        "count": len(arr),
         "events": [{
-            "ts": e.ts
-            "kind": e.kind
-            "duration_ms": e.duration_ms
+            "ts": e.ts,
+            "kind": e.kind,
+            "duration_ms": e.duration_ms,
             "obi": e.value
         } for e in arr]
     }
@@ -570,9 +570,9 @@ def render_depth_profile(symbol: str):
 def health():
     """Health check."""
     return {
-        "ok": True
-        "symbols": list(books.keys())
-        "total_points": sum(len(dq) for dq in books.values())
+        "ok": True,
+        "symbols": list(books.keys()),
+        "total_points": sum(len(dq) for dq in books.values()),
         "total_events": sum(len(dq) for dq in events.values())
     }
 
@@ -599,9 +599,9 @@ if __name__ == "__main__":
     print()
     
     uvicorn.run(
-        "services.book_analytics_service:app"
-        host="127.0.0.1"
-        port=PORT
+        "services.book_analytics_service:app",
+        host="127.0.0.1",
+        port=PORT,
         reload=False
     )
 

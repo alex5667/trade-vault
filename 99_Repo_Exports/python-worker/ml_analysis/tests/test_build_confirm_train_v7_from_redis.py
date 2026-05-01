@@ -1,5 +1,5 @@
-"""Tests for build_confirm_train_v7_from_redis."""
 from __future__ import annotations
+"""Tests for build_confirm_train_v7_from_redis."""
 
 import json
 import os

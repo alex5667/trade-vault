@@ -144,7 +144,7 @@ def route_open(r: redis.Redis, parts: list) -> None:
     # Get signal snapshot
     snap = get_snapshot(r, sid)
 
-    symbol = "XAUUSD"
+    symbol = ""
     entry_price: Optional[float] = None
     sl_price: Optional[float] = None
     tp_levels = []
@@ -157,20 +157,20 @@ def route_open(r: redis.Redis, parts: list) -> None:
         risk_data = snap.get("risk") or {}
         sl_price = _parse_float(risk_data.get("sl"))
         tp_levels = risk_data.get("tp_levels") or [
-            risk_data.get("tp1")
-            risk_data.get("tp2")
-            risk_data.get("tp3")
+            risk_data.get("tp1"),
+            risk_data.get("tp2"),
+            risk_data.get("tp3"),
         ]
         atr_value = _parse_float(risk_data.get("atr"))
         note = snap.get("note", "")
 
     payload = {
-        "action": "open"
-        "side": side
-        "lot": float(lot)
-        "sid": sid
-        "timestamp": get_ny_time_millis()
-        "symbol": symbol
+        "action": "open",
+        "side": side,
+        "lot": float(lot),
+        "sid": sid,
+        "timestamp": get_ny_time_millis(),
+        "symbol": symbol,
     }
 
     specs_store = SymbolSpecsStore(r)
@@ -241,15 +241,15 @@ def route_sltp(r: redis.Redis, parts: list) -> None:
         print(f"⚠️  No snapshot for sid={sid[:20]}...")
         return
     
-    symbol = snap.get("symbol", "XAUUSD")
+    symbol = snap.get("symbol")
     entry_price = _parse_float(snap.get("price"))
     side = snap.get("side", "LONG")
     risk_data = snap.get("risk") or {}
     sl_price = _parse_float(risk_data.get("sl"))
     tp_levels = risk_data.get("tp_levels") or [
-        risk_data.get("tp1")
-        risk_data.get("tp2")
-        risk_data.get("tp3")
+        risk_data.get("tp1"),
+        risk_data.get("tp2"),
+        risk_data.get("tp3"),
     ]
 
     specs_store = SymbolSpecsStore(r)
@@ -281,9 +281,9 @@ def route_sltp(r: redis.Redis, parts: list) -> None:
             corrected = True
 
     payload = {
-        "action": "modify"
-        "sid": sid
-        "symbol": symbol
+        "action": "modify",
+        "sid": sid,
+        "symbol": symbol,
         "timestamp": get_ny_time_millis()
     }
 
@@ -328,12 +328,12 @@ def route_size(r: redis.Redis, parts: list) -> None:
     new_lot = original_lot * float(mult)
     
     payload = {
-        "action": "resize"
-        "sid": sid
-        "symbol": snap.get("symbol", "XAUUSD")
-        "lot": round(new_lot, 2)
-        "original_lot": original_lot
-        "multiplier": float(mult)
+        "action": "resize",
+        "sid": sid,
+        "symbol": snap.get("symbol"),
+        "lot": round(new_lot, 2),
+        "original_lot": original_lot,
+        "multiplier": float(mult),
         "timestamp": get_ny_time_millis()
     }
     
@@ -357,8 +357,8 @@ def route_cancel(r: redis.Redis, parts: list) -> None:
         return
     
     payload = {
-        "action": "cancel"
-        "sid": sid
+        "action": "cancel",
+        "sid": sid,
         "timestamp": get_ny_time_millis()
     }
     
@@ -395,10 +395,10 @@ def main():
     # Main loop
     while True:
         msgs = r.xreadgroup(
-            GROUP
-            CONSUMER
-            {CALLBACKS_STREAM: ">"}
-            count=50
+            GROUP,
+            CONSUMER,
+            {CALLBACKS_STREAM: ">"},
+            count=50,
             block=2000
         )
         

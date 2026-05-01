@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Build an edge-stack training dataset by joining Redis streams via SID.
 
 Primary intent: produce JSONL rows for tools.train_edge_stack_v1_oof (OOF stacking).
@@ -40,7 +41,6 @@ Notes:
       * sid mismatch diagnostics for unmatched closes (nearest signal by time per symbol).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -106,7 +106,7 @@ FGH_NUMERIC_KEYS: List[str] = [
     "micro_shift_bps_vel",
     "ofi_ml_wsum_vel_z_ema",
     "micro_shift_bps_vel_z_ema",
-]
+],
 
 
 def _now_ms() -> int:
@@ -1001,7 +1001,7 @@ def diagnose_unmatched_closes(
         (60_000, "<=60s"),
         (300_000, "<=5m"),
         (10**18, ">5m"),
-    ]
+    ],
     counts: Dict[str, int] = {name: 0 for _, name in buckets}
     examples: List[Dict[str, Any]] = []
 

@@ -9,7 +9,7 @@ from collections import defaultdict
 import redis
 
 from common.decision_trace import (
-    DecisionTrace
+    DecisionTrace,
 )
 from services.dispatcher.lua_scripts import LuaScriptManager
 from services.dispatcher.delivery_helpers import DeliveryHelpers
@@ -50,7 +50,7 @@ class PendingMsg:
     """
     Lightweight adapter for deterministic unit tests.
     Real code uses helper.pending() messages with .msg_id/.fields.
-    """
+    """,
     msg_id: str
     fields: Dict[str, Any]
 
@@ -307,14 +307,14 @@ class SignalDispatcher:
     #   - Never raises (fail-open). Any exception is recorded via counters/logs.
     # ------------------------------------------------------------------
     def _ack_fail_open(
-        self
-        helper: SyncRedisStreamHelper
-        stream: str
-        msg_id: str
-        *
-        ctr_ok: str
-        ctr_fail: str
-        where: str
+        self,
+        helper: SyncRedisStreamHelper,
+        stream: str,
+        msg_id: str,
+        *,
+        ctr_ok: str,
+        ctr_fail: str,
+        where: str,
     ) -> bool:
         try:
             helper.ack(stream, str(msg_id))
@@ -343,14 +343,14 @@ class SignalDispatcher:
             return False
 
     def _finalize_ack(
-        self
-        helper: SyncRedisStreamHelper
-        stream: str
-        msg_id: str
-        *
-        ctr_ok: str
-        ctr_fail: str
-        where: str
+        self,
+        helper: SyncRedisStreamHelper,
+        stream: str,
+        msg_id: str,
+        *,
+        ctr_ok: str,
+        ctr_fail: str,
+        where: str,
     ) -> bool:
         # Done marker is best-effort; it MUST NOT block ACK.
         #
@@ -384,10 +384,10 @@ class SignalDispatcher:
             self._lease_contention += 1
             try:
                 self.redis.xadd(
-                    self.outbox_stream
-                    {"data": json.dumps(env, ensure_ascii=False)}
-                    maxlen=20000
-                    approximate=True
+                    self.outbox_stream,
+                    {"data": json.dumps(env, ensure_ascii=False)},
+                    maxlen=20000,
+                    approximate=True,
                 )
                 return True
             except Exception:
@@ -421,11 +421,11 @@ class SignalDispatcher:
             logger.error("Unexpected error sid=%s msg=%s err=%s", sid, msg_id, exc, exc_info=True)
             try:
                 self._schedule_target_retry(
-                    target="__env__"
-                    sid=sid
-                    env=env
-                    attempt=int(env.get("attempt", 0) or 0) + 1
-                    last_error=str(exc)
+                    target="__env__",
+                    sid=sid,
+                    env=env,
+                    attempt=int(env.get("attempt", 0) or 0) + 1,
+                    last_error=str(exc),
                 )
                 dtrace.add(where="dispatch", name="dispatch_unexpected", ok=False, veto=False, reason_code="DISPATCH_ERROR", etype="gate", extra={"err": str(exc)})
                 self.trace_writer.emit_diag(dtrace, stage="dispatch_error", extra={"outcome": "scheduled"})
@@ -450,17 +450,17 @@ class SignalDispatcher:
     #       * _handle_one never ACKs; it returns ack_now
     # ------------------------------------------------------------------
     def _process_outbox_message(
-        self
-        helper: SyncRedisStreamHelper
-        *
-        stream: str
-        msg_id: str
-        fields: Dict[str, Any]
-        where: str
-        ack_ctr_ok: str
-        ack_ctr_fail: str
-        handle_transient_ctr: str
-        handle_failed_ctr: str
+        self,
+        helper: SyncRedisStreamHelper,
+        *,
+        stream: str,
+        msg_id: str,
+        fields: Dict[str, Any],
+        where: str,
+        ack_ctr_ok: str,
+        ack_ctr_fail: str,
+        handle_transient_ctr: str,
+        handle_failed_ctr: str,
     ) -> None:
         if not msg_id:
             return
@@ -486,12 +486,12 @@ class SignalDispatcher:
             # => ACK-only, never re-dispatch.
             if self._is_outbox_done(str(msg_id)):
                 self._finalize_ack(
-                    helper
-                    stream
-                    msg_id
-                    ctr_ok=ack_ctr_ok
-                    ctr_fail=ack_ctr_fail
-                    where=f"{where}_done_fastpath"
+                    helper,
+                    stream,
+                    msg_id,
+                    ctr_ok=ack_ctr_ok,
+                    ctr_fail=ack_ctr_fail,
+                    where=f"{where}_done_fastpath",
                 )
                 return
 
@@ -546,19 +546,19 @@ class SignalDispatcher:
                     context=where, 
                     msg_id=str(msg_id), 
                     ctr_transient=handle_transient_ctr, 
-                    ctr_fatal=handle_failed_ctr
+                    ctr_fatal=handle_failed_ctr,
                     log_transient=False # Main loop relies on metrics, not warnings for transient
                 )
                 return
 
             if ack_now:
                 self._finalize_ack(
-                    helper
-                    stream
-                    msg_id
-                    ctr_ok=ack_ctr_ok
-                    ctr_fail=ack_ctr_fail
-                    where=where
+                    helper,
+                    stream,
+                    msg_id,
+                    ctr_ok=ack_ctr_ok,
+                    ctr_fail=ack_ctr_fail,
+                    where=where,
                 )
         finally:
             # Lease must always be released; otherwise a transient handler error
@@ -658,15 +658,15 @@ class SignalDispatcher:
                         msg_id = getattr(m, "msg_id", "") or ""
                         fields = getattr(m, "fields", {}) or {}
                         self._process_outbox_message(
-                            helper
-                            stream=str(stream)
-                            msg_id=str(msg_id)
-                            fields=fields
-                            where="new"
-                            ack_ctr_ok="acked"
-                            ack_ctr_fail="ack_failed"
-                            handle_transient_ctr="handle_transient"
-                            handle_failed_ctr="handle_failed"
+                            helper,
+                            stream=str(stream),
+                            msg_id=str(msg_id),
+                            fields=fields,
+                            where="new",
+                            ack_ctr_ok="acked",
+                            ack_ctr_fail="ack_failed",
+                            handle_transient_ctr="handle_transient",
+                            handle_failed_ctr="handle_failed",
                         )
 
     # ---------------------------------------------------------------------
@@ -783,13 +783,13 @@ class SignalDispatcher:
 
 
     def _deliver_targets_with_retry(
-        self
-        env: Dict[str, Any]
-        sid: str
-        *
-        targets: Optional[List[str]] = None
-        base_attempts: Optional[Dict[str, int]] = None
-        _trace: Optional[DecisionTrace] = None
+        self,
+        env: Dict[str, Any],
+        sid: str,
+        *,
+        targets: Optional[List[str]] = None,
+        base_attempts: Optional[Dict[str, int]] = None,
+        _trace: Optional[DecisionTrace] = None,
     ) -> None:
         targets_obj = env.get("targets") or {}
         meta = env.get("meta") or {}
@@ -800,13 +800,13 @@ class SignalDispatcher:
         for t in to_process:
             try:
                 self._deliver_one_target(
-                    env=env
-                    sid=sid
-                    target=str(t)
-                    targets_obj=targets_obj
-                    meta=meta
-                    dual_client=dual_client
-                    simple_client=simple_client
+                    env=env,
+                    sid=sid,
+                    target=str(t),
+                    targets_obj=targets_obj,
+                    meta=meta,
+                    dual_client=dual_client,
+                    simple_client=simple_client,
                 )
                 if _trace:
                     _trace.add(where="delivery", name=f"delivery_{t}", ok=True, veto=False, etype="gate")
@@ -814,25 +814,25 @@ class SignalDispatcher:
                 current_attempt = (base_attempts or {}).get(t, 0)
                 # schedule retry
                 self._schedule_target_retry(
-                    target=str(t)
-                    sid=sid
-                    env=env
-                    attempt=current_attempt + 1
-                    last_error=str(e)
+                    target=str(t),
+                    sid=sid,
+                    env=env,
+                    attempt=current_attempt + 1,
+                    last_error=str(e),
                 )
                 if _trace:
                     _trace.add(where="delivery", name=f"delivery_{t}", ok=False, veto=False, reason_code="DELIVERY_ERROR", etype="gate", extra={"err": str(e)})
 
     def _deliver_one_target(
-        self
-        *
-        env: Dict[str, Any]
-        sid: str
-        target: str
-        targets_obj: Dict[str, Any]
-        meta: Dict[str, Any]
-        dual_client: Any
-        simple_client: Any
+        self,
+        *,
+        env: Dict[str, Any],
+        sid: str,
+        target: str,
+        targets_obj: Dict[str, Any],
+        meta: Dict[str, Any],
+        dual_client: Any,
+        simple_client: Any,
     ) -> None:
         client = self._marker_client_for_target(target, dual_client, simple_client) or self.redis
 
@@ -1012,8 +1012,8 @@ class SignalDispatcher:
         # exp backoff with jitter
         return DeliveryHelpers.calculate_retry_delay(
             attempt - 1,  # DeliveryHelpers uses 0-indexed attempts
-            base_ms=self.retry_base_ms
-            max_ms=self.retry_max_ms
+            base_ms=self.retry_base_ms,
+            max_ms=self.retry_max_ms,
             jitter_ms=self.retry_jitter_ms
         )
 
@@ -1027,11 +1027,11 @@ class SignalDispatcher:
             #   - includes env + error for diagnostics
             try:
                 self._send_target_dlq(
-                    target=str(target)
-                    sid=str(sid)
-                    env=env if isinstance(env, dict) else {}
-                    reason="target_max_attempts"
-                    err=str(last_error)
+                    target=str(target),
+                    sid=str(sid),
+                    env=env if isinstance(env, dict) else {},
+                    reason="target_max_attempts",
+                    err=str(last_error),
                 )
             except Exception:
                 pass
@@ -1056,12 +1056,12 @@ class SignalDispatcher:
             pass
 
         payload = {
-            "sid": sid
-            "target": target
-            "attempt": attempt
-            "ts_ms": get_ny_time_millis()
-            "env": env
-            "last_error": last_error
+            "sid": sid,
+            "target": target,
+            "attempt": attempt,
+            "ts_ms": get_ny_time_millis(),
+            "env": env,
+            "last_error": last_error,
         }
         member = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         score = get_ny_time_millis() + delay
@@ -1095,22 +1095,22 @@ class SignalDispatcher:
 
     def _send_target_dlq(self, target: str, sid: str, env: Dict[str, Any], *, reason: str, err: str) -> None:
         stream = DeliveryHelpers.get_dlq_stream_for_target(
-            target
-            dlq_notify=self.dlq_notify
-            dlq_signal_stream=self.dlq_signal_stream
-            dlq_audit=self.dlq_audit
-            dlq_manual=self.dlq_manual
-            dlq_snapshot=self.dlq_snapshot
+            target,
+            dlq_notify=self.dlq_notify,
+            dlq_signal_stream=self.dlq_signal_stream,
+            dlq_audit=self.dlq_audit,
+            dlq_manual=self.dlq_manual,
+            dlq_snapshot=self.dlq_snapshot,
             dlq_default=self.dlq_stream
         )
         DeliveryHelpers.send_to_dlq(
-            redis_client=self.redis
-            dlq_stream=stream
-            target=target
-            sid=sid
-            env=env
-            reason=reason
-            error=err
+            redis_client=self.redis,
+            dlq_stream=stream,
+            target=target,
+            sid=sid,
+            env=env,
+            reason=reason,
+            error=err,
             logger=logger
         )
 
@@ -1127,10 +1127,10 @@ class SignalDispatcher:
 
         # sampled metrics log (structured)
         payload = {
-            "pending": int(pend)
-            "pending_by_consumer": dict(by_cons or {})
-            "lease_contention": int(self._lease_contention)
-            "claimed_pending": int(self._pending_claimed)
+            "pending": int(pend),
+            "pending_by_consumer": dict(by_cons or {}),
+            "lease_contention": int(self._lease_contention),
+            "claimed_pending": int(self._pending_claimed),
         }
         logger.info("metrics %s", payload)
         self._lease_contention = 0
@@ -1214,9 +1214,9 @@ class SignalDispatcher:
             return last_extend_ms
         try:
             ok = self.lua_scripts.execute(
-                "extend_lease"
-                keys=[self._sid_lease_key(sid)]
-                args=[token, str(int(self.sid_lease_ttl_ms))]
+                "extend_lease",
+                keys=[self._sid_lease_key(sid)],
+                args=[token, str(int(self.sid_lease_ttl_ms))],
             )
             if int(ok or 0) == 1:
                 self._ctr["sid_lease_extended"] += 1
@@ -1227,7 +1227,7 @@ class SignalDispatcher:
 
 
 
-    def _xadd_idempotent_atomic(self, client: Any, *, target: str, sid: str, stream: str
+    def _xadd_idempotent_atomic(self, client: Any, *, target: str, sid: str, stream: str,
                                fields: Dict[str, Any], maxlen: int) -> bool:
         """
         B) FIX (строго): marker и XADD атомарно в Lua. Без loss и без параллельных дублей.
@@ -1251,15 +1251,15 @@ class SignalDispatcher:
         # -1/-2 => transient-ish delivery infra failure
         raise RuntimeError(f"xadd_and_mark_failed code={code} target={target}")
 
-    def _setex_idempotent_atomic(self, client: Any, *, target: str, sid: str, key: str
+    def _setex_idempotent_atomic(self, client: Any, *, target: str, sid: str, key: str,
                                 ttl_sec: int, value_json: str) -> bool:
         if not key:
             return True
         marker = self._marker_key(target, sid)
         res = self.lua_scripts.execute(
-            "setex_and_mark"
-            keys=[marker, key]
-            args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json]
+            "setex_and_mark",
+            keys=[marker, key],
+            args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json],
         )
         if not res:
             return False
@@ -1315,11 +1315,11 @@ class SignalDispatcher:
                     pass
         except Exception as e:
             sd_fail_open(
-                getattr(self, "logger", None)
-                key="mark_outbox_done_error"
-                err=e
-                incr_fn=getattr(self, "_incr", None)
-                metric_key=f"{self.metrics_prefix}:mark_outbox_done_errors_total"
+                getattr(self, "logger", None),
+                key="mark_outbox_done_error",
+                err=e,
+                incr_fn=getattr(self, "_incr", None),
+                metric_key=f"{self.metrics_prefix}:mark_outbox_done_errors_total",
             )
 
     def _is_outbox_done(self, msg_id: str) -> bool:
@@ -1388,7 +1388,7 @@ class SignalDispatcher:
           - NO unconditional 'continue' that skips processing
           - ACK is per-message (not "last msg in batch")
           - If _handle_one() succeeded (ack_now=True) we set msg-done marker BEFORE ACK attempt:
-              -> if ACK fails transiently and message becomes pending
+              -> if ACK fails transiently and message becomes pending,
                  pending recovery will ACK-only and never re-dispatch side effects.
           - Fail-open on Redis/ACK issues; retry hooks remain in place.
         """
@@ -1494,21 +1494,21 @@ class SignalDispatcher:
             cons = info.get("consumers") or []
             oldest_idle = helper.pending_oldest_idle_ms(self.outbox_stream, sample=1)
             logger.info(
-                "outbox pending=%d oldest_idle_ms=%d consumers=%s ctr=%s"
-                pending
-                oldest_idle
-                cons
-                dict(list(self._ctr.items())[:20])
+                "outbox pending=%d oldest_idle_ms=%d consumers=%s ctr=%s",
+                pending,
+                oldest_idle,
+                cons,
+                dict(list(self._ctr.items())[:20]),
             )
         except Exception as e:
-            # fail-open: метрики не должны ломать диспатчер
+            # fail-open: метрики не должны ломать диспатчер,
             # но скрывать исключения нельзя (иначе "немая" телеметрия).
             sd_fail_open(
-                getattr(self, "logger", None)
-                key="outbox_pending_by_consumer_metrics_error"
-                err=e
-                incr_fn=getattr(self, "_incr", None)
-                metric_key=f"{self.metrics_prefix}:outbox_pending_by_consumer_metrics_errors_total"
+                getattr(self, "logger", None),
+                key="outbox_pending_by_consumer_metrics_error",
+                err=e,
+                incr_fn=getattr(self, "_incr", None),
+                metric_key=f"{self.metrics_prefix}:outbox_pending_by_consumer_metrics_errors_total",
             )
 
     def _cleanup_dead_consumers(self, helper: SyncRedisStreamHelper) -> None:
@@ -1586,17 +1586,17 @@ class SignalDispatcher:
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
         res = self.lua_scripts.execute(
-            "xadd_fields_then_mark"
-            keys=[self._marker_key(target, sid), stream]
-            args=[str(self.delivery_marker_ttl_sec), str(maxlen)] + fv
+            "xadd_fields_then_mark",
+            keys=[self._marker_key(target, sid), stream],
+            args=[str(self.delivery_marker_ttl_sec), str(maxlen)] + fv,
         )
         return bool(res and int(res[0]) in (0, 1))
 
     def _setex_idempotent(self, client: Any, *, target: str, sid: str, key: str, value_json: str, ttl_sec: int) -> bool:
         res = self.lua_scripts.execute(
-            "setex_then_mark"
-            keys=[self._marker_key(target, sid), key]
-            args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json]
+            "setex_then_mark",
+            keys=[self._marker_key(target, sid), key],
+            args=[str(self.delivery_marker_ttl_sec), str(int(ttl_sec)), value_json],
             client=client
         )
         return bool(res and int(res[0]) in (0, 1))
@@ -1607,9 +1607,9 @@ class SignalDispatcher:
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
         res = self.lua_scripts.execute(
-            "notify_gate"
-            keys=[self._marker_key("notify", sid), self.notify_stream, self.notify_signal_counter_key]
-            args=[str(self.delivery_marker_ttl_sec), str(500000), str(self.notify_signal_every_n)] + fv
+            "notify_gate",
+            keys=[self._marker_key("notify", sid), self.notify_stream, self.notify_signal_counter_key],
+            args=[str(self.delivery_marker_ttl_sec), str(500000), str(self.notify_signal_every_n)] + fv,
             client=client
         )
         
@@ -1729,14 +1729,14 @@ class SignalDispatcher:
                 self.logger.warning(f"   sid: {env.get('sid', 'unknown')}")
                 # Send to DLQ for malformed envelopes
                 payload = {
-                    "ts": get_ny_time_millis()
-                    "reason": "malformed_envelope_structure"
-                    "sid": str(env.get("sid") or "")
-                    "env_keys": list(env.keys())
-                    "has_audit_payload_top": "audit_payload" in env
-                    "has_meta": "meta" in env
-                    "has_targets": "targets" in env
-                    "raw": raw[:1000] if isinstance(raw, str) else str(raw)[:1000]
+                    "ts": get_ny_time_millis(),
+                    "reason": "malformed_envelope_structure",
+                    "sid": str(env.get("sid") or ""),
+                    "env_keys": list(env.keys()),
+                    "has_audit_payload_top": "audit_payload" in env,
+                    "has_meta": "meta" in env,
+                    "has_targets": "targets" in env,
+                    "raw": raw[:1000] if isinstance(raw, str) else str(raw)[:1000],
                 }
                 self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)
             except Exception:
@@ -1754,12 +1754,12 @@ class SignalDispatcher:
                     # write to generic DLQ (not target-specific, envelope-level corruption)
                     try:
                         payload = {
-                            "ts": get_ny_time_millis()
-                            "reason": "payload_fingerprint_mismatch"
-                            "sid": str(env.get("sid") or "")
-                            "expected": str(expected)
-                            "got": str(got)
-                            "env": env_safe
+                            "ts": get_ny_time_millis(),
+                            "reason": "payload_fingerprint_mismatch",
+                            "sid": str(env.get("sid") or ""),
+                            "expected": str(expected),
+                            "got": str(got),
+                            "env": env_safe,
                         }
                         self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=200000, approximate=True)
                     except Exception:
@@ -1909,9 +1909,9 @@ class SignalDispatcher:
 
                 # 2) read new (">")
                 messages = helper.read(
-                    {self.outbox_stream: ">"}
-                    count=self.read_count
-                    block=self.read_block_ms
+                    {self.outbox_stream: ">"},
+                    count=self.read_count,
+                    block=self.read_block_ms,
                     recover_start_id="0",  # Fix C) (group recovery start)
                 )
 
@@ -2020,15 +2020,15 @@ class SignalDispatcher:
         oldest_idle = self._pending_oldest_idle_ms()
 
         logger.info(
-            "outbox metrics: len=%s pending=%s oldest_idle_ms=%s read_count=%d block_ms=%d claim_idle_ms=%d ctr=%s pending_by_consumer=%s"
-            outbox_len
-            pending
-            oldest_idle
-            self.read_count
-            self.read_block_ms
-            self.claim_min_idle_ms
-            dict(self._ctr)
-            by_consumer
+            "outbox metrics: len=%s pending=%s oldest_idle_ms=%s read_count=%d block_ms=%d claim_idle_ms=%d ctr=%s pending_by_consumer=%s",
+            outbox_len,
+            pending,
+            oldest_idle,
+            self.read_count,
+            self.read_block_ms,
+            self.claim_min_idle_ms,
+            dict(self._ctr),
+            by_consumer,
         )
 
     def _pending_oldest_idle_ms(self) -> int:
@@ -2077,9 +2077,9 @@ class SignalDispatcher:
         try:
             for pref in prefixes:
                 cursor, keys = self.redis.scan(
-                    cursor=self._repair_cursor
-                    match=f"{pref}:*"
-                    count=int(self.marker_repair_batch)
+                    cursor=self._repair_cursor,
+                    match=f"{pref}:*",
+                    count=int(self.marker_repair_batch),
                 )
                 self._repair_cursor = int(cursor or 0)
                 if not keys:
@@ -2139,10 +2139,10 @@ class SignalDispatcher:
         while claimed_total < int(self.claim_budget_per_tick):
             try:
                 next_id, msgs = helper.claim_pending(
-                    self.outbox_stream
-                    min_idle_ms=self.claim_min_idle_ms
-                    start_id=self._pending_start_id
-                    count=min(int(self.claim_count), int(self.claim_budget_per_tick) - claimed_total)
+                    self.outbox_stream,
+                    min_idle_ms=self.claim_min_idle_ms,
+                    start_id=self._pending_start_id,
+                    count=min(int(self.claim_count), int(self.claim_budget_per_tick) - claimed_total),
                 )
             except Exception as e:
                 if is_transient_error(e):

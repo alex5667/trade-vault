@@ -37,34 +37,34 @@ logger = logging.getLogger("latency_contract_exporter")
 # Metrics
 # ------------------------------------------------------------------
 latency_contract_exporter_stage_latest_ms = Gauge(
-    "latency_contract_exporter_stage_latest_ms"
-    "Latest stage duration read from Redis state hash (ms)"
-    ["service", "stage", "symbol"]
+    "latency_contract_exporter_stage_latest_ms",
+    "Latest stage duration read from Redis state hash (ms)",
+    ["service", "stage", "symbol"],
 )
 latency_contract_exporter_stage_age_ms = Gauge(
-    "latency_contract_exporter_stage_age_ms"
-    "Age of the last Redis state hash entry (ms since last_ts_ms)"
-    ["service", "stage", "symbol"]
+    "latency_contract_exporter_stage_age_ms",
+    "Age of the last Redis state hash entry (ms since last_ts_ms)",
+    ["service", "stage", "symbol"],
 )
 latency_contract_exporter_stage_budget_ratio = Gauge(
-    "latency_contract_exporter_stage_budget_ratio"
-    "Ratio of last_duration_ms to configured budget (>1 means budget breach)"
-    ["service", "stage", "symbol"]
+    "latency_contract_exporter_stage_budget_ratio",
+    "Ratio of last_duration_ms to configured budget (>1 means budget breach)",
+    ["service", "stage", "symbol"],
 )
 latency_contract_exporter_stale_total = Counter(
-    "latency_contract_exporter_stale_total"
-    "Number of state hash entries considered stale (age > LATENCY_CONTRACT_EXPORTER_STALE_S)"
-    ["service", "stage"]
+    "latency_contract_exporter_stale_total",
+    "Number of state hash entries considered stale (age > LATENCY_CONTRACT_EXPORTER_STALE_S)",
+    ["service", "stage"],
 )
 latency_contract_exporter_scrape_errors_total = Counter(
-    "latency_contract_exporter_scrape_errors_total"
-    "Errors during exporter scrape loop"
-    []
+    "latency_contract_exporter_scrape_errors_total",
+    "Errors during exporter scrape loop",
+    [],
 )
 latency_contract_exporter_last_scrape_ts = Gauge(
-    "latency_contract_exporter_last_scrape_ts"
-    "Unix timestamp of the last successful scrape"
-    []
+    "latency_contract_exporter_last_scrape_ts",
+    "Unix timestamp of the last successful scrape",
+    [],
 )
 
 
@@ -72,21 +72,21 @@ _LATENCY_STAGE_BUCKETS = (1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500, 
 _LATENCY_EVENT_LAG_BUCKETS = (1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 5000, 10000)
 
 latency_contract_stage_ms = Histogram(
-    "latency_contract_stage_ms"
-    "Observed latency-contract stage durations (ms), de-duplicated by last_ts_ms per key"
-    ["service", "stage", "symbol"]
-    buckets=_LATENCY_STAGE_BUCKETS
+    "latency_contract_stage_ms",
+    "Observed latency-contract stage durations (ms), de-duplicated by last_ts_ms per key",
+    ["service", "stage", "symbol"],
+    buckets=_LATENCY_STAGE_BUCKETS,
 )
 latency_contract_event_lag_ms = Histogram(
-    "latency_contract_event_lag_ms"
-    "Observed event-time lag (last_ts_ms - ts_event_ms) in ms, de-duplicated by last_ts_ms per key"
-    ["service", "stage", "symbol"]
-    buckets=_LATENCY_EVENT_LAG_BUCKETS
+    "latency_contract_event_lag_ms",
+    "Observed event-time lag (last_ts_ms - ts_event_ms) in ms, de-duplicated by last_ts_ms per key",
+    ["service", "stage", "symbol"],
+    buckets=_LATENCY_EVENT_LAG_BUCKETS,
 )
 latency_contract_event_lag_latest_ms = Gauge(
-    "latency_contract_event_lag_latest_ms"
-    "Latest event-time lag (last_ts_ms - ts_event_ms) in ms"
-    ["service", "stage", "symbol"]
+    "latency_contract_event_lag_latest_ms",
+    "Latest event-time lag (last_ts_ms - ts_event_ms) in ms",
+    ["service", "stage", "symbol"],
 )
 
 # Dedupe repeated scrapes of the same Redis hash row.
@@ -121,56 +121,56 @@ def _observe_histograms_if_fresh(obs_key: str, service: str, stage: str, symbol:
 # P4.1 — required stage coverage and SLO gate
 # ------------------------------------------------------------------
 latency_contract_required_stage_present = Gauge(
-    "latency_contract_required_stage_present"
-    "Required service-stage-symbol contract presence (1=hash exists, 0=missing)"
-    ["service", "stage", "symbol"]
+    "latency_contract_required_stage_present",
+    "Required service-stage-symbol contract presence (1=hash exists, 0=missing)",
+    ["service", "stage", "symbol"],
 )
 latency_contract_required_stage_age_seconds = Gauge(
-    "latency_contract_required_stage_age_seconds"
-    "Age in seconds since last_ts_ms was written for a required stage"
-    ["service", "stage", "symbol"]
+    "latency_contract_required_stage_age_seconds",
+    "Age in seconds since last_ts_ms was written for a required stage",
+    ["service", "stage", "symbol"],
 )
 latency_contract_slo_gate_ok = Gauge(
-    "latency_contract_slo_gate_ok"
-    "1 when all required stages are present and fresh, 0 otherwise"
-    []
+    "latency_contract_slo_gate_ok",
+    "1 when all required stages are present and fresh, 0 otherwise",
+    [],
 )
 latency_contract_slo_missing_total = Gauge(
-    "latency_contract_slo_missing_total"
-    "Count of required stages with no Redis hash (per SLO gate cycle)"
-    []
+    "latency_contract_slo_missing_total",
+    "Count of required stages with no Redis hash (per SLO gate cycle)",
+    [],
 )
 latency_contract_slo_stale_total = Gauge(
-    "latency_contract_slo_stale_total"
-    "Count of required stages whose hash is stale (per SLO gate cycle)"
-    []
+    "latency_contract_slo_stale_total",
+    "Count of required stages whose hash is stale (per SLO gate cycle)",
+    [],
 )
 latency_contract_slo_budget_breach_total = Gauge(
-    "latency_contract_slo_budget_breach_total"
-    "Count of required stages exceeding latency budget (per SLO gate cycle)"
-    []
+    "latency_contract_slo_budget_breach_total",
+    "Count of required stages exceeding latency budget (per SLO gate cycle)",
+    [],
 )
 
 # ------------------------------------------------------------------
 # Budget defaults
 # ------------------------------------------------------------------
 _DEFAULT_BUDGETS: Dict[str, int] = {
-    "ingest_to_redis": 30
-    "redis_to_feature": 50
-    "feature_to_emit": 100
-    "emit_to_ws": 100
-    "end_to_end_event": 200
+    "ingest_to_redis": 30,
+    "redis_to_feature": 50,
+    "feature_to_emit": 100,
+    "emit_to_ws": 100,
+    "end_to_end_event": 200,
 }
 
 
 def _budgets_from_env() -> Dict[str, int]:
     out = dict(_DEFAULT_BUDGETS)
     for stage, envvar in [
-        ("ingest_to_redis", "LATENCY_BUDGET_INGEST_TO_REDIS_MS")
-        ("redis_to_feature", "LATENCY_BUDGET_REDIS_TO_FEATURE_MS")
-        ("feature_to_emit", "LATENCY_BUDGET_FEATURE_TO_EMIT_MS")
-        ("emit_to_ws", "LATENCY_BUDGET_EMIT_TO_WS_MS")
-        ("end_to_end_event", "LATENCY_BUDGET_END_TO_END_EVENT_MS")
+        ("ingest_to_redis", "LATENCY_BUDGET_INGEST_TO_REDIS_MS"),
+        ("redis_to_feature", "LATENCY_BUDGET_REDIS_TO_FEATURE_MS"),
+        ("feature_to_emit", "LATENCY_BUDGET_FEATURE_TO_EMIT_MS"),
+        ("emit_to_ws", "LATENCY_BUDGET_EMIT_TO_WS_MS"),
+        ("end_to_end_event", "LATENCY_BUDGET_END_TO_END_EVENT_MS"),
     ]:
         raw = os.getenv(envvar, "")
         if raw.strip():
@@ -294,12 +294,12 @@ async def _scrape_required_coverage(redis_client: Any, prefix: str, stale_s: int
 
 
 async def run_exporter_loop(
-    redis_client: Any
-    prefix: str
-    interval_s: float
-    stale_s: int
-    budgets: Dict[str, int]
-    slo_summary_key: str = 'metrics:latency_contract:slo:last'
+    redis_client: Any,
+    prefix: str,
+    interval_s: float,
+    stale_s: int,
+    budgets: Dict[str, int],
+    slo_summary_key: str = 'metrics:latency_contract:slo:last',
 ) -> None:
     while True:
         try:

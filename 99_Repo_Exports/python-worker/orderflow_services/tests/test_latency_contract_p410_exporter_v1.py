@@ -1,5 +1,5 @@
-"""P4.10 exporter module dual-control metrics presence tests."""
 from __future__ import annotations
+"""P4.10 exporter module dual-control metrics presence tests."""
 
 
 

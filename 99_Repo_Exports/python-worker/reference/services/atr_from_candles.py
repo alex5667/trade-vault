@@ -173,11 +173,11 @@ class DynamicSet:
     """Utility to keep Redis-backed dynamic filters in sync."""
 
     def __init__(
-        self
-        name: str
-        key: str
-        default: Set[str]
-        normalizer: Callable[[str], str]
+        self,
+        name: str,
+        key: str,
+        default: Set[str],
+        normalizer: Callable[[str], str],
     ) -> None:
         self.name = name
         self.key = key or ""
@@ -257,10 +257,10 @@ def main():
     for attempt in range(max_retries):
         try:
             r = redis.from_url(
-                REDIS_URL
-                decode_responses=True
-                health_check_interval=30
-                socket_timeout=30
+                REDIS_URL,
+                decode_responses=True,
+                health_check_interval=30,
+                socket_timeout=30,
             )
             # Проверяем подключение
             r.ping()
@@ -398,10 +398,10 @@ def main():
         try:
             refresh_config()
             msgs = r.xreadgroup(
-                GROUP
-                CONSUMER
-                {CANDLES_STREAM: ">"}
-                count=200
+                GROUP,
+                CONSUMER,
+                {CANDLES_STREAM: ">"},
+                count=200,
                 block=1000
             )
             
@@ -456,13 +456,13 @@ def main():
                             
                             # Store JSON metadata (legacy format)
                             meta = {
-                                "symbol": sym
-                                "tf": tf
-                                "atr": val
-                                "period": PERIOD
-                                "close": c
-                                "count": atr_states[key].count
-                                "ts": now_ms
+                                "symbol": sym,
+                                "tf": tf,
+                                "atr": val,
+                                "period": PERIOD,
+                                "close": c,
+                                "count": atr_states[key].count,
+                                "ts": now_ms,
                             }
                             r.set(f"atr:json:{sym}:{tf}", json.dumps(meta))
                             
@@ -472,12 +472,12 @@ def main():
                             
                             # Store in go-gateway format (ta:last:atr:SYMBOL) with 2 minute TTL
                             gw_meta = {
-                                "atr": val
-                                "period": PERIOD
-                                "method": "wilder"
-                                "tf": tf if tf else "M1"
-                                "source": "py"
-                                "ts": now_ms
+                                "atr": val,
+                                "period": PERIOD,
+                                "method": "wilder",
+                                "tf": tf if tf else "M1",
+                                "source": "py",
+                                "ts": now_ms,
                             }
                             r.setex(f"ta:last:atr:{sym}", 120, json.dumps(gw_meta))
                             
@@ -498,32 +498,32 @@ def main():
                                 if prev is not None:
                                     state = adx_states[key]
                                     state, res = update_adx_atr(
-                                        state
-                                        h
-                                        l
-                                        c
-                                        prev["high"]
-                                        prev["low"]
-                                        prev["close"]
-                                        n=ADX_PERIOD
+                                        state,
+                                        h,
+                                        l,
+                                        c,
+                                        prev["high"],
+                                        prev["low"],
+                                        prev["close"],
+                                        n=ADX_PERIOD,
                                     )
                                     adx_states[key] = state
                                     if res:
                                         payload = {
-                                            "atr": res["atr"]
-                                            "plusDI": res["plusDI"]
-                                            "minusDI": res["minusDI"]
-                                            "adx": res["adx"]
-                                            "tf": tf
-                                            "period": ADX_PERIOD
-                                            "ts": now_ms
+                                            "atr": res["atr"],
+                                            "plusDI": res["plusDI"],
+                                            "minusDI": res["minusDI"],
+                                            "adx": res["adx"],
+                                            "tf": tf,
+                                            "period": ADX_PERIOD,
+                                            "ts": now_ms,
                                         }
                                         r.hset(ADX_KEY_TEMPLATE.format(symbol=sym), mapping=payload)
                                 prev_candles[key] = {
-                                    "open": o
-                                    "high": h
-                                    "low": l
-                                    "close": c
+                                    "open": o,
+                                    "high": h,
+                                    "low": l,
+                                    "close": c,
                                 }
                     
                     except Exception as e:

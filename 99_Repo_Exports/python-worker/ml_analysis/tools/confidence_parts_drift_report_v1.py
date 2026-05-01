@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Confidence parts drift report (world practice).
 
 Reads JSONL dataset rows (typically produced by build_edge_stack_dataset_from_redis) where:
@@ -7,7 +8,6 @@ Reads JSONL dataset rows (typically produced by build_edge_stack_dataset_from_re
 Outputs a compact JSON report with robust drift Z (median/MAD) for each part key.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

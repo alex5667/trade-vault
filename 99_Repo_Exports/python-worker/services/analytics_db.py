@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Simple TimescaleDB connector for scanner_analytics.
 
@@ -6,7 +7,6 @@ Usage:
   export TRADES_DB_DSN="postgresql://user:pass@host:5432/scanner_analytics"
   from services.analytics_db import fetch_trades_closed
 """
-from __future__ import annotations
 
 import os
 import json
@@ -430,7 +430,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
             %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s,
-            %s
+            %s,
         )
         ON CONFLICT (order_id) DO UPDATE SET
             exit_ts_ms = CASE

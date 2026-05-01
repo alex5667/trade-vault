@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for tick_processor timestamp-resolution → DQ-validate pipeline.
 
@@ -9,7 +10,6 @@ P0 contract under test:
   - out_of_order within 2s               → pass
   - out_of_order beyond 2s              → reject
 """
-from __future__ import annotations
 
 import unittest
 
@@ -27,10 +27,10 @@ class TestCoerceEventTsMs(unittest.TestCase):
 
     def _coerce(self, payload_ts_ms: int, msg_id: str = "1700000100000-0") -> tuple[int, str]:
         return coerce_event_ts_ms(
-            msg_id=msg_id
-            payload_ts_ms=payload_ts_ms
-            now_ms=NOW_MS
-            max_ts_skew_ms=self.MAX_SKEW
+            msg_id=msg_id,
+            payload_ts_ms=payload_ts_ms,
+            now_ms=NOW_MS,
+            max_ts_skew_ms=self.MAX_SKEW,
         )
 
     def test_fresh_payload_ts_wins(self):
@@ -78,15 +78,15 @@ class TestTickDQPolicyTwoLayerTs(unittest.TestCase):
 
     def setUp(self):
         self.dq = TickDQPolicy(
-            max_event_age_ms=10_000
-            max_future_skew_ms=2_000
-            max_out_of_order_ms=2_000
+            max_event_age_ms=10_000,
+            max_future_skew_ms=2_000,
+            max_out_of_order_ms=2_000,
         )
 
     def _make(self, *, ts_ms: int, payload_ts_ms: int | None = None) -> dict:
         tick: dict = {
-            "symbol": "BTCUSDT"
-            "ts_ms": ts_ms
+            "symbol": "BTCUSDT",
+            "ts_ms": ts_ms,
         }
         if payload_ts_ms is not None:
             tick["payload_ts_ms"] = payload_ts_ms

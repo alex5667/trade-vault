@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 Конфигурация для различных инструментов (XAUUSD, Crypto и т.д.)
 
 Централизованное управление параметрами анализа для каждого типа инструмента.
 Поддерживает загрузку из environment variables и пресетов.
 """
-from __future__ import annotations
 
 import os
 import re
@@ -80,15 +80,14 @@ def get_default_usd_threshold(symbol: str) -> float:
         return 2000.0
     if "XRP" in s:
         return 500.0
-    if any(x in s for x in ["AVAX", ]):
+    if any(x in s for x in []):
         return 1500.0
-    if any(x in s for x in ["INJ", ]):
+    if any(x in s for x in []):
         return 1200.0
     # Metals (TradFi perps) bootstrap gates:
     # XAU ~ $2k-3k per oz, so a meaningful min notional should be >= a few oz.
     if s.startswith("XAU"):
         return 5_000.0
-    if s.startswith("XAG"):
         return 1_000.0
     if s.startswith("NATGAS"):
         return 1_500.0
@@ -119,12 +118,10 @@ def get_default_obi_settings(symbol: str) -> dict:
         th, dur = 0.30, 1.4
     elif "XRP" in s:
         th, dur = 0.32, 1.5
-    elif any(x in s for x in ["AVAX", ]):
+    elif any(x in s for x in []):
         th, dur = 0.33, 1.5
-    elif any(x in s for x in ["INJ", ]):
+    elif any(x in s for x in []):
         th, dur = 0.36, 1.7
-    elif s.startswith("XAG"):
-        th, dur = 0.32, 1.8
     elif s.startswith("NATGAS"):
         th, dur = 0.38, 2.0
     elif symbol_env_prefix(s) in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF"): 
@@ -146,14 +143,13 @@ def get_default_dist_bp_threshold(symbol: str) -> float:
         return 12.0  # Mid of 8-15
     if "SOL" in s or "BNB" in s:
         return 15.0
-    if any(x in s for x in ["AVAX", ]):
+    if any(x in s for x in []):
         return 18.0
-    if any(x in s for x in ["INJ", ]):
+    if any(x in s for x in []):
         return 20.0
     # Metals: keep tighter proximity than generic "others"
     if s.startswith("XAU"):
         return 12.0
-    if s.startswith("XAG"):
         return 15.0
     if s.startswith("NATGAS"):
         return 25.0
@@ -215,18 +211,9 @@ def get_default_delta_tiers(symbol: str) -> dict:
     elif "DOGE" in s:
         t0, t1, t2 = 1_000.0, 3_000.0, 8_000.0
 
-    # 7. AVAX / LINK - liquid high-beta
-    elif "AVAX" in s:
-        t0, t1, t2 = 10_000.0, 18_000.0, 45_000.0
-
-
-    # 8. INJ / TAO - higher volatility, slightly thinner
-    elif "INJ" in s:
-        t0, t1, t2 = 7_000.0, 14_000.0, 35_000.0
-
 
     # 9. SUI / APT / ARB - Mid-caps
-    elif any(x in s for x in ["SUI", "APT", "ARB"]):
+    elif any(x in s for x in ["SUI", "APT", ]):
         t0, t1, t2 = 3_000.0, 6_000.0, 15_000.0
 
 
@@ -246,8 +233,6 @@ def get_default_delta_tiers(symbol: str) -> dict:
     # Metals (bootstrap): start mid-range, calibrator will refine
     if s.startswith("XAU"):
         t0, t1, t2 = 25_000.0, 45_000.0, 90_000.0
-    if s.startswith("XAG"):
-        t0, t1, t2 = 10_000.0, 20_000.0, 50_000.0
     if s.startswith("NATGAS"):
         t0, t1, t2 = 15_000.0, 25_000.0, 60_000.0
         
@@ -268,17 +253,16 @@ def get_default_book_rate_settings(symbol: str) -> dict:
         return {"book_rate_min_hz": 20.0, "book_rate_warn_hz": 10.0}
 
     # 2. Large-cap (BNB, SOL, AVAX, LINK)
-    if any(x in s for x in ["BNB", "SOL", "AVAX", ]):
+    if any(x in s for x in ["BNB", "SOL", ]):
         return {"book_rate_min_hz": 15.0, "book_rate_warn_hz": 10.0}
 
     # 3. Mid-cap / Others
-    if any(x in s for x in ["XRP", "DOGE", "SUI", "APT", "ARB", "WIF", "INJ",     ]):
+    if any(x in s for x in ["XRP", "DOGE", "SUI", "APT", "WIF",     ]):
         return {"book_rate_min_hz": 10.0, "book_rate_warn_hz": 5.0}
 
     # 4. Metals (TradFi perps) - bootstrap settings
     if s.startswith("XAU"):
         return {"book_rate_min_hz": 15.0, "book_rate_warn_hz": 10.0}
-    if s.startswith("XAG"):
         return {"book_rate_min_hz": 10.0, "book_rate_warn_hz": 5.0}
     if s.startswith("NATGAS"):
         return {"book_rate_min_hz": 10.0, "book_rate_warn_hz": 5.0}
@@ -339,7 +323,7 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
         "cancel_spike_window": 120,
         "cancel_spike_min_samples": 30,
         "cancel_spike_z_th": 3.5,
-        "cancel_spike_min_taker_rate": 0.0
+        "cancel_spike_min_taker_rate": 0.0,
     }
 
     # BTCUSDT
@@ -390,32 +374,6 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
             "cancel_spike_min_baseline": 200.0,
             "cancel_spike_abs_th": 400.0
         })
-    # AVAXUSDT
-    elif "AVAX" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 15.0,
-            "cancel_spike_min_baseline": 5.0,
-            "cancel_spike_abs_th": 10.0
-        })
-
-    # INJUSDT
-    elif "INJ" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 3.0,
-            "cancel_spike_min_baseline": 1.0,
-            "cancel_spike_abs_th": 2.0
-        })
-
-    # ARBUSDT
-    elif "ARB" in s:
-        base.update({
-            "cancel_spike_mode": "veto",
-            "cancel_spike_min_taker_rate": 80.0,
-            "cancel_spike_min_baseline": 30.0,
-            "cancel_spike_abs_th": 60.0
-        })
     # APTUSDT
     elif "APT" in s:
         base.update({
@@ -453,17 +411,6 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
         })
     # XAUUSDT (Metals perp) - start with monitor mode, bootstrap settings
     elif s.startswith("XAU"):
-        base.update({
-            "cancel_spike_mode": "monitor",
-            "cancel_spike_min_taker_rate": 0.0,
-            "cancel_spike_ratio_th": 3.0,
-            "cancel_spike_z_th": 3.5,
-            "cancel_spike_min_samples": 30,
-            "cancel_spike_abs_th": 0.0,
-            "cancel_spike_min_baseline": 0.0
-        })
-    # XAGUSDT (Silver perp) - similar to XAU
-    elif s.startswith("XAG"):
         base.update({
             "cancel_spike_mode": "monitor",
             "cancel_spike_min_taker_rate": 0.0,
@@ -579,7 +526,7 @@ class OrderFlowConfig:
     Содержит пороги и параметры для анализа ордер-флоу (Delta, Z-score,
     OBI, Iceberg detection и т.д.)
     """
-    symbol: str = ""
+    symbol=""
 
     # === Метаданные сигнала ===
     family: str = "crypto_orderflow"      # Семейство сигналов
@@ -1819,179 +1766,15 @@ APTUSDT_SPECS = SymbolSpecs(
     volume_decimals=1,
 )
 
-ARBUSDT_CONFIG = OrderFlowConfig(
-    symbol="ARBUSDT",
-    delta_window_ticks=140,
-    delta_z_threshold=2.8,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.16,
-    obi_threshold=0.34,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.42,
-    min_signal_interval_sec=20,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.90,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "ARB", "quote_currency": "USDT"},
-)
 
-ARBUSDT_SPECS = SymbolSpecs(
-    symbol="ARBUSDT",
-    contract_size=1.0,
-    min_lot=0.1,
-    price_decimals=4,
-    volume_decimals=1,
-)
 
-AVAXUSDT_CONFIG = OrderFlowConfig(
-    symbol="AVAXUSDT",
-    delta_window_ticks=130,
-    delta_z_threshold=2.9,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.33,
-    obi_min_duration=1.5,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.5,
-    dist_atr_threshold=0.44,
-    min_signal_interval_sec=18,
-    read_count=120,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "AVAX", "quote_currency": "USDT"},
-)
 
-AVAXUSDT_SPECS = SymbolSpecs(
-    symbol="AVAXUSDT",
-    contract_size=1.0,
-    min_lot=1.0,
-    price_decimals=3,
-    volume_decimals=0,
-)
 
-INJUSDT_CONFIG = OrderFlowConfig(
-    symbol="INJUSDT",
-    delta_window_ticks=160,
-    delta_z_threshold=3.0,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.18,
-    obi_threshold=0.36,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.48,
-    min_signal_interval_sec=22,
-    read_count=130,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=1.00,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "INJ", "quote_currency": "USDT"},
-)
 
-INJUSDT_SPECS = SymbolSpecs(
-    symbol="INJUSDT",
-    contract_size=1.0,
-    min_lot=0.1,
-    price_decimals=3,
-    volume_decimals=1,
-)
 
-NEARUSDT_CONFIG = OrderFlowConfig(
-    symbol="NEARUSDT",
-    delta_window_ticks=145,
-    delta_z_threshold=2.95,
-    delta_abs_min=0.5,
-    delta_abs_min_confirm=0.5,
-    weak_progress_atr=0.17,
-    obi_threshold=0.35,
-    obi_min_duration=1.6,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.45,
-    min_signal_interval_sec=22,
-    read_count=125,
-    read_block_ms=1000,
-    stop_mode="ATR",
-    stop_atr_mult=0.95,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    tp_atr_mults="0.9,1.5,2.1",
-    metadata={"asset_class": "crypto", "base_currency": "NEAR", "quote_currency": "USDT"},
-)
 
-NEARUSDT_SPECS = SymbolSpecs(
-    symbol="NEARUSDT",
-    contract_size=1.0,
-    min_lot=1.0,
-    price_decimals=3,
-    volume_decimals=0,
-)
 
-# TradFi Perp (Binance): Silver (XAGUSDT)
-XAGUSDT_CONFIG = OrderFlowConfig(
-    symbol="XAGUSDT",
-    delta_window_ticks=120,
-    delta_z_threshold=3.1,
-    delta_abs_min_usd=1_000.0,
-    weak_progress_atr=0.12,
-    weak_progress_range_atr=0.40,
-    weak_progress_body_atr=0.28,
-    obi_threshold=0.32,
-    obi_min_duration=1.8,
-    iceberg_refresh_count=3,
-    iceberg_min_duration=1.0,
-    iceberg_refresh_min_abs=0.5,
-    dist_atr_threshold=0.50,
-    dist_bp_threshold=15.0,
-    min_signal_interval_sec=30,
-    stop_mode="ATR",
-    stop_atr_mult=0.85,
-    tp_mode="RR",
-    tp_rr="1.5,2.5,3.5",
-    cancel_spike_enable=True,
-    cancel_spike_mode="monitor",
-    metadata={
-        "asset_class": "tradfi_perp",
-        "base_currency": "XAG",
-        "quote_currency": "USDT",
-        "underlying_unit": "troy_ounce",
-        "venue_hint": "binance_usds_m",
-    }
-)
 
-XAGUSDT_SPECS = SymbolSpecs(
-    symbol="XAGUSDT",
-    contract_size=1.0,
-    pip_value=0.001,
-    lot_step=0.01,
-    min_lot=0.001,
-    max_lot=1_000_000.0,
-    tick_value=0.001,
-    point_value=0.001,
-    price_decimals=2,
-    volume_decimals=3,
-    delta_z=3.1,
-)
 
 # TradFi Perp (Binance): Natural Gas (NATGASUSDT)
 NATGASUSDT_CONFIG = OrderFlowConfig(
@@ -2041,38 +1824,7 @@ NATGASUSDT_SPECS = SymbolSpecs(
     delta_z=3.3,
 )
 
-# Forex: Silver (XAGUSD)
-XAGUSD_CONFIG = OrderFlowConfig(
-    symbol="XAGUSD",
-    delta_window_ticks=120,
-    delta_z_threshold=3.0,
-    weak_progress_atr=0.10,
-    obi_threshold=0.5,
-    obi_min_duration=2.0,
-    iceberg_refresh_count=2,
-    iceberg_min_duration=1.5,
-    iceberg_refresh_min_abs=1.0,
-    dist_atr_threshold=0.5,
-    min_signal_interval_sec=60,
-    metadata={
-        "asset_class": "forex",
-        "base_currency": "XAG",
-        "quote_currency": "USD",
-    }
-)
 
-XAGUSD_SPECS = SymbolSpecs(
-    symbol="XAGUSD",
-    contract_size=5000.0,           # 5000 унций серебра
-    pip_value=0.001,                # Меньший pip для серебра
-    lot_step=0.01,
-    min_lot=0.01,
-    max_lot=100.0,
-    tick_value=0.001,
-    point_value=0.001,
-    price_decimals=3,               # Серебро: $25.123
-    volume_decimals=2
-)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -2320,7 +2072,6 @@ TRBUSDT_SPECS = SymbolSpecs(
 INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
     "XAUUSD": XAUUSD_CONFIG,
     "XAUUSDT": XAUUSDT_CONFIG,
-    "XAGUSD": XAGUSD_CONFIG,
     "BTCUSD": BTCUSD_CONFIG,
     "BTCUSDT": BTCUSDT_CONFIG,  # Отдельный config для USDT
     "ETHUSD": ETHUSD_CONFIG,
@@ -2340,9 +2091,6 @@ INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
     "WIFUSDT": WIFUSDT_CONFIG,
     "SUIUSDT": SUIUSDT_CONFIG,
     "APTUSDT": APTUSDT_CONFIG,
-    "ARBUSDT": ARBUSDT_CONFIG,
-    "AVAXUSDT": AVAXUSDT_CONFIG,
-    "INJUSDT": INJUSDT_CONFIG,
     "TRBUSDT": TRBUSDT_CONFIG,
     "AAVEUSDT": AAVEUSDT_CONFIG,
     "RENDERUSDT": RENDERUSDT_CONFIG,
@@ -2350,15 +2098,12 @@ INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
     "HBARUSDT": HBARUSDT_CONFIG,
     "OPUSDT": OPUSDT_CONFIG,
     "ONDOUSDT": ONDOUSDT_CONFIG,
-    "XAGUSDT": XAGUSDT_CONFIG,
     "NATGASUSDT": NATGASUSDT_CONFIG,
-    "NEARUSDT": NEARUSDT_CONFIG,
 }
 
 INSTRUMENT_SPECS: Dict[str, SymbolSpecs] = {
     "XAUUSD": XAUUSD_SPECS,
     "XAUUSDT": XAUUSDT_SPECS,
-    "XAGUSD": XAGUSD_SPECS,
     "BTCUSD": BTCUSD_SPECS,
     "BTCUSDT": BTCUSDT_SPECS,  # Отдельный specs для USDT
     "ETHUSD": ETHUSD_SPECS,
@@ -2378,9 +2123,6 @@ INSTRUMENT_SPECS: Dict[str, SymbolSpecs] = {
     "WIFUSDT": WIFUSDT_SPECS,
     "SUIUSDT": SUIUSDT_SPECS,
     "APTUSDT": APTUSDT_SPECS,
-    "ARBUSDT": ARBUSDT_SPECS,
-    "AVAXUSDT": AVAXUSDT_SPECS,
-    "INJUSDT": INJUSDT_SPECS,
     "TRBUSDT": TRBUSDT_SPECS,
     "AAVEUSDT": AAVEUSDT_SPECS,
     "RENDERUSDT": RENDERUSDT_SPECS,
@@ -2388,9 +2130,7 @@ INSTRUMENT_SPECS: Dict[str, SymbolSpecs] = {
     "HBARUSDT": HBARUSDT_SPECS,
     "OPUSDT": OPUSDT_SPECS,
     "ONDOUSDT": ONDOUSDT_SPECS,
-    "XAGUSDT": XAGUSDT_SPECS,
     "NATGASUSDT": NATGASUSDT_SPECS,
-    "NEARUSDT": NEARUSDT_SPECS,
 }
 
 
@@ -2478,7 +2218,7 @@ def _sync_exchange_info_once() -> None:
                                 spec,
                                 price_decimals=p_dec,
                                 volume_decimals=v_dec,
-                                min_lot=min_lot
+                                min_lot=min_lot,
                             )
                             updated_count += 1
                         else:

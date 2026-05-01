@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OF Timers Worker: Consolidated Nightly Tasks and Monitors.
 
 Runs periodic tasks:
@@ -31,7 +32,6 @@ Usage:
   python -m services.of_timers_worker
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -47,7 +47,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-)
+),
 logger = logging.getLogger(__name__)
 
 import hashlib
@@ -175,7 +175,7 @@ def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: s
         os.getenv("TELEGRAM_NOTIFY_STREAM")
         or os.getenv("NOTIFY_TELEGRAM_STREAM")
         or (RS.NOTIFY_TELEGRAM_PAGE if severity == "page" else RS.NOTIFY_TELEGRAM_CRIT if severity == "crit" else RS.NOTIFY_TELEGRAM)
-    )
+    ),
 
     r = _get_redis_sync()
     if r is None:
@@ -187,7 +187,7 @@ def _notify_stream(text: str, severity: str = "crit", sid: str = None, source: s
         "source": source,
         "ts_ms": str(get_ny_time_millis()),
         "severity": severity,
-    }
+    },
     if sid:
         payload["sid"] = sid
     try:
@@ -280,7 +280,7 @@ def run_of_gate_contract_smoke_check() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        )
+        ),
     except subprocess.TimeoutExpired:
         target = script or module
         text = f"OF_GATE_SMOKE timeout after {timeout_s}s ({target})"
@@ -363,12 +363,12 @@ def run_prom_rules_bundle_smoke_check() -> bool:
     module = os.getenv(
         "PROM_RULES_BUNDLE_SMOKE_MODULE",
         "orderflow_services.prom_rules_bundle_health_check_v1",
-    )
+    ),
     rc, stdout, stderr = run_tool_rc(
         module,
         args=["--promtool", promtool_mode],
         timeout=timeout_s,
-    )
+    ),
     block_reason = (os.getenv("PROM_RULES_BUNDLE_SMOKE_BLOCK_REASON", "prom_rules_bundle_smoke") or "prom_rules_bundle_smoke").strip()
     block_ttl_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_BLOCK_TTL_S", str(6 * 3600)))
 
@@ -401,12 +401,12 @@ def run_prom_rules_bundle_smoke_check() -> bool:
             "head": head,
         },
         ttl_s=block_ttl_s,
-    )
+    ),
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
         logger.warning(
             f"Prom rules bundle smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
-        )
+        ),
         return False
 
     sid = "prom_rules_bundle_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
@@ -440,13 +440,13 @@ def run_prom_rules_loaded_probe() -> bool:
     module = os.getenv(
         "PROM_RULES_LOADED_PROBE_MODULE",
         "orderflow_services.prom_rules_loaded_probe_v1",
-    )
+    ),
 
     rc, stdout, stderr = run_tool_rc(
         module,
         args=["--timeout", str(timeout_s)],
         timeout=timeout_s + 15,
-    )
+    ),
 
     block_reason = (os.getenv("PROM_RULES_LOADED_PROBE_BLOCK_REASON", "prom_rules_loaded_probe") or "prom_rules_loaded_probe").strip()
     block_ttl_s = int(os.getenv("PROM_RULES_LOADED_PROBE_BLOCK_TTL_S", str(6 * 3600)))
@@ -477,12 +477,12 @@ def run_prom_rules_loaded_probe() -> bool:
             "head": head,
         },
         ttl_s=block_ttl_s,
-    )
+    ),
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
         logger.warning(
             f"Prom rules loaded probe: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
-        )
+        ),
         return False
 
     sid = "prom_rules_loaded_probe:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
@@ -530,7 +530,7 @@ def run_world_practice_smoke_check() -> bool:
     module = os.getenv(
         "WORLD_PRACTICE_SMOKE_MODULE",
         "orderflow_services.world_practice_gauges_smoke_check_v1",
-    )
+    ),
     timeout_s = int(os.getenv("WORLD_PRACTICE_SMOKE_TIMEOUT_S", "120"))
 
     rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)
@@ -562,7 +562,7 @@ def run_world_practice_smoke_check() -> bool:
         f"rc={rc}|no_data={no_data}|n={n_recent}|"
         f"badv={_bucketize(bucket_invalid_share)}|vna={_bucketize(vol_label_na_share)}|"
         f"sv={stuck_vol}|sf={stuck_fill}|issues={issues}"
-    )
+    ),
 
     cooldown_s = int(os.getenv("WORLD_PRACTICE_SMOKE_COOLDOWN_S", str(6 * 3600)))
     prefix = os.getenv("WORLD_PRACTICE_SMOKE_DEDUP_PREFIX", "dedup:alert:world_practice_smoke:")
@@ -578,7 +578,7 @@ def run_world_practice_smoke_check() -> bool:
         f"WORLD_PRACTICE_SMOKE rc={rc} no_data={no_data} n_recent={n_recent} "
         f"bucket_invalid_share={bucket_invalid_share} vol_label_na_share={vol_label_na_share} "
         f"stuck_vol={stuck_vol} stuck_fill={stuck_fill} issues={issues} :: {head}"
-    )
+    ),
 
     sid = "world_practice_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
     sev = "crit" if rc == 2 else "page"
@@ -627,7 +627,7 @@ def run_lob_pressure_smoke_check() -> bool:
     module = os.getenv(
         "LOB_PRESSURE_SMOKE_MODULE",
         "orderflow_services.lob_pressure_smoke_check_v1",
-    )
+    ),
     timeout_s = int(os.getenv("LOB_PRESSURE_SMOKE_TIMEOUT_S", "120"))
 
     rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)
@@ -656,7 +656,7 @@ def run_lob_pressure_smoke_check() -> bool:
     signature = (
         f"rc={rc}|no_data={no_data}|n={n_recent}|"
         f"missmax={_bucketize(missing_max_share)}|sl={stuck_lob}|issues={issues}"
-    )
+    ),
 
     cooldown_s = int(os.getenv("LOB_PRESSURE_SMOKE_COOLDOWN_S", str(6 * 3600)))
     prefix = os.getenv("LOB_PRESSURE_SMOKE_DEDUP_PREFIX", "dedup:alert:lob_pressure_smoke:")
@@ -671,7 +671,7 @@ def run_lob_pressure_smoke_check() -> bool:
     text = (
         f"LOB_PRESSURE_SMOKE rc={rc} no_data={no_data} n_recent={n_recent} "
         f"missing_max_share={missing_max_share} stuck_lob={stuck_lob} issues={issues} :: {head}"
-    )
+    ),
 
     sid = "lob_pressure_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
     sev = "crit" if rc == 2 else "page"
@@ -720,7 +720,7 @@ def run_new_features_smoke_check_a8() -> bool:
     module = os.getenv(
         "A8_NEW_FEATURES_SMOKE_MODULE",
         "orderflow_services.new_features_gauges_smoke_check_v1",
-    )
+    ),
     timeout_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_TIMEOUT_S", "120"))
 
     rc, stdout, stderr = run_tool_rc(module=module, args=[], timeout=timeout_s)
@@ -750,7 +750,7 @@ def run_new_features_smoke_check_a8() -> bool:
     signature = (
         f"rc={rc}|no_data={no_data}|n={n_recent}|nan={_bucketize(nan_rate)}|"
         f"stuck_rv={stuck_rv}|rv_ready={rv_ready}|issues={issues}"
-    )
+    ),
 
     cooldown_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_COOLDOWN_S", str(6 * 3600)))
     dedup_enable = str(os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
@@ -759,7 +759,7 @@ def run_new_features_smoke_check_a8() -> bool:
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
         logger.warning(
             f"A8 new-features smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
-        )
+        ),
         return False
 
     head = (parsed.get("raw") or "").strip().replace("\n", " | ")
@@ -768,7 +768,7 @@ def run_new_features_smoke_check_a8() -> bool:
     text = (
         f"A8_NEW_FEATURES_SMOKE rc={rc} no_data={no_data} n_recent={n_recent} "
         f"nan_rate={nan_rate} stuck_rv={stuck_rv} rv_ready={rv_ready} issues={issues} :: {head}"
-    )
+    ),
 
     sid = "a8_new_features_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
     sev = "crit" if rc == 2 else "page"
@@ -813,7 +813,7 @@ def run_atr_policy_bootstrap_audit() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.error(f"atr_policy_bootstrap_service audit timeout after {timeout_s}s")
         return False
@@ -832,7 +832,7 @@ def run_atr_policy_state_drift_check() -> bool:
             text=True,
             timeout=300,
             env=os.environ.copy(),
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_state_consistency_checker timeout after 300s")
         return False
@@ -854,7 +854,7 @@ def run_atr_policy_full_recovery_audit() -> bool:
             text=True,
             timeout=300,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_full_recovery_service audit timeout after 300s")
         return False
@@ -875,7 +875,7 @@ def run_atr_policy_restore_cert_audit() -> bool:
             text=True,
             timeout=300,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_recovery_drill_runner audit timeout after 300s")
         return False
@@ -903,7 +903,7 @@ def run_atr_policy_restore_cert_execute() -> bool:
             text=True,
             timeout=300,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_recovery_drill_runner execute timeout after 300s")
         return False
@@ -917,7 +917,7 @@ def run_atr_policy_restore_cert_execute() -> bool:
     module = os.getenv(
         "OF_GATE_EXPORTERS_SMOKE_MODULE",
         "orderflow_services.of_gate_exporters_smoke_p111",
-    )
+    ),
 
     rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)
     if rc == 0:
@@ -959,12 +959,12 @@ def run_atr_policy_restore_cert_execute() -> bool:
                 "module": str(module),
             },
             ttl_s=block_ttl_s,
-        )
+        ),
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
         logger.warning(
             f"OF-Gate exporters smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
-        )
+        ),
         return False
 
     head = ""
@@ -1012,7 +1012,7 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
     module = os.getenv(
         "OF_INPUTS_EXPORTERS_SMOKE_MODULE",
         "orderflow_services.of_inputs_exporters_smoke_p107",
-    )
+    ),
 
     rc, stdout, stderr = run_tool_rc(module, timeout=timeout_s)
     if rc == 0:
@@ -1050,12 +1050,12 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
                 "module": str(module),
             },
             ttl_s=block_ttl_s,
-        )
+        ),
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
         logger.warning(
             f"OFInputs exporters smoke-check: suppressed duplicate alert (cooldown {cooldown_s}s). sig={signature}"
-        )
+        ),
         return False
 
     head = ""
@@ -1069,7 +1069,7 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
     text = (
         f"OF_INPUTS_EXPORTERS_SMOKE_P107 rc={rc} "
         f"failed={failed_names} :: {head}"
-    )
+    ),
     sid = "of_inputs_exporters_smoke:" + hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
     sev = "crit" if rc == 2 else "page"
     _notify_stream(text, severity=sev, sid=sid, source="of_inputs_exporters_smoke_p107")
@@ -1114,7 +1114,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
         module = os.getenv(
             "FEATURE_REGISTRY_CONTRACT_SMOKE_MODULE",
             "orderflow_services.feature_registry_contract_check_v1",
-        )
+        ),
         cmd = [py, "-m", module]
 
     timeout_s = float(os.getenv("FEATURE_REGISTRY_CONTRACT_SMOKE_TIMEOUT_S", "120"))
@@ -1128,7 +1128,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        )
+        ),
         d = _parse_smoke_output(p.stdout, p.stderr) or {}
         rc = int(p.returncode)
 
@@ -1147,7 +1147,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
             sig = (
                 f"reason={reason}|exp_schema={exp_schema[:16]}|exp_cols={exp_cols[:16]}|"
                 f"cur_schema={cur_schema[:16]}|cur_cols={cur_cols[:16]}"
-            )
+            ),
             if _dedup_allow(sig, cooldown_s=cooldown_s, prefix="dedup:feature_registry_contract:"):
                 pin_key = str(d.get("pin_key") or os.getenv("FEATURE_REGISTRY_PIN_KEY", "cfg:feature_registry:edge_stack"))
                 msg = (
@@ -1159,7 +1159,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
                     f"current  schema_hash={cur_schema[:16]}…\n"
                     f"current  feature_cols_hash={cur_cols[:16]}…\n"
                     "Action: rollback accidental change OR bump schema ver + seed pins."
-                )
+                ),
                 _notify_stream(msg, severity="crit", source="feature_registry_contract_smoke")
             return False
 
@@ -1169,7 +1169,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
             f"rc={rc}\n"
             f"cmd={' '.join(cmd)}\n"
             f"raw={raw}"
-        )
+        ),
         _notify_stream(msg, severity="warning", source="feature_registry_contract_smoke")
         return False
 
@@ -1229,7 +1229,7 @@ def run_of_inputs_dlq_auto_replay() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         text = f"OF_INPUTS_DLQ_REPLAY timeout after {timeout_s}s"
         _notify_stream(text, severity="crit", sid="of_inputs_dlq_replay:timeout", source="of_inputs_dlq_replay")
@@ -1316,7 +1316,7 @@ def run_of_inputs_dlq_db_archive_p98() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        )
+        ),
     except subprocess.TimeoutExpired:
         text = f"OF_INPUTS_DLQ_DB_ARCHIVE timeout after {timeout_s}s (P98)"
         _notify_stream(text, severity="crit", sid="of_inputs_dlq_db_archive:timeout", source="of_inputs_dlq_db_archive_p98")
@@ -1368,7 +1368,7 @@ def run_of_inputs_dlq_db_drilldown_p99() -> bool:
         or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL"))
         or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("PG_DSN"))
         or ""
-    )
+    ),
     if not dsn:
         logger.warning("of_inputs_dlq_db_drilldown_p99: no DB DSN configured, skipping")
         return True
@@ -1381,7 +1381,7 @@ def run_of_inputs_dlq_db_drilldown_p99() -> bool:
     module = os.getenv(
         "OF_INPUTS_DLQ_DB_DRILLDOWN_MODULE",
         "orderflow_services.of_inputs_dlq_db_drilldown_p99",
-    )
+    ),
     args = ["--lookback-h", str(lookback_h), "--top", str(top_n)]
     if notify:
         args.append("--notify")
@@ -1395,7 +1395,7 @@ def run_of_inputs_dlq_db_drilldown_p99() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        )
+        ),
         if result.returncode == 0:
             if result.stdout:
                 logger.info(f"of_inputs_dlq_db_drilldown_p99:\n{result.stdout.strip()[:2000]}")
@@ -1403,7 +1403,7 @@ def run_of_inputs_dlq_db_drilldown_p99() -> bool:
         else:
             logger.warning(
                 f"of_inputs_dlq_db_drilldown_p99 rc={result.returncode} stderr={result.stderr[:300]}"
-            )
+            ),
             return False
     except subprocess.TimeoutExpired:
         logger.error(f"of_inputs_dlq_db_drilldown_p99 timeout after {timeout_s}s")
@@ -1427,7 +1427,7 @@ def run_orchestration_composite_preflight_history_rollup() -> bool:
     module = os.getenv(
         "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP_MODULE",
         "orderflow_services.orchestration_composite_preflight_history_rollup_v1",
-    )
+    ),
     timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_ROLLUP_TIMEOUT_S", "45"))
     env = os.environ.copy()
     try:
@@ -1438,7 +1438,7 @@ def run_orchestration_composite_preflight_history_rollup() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.warning(f"orchestration_preflight_history_rollup: timeout after {timeout_s}s")
         return False
@@ -1456,7 +1456,7 @@ def run_orchestration_composite_preflight_history_rollup() -> bool:
         result.returncode,
         (result.stdout or "").strip()[:300],
         (result.stderr or "").strip()[:300],
-    )
+    ),
     return False
 
 
@@ -1469,13 +1469,13 @@ def run_orchestration_composite_preflight_history_textfile_exporter() -> bool:
     module = os.getenv(
         "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER_MODULE",
         "orderflow_services.orchestration_composite_preflight_history_textfile_exporter_v1",
-    )
+    ),
     timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TEXTFILE_EXPORTER_TIMEOUT_S", "45"))
     env = os.environ.copy()
     env.setdefault(
         "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH",
         "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_rollup.prom",
-    )
+    ),
     try:
         result = subprocess.run(
             [sys.executable, "-m", module],
@@ -1484,7 +1484,7 @@ def run_orchestration_composite_preflight_history_textfile_exporter() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.warning(f"orchestration_preflight_history_textfile_exporter: timeout after {timeout_s}s")
         return False
@@ -1501,7 +1501,7 @@ def run_orchestration_composite_preflight_history_textfile_exporter() -> bool:
         result.returncode,
         (result.stdout or "").strip()[:300],
         (result.stderr or "").strip()[:300],
-    )
+    ),
     return False
 
 
@@ -1523,14 +1523,14 @@ def run_orchestration_composite_preflight_history_consistency_check() -> bool:
     module = os.getenv(
         "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CONSISTENCY_MODULE",
         "orderflow_services.orchestration_composite_preflight_history_consistency_v1",
-    )
+    ),
     timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CONSISTENCY_TIMEOUT_S", "120"))
     env = os.environ.copy()
     env.setdefault("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CONSISTENCY_MODE", "check")
     env.setdefault(
         "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CONSISTENCY_EXPORT_PATH",
         "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_consistency.prom",
-    )
+    ),
     try:
         result = subprocess.run(
             [sys.executable, "-m", module],
@@ -1539,7 +1539,7 @@ def run_orchestration_composite_preflight_history_consistency_check() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.warning(f"orchestration_preflight_history_consistency: timeout after {timeout_s}s")
         return False
@@ -1557,7 +1557,7 @@ def run_orchestration_composite_preflight_history_consistency_check() -> bool:
         result.returncode,
         (result.stdout or "").strip()[:400],
         (result.stderr or "").strip()[:400],
-    )
+    ),
     return False
 
 
@@ -1585,7 +1585,7 @@ def run_feature_denylist_proposal_exporter() -> bool:
     module = os.getenv(
         "FEATURE_DENYLIST_EXPORTER_MODULE",
         "ml_analysis.tools.feature_denylist_proposal_exporter_v1",
-    )
+    ),
     timeout_s = int(os.getenv("FEATURE_DENYLIST_EXPORTER_TIMEOUT_S", "30"))
 
     # Pass required env vars to subprocess (inherited from os.environ, but add defaults)
@@ -1606,7 +1606,7 @@ def run_feature_denylist_proposal_exporter() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        )
+        ),
     except subprocess.TimeoutExpired:
         logger.warning(f"feature_denylist_exporter: timeout after {timeout_s}s (module={module})")
         return False
@@ -1626,12 +1626,12 @@ def run_feature_denylist_proposal_exporter() -> bool:
         # Module not yet deployed — safe no-op, warn but do not alert
         logger.warning(
             f"feature_denylist_exporter: module not found ({module}), skipping (phased rollout). stderr={stderr[:300]}"
-        )
+        ),
         return True
 
     logger.warning(
         f"feature_denylist_exporter: rc={rc} stderr={stderr[:300]} stdout={stdout[:300]}"
-    )
+    ),
     return False
 
 
@@ -1667,8 +1667,8 @@ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, en
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=env
-        )
+            env=env,
+        ),
         if result.returncode == 0:
             logger.info(f"{module} completed successfully")
             if result.stdout:
@@ -1724,7 +1724,7 @@ def run_tool_rc(
             text=True,
             timeout=timeout,
             env=env,
-        )
+        ),
         if result.stdout:
             logger.debug(f"Output: {result.stdout.strip()}")
         if result.stderr:
@@ -1778,7 +1778,7 @@ def _format_of_gate_contract_smoke_msg(stdout: str, stderr: str, rc: int) -> str
         return (
             f"OF_GATE_CONTRACT_SMOKE_ALERT rc={rc} bad_share={bad_share} n={n} bad={bad} "
             f"stream={stream} top=[{top_s}]"
-        )
+        ),
 
     # Fallback: include stderr tail.
     err = (stderr or "").strip().splitlines()[-1:]  # last line only
@@ -1833,7 +1833,7 @@ def run_code_audit() -> bool:
         "tools.audit_code_integrity",
         ["--root", ".", "--out", "/var/lib/trade/of_reports/out/code_audit.json", "--fail-on-dup", "1"],
         timeout=600
-    )
+    ),
 
 def run_archive_signals_of_inputs() -> bool:
     """Archive signals:of:inputs → NDJSON."""
@@ -2048,7 +2048,7 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
     if not _in_safe_window_utc(now, sh, sm, eh, em):
         logger.info(
             f"OF-gate rollups refresh: outside safe window UTC {sh:02d}:{sm:02d}-{eh:02d}:{em:02d}, skipping"
-        )
+        ),
         return True
 
     days = str(os.getenv('OF_GATE_ROLLUPS_REFRESH_DAYS', '30')).strip() or '30'
@@ -2067,7 +2067,7 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
             'orderflow_services.of_gate_history_migration_v1',
             ['refresh', '--days', days],
             timeout=timeout_s,
-        )
+        ),
     finally:
         _release_rollups_lock()
 
@@ -2188,7 +2188,7 @@ def run_strategy_research_guard_bundle() -> bool:
     return run_tool(
         "ml_analysis.tools.nightly_strategy_research_guard_bundle_v1",
         timeout=int(os.getenv("STRATEGY_RESEARCH_GUARD_TIMEOUT_S", "1800")),
-    )
+    ),
 
 
 def run_strategy_research_stats_bundle() -> bool:
@@ -2216,7 +2216,7 @@ def run_strategy_research_stats_bundle() -> bool:
         "ml_analysis.tools.nightly_strategy_research_stats_bundle_v1",
         args,
         timeout=timeout_s,
-    )
+    ),
 
 
 def run_orchestration_composite_preflight_history_exporter() -> bool:
@@ -2238,14 +2238,14 @@ def run_orchestration_composite_preflight_history_exporter() -> bool:
     module = os.getenv(
         "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORTER_MODULE",
         "orderflow_services.orchestration_composite_preflight_history_exporter_v1",
-    )
+    ),
     timeout_s = int(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_TIMEOUT_S", "90"))
 
     env = os.environ.copy()
     env.setdefault(
         "ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH",
         "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom",
-    )
+    ),
 
     try:
         cmd = [sys.executable, "-m", module]
@@ -2256,14 +2256,14 @@ def run_orchestration_composite_preflight_history_exporter() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        )
+        ),
         if result.returncode != 0:
             logger.error(
                 "orchestration_composite_preflight_history_exporter failed rc=%s stdout=%s stderr=%s",
                 result.returncode,
                 (result.stdout or "")[:2000],
                 (result.stderr or "")[:2000],
-            )
+            ),
             return False
         if result.stdout:
             logger.info("orchestration_composite_preflight_history_exporter: %s", result.stdout.strip())
@@ -2375,14 +2375,14 @@ def run_exec_slippage_eval_rowcount_probe() -> bool:
         rc, out, err = run_tool_rc(
             "orderflow_services.exec_slippage_eval_rowcount_probe_p77_v1",
             timeout=int(os.getenv("EXEC_SLIP_EVAL_ROWCOUNT_PROBE_TIMEOUT_S", "120")),
-        )
+        ),
     except Exception as e:
         _notify_stream(
             f"EXEC_SLIP_EVAL_ROWCOUNT_PROBE exception: {e}",
             severity="crit",
             sid="exec_slip_eval_rowcount_probe:exc",
             source="exec_slip_eval_rowcount_probe",
-        )
+        ),
         return False
 
     if int(rc) == 0:
@@ -2398,7 +2398,7 @@ def run_exec_slippage_eval_rowcount_probe() -> bool:
             severity=sev,
             sid="exec_slip_eval_rowcount_probe",
             source="exec_slip_eval_rowcount_probe",
-        )
+        ),
     return False
 
 
@@ -2466,7 +2466,7 @@ def run_nightly_confidence_calibrator_v2() -> bool:
             module="ml_analysis.tools.nightly_confidence_calibrator_bundle_v2",
             args=os.getenv("NIGHTLY_CONF_CALIBRATOR_V2_ARGS", "").split(),
             timeout=int(os.getenv("NIGHTLY_CONF_CALIBRATOR_V2_TIMEOUT_S", "3600")),
-        )
+        ),
 
         # Optional Phase 2: learn confirmation bonus weights from closed trades.
         if ok and os.getenv("RUN_CONF_BONUS_WEIGHT_FIT", "0").lower() in ("1", "true", "yes", "on"):
@@ -2474,7 +2474,7 @@ def run_nightly_confidence_calibrator_v2() -> bool:
                 module="ml_analysis.tools.fit_confidence_bonus_weights_v1",
                 args=os.getenv("CONF_BONUS_WEIGHT_FIT_ARGS", "").split(),
                 timeout=int(os.getenv("CONF_BONUS_WEIGHT_FIT_TIMEOUT_S", "1800")),
-            )
+            ),
             ok = ok and ok2
 
         return ok
@@ -2545,7 +2545,7 @@ def run_nightly_feature_denylist_proposal_autogen() -> bool:
         "ml_analysis.tools.autogen_feature_denylist_proposal_v1",
         ["--fs-run-dir", fs_dir],
         timeout=180,
-    )
+    ),
 
 def run_close_backfill() -> bool:
     """Run Close Backfill Replay (P55)."""
@@ -2668,7 +2668,7 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
         "orderflow_services.of_gate_history_migration_v1",
         ["refresh", "--days", str(days)],
         timeout=timeout_s,
-    )
+    ),
 
 
 def run_confidence_calibrator() -> bool:
@@ -2819,7 +2819,7 @@ def run_of_gate_dlq_db_archive_nightly() -> bool:
     streams = os.getenv(
         "OF_GATE_DLQ_DB_ARCHIVE_STREAMS",
         os.getenv("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine"),
-    )
+    ),
     batch = os.getenv("OF_GATE_DLQ_DB_ARCHIVE_BATCH", "5000")
     args = ["--streams", streams, "--batch", batch, "--once"]
 
@@ -2971,7 +2971,7 @@ def run_ml_train_edge_stack_v1_oof() -> bool:
     schema_ver = os.getenv(
         "ML_EDGE_STACK_OOF_FEATURE_SCHEMA_VER",
         os.getenv("FEATURE_SCHEMA_VER", os.getenv("ML_FEATURE_SCHEMA_VER", "")),
-    )
+    ),
     schema_ver = (schema_ver or "").strip()
 
     feature_cols = os.getenv("ML_EDGE_STACK_OOF_FEATURE_COLS_JSON", "/var/lib/trade/ml_models/edge_stack_v1_oof/feature_cols.json")
@@ -2989,7 +2989,7 @@ def run_ml_train_edge_stack_v1_oof() -> bool:
         os.getenv("ML_EDGE_STACK_OOF_MODELS_ROOT", "/var/lib/trade/ml_models"),
         "edge_stack_v1_oof",
         f"edge_stack_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib",
-    )
+    ),
     args = [
         "--data_jsonl", dataset,
         "--out_model", out_model,

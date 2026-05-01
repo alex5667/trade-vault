@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """conf_score_guardrails_apply_v1.py
 
 World practice: close-the-loop guardrails for confidence scoring.
@@ -31,7 +32,6 @@ Example:
     --apply 1 --redis-url redis://localhost:6379/0
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -68,7 +68,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    }
+    },
 
 async def read_vertex_health(r: Any) -> bool:
     try:
@@ -117,7 +117,7 @@ def build_vertex_payload(bundle_json: str) -> Dict[str, str]:
         "task_type": "route_incident_rca_mirror_rca_winner_apply_rca",
         "bundle_json": bundle_json,
         "ts_ms": str(now_ms())
-    }
+    },
 
 def build_local_fallback_payload(bundle_json: str) -> Dict[str, str]:
     return {
@@ -126,7 +126,7 @@ def build_local_fallback_payload(bundle_json: str) -> Dict[str, str]:
         "source": APP_NAME,
         "input_json": bundle_json,
         "ts_ms": str(now_ms())
-    }
+    },
 
 async def persist_decision(db_url: str, bundle_id: str, decision: str, bundle_json: str, severity: str) -> None:
     if not db_url or psycopg is None:
@@ -134,7 +134,7 @@ async def persist_decision(db_url: str, bundle_id: str, decision: str, bundle_js
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_rca_bridge_decisions (
                     bundle_id, decision, bundle_json, severity, ts_ms
                 ) VALUES (

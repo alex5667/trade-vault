@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 DeltaNotionalCalibrator
 ======================
@@ -24,7 +25,6 @@ Persistence:
   - state хранится в Redis (аналогично EffQuoteCalibrator)
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

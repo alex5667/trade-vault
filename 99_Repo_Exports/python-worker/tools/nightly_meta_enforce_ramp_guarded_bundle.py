@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly meta ENFORCE ramp proposal with stratified worst-case DiD guard.
 
 Checks safety gates (streak + no recent emergency), evaluates stratified DiD
@@ -8,7 +9,6 @@ Usage:
   (reads ENV vars for schedule, thresholds, symbols, DiD params)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

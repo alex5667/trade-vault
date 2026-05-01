@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ML rollout guard: automatic freeze/unfreeze proposals based on metrics.
 
 Reads metrics:ml_confirm stream and proposes enforce_share changes:
@@ -7,7 +8,6 @@ Reads metrics:ml_confirm stream and proposes enforce_share changes:
 Uses two-phase proposal system (preview2 -> confirm -> reject) via recs_callback_worker_v2.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -3,13 +3,13 @@ import os
 import tempfile
 
 from ml_analysis.tools.build_edge_stack_dataset_from_redis import (
-    DropStats
-    QuarantineWriter
-    SignalRow
-    CloseRow
-    diagnose_unmatched_closes
-    _make_sid
-    join_signals_with_closes_v2
+    DropStats,
+    QuarantineWriter,
+    SignalRow,
+    CloseRow,
+    diagnose_unmatched_closes,
+    _make_sid,
+    join_signals_with_closes_v2,
 )
 
 
@@ -72,11 +72,11 @@ def test_join_signals_with_closes_v2_returns_unmatched_strict_sid():
     c_miss = CloseRow(sid=_make_sid("ETHUSDT", 3000), close_ts_ms=4000, symbol="ETHUSDT", pnl=0.2, risk_usd=1.0)
 
     rows, unmatched = join_signals_with_closes_v2(
-        [s]
-        [c_ok, c_miss]
-        y_min_r=0.1
-        dedup_signals="latest"
-        join_strategy="sid"
+        [s],
+        [c_ok, c_miss],
+        y_min_r=0.1,
+        dedup_signals="latest",
+        join_strategy="sid",
     )
     assert len(rows) == 1
     assert len(unmatched) == 1
@@ -89,12 +89,12 @@ def test_join_signals_with_closes_v2_nearest_join_within_tolerance():
     c = CloseRow(sid=_make_sid("ETHUSDT", 1500), close_ts_ms=1500, symbol="ETHUSDT", pnl=0.2, risk_usd=1.0)
 
     rows, unmatched = join_signals_with_closes_v2(
-        [s]
-        [c]
-        y_min_r=0.1
-        dedup_signals="latest"
-        join_strategy="sid_or_nearest"
-        join_tolerance_ms=1000
+        [s],
+        [c],
+        y_min_r=0.1,
+        dedup_signals="latest",
+        join_strategy="sid_or_nearest",
+        join_tolerance_ms=1000,
     )
     assert len(unmatched) == 0
     assert len(rows) == 1
@@ -111,13 +111,13 @@ def test_join_signals_with_closes_v2_nearest_too_far_records_drop_and_unmatched(
     ds = DropStats(max_examples=5)
 
     rows, unmatched = join_signals_with_closes_v2(
-        [s]
-        [c]
-        y_min_r=0.1
-        dedup_signals="latest"
-        join_strategy="sid_or_nearest"
-        join_tolerance_ms=1000
-        drop=ds
+        [s],
+        [c],
+        y_min_r=0.1,
+        dedup_signals="latest",
+        join_strategy="sid_or_nearest",
+        join_tolerance_ms=1000,
+        drop=ds,
     )
     assert len(rows) == 0
     assert len(unmatched) == 1
@@ -129,41 +129,41 @@ def test_join_signals_with_closes_v2_nearest_too_far_records_drop_and_unmatched(
 def test_join_nearest_bucket_tiebreak_prefers_bucket_match_on_equal_delta():
     # Two signals equidistant to the close; bucket-key match should win deterministically.
     s1 = SignalRow(
-        sid=_make_sid("ETHUSDT", 1000)
-        ts_ms=1000
-        symbol="ETHUSDT"
-        direction="BUY"
-        scenario="trend"
-        indicators={"session_bucket": "eu"}
+        sid=_make_sid("ETHUSDT", 1000),
+        ts_ms=1000,
+        symbol="ETHUSDT",
+        direction="BUY",
+        scenario="trend",
+        indicators={"session_bucket": "eu"},
     )
     s2 = SignalRow(
-        sid=_make_sid("ETHUSDT", 1100)
-        ts_ms=1100
-        symbol="ETHUSDT"
-        direction="BUY"
-        scenario="trend"
-        indicators={"session_bucket": "us"}
+        sid=_make_sid("ETHUSDT", 1100),
+        ts_ms=1100,
+        symbol="ETHUSDT",
+        direction="BUY",
+        scenario="trend",
+        indicators={"session_bucket": "us"},
     )
     c = CloseRow(
-        sid=_make_sid("ETHUSDT", 1050)
-        close_ts_ms=1050
-        symbol="ETHUSDT"
-        pnl=0.2
-        risk_usd=1.0
-        buckets={"session_bucket": "us"}
+        sid=_make_sid("ETHUSDT", 1050),
+        close_ts_ms=1050,
+        symbol="ETHUSDT",
+        pnl=0.2,
+        risk_usd=1.0,
+        buckets={"session_bucket": "us"},
     )
 
     jd = {}
     rows, unmatched = join_signals_with_closes_v2(
-        [s1, s2]
-        [c]
-        y_min_r=0.1
-        join_strategy="nearest"
-        join_tolerance_ms=500
-        join_secondary="none"
-        nearest_max_scan=10
-        join_bucket_keys=["session_bucket"]
-        join_debug=jd
+        [s1, s2],
+        [c],
+        y_min_r=0.1,
+        join_strategy="nearest",
+        join_tolerance_ms=500,
+        join_secondary="none",
+        nearest_max_scan=10,
+        join_bucket_keys=["session_bucket"],
+        join_debug=jd,
     )
     assert len(unmatched) == 0
     assert len(rows) == 1
@@ -178,39 +178,39 @@ def test_join_nearest_bucket_tiebreak_prefers_bucket_match_on_equal_delta():
 def test_join_nearest_secondary_dir_scenario_strict_filters_candidates():
     # Two candidates within tolerance, but only one matches direction+scenario.
     s1 = SignalRow(
-        sid=_make_sid("BTCUSDT", 1000)
-        ts_ms=1000
-        symbol="BTCUSDT"
-        direction="BUY"
-        scenario="trend"
-        indicators={"x": 1}
+        sid=_make_sid("BTCUSDT", 1000),
+        ts_ms=1000,
+        symbol="BTCUSDT",
+        direction="BUY",
+        scenario="trend",
+        indicators={"x": 1},
     )
     s2 = SignalRow(
-        sid=_make_sid("BTCUSDT", 1200)
-        ts_ms=1200
-        symbol="BTCUSDT"
-        direction="SELL"
-        scenario="trend"
-        indicators={"x": 2}
+        sid=_make_sid("BTCUSDT", 1200),
+        ts_ms=1200,
+        symbol="BTCUSDT",
+        direction="SELL",
+        scenario="trend",
+        indicators={"x": 2},
     )
     c = CloseRow(
-        sid=_make_sid("BTCUSDT", 1100)
-        close_ts_ms=1100
-        symbol="BTCUSDT"
-        pnl=0.2
-        risk_usd=1.0
-        direction="BUY"
-        scenario="trend"
+        sid=_make_sid("BTCUSDT", 1100),
+        close_ts_ms=1100,
+        symbol="BTCUSDT",
+        pnl=0.2,
+        risk_usd=1.0,
+        direction="BUY",
+        scenario="trend",
     )
 
     rows, unmatched = join_signals_with_closes_v2(
-        [s1, s2]
-        [c]
-        y_min_r=0.1
-        join_strategy="nearest"
-        join_tolerance_ms=500
-        join_secondary="dir_scenario"
-        nearest_max_scan=10
+        [s1, s2],
+        [c],
+        y_min_r=0.1,
+        join_strategy="nearest",
+        join_tolerance_ms=500,
+        join_secondary="dir_scenario",
+        nearest_max_scan=10,
     )
     assert len(unmatched) == 0
     assert len(rows) == 1

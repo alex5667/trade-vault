@@ -1,7 +1,8 @@
+from __future__ import annotations
 """
 Улучшенный фильтр порога уверенности - специфичные для символа гейты уверенности.
 
-Этот модуль реализует более строгие пороги уверенности для высокочастотных пар
+Этот модуль реализует более строгие пороги уверенности для высокочастотных пар,
 таких как BTC/ETH, которые склонны генерировать больше ложных сигналов.
 
 Философия дизайна:
@@ -26,7 +27,6 @@ ENV Конфигурация:
         logger.info(f"Confidence veto: {result.veto_reason}")
 """
 
-from __future__ import annotations
 
 import os
 import math
@@ -81,10 +81,10 @@ class ConfidenceThresholdConfig:
                     pass
         
         return cls(
-            min_conf_default=min_conf_default
-            min_conf_factor_default=min_conf_factor_default
-            min_conf_by_symbol=min_conf_by_symbol
-            min_conf_factor_by_symbol=min_conf_factor_by_symbol
+            min_conf_default=min_conf_default,
+            min_conf_factor_default=min_conf_factor_default,
+            min_conf_by_symbol=min_conf_by_symbol,
+            min_conf_factor_by_symbol=min_conf_factor_by_symbol,
         )
 
 
@@ -125,8 +125,8 @@ class ConfidenceThresholdFilter:
     Использование:
         filter = ConfidenceThresholdFilter.from_env()
         result = filter.evaluate(
-            confidence_pct=72.0
-            conf_factor=0.48
+            confidence_pct=72.0,
+            conf_factor=0.48,
             symbol="BTCUSDT"
         )
         if not result.passed:
@@ -153,10 +153,10 @@ class ConfidenceThresholdFilter:
         )
     
     def evaluate(
-        self
-        confidence_pct: Optional[float]
-        conf_factor: Optional[float]
-        symbol: str
+        self,
+        confidence_pct: Optional[float],
+        conf_factor: Optional[float],
+        symbol: str,
     ) -> ConfidenceThresholdResult:
         """
         Оценивает, соответствует ли сигнал порогам уверенности.
@@ -200,15 +200,15 @@ class ConfidenceThresholdFilter:
             veto_reason = "; ".join(failures)
         
         return ConfidenceThresholdResult(
-            passed=passed
-            confidence_pct=conf_pct
-            conf_factor=conf_fac
-            min_conf_threshold=min_conf_pct
-            min_conf_factor_threshold=min_conf_factor
-            conf_pct_passed=conf_pct_passed
-            conf_factor_passed=conf_factor_passed
-            symbol=symbol
-            veto_reason=veto_reason
+            passed=passed,
+            confidence_pct=conf_pct,
+            conf_factor=conf_fac,
+            min_conf_threshold=min_conf_pct,
+            min_conf_factor_threshold=min_conf_factor,
+            conf_pct_passed=conf_pct_passed,
+            conf_factor_passed=conf_factor_passed,
+            symbol=symbol,
+            veto_reason=veto_reason,
         )
 
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """P76 — OF gate contract smoke-check (v1)
 
 Reads the tail of Redis Stream `metrics:of_gate`, validates each row against
@@ -20,7 +21,6 @@ Intended to be run periodically (timer/cron) and paired with
 and a Grafana dashboard.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

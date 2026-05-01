@@ -31,14 +31,14 @@ class TestLiquidityGeomPolicyV1(unittest.TestCase):
     def _base_kwargs(self) -> dict:
         return dict(
             slope_bid=100.0,  # below thr_slope=500
-            slope_ask=100.0
+            slope_ask=100.0,
             dws_bps=10.0,     # above thr_dws=5.0
             recovery_ms=5000,  # above thr_recovery_ms=1000
-            thr_slope=500.0
-            thr_dws=5.0
-            thr_recovery_ms=1000
-            tighten_cap_bps=10.0
-            tighten_mult=1.0
+            thr_slope=500.0,
+            thr_dws=5.0,
+            thr_recovery_ms=1000,
+            tighten_cap_bps=10.0,
+            tighten_mult=1.0,
         )
 
     # --- profile=default ---
@@ -72,11 +72,11 @@ class TestLiquidityGeomPolicyV1(unittest.TestCase):
     def test_strict_tighten_bounded_by_cap(self) -> None:
         """Tighten add should never exceed tighten_cap_bps."""
         d = evaluate_liq_geom(
-            profile="strict"
+            profile="strict",
             slope_bid=1.0, slope_ask=1.0,   # extreme breach
-            dws_bps=9999.0
-            recovery_ms=999_999
-            thr_slope=500.0, thr_dws=5.0, thr_recovery_ms=1000
+            dws_bps=9999.0,
+            recovery_ms=999_999,
+            thr_slope=500.0, thr_dws=5.0, thr_recovery_ms=1000,
             tighten_cap_bps=10.0, tighten_mult=100.0,  # huge mult
         )
         self.assertLessEqual(d.tighten_add_bps, 10.0)
@@ -101,12 +101,12 @@ class TestLiquidityGeomPolicyV1(unittest.TestCase):
     def test_no_flags_no_action(self) -> None:
         """When no threshold is breached, no flags, no tighten, no veto."""
         d = evaluate_liq_geom(
-            profile="hard"
+            profile="hard",
             slope_bid=10_000.0, slope_ask=10_000.0,  # high slope = good
             dws_bps=0.1,    # low DWS = tight book
             recovery_ms=0,  # no stress
-            thr_slope=500.0, thr_dws=5.0, thr_recovery_ms=1000
-            tighten_cap_bps=10.0, tighten_mult=1.0
+            thr_slope=500.0, thr_dws=5.0, thr_recovery_ms=1000,
+            tighten_cap_bps=10.0, tighten_mult=1.0,
         )
         self.assertFalse(d.flags)
         self.assertEqual(d.tighten_add_bps, 0.0)
@@ -117,14 +117,14 @@ class TestLiquidityGeomPolicyV1(unittest.TestCase):
     def test_zero_threshold_disables_check(self) -> None:
         """Zero threshold means gate is disabled for that metric."""
         d = evaluate_liq_geom(
-            profile="hard"
+            profile="hard",
             slope_bid=1.0, slope_ask=1.0,  # would breach if threshold enabled
-            dws_bps=99.0
-            recovery_ms=99999
+            dws_bps=99.0,
+            recovery_ms=99999,
             thr_slope=0.0,   # disabled
             thr_dws=0.0,     # disabled
             thr_recovery_ms=0,  # disabled
-            tighten_cap_bps=10.0, tighten_mult=1.0
+            tighten_cap_bps=10.0, tighten_mult=1.0,
         )
         self.assertFalse(d.flags)
         self.assertFalse(d.veto)
@@ -142,11 +142,11 @@ class TestLiquidityGeomPolicyV1(unittest.TestCase):
     def test_slope_min_field_populated(self) -> None:
         """slope_min in result should be min(slope_bid, slope_ask)."""
         d = evaluate_liq_geom(
-            profile="default"
-            slope_bid=300.0, slope_ask=100.0
-            dws_bps=0.0, recovery_ms=0
-            thr_slope=0.0, thr_dws=0.0, thr_recovery_ms=0
-            tighten_cap_bps=10.0, tighten_mult=1.0
+            profile="default",
+            slope_bid=300.0, slope_ask=100.0,
+            dws_bps=0.0, recovery_ms=0,
+            thr_slope=0.0, thr_dws=0.0, thr_recovery_ms=0,
+            tighten_cap_bps=10.0, tighten_mult=1.0,
         )
         self.assertAlmostEqual(d.slope_min, 100.0, places=6)
 

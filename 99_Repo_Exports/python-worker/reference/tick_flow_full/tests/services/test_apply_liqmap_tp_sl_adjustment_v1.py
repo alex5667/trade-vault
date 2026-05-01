@@ -16,24 +16,24 @@ def test_apply_liqmap_tp_sl_adjustment_caps_sl_widen():
 
     # A strong downside peak between base_sl and entry.
     indicators = {
-        "liqmap_1h_peak_dn_price": 99.0
-        "liqmap_1h_peak_dn1_usd": 500_000.0
-        "liqmap_1h_peak_up_price": 101.5
-        "liqmap_1h_peak_up1_usd": 100_000.0
+        "liqmap_1h_peak_dn_price": 99.0,
+        "liqmap_1h_peak_dn1_usd": 500_000.0,
+        "liqmap_1h_peak_up_price": 101.5,
+        "liqmap_1h_peak_up1_usd": 100_000.0,
     }
 
     new_sl, new_tp1, out = apply_liqmap_tp_sl_adjustment(
-        entry=entry
-        side=side
-        base_sl=base_sl
-        base_tp1=base_tp1
-        indicators=indicators
-        window="1h"
-        min_usd=250_000.0
-        buffer_bps=5.0
-        max_sl_widen_bps=20.0
-        enable_tp1=False
-        enable_sl=True
+        entry=entry,
+        side=side,
+        base_sl=base_sl,
+        base_tp1=base_tp1,
+        indicators=indicators,
+        window="1h",
+        min_usd=250_000.0,
+        buffer_bps=5.0,
+        max_sl_widen_bps=20.0,
+        enable_tp1=False,
+        enable_sl=True,
     )
 
     # base_stop_bps = 10; cap => total <= 30 bps => sl >= 99.7

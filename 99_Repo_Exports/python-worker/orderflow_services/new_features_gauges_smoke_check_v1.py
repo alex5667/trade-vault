@@ -1,3 +1,4 @@
+from __future__ import annotations
 """A8 — Smoke-check for new derived microstructure features.
 
 Goal
@@ -26,7 +27,6 @@ Exit code
 The script always prints a single JSON line to stdout for the timer worker.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

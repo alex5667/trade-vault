@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 AB Winner Evaluator Service V3 (Continuous Loop)
 ===============================================
@@ -16,7 +17,6 @@ AB Winner Evaluator Service V3 (Continuous Loop)
   - Использует ABWinnerEvalStore.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -29,13 +29,13 @@ from typing import Any, Dict, List, Tuple
 import redis
 
 from services.ab_winner_evaluator_core import (
-    WinnerDecision
-    aggregate_scenario_winners
-    choose_winner_lcb
-    hysteresis_should_publish
-    make_meta_payload
-    norm_regime
-    regime_bucket
+    WinnerDecision,
+    aggregate_scenario_winners,
+    choose_winner_lcb,
+    hysteresis_should_publish,
+    make_meta_payload,
+    norm_regime,
+    regime_bucket,
 )
 from services.ab_winner_eval_store import ABWinnerEvalStore
 
@@ -72,16 +72,16 @@ class ABWinnerEvaluatorLogic:
 
         # LCB params per regime bucket
         self.alpha_by_bucket = {
-            "trend": float(os.getenv("AB_EVAL_ALPHA_TREND", "0.10"))
-            "range": float(os.getenv("AB_EVAL_ALPHA_RANGE", "0.10"))
-            "mixed": float(os.getenv("AB_EVAL_ALPHA_MIXED", "0.10"))
-            "thin": float(os.getenv("AB_EVAL_ALPHA_THIN", "0.05"))
+            "trend": float(os.getenv("AB_EVAL_ALPHA_TREND", "0.10")),
+            "range": float(os.getenv("AB_EVAL_ALPHA_RANGE", "0.10")),
+            "mixed": float(os.getenv("AB_EVAL_ALPHA_MIXED", "0.10")),
+            "thin": float(os.getenv("AB_EVAL_ALPHA_THIN", "0.05")),
         }
         self.min_edge_by_bucket = {
-            "trend": float(os.getenv("AB_EVAL_MIN_EDGE_TREND_R", "0.05"))
-            "range": float(os.getenv("AB_EVAL_MIN_EDGE_RANGE_R", "0.08"))
-            "mixed": float(os.getenv("AB_EVAL_MIN_EDGE_MIXED_R", "0.08"))
-            "thin": float(os.getenv("AB_EVAL_MIN_EDGE_THIN_R", "0.12"))
+            "trend": float(os.getenv("AB_EVAL_MIN_EDGE_TREND_R", "0.05")),
+            "range": float(os.getenv("AB_EVAL_MIN_EDGE_RANGE_R", "0.08")),
+            "mixed": float(os.getenv("AB_EVAL_MIN_EDGE_MIXED_R", "0.08")),
+            "thin": float(os.getenv("AB_EVAL_MIN_EDGE_THIN_R", "0.12")),
         }
 
         # "Ещё выше": hysteresis / hold-down
@@ -159,10 +159,10 @@ class ABWinnerEvaluatorLogic:
 
             store = ABWinnerEvalStore(r=self.r, stream=self.stream)
             ing = store.ingest_from_stream(
-                end_ms=end
-                window_ms=window_ms
-                max_items_per_zset=self.max_items_per_zset
-                hard_cap_msgs=self.max_events
+                end_ms=end,
+                window_ms=window_ms,
+                max_items_per_zset=self.max_items_per_zset,
+                hard_cap_msgs=self.max_events,
             )
 
             # Evaluate per ctx (symbol|regime|group), using scenario splits
@@ -194,9 +194,9 @@ class ABWinnerEvaluatorLogic:
                     arm_to_r = {"A": [], "B": [], "C": []}
                     for arm in ("A", "B", "C"):
                         xs = store.load_r_mult_series(
-                            symbol=symbol, regime=regime, group=group
-                            scenario=scn, arm=arm
-                            start_ms=start, end_ms=end
+                            symbol=symbol, regime=regime, group=group,
+                            scenario=scn, arm=arm,
+                            start_ms=start, end_ms=end,
                         )
                         arm_to_r[arm] = xs
                     # Keep scenario only if has any data
@@ -213,60 +213,60 @@ class ABWinnerEvaluatorLogic:
                     continue
 
                 pooled_dec = choose_winner_lcb(
-                    regime=regime
-                    arm_to_r=pooled_arm_to_r
-                    min_n=self.min_n
-                    min_edge_by_bucket=self.min_edge_by_bucket
-                    alpha_by_bucket=self.alpha_by_bucket
-                    require_lcb_gt0_for_non_a=True
+                    regime=regime,
+                    arm_to_r=pooled_arm_to_r,
+                    min_n=self.min_n,
+                    min_edge_by_bucket=self.min_edge_by_bucket,
+                    alpha_by_bucket=self.alpha_by_bucket,
+                    require_lcb_gt0_for_non_a=True,
                 )
                 per_scn_dec: Dict[str, WinnerDecision] = {}
                 for scn, arm_to_r in per_scn.items():
                     per_scn_dec[scn] = choose_winner_lcb(
-                        regime=regime
-                        arm_to_r=arm_to_r
-                        min_n=self.min_n
-                        min_edge_by_bucket=self.min_edge_by_bucket
-                        alpha_by_bucket=self.alpha_by_bucket
-                        require_lcb_gt0_for_non_a=True
+                        regime=regime,
+                        arm_to_r=arm_to_r,
+                        min_n=self.min_n,
+                        min_edge_by_bucket=self.min_edge_by_bucket,
+                        alpha_by_bucket=self.alpha_by_bucket,
+                        require_lcb_gt0_for_non_a=True,
                     )
 
                 final_dec = aggregate_scenario_winners(
-                    regime=regime
-                    pooled=pooled_dec
-                    per_scn=per_scn_dec
-                    require_same_winner_when_non_a=True
-                    disagree_allow_margin_r=self.scenario_disagree_margin_r
+                    regime=regime,
+                    pooled=pooled_dec,
+                    per_scn=per_scn_dec,
+                    require_same_winner_when_non_a=True,
+                    disagree_allow_margin_r=self.scenario_disagree_margin_r,
                 )
 
                 prev = self._load_prev_meta(symbol, regime, group)
                 ok_pub, why = hysteresis_should_publish(
-                    now_ms=now
-                    prev_meta=(prev if prev else None)
-                    new_winner=final_dec
-                    hold_down_ms=self.hold_down_ms
-                    switch_min_margin_r=self.switch_min_margin_r
+                    now_ms=now,
+                    prev_meta=(prev if prev else None),
+                    new_winner=final_dec,
+                    hold_down_ms=self.hold_down_ms,
+                    switch_min_margin_r=self.switch_min_margin_r,
                 )
 
                 # Build meta; include scenario breakdown for audit
                 meta = make_meta_payload(
-                    now_ms=now
-                    symbol=symbol
-                    regime=regime
-                    group=group
-                    arm_ver=self.arm_ver
-                    window_sec=window_sec
-                    min_n=self.min_n
-                    decision=final_dec
-                    rbucket=rb
-                    min_edge=min_edge
-                    alpha=alpha
+                    now_ms=now,
+                    symbol=symbol,
+                    regime=regime,
+                    group=group,
+                    arm_ver=self.arm_ver,
+                    window_sec=window_sec,
+                    min_n=self.min_n,
+                    decision=final_dec,
+                    rbucket=rb,
+                    min_edge=min_edge,
+                    alpha=alpha,
                 )
                 meta["scenario"] = {
                     scn: {
-                        "winner": per_scn_dec[scn].winner
-                        "reason": per_scn_dec[scn].reason
-                        "stats": {a: per_scn_dec[scn].stats[a].__dict__ for a in ("A","B","C")}
+                        "winner": per_scn_dec[scn].winner,
+                        "reason": per_scn_dec[scn].reason,
+                        "stats": {a: per_scn_dec[scn].stats[a].__dict__ for a in ("A","B","C")},
                     }
                     for scn in per_scn_dec.keys()
                 }
@@ -281,24 +281,24 @@ class ABWinnerEvaluatorLogic:
                     n_suppressed += 1
 
                 report_rows.append({
-                    "symbol": symbol, "regime": regime, "group": group
-                    "bucket": rb
-                    "winner": final_dec.winner
-                    "reason": final_dec.reason
-                    "publish": int(ok_pub)
-                    "publish_reason": why
-                    "nA": final_dec.stats["A"].n, "nB": final_dec.stats["B"].n, "nC": final_dec.stats["C"].n
+                    "symbol": symbol, "regime": regime, "group": group,
+                    "bucket": rb,
+                    "winner": final_dec.winner,
+                    "reason": final_dec.reason,
+                    "publish": int(ok_pub),
+                    "publish_reason": why,
+                    "nA": final_dec.stats["A"].n, "nB": final_dec.stats["B"].n, "nC": final_dec.stats["C"].n,
                     # "lcbA": final_dec.stats["A"].lcb, 
                 })
 
             # Store run report artefact (JSON)
             try:
                 rep = {
-                    "ts_ms": now
-                    "stream": self.stream
-                    "ingest": {"n_msgs": ing.n_msgs, "n_closed": ing.n_closed, "last_id": ing.last_id}
-                    "written": n_written
-                    "suppressed": n_suppressed
+                    "ts_ms": now,
+                    "stream": self.stream,
+                    "ingest": {"n_msgs": ing.n_msgs, "n_closed": ing.n_closed, "last_id": ing.last_id},
+                    "written": n_written,
+                    "suppressed": n_suppressed,
                     "rows": report_rows[:2000], 
                 }
                 self.r.set(self.report_key, json.dumps(rep, ensure_ascii=False, separators=(",", ":")), ex=24 * 3600)

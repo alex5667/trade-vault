@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Auto-apply blocker v2: Tick Gate -> Redis block keys with anti-flap.
 
 This daemon periodically runs tick-quality gate (tools.tick_quality_gate_check)
@@ -9,7 +10,6 @@ Anti-flap:
   - pin fail reason for a window (AUTO_APPLY_BLOCK_REASON_PIN_S)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

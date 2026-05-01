@@ -47,22 +47,22 @@ def _metric(factory, name: str, *args, **kwargs):
 
 
 TRADE_DQ_LEVEL = _metric(
-    Gauge
-    "trade_dq_level"
-    "Current hard/soft data-quality level for trade publication (0=OK,1=soft,2=hard)."
-    ["symbol"]
+    Gauge,
+    "trade_dq_level",
+    "Current hard/soft data-quality level for trade publication (0=OK,1=soft,2=hard).",
+    ["symbol"],
 )
 TRADE_DQ_HARD_VETO_TOTAL = _metric(
-    Counter
-    "trade_dq_hard_veto_total"
-    "Number of times trade publication was blocked by Redis/data-quality hard veto."
-    ["symbol", "reason"]
+    Counter,
+    "trade_dq_hard_veto_total",
+    "Number of times trade publication was blocked by Redis/data-quality hard veto.",
+    ["symbol", "reason"],
 )
 TRADE_DQ_SOFT_VETO_TOTAL = _metric(
-    Counter
-    "trade_dq_soft_veto_total"
-    "Number of times trade publication entered soft-veto/tightened mode due to data quality."
-    ["symbol", "reason"]
+    Counter,
+    "trade_dq_soft_veto_total",
+    "Number of times trade publication entered soft-veto/tightened mode due to data quality.",
+    ["symbol", "reason"],
 )
 
 
@@ -94,21 +94,21 @@ class RedisDQThresholds:
             except Exception:
                 return int(default)
         return cls(
-            queue_lag_soft_ms=_i("DQ_QUEUE_LAG_SOFT_MS", cls.queue_lag_soft_ms)
-            queue_lag_hard_ms=_i("DQ_QUEUE_LAG_HARD_MS", cls.queue_lag_hard_ms)
-            tick_staleness_soft_ms=_i("DQ_TICK_STALENESS_SOFT_MS", cls.tick_staleness_soft_ms)
-            tick_staleness_hard_ms=_i("DQ_TICK_STALENESS_HARD_MS", cls.tick_staleness_hard_ms)
-            book_staleness_soft_ms=_i("DQ_BOOK_STALENESS_SOFT_MS", cls.book_staleness_soft_ms)
-            book_staleness_hard_ms=_i("DQ_BOOK_STALENESS_HARD_MS", cls.book_staleness_hard_ms)
-            redis_timeout_soft_events=_i("DQ_REDIS_TIMEOUT_SOFT_EVENTS", cls.redis_timeout_soft_events)
-            redis_timeout_hard_events=_i("DQ_REDIS_TIMEOUT_HARD_EVENTS", cls.redis_timeout_hard_events)
-            negative_age_hard_events=_i("DQ_NEGATIVE_AGE_HARD_EVENTS", cls.negative_age_hard_events)
-            xack_fail_soft_events=_i("DQ_XACK_FAIL_SOFT_EVENTS", cls.xack_fail_soft_events)
-            xack_fail_hard_events=_i("DQ_XACK_FAIL_HARD_EVENTS", cls.xack_fail_hard_events)
-            outbox_backlog_soft=_i("DQ_OUTBOX_BACKLOG_SOFT", cls.outbox_backlog_soft)
-            outbox_backlog_hard=_i("DQ_OUTBOX_BACKLOG_HARD", cls.outbox_backlog_hard)
-            stream_timeout_burst_soft=_i("DQ_STREAM_TIMEOUT_BURST_SOFT", cls.stream_timeout_burst_soft)
-            stream_timeout_burst_hard=_i("DQ_STREAM_TIMEOUT_BURST_HARD", cls.stream_timeout_burst_hard)
+            queue_lag_soft_ms=_i("DQ_QUEUE_LAG_SOFT_MS", cls.queue_lag_soft_ms),
+            queue_lag_hard_ms=_i("DQ_QUEUE_LAG_HARD_MS", cls.queue_lag_hard_ms),
+            tick_staleness_soft_ms=_i("DQ_TICK_STALENESS_SOFT_MS", cls.tick_staleness_soft_ms),
+            tick_staleness_hard_ms=_i("DQ_TICK_STALENESS_HARD_MS", cls.tick_staleness_hard_ms),
+            book_staleness_soft_ms=_i("DQ_BOOK_STALENESS_SOFT_MS", cls.book_staleness_soft_ms),
+            book_staleness_hard_ms=_i("DQ_BOOK_STALENESS_HARD_MS", cls.book_staleness_hard_ms),
+            redis_timeout_soft_events=_i("DQ_REDIS_TIMEOUT_SOFT_EVENTS", cls.redis_timeout_soft_events),
+            redis_timeout_hard_events=_i("DQ_REDIS_TIMEOUT_HARD_EVENTS", cls.redis_timeout_hard_events),
+            negative_age_hard_events=_i("DQ_NEGATIVE_AGE_HARD_EVENTS", cls.negative_age_hard_events),
+            xack_fail_soft_events=_i("DQ_XACK_FAIL_SOFT_EVENTS", cls.xack_fail_soft_events),
+            xack_fail_hard_events=_i("DQ_XACK_FAIL_HARD_EVENTS", cls.xack_fail_hard_events),
+            outbox_backlog_soft=_i("DQ_OUTBOX_BACKLOG_SOFT", cls.outbox_backlog_soft),
+            outbox_backlog_hard=_i("DQ_OUTBOX_BACKLOG_HARD", cls.outbox_backlog_hard),
+            stream_timeout_burst_soft=_i("DQ_STREAM_TIMEOUT_BURST_SOFT", cls.stream_timeout_burst_soft),
+            stream_timeout_burst_hard=_i("DQ_STREAM_TIMEOUT_BURST_HARD", cls.stream_timeout_burst_hard),
         )
 
 
@@ -138,11 +138,11 @@ class RedisDQDecision:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "level": int(self.level)
-            "allow_trade_publish": bool(self.allow_trade_publish)
-            "reasons": list(self.reasons)
-            "tightened_mode": bool(self.tightened_mode)
-            "snapshot": dict(self.snapshot)
+            "level": int(self.level),
+            "allow_trade_publish": bool(self.allow_trade_publish),
+            "reasons": list(self.reasons),
+            "tightened_mode": bool(self.tightened_mode),
+            "snapshot": dict(self.snapshot),
         }
 
 
@@ -163,16 +163,16 @@ def evaluate_redis_dq(snapshot: RedisDQSnapshot, thresholds: Optional[RedisDQThr
     t = thresholds or RedisDQThresholds()
     # Sanitize snapshot: non-negative ints, valid symbol string
     s = RedisDQSnapshot(
-        symbol=str(snapshot.symbol or "")
-        queue_lag_ms=_positive_int(snapshot.queue_lag_ms)
-        tick_staleness_ms=_positive_int(snapshot.tick_staleness_ms)
-        book_staleness_ms=_positive_int(snapshot.book_staleness_ms)
-        redis_timeout_events=_positive_int(snapshot.redis_timeout_events)
-        negative_age_events=_positive_int(snapshot.negative_age_events)
-        xack_fail_events=_positive_int(snapshot.xack_fail_events)
-        outbox_backlog=_positive_int(snapshot.outbox_backlog)
-        stream_timeout_burst=_positive_int(snapshot.stream_timeout_burst)
-        force_hard_veto=bool(snapshot.force_hard_veto)
+        symbol=str(snapshot.symbol or ""),
+        queue_lag_ms=_positive_int(snapshot.queue_lag_ms),
+        tick_staleness_ms=_positive_int(snapshot.tick_staleness_ms),
+        book_staleness_ms=_positive_int(snapshot.book_staleness_ms),
+        redis_timeout_events=_positive_int(snapshot.redis_timeout_events),
+        negative_age_events=_positive_int(snapshot.negative_age_events),
+        xack_fail_events=_positive_int(snapshot.xack_fail_events),
+        outbox_backlog=_positive_int(snapshot.outbox_backlog),
+        stream_timeout_burst=_positive_int(snapshot.stream_timeout_burst),
+        force_hard_veto=bool(snapshot.force_hard_veto),
     )
 
     hard: List[str] = []
@@ -256,9 +256,9 @@ def evaluate_redis_dq(snapshot: RedisDQSnapshot, thresholds: Optional[RedisDQThr
             TRADE_DQ_SOFT_VETO_TOTAL.labels(symbol=s.symbol or "UNKNOWN", reason=reason).inc()
 
     return RedisDQDecision(
-        level=level
-        allow_trade_publish=allow
-        reasons=reasons
-        tightened_mode=tightened
-        snapshot=asdict(s)
+        level=level,
+        allow_trade_publish=allow,
+        reasons=reasons,
+        tightened_mode=tightened,
+        snapshot=asdict(s),
     )

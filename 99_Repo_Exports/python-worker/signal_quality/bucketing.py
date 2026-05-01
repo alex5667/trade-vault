@@ -28,11 +28,11 @@ def _bin(x: float | None, edges: tuple[float, ...]) -> str:
 
 
 def make_feature_bucket(
-    *
-    delta_spike_z: float | None
-    obi: float | None
-    weak_progress: float | None
-    atr_quantile: float | None
+    *,
+    delta_spike_z: float | None,
+    obi: float | None,
+    weak_progress: float | None,
+    atr_quantile: float | None,
 ) -> str:
     """
     Create a feature bucket string for signal clustering.

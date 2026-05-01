@@ -1,3 +1,4 @@
+from __future__ import annotations
 """policy_effectiveness_telegram_report_p73_v1.py
 
 P73: Nightly/periodic Telegram summary for policy effectiveness (P71).
@@ -30,7 +31,6 @@ Env:
   POLICY_EFF_TG_STATE_KEY=ops:policy_eff:p73:tg_state
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -142,7 +142,7 @@ def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
             "exp_r": _f(cfg.get(f"policy_effectiveness_expectancy_r_delta_24h_{m}"), 0.0),
             "prec_top5p": _f(cfg.get(f"policy_effectiveness_precision_top5p_delta_24h_{m}"), 0.0),
             "ece": _f(cfg.get(f"policy_effectiveness_ece_delta_24h_{m}"), 0.0),
-        }
+        },
 
     def _code(x: str) -> str:
         return f"<code>{html.escape(x)}</code>"
@@ -192,7 +192,7 @@ def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
         "total_n": total_n,
         "shares": shares,
         "deltas": deltas,
-    }
+    },
     return "\n".join(lines), meta
 
 

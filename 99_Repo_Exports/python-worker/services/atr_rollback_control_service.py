@@ -54,7 +54,7 @@ def request_rollback(
     reason_code: str,
     source: str = "",
     venue: str = "",
-    symbol: str = "",
+    symbol="",
     scenario: str = "",
     regime: str = "",
     risk_horizon_bucket: str = "",

@@ -16,65 +16,65 @@ from unittest.mock import MagicMock, patch
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _scorecard(
-    decision="allow"
-    blockers=None
-    warnings=None
-    readiness_score=100.0
-    scope=None
+    decision="allow",
+    blockers=None,
+    warnings=None,
+    readiness_score=100.0,
+    scope=None,
 ) -> dict:
     return {
-        "scorecard_id": "sc_test_001"
-        "change_id": "chg_test_001"
-        "decision": decision
-        "readiness_score": readiness_score
-        "blockers": blockers or []
-        "warnings": warnings or []
-        "infos": []
+        "scorecard_id": "sc_test_001",
+        "change_id": "chg_test_001",
+        "decision": decision,
+        "readiness_score": readiness_score,
+        "blockers": blockers or [],
+        "warnings": warnings or [],
+        "infos": [],
         "scope": scope or {
-            "symbol": "BTCUSDT"
-            "layer": "stop_ttl"
-            "scenario": "breakout"
-        }
+            "symbol": "BTCUSDT",
+            "layer": "stop_ttl",
+            "scenario": "breakout",
+        },
         "summary": {
-            "replay_status": "passed"
-            "rollout_cert_status": "canary_25_passed"
-            "incidents_open": 0
-            "overdue_actions": 0
+            "replay_status": "passed",
+            "rollout_cert_status": "canary_25_passed",
+            "incidents_open": 0,
+            "overdue_actions": 0,
         }
     }
 
 
 def _graph_state(
-    decision="allow"
-    blockers=None
-    warnings=None
-    readiness_score=100.0
-    scope_value="BTCUSDT"
-    freeze_state="none"
-    replay_cert_status="passed"
-    rollout_stage="canary_25"
+    decision="allow",
+    blockers=None,
+    warnings=None,
+    readiness_score=100.0,
+    scope_value="BTCUSDT",
+    freeze_state="none",
+    replay_cert_status="passed",
+    rollout_stage="canary_25",
 ) -> dict:
     return {
-        "change_id": "chg_test_001"
-        "scope_value": scope_value
-        "decision": decision
-        "readiness_score": readiness_score
-        "blockers": blockers or []
-        "warnings": warnings or []
+        "change_id": "chg_test_001",
+        "scope_value": scope_value,
+        "decision": decision,
+        "readiness_score": readiness_score,
+        "blockers": blockers or [],
+        "warnings": warnings or [],
         "scope": {
-            "symbol": scope_value
-            "layer": "stop_ttl"
-            "scenario": "breakout"
-        }
+            "symbol": scope_value,
+            "layer": "stop_ttl",
+            "scenario": "breakout",
+        },
         "release_state": {
-            "target_stage":                 rollout_stage
-            "replay_cert_status":           replay_cert_status
-            "required_rollout_cert_status": "passed"
-            "active_freeze_state":          freeze_state
-            "open_related_sev1_incidents":  0
-            "overdue_p0_p1_actions":        0
-            "override_state":               "none"
-            "invariant_budget_status":      "healthy"
+            "target_stage":                 rollout_stage,
+            "replay_cert_status":           replay_cert_status,
+            "required_rollout_cert_status": "passed",
+            "active_freeze_state":          freeze_state,
+            "open_related_sev1_incidents":  0,
+            "overdue_p0_p1_actions":        0,
+            "override_state":               "none",
+            "invariant_budget_status":      "healthy",
         }
     }
 
@@ -94,13 +94,13 @@ _MOCK_CONN.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
 with patch("services.analytics_db.get_conn", return_value=_MOCK_CONN):
     from services.atr_graph_backed_release_gate import (
-        compare_with_legacy
-        _is_bounded_scope
-        _BOUNDED_SYMBOLS
-        _BOUNDED_STAGES
-        render_shadow_compare_healthy
-        render_critical_drift
-        render_cutover_ready
+        compare_with_legacy,
+        _is_bounded_scope,
+        _BOUNDED_SYMBOLS,
+        _BOUNDED_STAGES,
+        render_shadow_compare_healthy,
+        render_critical_drift,
+        render_cutover_ready,
     )
 
 
@@ -171,10 +171,10 @@ class TestCompareWithLegacy(unittest.TestCase):
     def test_E4_missing_replay_cert_for_live100_is_critical(self):
         legacy = _scorecard(decision="deny", blockers=["replay_missing"])
         graph  = _graph_state(
-            decision="deny"
-            blockers=["missing_replay_cert_edge"]
-            rollout_stage="live_100"
-            replay_cert_status="missing"
+            decision="deny",
+            blockers=["missing_replay_cert_edge"],
+            rollout_stage="live_100",
+            replay_cert_status="missing",
         )
         result = compare_with_legacy("chg_001", legacy, graph)
         drift_kinds   = [d["drift_kind"] for d in result["drifts"]]
@@ -188,7 +188,7 @@ class TestCompareWithLegacy(unittest.TestCase):
         graph  = _graph_state(
             decision="allow",   # forgot to deny on freeze
             blockers=[],        # missing active_freeze_on_scope
-            freeze_state="scope_frozen"
+            freeze_state="scope_frozen",
         )
         result = compare_with_legacy("chg_001", legacy, graph)
         drift_kinds = [d["drift_kind"] for d in result["drifts"]]
@@ -220,9 +220,9 @@ class TestDriftSeverity(unittest.TestCase):
     """Drift severity taxonomy per spec."""
 
     EXPECTED_SEVERITY = {
-        "release_decision_mismatch": "critical"
-        "blocker_set_mismatch":      "error"
-        "warning_set_mismatch":      "warn"
+        "release_decision_mismatch": "critical",
+        "blocker_set_mismatch":      "error",
+        "warning_set_mismatch":      "warn",
     }
 
     def _get_drift(self, drift_kind: str, legacy_dec: str, graph_dec: str) -> dict | None:
@@ -256,9 +256,9 @@ class TestTelegramRenderers(unittest.TestCase):
 
     def test_critical_drift_render(self):
         drift = {
-            "drift_kind": "release_decision_mismatch"
-            "severity":   "critical"
-            "drift_json": {"legacy_decision": "deny", "graph_decision": "allow"}
+            "drift_kind": "release_decision_mismatch",
+            "severity":   "critical",
+            "drift_json": {"legacy_decision": "deny", "graph_decision": "allow"},
         }
         msg = render_critical_drift(drift, "chg_001", "BTCUSDT")
         self.assertIn("release_decision_mismatch", msg)

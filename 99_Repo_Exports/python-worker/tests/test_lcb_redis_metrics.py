@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Tests for LCB Redis metrics integration in ab_winner_suggester_service_v2.
 """
-from __future__ import annotations
 
 import os
 from unittest.mock import AsyncMock, MagicMock, patch

@@ -130,11 +130,11 @@ def main() -> None:
         # Use retry_redis_operation to handle LOADING state and connection errors
         try:
             retry_redis_operation(
-                _create_group
-                operation_name="xgroup_create ml_outcome"
-                max_retries=20
-                base_delay=2.0
-                max_delay=30.0
+                _create_group,
+                operation_name="xgroup_create ml_outcome",
+                max_retries=20,
+                base_delay=2.0,
+                max_delay=30.0,
             )
         except Exception as e:
             # If it's a BUSYGROUP error, that's fine (group already exists)
@@ -152,8 +152,8 @@ def main() -> None:
     while True:
         try:
             resp = retry_redis_operation(
-                lambda: r.xreadgroup(group, consumer, {trade_stream: ">"}, count=100, block=5000)
-                operation_name="xreadgroup ml_outcome"
+                lambda: r.xreadgroup(group, consumer, {trade_stream: ">"}, count=100, block=5000),
+                operation_name="xreadgroup ml_outcome",
             )
         except redis.exceptions.ResponseError as e:
             error_msg = str(e)
@@ -187,24 +187,24 @@ def main() -> None:
                 try:
                     if not isinstance(fields, dict) or not _is_closed(fields):
                         retry_redis_operation(
-                            lambda: r.xack(trade_stream, group, msg_id)
-                            operation_name="xack skip"
+                            lambda: r.xack(trade_stream, group, msg_id),
+                            operation_name="xack skip",
                         )
                         continue
 
                     sid = _get_sid(fields)
                     if not sid:
                         retry_redis_operation(
-                            lambda: r.xack(trade_stream, group, msg_id)
-                            operation_name="xack no_sid"
+                            lambda: r.xack(trade_stream, group, msg_id),
+                            operation_name="xack no_sid",
                         )
                         continue
 
                     pred = get_pred(r, sid)
                     if not pred:
                         retry_redis_operation(
-                            lambda: r.xack(trade_stream, group, msg_id)
-                            operation_name="xack no_pred"
+                            lambda: r.xack(trade_stream, group, msg_id),
+                            operation_name="xack no_pred",
                         )
                         continue
 
@@ -214,8 +214,8 @@ def main() -> None:
                     rmult = _get_r_mult(fields)
                     if rmult is None:
                         retry_redis_operation(
-                            lambda: r.xack(trade_stream, group, msg_id)
-                            operation_name="xack no_rmult"
+                            lambda: r.xack(trade_stream, group, msg_id),
+                            operation_name="xack no_rmult",
                         )
                         continue
 
@@ -229,26 +229,26 @@ def main() -> None:
                     exec_risk_norm = float(pred.get("exec_risk_norm", 0.0) or 0.0)
 
                     row = {
-                        "ts_ms": str(int(ts))
-                        "sid": sid
-                        "symbol": sym
-                        "scenario_v4": scenario
-                        "bucket": bucket
-                        "y": str(int(y))
-                        "r_mult": str(float(rmult))
-                        "p_edge": str(float(p))
-                        "brier": str(float(_brier(p, y)))
-                        "model_ver": str(pred.get("model_ver", "na"))
-                        "enforce": str(int(pred.get("enforce", 0) or 0))
-                        "share_used": str(float(pred.get("share_used", 0.0) or 0.0))
-                        "p_min": str(float(pred.get("p_min", 0.0) or 0.0))
-                        "exec_risk_norm": str(float(exec_risk_norm))
+                        "ts_ms": str(int(ts)),
+                        "sid": sid,
+                        "symbol": sym,
+                        "scenario_v4": scenario,
+                        "bucket": bucket,
+                        "y": str(int(y)),
+                        "r_mult": str(float(rmult)),
+                        "p_edge": str(float(p)),
+                        "brier": str(float(_brier(p, y))),
+                        "model_ver": str(pred.get("model_ver", "na")),
+                        "enforce": str(int(pred.get("enforce", 0) or 0)),
+                        "share_used": str(float(pred.get("share_used", 0.0) or 0.0)),
+                        "p_min": str(float(pred.get("p_min", 0.0) or 0.0)),
+                        "exec_risk_norm": str(float(exec_risk_norm)),
                     }
                     if pch > 0.0 and str(pred.get("chal_ver", "")).strip():
                         row.update({
-                            "p_edge_chal": str(float(pch))
-                            "brier_chal": str(float(_brier(pch, y)))
-                            "chal_ver": str(pred.get("chal_ver", ""))
+                            "p_edge_chal": str(float(pch)),
+                            "brier_chal": str(float(_brier(pch, y))),
+                            "chal_ver": str(pred.get("chal_ver", "")),
                         })
                     
                     # P69: Enrich with policy mode from decision record
@@ -266,19 +266,19 @@ def main() -> None:
                          row["policy_raw"] = "error"
 
                     retry_redis_operation(
-                        lambda: r.xadd(out_stream, row, maxlen=700000, approximate=True)
-                        operation_name="xadd ml_outcome"
+                        lambda: r.xadd(out_stream, row, maxlen=700000, approximate=True),
+                        operation_name="xadd ml_outcome",
                     )
                     retry_redis_operation(
-                        lambda: r.xack(trade_stream, group, msg_id)
-                        operation_name="xack success"
+                        lambda: r.xack(trade_stream, group, msg_id),
+                        operation_name="xack success",
                     )
 
                 except Exception:
                     try:
                         retry_redis_operation(
-                            lambda: r.xack(trade_stream, group, msg_id)
-                            operation_name="xack exception"
+                            lambda: r.xack(trade_stream, group, msg_id),
+                            operation_name="xack exception",
                         )
                     except Exception:
                         pass  # Fail-open: if ack fails, continue processing

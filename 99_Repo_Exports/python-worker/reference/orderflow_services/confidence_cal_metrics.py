@@ -1,14 +1,14 @@
+from __future__ import annotations
 """Prometheus metrics for confidence calibration (ROI step).
 
 Why a dedicated module:
   - avoids editing a large existing metrics.py (low merge risk)
   - keeps calibration-related instrumentation isolated and optional
 
-All metrics are fail-open: if prometheus_client is missing or registry conflicts
+All metrics are fail-open: if prometheus_client is missing or registry conflicts,
 we degrade to no-op.
 """
 
-from __future__ import annotations
 
 from typing import List, Optional
 
@@ -51,46 +51,46 @@ def _get_or_create(name: str, kind: str, documentation: str, labelnames: Optiona
 # ---------------------------------------------------------------------------
 
 confidence_cal_present_gauge = _get_or_create(
-    "confidence_cal_present"
-    "gauge"
-    "Whether confidence calibrator file is present and readable (1/0)"
-    ["symbol"]
+    "confidence_cal_present",
+    "gauge",
+    "Whether confidence calibrator file is present and readable (1/0)",
+    ["symbol"],
 )
 
 confidence_cal_age_ms_gauge = _get_or_create(
-    "confidence_cal_age_ms"
-    "gauge"
-    "Age of confidence calibrator file based on mtime (ms)"
-    ["symbol"]
+    "confidence_cal_age_ms",
+    "gauge",
+    "Age of confidence calibrator file based on mtime (ms)",
+    ["symbol"],
 )
 
 confidence_cal_stale_gauge = _get_or_create(
-    "confidence_cal_stale"
-    "gauge"
-    "Whether calibrator file is stale beyond configured max_age_ms (1/0)"
-    ["symbol"]
+    "confidence_cal_stale",
+    "gauge",
+    "Whether calibrator file is stale beyond configured max_age_ms (1/0)",
+    ["symbol"],
 )
 
 confidence_cal_reload_total = _get_or_create(
-    "confidence_cal_reload_total"
-    "counter"
+    "confidence_cal_reload_total",
+    "counter",
     "Total calibrator reload attempts (success/fail)" 
-    ["symbol", "result"]
+    ["symbol", "result"],
 )
 
 confidence_cal_apply_total = _get_or_create(
-    "confidence_cal_apply_total"
-    "counter"
+    "confidence_cal_apply_total",
+    "counter",
     "Total times calibration was applied to a confidence value" 
-    ["symbol", "key"]
+    ["symbol", "key"],
 )
 
 confidence_cal_delta_abs_hist = _get_or_create(
-    "confidence_cal_delta_abs"
-    "hist"
+    "confidence_cal_delta_abs",
+    "hist",
     "Abs(calibrated - raw) confidence shift" 
-    ["symbol", "key"]
-    buckets=[0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0]
+    ["symbol", "key"],
+    buckets=[0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0],
 )
 
 
@@ -99,38 +99,38 @@ confidence_cal_delta_abs_hist = _get_or_create(
 # ---------------------------------------------------------------------------
 
 confidence_cal_train_ece_raw_gauge = _get_or_create(
-    "confidence_cal_train_ece_raw"
-    "gauge"
+    "confidence_cal_train_ece_raw",
+    "gauge",
     "Train-time ECE of raw confidence used to fit calibrator" 
-    ["symbol"]
+    ["symbol"],
 )
 
 confidence_cal_train_ece_cal_gauge = _get_or_create(
-    "confidence_cal_train_ece_cal"
-    "gauge"
+    "confidence_cal_train_ece_cal",
+    "gauge",
     "Train-time ECE after calibration" 
-    ["symbol"]
+    ["symbol"],
 )
 
 confidence_cal_train_brier_raw_gauge = _get_or_create(
-    "confidence_cal_train_brier_raw"
-    "gauge"
+    "confidence_cal_train_brier_raw",
+    "gauge",
     "Train-time Brier of raw confidence used to fit calibrator" 
-    ["symbol"]
+    ["symbol"],
 )
 
 confidence_cal_train_brier_cal_gauge = _get_or_create(
-    "confidence_cal_train_brier_cal"
-    "gauge"
+    "confidence_cal_train_brier_cal",
+    "gauge",
     "Train-time Brier after calibration" 
-    ["symbol"]
+    ["symbol"],
 )
 
 confidence_cal_info_gauge = _get_or_create(
-    "confidence_cal_info"
-    "gauge"
+    "confidence_cal_info",
+    "gauge",
     "Calibrator info (always 1)" 
-    ["symbol", "type", "schema_version"]
+    ["symbol", "type", "schema_version"],
 )
 
 
@@ -206,17 +206,17 @@ def obs_delta_abs(symbol: str, key: str, delta_abs: float) -> None:
 
 
 confidence_cal_bucket_hit_total = _get_or_create(
-    "confidence_cal_bucket_hit_total"
-    "counter"
-    "Count of confidence calibration applications by bucket level/method"
-    ["symbol", "arm", "bucket_by", "bucket_level", "method"]
+    "confidence_cal_bucket_hit_total",
+    "counter",
+    "Count of confidence calibration applications by bucket level/method",
+    ["symbol", "arm", "bucket_by", "bucket_level", "method"],
 )
 
 confidence_cal_ab_arm_total = _get_or_create(
-    "confidence_cal_ab_arm_total"
-    "counter"
-    "Count of A/B test arm assignments"
-    ["symbol", "arm"]
+    "confidence_cal_ab_arm_total",
+    "counter",
+    "Count of A/B test arm assignments",
+    ["symbol", "arm"],
 )
 
 

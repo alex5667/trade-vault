@@ -1,5 +1,5 @@
-"""P4.14 tests: warning-code policy aware notifier route selection."""
 from __future__ import annotations
+"""P4.14 tests: warning-code policy aware notifier route selection."""
 
 from unittest.mock import MagicMock, patch
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Robust Z-score GPU Calculator.
 
@@ -16,7 +17,6 @@ This version uses ``GPURingBuffer`` (pinned-memory ring buffer) when available:
 - CPU numpy fallback when CuPy is absent or window is small
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Tuple, Optional

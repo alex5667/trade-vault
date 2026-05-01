@@ -1,5 +1,5 @@
-"""P13: General asset tests — metrics availability, diagnostics enrichment, CLI args."""
 from __future__ import annotations
+"""P13: General asset tests — metrics availability, diagnostics enrichment, CLI args."""
 
 import json
 import time

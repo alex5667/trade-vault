@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Replay/AB gate for feature-denylist proposals.
 
 Goal
@@ -21,7 +22,6 @@ Exit codes
 
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -98,9 +98,9 @@ def _fit_model(kind: str, X: np.ndarray, y: np.ndarray, seed: int):
 
         # Deterministic settings; keep it simple and stable.
         m = LogisticRegression(
-            max_iter=400
-            solver="lbfgs"
-            n_jobs=1
+            max_iter=400,
+            solver="lbfgs",
+            n_jobs=1,
         )
         m.fit(X, y)
         return m
@@ -109,12 +109,12 @@ def _fit_model(kind: str, X: np.ndarray, y: np.ndarray, seed: int):
         from sklearn.ensemble import HistGradientBoostingClassifier
 
         m = HistGradientBoostingClassifier(
-            learning_rate=0.06
-            max_depth=3
-            max_leaf_nodes=31
-            min_samples_leaf=80
-            l2_regularization=1e-4
-            random_state=int(seed)
+            learning_rate=0.06,
+            max_depth=3,
+            max_leaf_nodes=31,
+            min_samples_leaf=80,
+            l2_regularization=1e-4,
+            random_state=int(seed),
         )
         m.fit(X, y)
         return m
@@ -229,10 +229,10 @@ def _schema_from_registry(schema_ver: str) -> Optional[Tuple[List[str], List[str
 
 
 def _filter_by_denylist(
-    feature_names: Sequence[str]
-    column_names: Sequence[str]
-    deny_num: Sequence[str]
-    deny_bool: Sequence[str]
+    feature_names: Sequence[str],
+    column_names: Sequence[str],
+    deny_num: Sequence[str],
+    deny_bool: Sequence[str],
 ) -> Tuple[List[str], List[str]]:
     dnum = set(map(str, deny_num or []))
     dbool = set(map(str, deny_bool or []))
@@ -263,11 +263,11 @@ def _group_auc(y: np.ndarray, p: np.ndarray, mask: np.ndarray) -> Optional[float
 
 
 def _group_metrics(
-    y: np.ndarray
-    p: np.ndarray
-    regimes: np.ndarray
-    hours: np.ndarray
-    min_group_rows: int
+    y: np.ndarray,
+    p: np.ndarray,
+    regimes: np.ndarray,
+    hours: np.ndarray,
+    min_group_rows: int,
 ) -> Dict[str, Any]:
     out: Dict[str, Any] = {"regime": {}, "hour": {}}
 
@@ -327,9 +327,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--brier_increase_max", type=float, default=float(os.getenv("FEATURE_DENYLIST_AB_BRIER_INC_MAX", "0.00025")))
     ap.add_argument("--mcc_drop_max", type=float, default=float(os.getenv("FEATURE_DENYLIST_AB_MCC_DROP_MAX", "0.01")))
     ap.add_argument(
-        "--worst_group_auc_drop_max"
-        type=float
-        default=float(os.getenv("FEATURE_DENYLIST_AB_WORST_GROUP_AUC_DROP_MAX", "0.02"))
+        "--worst_group_auc_drop_max",
+        type=float,
+        default=float(os.getenv("FEATURE_DENYLIST_AB_WORST_GROUP_AUC_DROP_MAX", "0.02")),
     )
 
     args = ap.parse_args(list(argv) if argv is not None else None)
@@ -407,10 +407,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     deny_bool = list(deny.get("deny_bool") or [])
 
     feature_names_stable, column_names_stable = _filter_by_denylist(
-        feature_names_full
-        column_names_full
-        deny_num=deny_num
-        deny_bool=deny_bool
+        feature_names_full,
+        column_names_full,
+        deny_num=deny_num,
+        deny_bool=deny_bool,
     )
 
     # Load dataset
@@ -457,10 +457,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         m2["status"] = "ab_failed"
         m2["ab_finished_utc"] = _utc_now_iso()
         m2["ab"] = {
-            "ts_utc": _utc_now_iso()
-            "gate_pass": 0
-            "reasons": [f"not_enough_data_after_split train={len(split.train_idx)} val={len(split.val_idx)}"]
-        }
+            "ts_utc": _utc_now_iso(),
+            "gate_pass": 0,
+            "reasons": [f"not_enough_data_after_split train={len(split.train_idx)} val={len(split.val_idx)}"],
+        },
         _write_json(mp, m2)
         print(f"not enough data after split: train={len(split.train_idx)} val={len(split.val_idx)}")
         return 2
@@ -526,12 +526,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     mcc_drop = (float(mcc_f) - float(mcc_s)) if (mcc_f is not None and mcc_s is not None) else None
 
     gate = {
-        "auc_drop_max": float(args.auc_drop_max)
-        "brier_increase_max": float(args.brier_increase_max)
-        "mcc_drop_max": float(args.mcc_drop_max)
-        "worst_group_auc_drop_max": float(args.worst_group_auc_drop_max)
-        "min_group_rows": int(args.min_group_rows)
-    }
+        "auc_drop_max": float(args.auc_drop_max),
+        "brier_increase_max": float(args.brier_increase_max),
+        "mcc_drop_max": float(args.mcc_drop_max),
+        "worst_group_auc_drop_max": float(args.worst_group_auc_drop_max),
+        "min_group_rows": int(args.min_group_rows),
+    },
 
     gate_pass = True
     reasons: List[str] = []
@@ -565,54 +565,54 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         reasons.append(f"worst_hour_auc_drop={float(worst_hour_auc_drop):.6f} > {float(args.worst_group_auc_drop_max):.6f}")
 
     report = {
-        "kind": "feature_denylist_ab_report_v1"
-        "ts_utc": _utc_now_iso()
-        "proposal_hash": proposal_hash
-        "schema_baseline": schema_ver
-        "model": model_kind
-        "data_path": str(data_path)
-        "meta_json": str(meta_json)
+        "kind": "feature_denylist_ab_report_v1",
+        "ts_utc": _utc_now_iso(),
+        "proposal_hash": proposal_hash,
+        "schema_baseline": schema_ver,
+        "model": model_kind,
+        "data_path": str(data_path),
+        "meta_json": str(meta_json),
         "split": {
-            "val_frac": float(args.val_frac)
-            "purge_ms": int(args.purge_ms)
-            "n_total": int(len(df))
-            "n_train": int(len(split.train_idx))
-            "n_val": int(len(split.val_idx))
-            "n_val_used": int(len(yf_va))
-        }
+            "val_frac": float(args.val_frac),
+            "purge_ms": int(args.purge_ms),
+            "n_total": int(len(df)),
+            "n_train": int(len(split.train_idx)),
+            "n_val": int(len(split.val_idx)),
+            "n_val_used": int(len(yf_va)),
+        },
         "features": {
-            "n_full": int(len(feature_names_full))
-            "n_stable": int(len(feature_names_stable))
-            "deny_num": deny_num
-            "deny_bool": deny_bool
-        }
+            "n_full": int(len(feature_names_full)),
+            "n_stable": int(len(feature_names_stable)),
+            "deny_num": deny_num,
+            "deny_bool": deny_bool,
+        },
         "metrics": {
             "full": {
-                "auc": auc_f
-                "brier": float(brier_f)
-                "logloss": ll_f
-                "mcc@0.5": mcc_f
-            }
+                "auc": auc_f,
+                "brier": float(brier_f),
+                "logloss": ll_f,
+                "mcc@0.5": mcc_f,
+            },
             "stable": {
-                "auc": auc_s
-                "brier": float(brier_s)
-                "logloss": ll_s
-                "mcc@0.5": mcc_s
-            }
+                "auc": auc_s,
+                "brier": float(brier_s),
+                "logloss": ll_s,
+                "mcc@0.5": mcc_s,
+            },
             "delta": {
-                "auc_drop": auc_drop
-                "brier_increase": float(brier_inc)
-                "mcc_drop": mcc_drop
-                "worst_regime_auc_drop": float(worst_regime_auc_drop)
-                "worst_hour_auc_drop": float(worst_hour_auc_drop)
-            }
+                "auc_drop": auc_drop,
+                "brier_increase": float(brier_inc),
+                "mcc_drop": mcc_drop,
+                "worst_regime_auc_drop": float(worst_regime_auc_drop),
+                "worst_hour_auc_drop": float(worst_hour_auc_drop),
+            },
             "by_group": {
-                "full": groups_f
-                "stable": groups_s
-            }
-        }
-        "gate": {"pass": int(gate_pass), "reasons": reasons, "thresholds": gate}
-    }
+                "full": groups_f,
+                "stable": groups_s,
+            },
+        },
+        "gate": {"pass": int(gate_pass), "reasons": reasons, "thresholds": gate},
+    },
 
     rep_json = out_dir / f"ab_report_{tag}.json"
     rep_md = out_dir / f"ab_report_{tag}.md"
@@ -652,15 +652,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     m2["status"] = "ab_done" if gate_pass else "ab_failed"
     m2["ab_finished_utc"] = _utc_now_iso()
     m2["ab"] = {
-        "ts_utc": report["ts_utc"]
-        "gate_pass": int(gate_pass)
-        "reasons": reasons
-        "report_json": str(rep_json)
-        "report_md": str(rep_md)
-        "model": model_kind
-        "metrics": report["metrics"]
-        "thresholds": gate
-    }
+        "ts_utc": report["ts_utc"],
+        "gate_pass": int(gate_pass),
+        "reasons": reasons,
+        "report_json": str(rep_json),
+        "report_md": str(rep_md),
+        "model": model_kind,
+        "metrics": report["metrics"],
+        "thresholds": gate,
+    },
 
     _write_json(mp, m2)
 
@@ -668,14 +668,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(
         json.dumps(
             {
-                "gate_pass": int(gate_pass)
-                "status": m2["status"]
-                "proposal_hash": proposal_hash
-                "report_json": str(rep_json)
-                "auc_drop": auc_drop
-                "brier_increase": float(brier_inc)
-            }
-            ensure_ascii=False
+                "gate_pass": int(gate_pass),
+                "status": m2["status"],
+                "proposal_hash": proposal_hash,
+                "report_json": str(rep_json),
+                "auc_drop": auc_drop,
+                "brier_increase": float(brier_inc),
+            },
+            ensure_ascii=False,
         )
     )
 

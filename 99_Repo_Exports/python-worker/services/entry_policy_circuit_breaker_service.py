@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Entry Policy Circuit Breaker Service V1
 
@@ -22,7 +23,6 @@ Expert review:
   - DevOps/SRE: Horizontal scaling via consumer groups, observable freeze keys
   - Professor Statistics: P² algorithm accurate for P95, EMA for of_score smoothing
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

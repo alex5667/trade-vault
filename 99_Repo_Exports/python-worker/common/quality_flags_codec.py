@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Unified quality_flags codec (Phase 3 contract unification).
 
@@ -23,7 +24,6 @@ The codec accepts the legacy string form indefinitely so rollouts can be
 staged — remove the legacy branch only after all producers are upgraded.
 """
 
-from __future__ import annotations
 
 import json
 from typing import Any, List, Sequence

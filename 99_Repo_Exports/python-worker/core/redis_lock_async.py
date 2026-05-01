@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """core.redis_lock_async
 
 Async Redis lock (SET NX EX) with safe release.
@@ -14,7 +15,6 @@ Design:
   - fail-open for non-critical jobs: if Redis down => skip job
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional

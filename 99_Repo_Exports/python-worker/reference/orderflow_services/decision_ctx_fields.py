@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Decision Context Enrichment (A1): freeze execution-relevant snapshot at EMIT time.
 
 Purpose
@@ -27,7 +28,6 @@ Design principles
 - Low-cardinality: no ids become metric labels; these are ctx fields only.
 """
 
-from __future__ import annotations
 
 import math
 from typing import Any, Dict, Optional, Tuple, List
@@ -134,11 +134,11 @@ def _extract_top5_book(ctx: Dict[str, Any], runtime: Any = None) -> Tuple[Option
 
 
 def ensure_decision_ctx_fields(
-    ctx: Dict[str, Any]
-    *
-    indicators: Optional[Dict[str, Any]] = None
-    runtime: Any = None
-    now_ms: Optional[int] = None
+    ctx: Dict[str, Any],
+    *,
+    indicators: Optional[Dict[str, Any]] = None,
+    runtime: Any = None,
+    now_ms: Optional[int] = None,
 ) -> None:
     """Enrich ctx in-place with decision_* fields (best-effort, fail-open)."""
     try:

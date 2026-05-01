@@ -140,7 +140,7 @@ def _parse_row(fields: dict, snapshots: dict) -> dict:
 # ---------------------------------------------------------------------------
 class StreamingStats:
     """
-    Memory: O(total_profit_values) — only float profits kept per group,
+    Memory: O(total_profit_values) — only float profits kept per group
     NOT full record dicts.  For 100K trades ≈ 0.8 MB vs 100+ MB raw.
     """
 
@@ -439,7 +439,7 @@ def main() -> None:
     args = ap.parse_args()
 
     print("=" * 80)
-    print("📊 XAUUSD Execution Reports Aggregator v9 (true streaming)")
+    print("📊  Execution Reports Aggregator v9 (true streaming)")
     print("=" * 80)
     print()
 

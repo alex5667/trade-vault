@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Candidate pipeline stages (step 2.1 scaffold).
 
@@ -11,7 +12,6 @@ NOTE:
   It does NOT assume concrete handler internals. Stages accept callables or a handler reference.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple

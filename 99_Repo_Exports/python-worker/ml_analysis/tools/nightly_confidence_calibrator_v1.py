@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly confidence calibrator bundle (ROI step).
 
 What it does (daily):
@@ -19,7 +20,6 @@ Outputs:
 Designed to be called from of_timers_worker (single command, deterministic).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

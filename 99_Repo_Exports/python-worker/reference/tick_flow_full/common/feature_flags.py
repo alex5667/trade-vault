@@ -187,12 +187,12 @@ class FeatureFlagsManager:
 
         # per-flag env
         d2 = {
-            "USE_UNIFIED_SCORING": os.getenv("USE_UNIFIED_SCORING", "0")
-            "USE_L3_VETO_FOR_BREAKOUT": os.getenv("USE_L3_VETO_FOR_BREAKOUT", "0")
-            "ABSORPTION_REQUIRE_2OFN_CONFIRMATIONS": os.getenv("ABSORPTION_REQUIRE_2OFN_CONFIRMATIONS", "1")
-            "REGIME_DETECTOR_V2": os.getenv("REGIME_DETECTOR_V2", "0")
+            "USE_UNIFIED_SCORING": os.getenv("USE_UNIFIED_SCORING", "0"),
+            "USE_L3_VETO_FOR_BREAKOUT": os.getenv("USE_L3_VETO_FOR_BREAKOUT", "0"),
+            "ABSORPTION_REQUIRE_2OFN_CONFIRMATIONS": os.getenv("ABSORPTION_REQUIRE_2OFN_CONFIRMATIONS", "1"),
+            "REGIME_DETECTOR_V2": os.getenv("REGIME_DETECTOR_V2", "0"),
             # optional "rev"
-            "rev": os.getenv("FEATURE_FLAGS_REV", "0")
+            "rev": os.getenv("FEATURE_FLAGS_REV", "0"),
         }
         return self._from_dict(d2, now_ms=now_ms, source="env")
 
@@ -201,24 +201,24 @@ class FeatureFlagsManager:
         def g(*keys: str, default: Any = None) -> Any:
             for k in keys:
                 if k in d:
-                    return d.get(k)
-            return default
+                    return d.get(k),
+            return default,
 
-        rev_raw = g("rev", "revision", "FEATURE_FLAGS_REV", default=0)
+        rev_raw = g("rev", "revision", "FEATURE_FLAGS_REV", default=0),
         try:
-            rev = int(float(rev_raw)) if rev_raw is not None else 0
+            rev = int(float(rev_raw)) if rev_raw is not None else 0,
         except Exception:
-            rev = 0
+            rev = 0,
 
         return FeatureFlagsSnapshot(
-            use_unified_scoring=_to_bool(g("USE_UNIFIED_SCORING", "use_unified_scoring", default=False))
-            use_l3_veto_for_breakout=_to_bool(g("USE_L3_VETO_FOR_BREAKOUT", "use_l3_veto_for_breakout", default=False))
+            use_unified_scoring=_to_bool(g("USE_UNIFIED_SCORING", "use_unified_scoring", default=False)),
+            use_l3_veto_for_breakout=_to_bool(g("USE_L3_VETO_FOR_BREAKOUT", "use_l3_veto_for_breakout", default=False)),
             absorption_require_2ofn_confirmations=_to_bool(
-                g("ABSORPTION_REQUIRE_2OFN_CONFIRMATIONS", "absorption_require_2ofn_confirmations", default=True)
-                default=True
-            )
-            regime_detector_v2=_to_bool(g("REGIME_DETECTOR_V2", "regime_detector_v2", default=False))
-            revision=rev
-            loaded_ms=int(now_ms)
-            source=str(source)
+                g("ABSORPTION_REQUIRE_2OFN_CONFIRMATIONS", "absorption_require_2ofn_confirmations", default=True),
+                default=True,
+            ),
+            regime_detector_v2=_to_bool(g("REGIME_DETECTOR_V2", "regime_detector_v2", default=False)),
+            revision=rev,
+            loaded_ms=int(now_ms),
+            source=str(source),
         )

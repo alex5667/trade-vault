@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P6/P7 BinanceUserStreamWorker lifecycle tests.
 
 Tests:
@@ -5,7 +6,6 @@ Tests:
   - keepalive_listen_key is a no-op when listen_key is None
   - close_listen_key sets listen_key to None even after a success
 """
-from __future__ import annotations
 
 import pytest
 import sys
@@ -21,9 +21,9 @@ def _make_worker():
     with patch.object(redis_mod, "from_url", return_value=MagicMock()), \
          patch("services.binance_futures_client.BinanceFuturesClient.from_env") as m_from_env, \
          patch.dict(os.environ, {
-             "REDIS_URL": "redis://localhost:6379/0"
-             "BINANCE_API_KEY": "k"
-             "BINANCE_API_SECRET": "s"
+             "REDIS_URL": "redis://localhost:6379/0",
+             "BINANCE_API_KEY": "k",
+             "BINANCE_API_SECRET": "s",
          }):
         m_client = MagicMock()
         m_from_env.return_value = m_client

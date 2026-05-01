@@ -12,7 +12,7 @@ Environment variables
 RISK_AUDIT_SQL_DSN               – PostgreSQL DSN for the ledger table.
                                    Falls back to EXECUTION_JOURNAL_DSN.
 TRADE_RISK_DRIFT_LEDGER_ENABLE   – '1'/'true'/'yes'/'on' to enable (default: 1).
-"""
+""",
 
 from dataclasses import dataclass
 from typing import Any, Dict
@@ -76,7 +76,7 @@ class RiskDriftSqlSink:
         })
 
     Returns True on success, False on any error (never raises).
-    """
+    """,
 
     dsn: str = ''
     enabled: bool = False
@@ -97,7 +97,7 @@ class RiskDriftSqlSink:
 
         Returns:
             True if the INSERT succeeded, False otherwise (never raises).
-        """
+        """,
         if not self.enabled or not self.dsn or psycopg is None:
             return False
         doc = dict(payload or {})
@@ -106,7 +106,7 @@ class RiskDriftSqlSink:
             with psycopg.connect(self.dsn) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
+                        """,
                         INSERT INTO risk_mismatch_quarantine_ledger (
                             decision_id, sid, signal_id, symbol, tier,
                             repeated_count, mismatch_rate, reasons_jsonb,

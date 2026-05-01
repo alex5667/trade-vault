@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Telegram SRE Digest — Phase 3.7.
 
 Sends a compact, action-oriented health digest to the ops Telegram channel.
@@ -13,7 +14,6 @@ Only action-worthy information — no noise.
 
 Called from of_timers_worker nightly at 08:20.
 """
-from __future__ import annotations
 
 import os
 from typing import Any, Dict
@@ -25,8 +25,8 @@ from services.atr_policy_sre_service import collect_once
 
 def _redis() -> redis.Redis:
     return redis.Redis.from_url(
-        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-        decode_responses=True
+        os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
+        decode_responses=True,
     )
 
 
@@ -76,32 +76,32 @@ def build_sre_digest(s: Dict[str, Any] | None = None) -> str:
         s = collect_once()
 
     lines = [
-        "📊 *ATR Policy SRE Digest*"
-        ""
-        "*Backlog*"
+        "📊 *ATR Policy SRE Digest*",
+        "",
+        "*Backlog*",
         f"  {_badge('pending_oldest_age_sec', s['pending_oldest_age_sec'])} "
         f"Pending: {s['pending_total']}  "
-        f"Oldest: {s['pending_oldest_age_sec']}s"
+        f"Oldest: {s['pending_oldest_age_sec']}s",
         f"  Decided queue: {s['decided_total']}  "
-        f"Active policies: {s['active_total']}"
-        ""
-        "*SLO latencies (p95, 7d)*"
+        f"Active policies: {s['active_total']}",
+        "",
+        "*SLO latencies (p95, 7d)*",
         f"  {_badge('proposal_to_decision_p95_sec', s['proposal_to_decision_p95_sec'])} "
-        f"Proposal→Decision: {s['proposal_to_decision_p95_sec']:.0f}s"
+        f"Proposal→Decision: {s['proposal_to_decision_p95_sec']:.0f}s",
         f"  {_badge('approve_to_apply_p95_sec', s['approve_to_apply_p95_sec'])} "
-        f"Approve→Apply: {s['approve_to_apply_p95_sec']:.0f}s"
+        f"Approve→Apply: {s['approve_to_apply_p95_sec']:.0f}s",
         f"  {_badge('reconcile_last_success_age_sec', s['reconcile_last_success_age_sec'])} "
-        f"Reconcile last success: {s['reconcile_last_success_age_sec']}s ago"
-        ""
-        "*Today's counters*"
+        f"Reconcile last success: {s['reconcile_last_success_age_sec']}s ago",
+        "",
+        "*Today's counters*",
         f"  {_badge('revoke_today_total', s['revoke_today_total'])} "
-        f"Revokes: {s['revoke_today_total']}"
+        f"Revokes: {s['revoke_today_total']}",
         f"  {_badge('flip_today_total', s['flip_today_total'])} "
-        f"Flips: {s['flip_today_total']}"
+        f"Flips: {s['flip_today_total']}",
         f"  {_badge('confirm_expired_today_total', s['confirm_expired_today_total'])} "
-        f"Confirm expired: {s['confirm_expired_today_total']}"
+        f"Confirm expired: {s['confirm_expired_today_total']}",
         f"  {_badge('callback_denied_today_total', s['callback_denied_today_total'])} "
-        f"Callback denied: {s['callback_denied_today_total']}"
+        f"Callback denied: {s['callback_denied_today_total']}",
     ]
     return "\n".join(lines)
 

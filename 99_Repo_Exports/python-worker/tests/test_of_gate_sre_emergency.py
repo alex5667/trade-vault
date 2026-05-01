@@ -73,7 +73,7 @@ def test_merge_entry_policy_override_invalid_json():
 def test_apply_bundle_auto_set(redis_client):
     """Проверяет apply_bundle_auto с SET операцией."""
     ops = [
-        {"op": "SET", "key": "cfg:entry_policy:overrides:A", "value": '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"1"}}'}
+        {"op": "SET", "key": "cfg:entry_policy:overrides:A", "value": '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"1"}}'},
     ]
     meta = {"kind": "test"}
     

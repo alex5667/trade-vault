@@ -8,6 +8,6 @@ This module provides:
 from runners.trade_monitor_runner import main as trade_monitor_main
 
 __all__ = [
-    "trade_monitor_main"
+    "trade_monitor_main",
 ]
 

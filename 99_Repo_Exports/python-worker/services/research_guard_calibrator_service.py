@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Research Guard Calibrator Service — IO layer (Redis + Telegram).
 
@@ -25,7 +26,6 @@ Usage:
   - python -m services.research_guard_calibrator_service
   - Called from of_timers_worker as hourly timer task
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hashlib

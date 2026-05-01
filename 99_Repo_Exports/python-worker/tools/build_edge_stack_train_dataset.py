@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 build_edge_stack_train_dataset.py
 
@@ -35,7 +36,6 @@ Usage:
     --r-min 0.20
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

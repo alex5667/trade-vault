@@ -27,11 +27,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
 
 from orderflow_services.orchestration_composite_preflight_exporter_v1 import (
-    ALLOWED_PURPOSES
-    KNOWN_REASON_CODES
-    KNOWN_SOURCES
-    KNOWN_STATUSES
-    normalize_reason_code
+    ALLOWED_PURPOSES,
+    KNOWN_REASON_CODES,
+    KNOWN_SOURCES,
+    KNOWN_STATUSES,
+    normalize_reason_code,
 )
 
 try:
@@ -41,9 +41,9 @@ except Exception:  # pragma: no cover
 
 
 WINDOWS_SECONDS: Dict[str, int] = {
-    '24h': 24 * 60 * 60
-    '7d': 7 * 24 * 60 * 60
-}
+    '24h': 24 * 60 * 60,
+    '7d': 7 * 24 * 60 * 60,
+},
 
 
 @dataclass(frozen=True)
@@ -167,19 +167,19 @@ def parse_event(payload: Mapping, *, entry_id: str) -> 'HistoryEvent | None':
         return None
 
     return HistoryEvent(
-        purpose=purpose
-        status=status
-        source=source
-        reason_code=reason_code
-        ts_ms=ts_ms
+        purpose=purpose,
+        status=status,
+        source=source,
+        reason_code=reason_code,
+        ts_ms=ts_ms,
     )
 
 
 def aggregate_events(
-    events: Iterable[HistoryEvent]
-    *
-    now_ms: int
-    windows: Mapping = None
+    events: Iterable[HistoryEvent],
+    *,
+    now_ms: int,
+    windows: Mapping = None,
 ) -> 'tuple[Dict, Dict, Dict]':
     """Aggregate events into per-window counts/totals/scanned dicts.
 
@@ -205,12 +205,12 @@ def aggregate_events(
 
 
 def compute_window_summaries(
-    client: Any
-    stream_key: str
-    *
-    now_ms: int
-    scanned: Mapping
-    windows: Mapping = None
+    client: Any,
+    stream_key: str,
+    *,
+    now_ms: int,
+    scanned: Mapping,
+    windows: Mapping = None,
 ) -> Dict[str, WindowSummary]:
     """Compute coverage metadata for each requested window.
 
@@ -231,11 +231,11 @@ def compute_window_summaries(
         if oldest_ts_ms == 0:
             complete = 0.0
         out[window] = WindowSummary(
-            window=window
-            complete=complete
-            oldest_age_seconds=oldest_age_seconds
-            scanned_events=float(scanned.get(window, 0))
-            total_events=float(scanned.get(window, 0))
+            window=window,
+            complete=complete,
+            oldest_age_seconds=oldest_age_seconds,
+            scanned_events=float(scanned.get(window, 0)),
+            total_events=float(scanned.get(window, 0)),
         )
     return out
 
@@ -248,13 +248,13 @@ def _metric(name: str, labels: 'Mapping | None', value: float) -> str:
 
 
 def render_metrics(
-    counts: Mapping
-    totals: Mapping
-    window_summaries: Mapping
-    *
-    purposes: Iterable[str]
-    scan_truncated: float = 0.0
-    windows: Mapping = None
+    counts: Mapping,
+    totals: Mapping,
+    window_summaries: Mapping,
+    *,
+    purposes: Iterable[str],
+    scan_truncated: float = 0.0,
+    windows: Mapping = None,
 ) -> str:
     """Render all P5.5 metrics into Prometheus text format.
 
@@ -277,15 +277,15 @@ def render_metrics(
                         if value <= 0.0:
                             continue
                         lines.append(_metric(
-                            'orchestration_composite_preflight_history_events_total'
+                            'orchestration_composite_preflight_history_events_total',
                             {
-                                'window': window
-                                'purpose': purpose
-                                'selected_source': source
-                                'decision_status': status
-                                'selected_reason_code': reason_code
-                            }
-                            value
+                                'window': window,
+                                'purpose': purpose,
+                                'selected_source': source,
+                                'decision_status': status,
+                                'selected_reason_code': reason_code,
+                            },
+                            value,
                         ))
 
     lines.append('# HELP orchestration_composite_preflight_history_total Total composite preflight decisions in the requested history window\n')
@@ -293,9 +293,9 @@ def render_metrics(
     for window in windows:
         for purpose in purposes:
             lines.append(_metric(
-                'orchestration_composite_preflight_history_total'
-                {'window': window, 'purpose': purpose}
-                float(totals.get((window, purpose), 0))
+                'orchestration_composite_preflight_history_total',
+                {'window': window, 'purpose': purpose},
+                float(totals.get((window, purpose), 0)),
             ))
 
     lines.append('# HELP orchestration_composite_preflight_history_block_ratio Share of decisions ending in block within the requested history window\n')
@@ -342,8 +342,8 @@ def export_history_textfile() -> int:
     """Main export entry-point. Returns 0 on success, raises SystemExit on missing Redis."""
     stream_key = _env('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')
     export_path = Path(_env(
-        'ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH'
-        '/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom'
+        'ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH',
+        '/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history.prom',
     )).expanduser().resolve()
     purposes = _parse_csv(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_PURPOSES', ','.join(ALLOWED_PURPOSES)), ALLOWED_PURPOSES)
     max_scan = max(1000, _i(_env('ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_MAX_SCAN', '200000'), 200000))

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Обновление of_score_min в конфигурации Redis для canary symbols.
 
 Устанавливает of_score_min=0.60 для всех canary symbols.
 """
 
-from __future__ import annotations
 
 import argparse
 import os

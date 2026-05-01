@@ -47,13 +47,13 @@ def drift_state_key_v2(symbol: str, venue: str, session: str, tf: str, kind: str
 
 
 def load_drift_active_factor(
-    redis_client: Any
-    *
-    symbol: str
-    venue: str
-    session: str
-    tf: str
-    kind: str
+    redis_client: Any,
+    *,
+    symbol: str,
+    venue: str,
+    session: str,
+    tf: str,
+    kind: str,
 ) -> Tuple[float, float, str]:
     """
     Read drift alarm state (fail-open).
@@ -102,14 +102,14 @@ def load_drift_active_factor(
 
 
 def load_drift_baseline_mu(
-    redis_client: Any
-    *
-    symbol: str
-    venue: str
-    session: str
-    tf: str
-    kind: str
-    feature: str
+    redis_client: Any,
+    *,
+    symbol: str,
+    venue: str,
+    session: str,
+    tf: str,
+    kind: str,
+    feature: str,
 ) -> Optional[float]:
     """
     Read baseline mean for feature from drift:state:* (fail-open).

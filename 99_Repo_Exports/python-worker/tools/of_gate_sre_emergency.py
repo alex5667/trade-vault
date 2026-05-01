@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Emergency safety: auto-disable execution (ENTRY_POLICY_SHADOW=1) on critical drifts.
 
 Reads metrics:of_gate for a time window, and if critical thresholds are exceeded,
@@ -12,7 +13,6 @@ Usage:
   (reads ENV vars for thresholds, cooldown, override keys)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -159,7 +159,7 @@ def compute_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "exec_p90": pctl(ex, 0.90),
         "meta_veto_rate": (meta_veto / meta_n) if meta_n else 0.0,
         "scenario_top": scen.most_common(6),
-    }
+    },
 
 
 def merge_entry_policy_override(old: str, shadow_field: str) -> str:

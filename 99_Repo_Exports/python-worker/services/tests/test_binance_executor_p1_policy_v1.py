@@ -68,24 +68,24 @@ def test_place_protective_maker_first_uses_take_profit_limit():
     client = DummyClient()
     filters = DummyFilters()
     policy = pol.ExecutionPolicyDecision(
-        name=pol.MAKER_FIRST
-        reason="test"
-        tp_order_type="TAKE_PROFIT"
-        tp_working_type="MARK_PRICE"
-        tp_limit_time_in_force="GTX"
-        tp_watchdog_enabled=True
-        tp_watchdog_timeout_ms=4000
+        name=pol.MAKER_FIRST,
+        reason="test",
+        tp_order_type="TAKE_PROFIT",
+        tp_working_type="MARK_PRICE",
+        tp_limit_time_in_force="GTX",
+        tp_watchdog_enabled=True,
+        tp_watchdog_timeout_ms=4000,
     )
     out = ex._place_protective(
-        sid="sid-1"
-        symbol="BTCUSDT"
-        logical_side="LONG"
-        qty=1.0
-        sl=95.0
-        tps=[101.0, 102.0]
-        policy=policy
-        client=client
-        filters=filters
+        sid="sid-1",
+        symbol="BTCUSDT",
+        logical_side="LONG",
+        qty=1.0,
+        sl=95.0,
+        tps=[101.0, 102.0],
+        policy=policy,
+        client=client,
+        filters=filters,
     )
     assert out["sl_algo_id"]
     tp_calls = [c for c in client.calls if c.get("type") in {"TAKE_PROFIT", "TAKE_PROFIT_MARKET"}]
@@ -100,24 +100,24 @@ def test_place_protective_safety_first_uses_take_profit_market():
     client = DummyClient()
     filters = DummyFilters()
     policy = pol.ExecutionPolicyDecision(
-        name=pol.SAFETY_FIRST
-        reason="test"
-        tp_order_type="TAKE_PROFIT_MARKET"
-        tp_working_type="MARK_PRICE"
-        tp_limit_time_in_force=None
-        tp_watchdog_enabled=False
-        tp_watchdog_timeout_ms=0
+        name=pol.SAFETY_FIRST,
+        reason="test",
+        tp_order_type="TAKE_PROFIT_MARKET",
+        tp_working_type="MARK_PRICE",
+        tp_limit_time_in_force=None,
+        tp_watchdog_enabled=False,
+        tp_watchdog_timeout_ms=0,
     )
     out = ex._place_protective(
-        sid="sid-2"
-        symbol="BTCUSDT"
-        logical_side="LONG"
-        qty=1.0
-        sl=95.0
-        tps=[101.0]
-        policy=policy
-        client=client
-        filters=filters
+        sid="sid-2",
+        symbol="BTCUSDT",
+        logical_side="LONG",
+        qty=1.0,
+        sl=95.0,
+        tps=[101.0],
+        policy=policy,
+        client=client,
+        filters=filters,
     )
     tp_calls = [c for c in client.calls if c.get("type") in {"TAKE_PROFIT", "TAKE_PROFIT_MARKET"}]
     assert tp_calls[0]["type"] == "TAKE_PROFIT_MARKET"
@@ -136,13 +136,13 @@ def test_submit_reduce_only_market_exit_uses_plain_order_path():
     client = DummyClient()
     filters = DummyFilters()
     close = ex._submit_reduce_only_market_exit(
-        sid="sid-3"
-        symbol="BTCUSDT"
-        logical_side="LONG"
-        qty=0.5
-        reason_tag="emerg"
-        client=client
-        filters=filters
+        sid="sid-3",
+        symbol="BTCUSDT",
+        logical_side="LONG",
+        qty=0.5,
+        reason_tag="emerg",
+        client=client,
+        filters=filters,
     )
     assert close["close_order_id"]
     last = client.calls[-1]

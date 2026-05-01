@@ -1,5 +1,5 @@
-"""Integration tests for latency contract wiring (stamp, observe, Redis state write)."""
 from __future__ import annotations
+"""Integration tests for latency contract wiring (stamp, observe, Redis state write)."""
 
 import asyncio
 import sys, os
@@ -8,16 +8,16 @@ import sys, os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from services.observability.latency_contract import (
-    stamp_feature_ready
-    observe_feature_ready_async
-    stamp_emit_and_observe_async
-    LatencyStateWriter
+    stamp_feature_ready,
+    observe_feature_ready_async,
+    stamp_emit_and_observe_async,
+    LatencyStateWriter,
 )
 from services.observability.latency_semconv import (
-    FIELD_TS_EMIT_MS
-    FIELD_TS_FEATURE_MS
-    FIELD_TS_REDIS_READ_MS
-    FIELD_TS_EVENT_MS
+    FIELD_TS_EMIT_MS,
+    FIELD_TS_FEATURE_MS,
+    FIELD_TS_REDIS_READ_MS,
+    FIELD_TS_EVENT_MS,
 )
 
 
@@ -27,8 +27,8 @@ from services.observability.latency_semconv import (
 
 def _make_signal(event_ms=1000, redis_read_ms=1010, feature_ms=None, emit_ms=None):
     s = {
-        FIELD_TS_EVENT_MS: event_ms
-        FIELD_TS_REDIS_READ_MS: redis_read_ms
+        FIELD_TS_EVENT_MS: event_ms,
+        FIELD_TS_REDIS_READ_MS: redis_read_ms,
     }
     if feature_ms is not None:
         s[FIELD_TS_FEATURE_MS] = feature_ms

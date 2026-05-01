@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Unit tests for Signal Ensemble: SignalVote, EnsembleDecision, SignalEnsemble.
 """
-from __future__ import annotations
 
 import json
 import sys

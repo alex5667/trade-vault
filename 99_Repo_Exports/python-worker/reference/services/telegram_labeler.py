@@ -43,8 +43,8 @@ def parse_callback(cb: str, ts_action: int) -> Dict:
     action = parts[0] if parts else "unknown"
     
     record = {
-        "action": action
-        "ts_action": ts_action
+        "action": action,
+        "ts_action": ts_action,
         "raw": cb
     }
     
@@ -56,9 +56,9 @@ def parse_callback(cb: str, ts_action: int) -> Dict:
         lot = parts[2]
         sid = parts[3]
         record.update({
-            "side": side
-            "lot": lot
-            "sid": sid
+            "side": side,
+            "lot": lot,
+            "sid": sid,
             "status": "opened"
         })
     
@@ -66,7 +66,7 @@ def parse_callback(cb: str, ts_action: int) -> Dict:
         # Format: cancel::SID or cancel:<anything>:SID
         sid = parts[-1]  # Last part is SID
         record.update({
-            "sid": sid
+            "sid": sid,
             "status": "canceled"
         })
     
@@ -75,8 +75,8 @@ def parse_callback(cb: str, ts_action: int) -> Dict:
         mult = parts[1]
         sid = parts[2]
         record.update({
-            "sid": sid
-            "size_mult": mult
+            "sid": sid,
+            "size_mult": mult,
             "status": "sized"
         })
     
@@ -84,7 +84,7 @@ def parse_callback(cb: str, ts_action: int) -> Dict:
         # Format: approve:SID
         sid = parts[1]
         record.update({
-            "sid": sid
+            "sid": sid,
             "status": "approved"
         })
     
@@ -118,10 +118,10 @@ def main():
     # Main loop
     while True:
         msgs = r.xreadgroup(
-            GROUP
-            CONSUMER
-            {CALLBACKS_STREAM: ">"}
-            count=100
+            GROUP,
+            CONSUMER,
+            {CALLBACKS_STREAM: ">"},
+            count=100,
             block=2000
         )
         

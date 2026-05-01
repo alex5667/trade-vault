@@ -2,9 +2,9 @@ import json
 import pytest
 
 from core.liqmap_features_v1 import (
-    compute_liqmap_features
-    make_liqmap_default_features
-    parse_liqmap_snapshot_v1
+    compute_liqmap_features,
+    make_liqmap_default_features,
+    parse_liqmap_snapshot_v1,
 )
 
 
@@ -12,13 +12,13 @@ def test_liqmap_parse_and_compute_basic():
     # Snapshot intentionally misses `window` in payload; runtime supplies expected window.
     raw = json.dumps(
         {
-            "ts_ms": 1000
-            "symbol": "btcusdt"
+            "ts_ms": 1000,
+            "symbol": "btcusdt",
             "levels": [
-                {"price": 99.0, "long_usd": 100.0, "short_usd": 400.0}
-                {"price": 100.0, "long_usd": 120.0, "short_usd": 80.0}
-                {"price": 101.0, "long_usd": 900.0, "short_usd": 100.0}
-            ]
+                {"price": 99.0, "long_usd": 100.0, "short_usd": 400.0},
+                {"price": 100.0, "long_usd": 120.0, "short_usd": 80.0},
+                {"price": 101.0, "long_usd": 900.0, "short_usd": 100.0},
+            ],
         }
     )
 
@@ -27,12 +27,12 @@ def test_liqmap_parse_and_compute_basic():
     assert snap.window == "5m"
 
     feats = compute_liqmap_features(
-        snap
-        price=100.0
-        windows=("5m",)
+        snap,
+        price=100.0,
+        windows=("5m",),
         near_band_bps=20.0,  # +/-0.2
-        peak_min_share=0.05
-        now_ms=2000
+        peak_min_share=0.05,
+        now_ms=2000,
     )
 
     # Stable key set
@@ -60,10 +60,10 @@ def test_liqmap_default_features_all_zero():
 
 def test_liqmap_parse_forces_expected_window():
     raw = json.dumps({
-        "ts_ms": 5000
-        "symbol": "ETHUSDT"
+        "ts_ms": 5000,
+        "symbol": "ETHUSDT",
         "window": "4h",  # payload says 4h but we expect 1h
-        "levels": []
+        "levels": [],
     })
     snap = parse_liqmap_snapshot_v1(raw, expected_symbol="ETHUSDT", expected_window="1h")
     assert snap.window == "1h"  # forced to expected

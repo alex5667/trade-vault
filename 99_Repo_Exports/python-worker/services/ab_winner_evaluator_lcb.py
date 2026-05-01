@@ -1,3 +1,4 @@
+from __future__ import annotations
 """services.ab_winner_evaluator_lcb
 
 LCB evaluator upgraded:
@@ -9,7 +10,6 @@ LCB evaluator upgraded:
 This file is used by ABWinnerSuggesterV2.
 """
 
-from __future__ import annotations
 
 import math
 import os

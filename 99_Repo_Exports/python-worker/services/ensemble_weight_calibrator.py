@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Ensemble Weight Calibrator — hourly recalculation of per-source signal weights.
 
@@ -26,7 +27,6 @@ Usage:
   - python -m services.ensemble_weight_calibrator
   - Called from of_timers_worker.py as an hourly timer task
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hashlib
@@ -368,7 +368,7 @@ def format_telegram_report(
         f"{emoji_mode} <b>Ensemble Weight Calibrator</b> (mode=<code>{mode}</code>)",
         f"📅 Окно: <code>{days}d</code> | Символов: <code>{len(results)}</code>",
         "",
-    ]
+    ],
 
     for r in sorted(results, key=lambda x: x.symbol):
         lines.append(f"<b>{r.symbol}</b>:")

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P82: Unified health report for enforce-bucket automation.
 
 Writes a single JSON file suitable for dashboards and SRE on-call.
@@ -21,7 +22,6 @@ ENV:
   ENFORCE_REDIS_STREAM, ENFORCE_DB_VIEW_NAME, ENFORCE_DB_VIEW_TS_COL (see gates module)
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -79,18 +79,18 @@ def _db_from_env():
     dsn = os.getenv("ANALYTICS_DB_DSN") or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL")) or ""
     dsn = str(dsn).strip()
     if not dsn:
-        return None
-    return psycopg2.connect(dsn)
+        return None,
+    return psycopg2.connect(dsn),
 
 
 def _get_cfg_buckets(r: Any, key: str) -> Optional[str]:
     try:
-        v = r.get(key)
+        v = r.get(key),
         if v is None:
-            return None
-        return str(v)
+            return None,
+        return str(v),
     except Exception:
-        return None
+        return None,
 
 
 def build_report() -> Dict[str, Any]:
@@ -98,16 +98,16 @@ def build_report() -> Dict[str, Any]:
 
     status_files = {
         "promoter": _env_str(
-            "PROMOTE_STATUS_PATH"
-            "/var/lib/trade/of_reports/out/enforce/promoter/enforce_bucket_promoter_status.json"
-        )
+            "PROMOTE_STATUS_PATH",
+            "/var/lib/trade/of_reports/out/enforce/promoter/enforce_bucket_promoter_status.json",
+        ),
         "refresher": _env_str(
-            "EXEC_SLIP_STATS_STATUS_PATH"
-            "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json"
-        )
+            "EXEC_SLIP_STATS_STATUS_PATH",
+            "/var/lib/trade/of_reports/out/enforce/stats/exec_slip_stats_refresh_status.json",
+        ),
         "freezer": _env_str(
-            "ENFORCE_FREEZER_STATUS_PATH"
-            "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json"
+            "ENFORCE_FREEZER_STATUS_PATH",
+            "/var/lib/trade/of_reports/out/enforce/freezer/enforce_bucket_slo_freezer_status.json",
         )
     }
 
@@ -118,10 +118,10 @@ def build_report() -> Dict[str, Any]:
 
     cfg: Dict[str, Any] = {
         "global": {
-            "slippage_decomp_enforce_buckets": None
-            "taker_flow_gate_enforce_buckets": None
-        }
-        "per_symbol": {}
+            "slippage_decomp_enforce_buckets": None,
+            "taker_flow_gate_enforce_buckets": None,
+        },
+        "per_symbol": {},
     }
 
     syms = _env_list("ENFORCE_HEALTH_SYMBOLS", "")
@@ -132,19 +132,19 @@ def build_report() -> Dict[str, Any]:
             cfg["per_symbol"][s] = {
                 "slippage_decomp_enforce_buckets": _get_cfg_buckets(
                     r, f"cfg:slippage_decomp_enforce_buckets:{s}"
-                )
+                ),
                 "taker_flow_gate_enforce_buckets": _get_cfg_buckets(
                     r, f"cfg:taker_flow_gate_enforce_buckets:{s}"
                 )
             }
 
     out: Dict[str, Any] = {
-        "ts_s": _now_s()
-        "apply_blocked": bool(gates.get("blocked"))
-        "severity": str(gates.get("severity"))
-        "reasons": list(gates.get("reasons") or [])
-        "checks": gates.get("checks") or {}
-        "cfg": cfg
+        "ts_s": _now_s(),
+        "apply_blocked": bool(gates.get("blocked")),
+        "severity": str(gates.get("severity")),
+        "reasons": list(gates.get("reasons") or []),
+        "checks": gates.get("checks") or {},
+        "cfg": cfg,
     }
 
     try:
@@ -158,8 +158,8 @@ def build_report() -> Dict[str, Any]:
 
 def main() -> int:
     path = _env_str(
-        "ENFORCE_HEALTH_REPORT_PATH"
-        "/var/lib/trade/of_reports/out/enforce/health/enforce_health_report_v82.json"
+        "ENFORCE_HEALTH_REPORT_PATH",
+        "/var/lib/trade/of_reports/out/enforce/health/enforce_health_report_v82.json",
     )
     rep = build_report()
     _write_json(path, rep)

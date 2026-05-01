@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Stage4: Policy guardrail for Meta AB v2 ramp/apply.
 
@@ -9,7 +10,6 @@ Design goals:
 Returned decision is embedded into report["policy"] and used to override report["ramp"].
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 import json
@@ -116,11 +116,11 @@ def _ci_lo(rep: Dict[str, Any]) -> Optional[float]:
     ci = rep.get("ci") or {}
     if isinstance(ci, dict):
         for k in (
-            "delta_exp_r_lo"
-            "exp_r_per_candidate_lo"
-            "delta_exp_r_per_candidate_lo"
-            "delta_exp_r_ci_lo"
-            "lo"
+            "delta_exp_r_lo",
+            "exp_r_per_candidate_lo",
+            "delta_exp_r_per_candidate_lo",
+            "delta_exp_r_ci_lo",
+            "lo",
         ):
             if k in ci:
                 return _to_float(ci.get(k))
@@ -154,13 +154,13 @@ class PolicyDecision:
 
 
 def decide_meta_ab_v2_policy(
-    rep: Dict[str, Any]
-    cfg: Any
-    share_current: float
-    share_next_raw: float
-    action_raw: str
-    freeze_max_share: Optional[float]
-    env_overrides: Optional[Dict[str, Any]] = None
+    rep: Dict[str, Any],
+    cfg: Any,
+    share_current: float,
+    share_next_raw: float,
+    action_raw: str,
+    freeze_max_share: Optional[float],
+    env_overrides: Optional[Dict[str, Any]] = None,
 ) -> PolicyDecision:
     """
     Apply guardrails and return final ramp decision.
@@ -173,16 +173,16 @@ def decide_meta_ab_v2_policy(
 
     # derive config from evaluator cfg, then allow env overrides
     pcfg = PolicyConfig(
-        enabled=bool(env_overrides.get("enabled", True))
-        fail_closed=bool(env_overrides.get("fail_closed", True))
-        allow_decrease=bool(env_overrides.get("allow_decrease", True))
-        require_winner_challenger_for_increase=bool(env_overrides.get("require_winner_challenger_for_increase", True))
-        require_ci_positive_for_increase=bool(env_overrides.get("require_ci_positive_for_increase", True))
-        min_n_eligible=_to_int(env_overrides.get("min_n_eligible", getattr(cfg, "min_n", 1000)), 1000)
-        min_delta_exp_r=_to_float(env_overrides.get("min_delta_exp_r", getattr(cfg, "min_delta_exp_r", 0.002)), 0.002)
-        max_delta_tail=_to_float(env_overrides.get("max_delta_tail", getattr(cfg, "tail_slack", 0.01)), 0.01)
-        max_step=_to_float(env_overrides.get("max_step", getattr(cfg, "ramp_step", 0.05)), 0.05)
-        max_share=_to_float(env_overrides.get("max_share", getattr(cfg, "max_share", 0.50)), 0.50)
+        enabled=bool(env_overrides.get("enabled", True)),
+        fail_closed=bool(env_overrides.get("fail_closed", True)),
+        allow_decrease=bool(env_overrides.get("allow_decrease", True)),
+        require_winner_challenger_for_increase=bool(env_overrides.get("require_winner_challenger_for_increase", True)),
+        require_ci_positive_for_increase=bool(env_overrides.get("require_ci_positive_for_increase", True)),
+        min_n_eligible=_to_int(env_overrides.get("min_n_eligible", getattr(cfg, "min_n", 1000)), 1000),
+        min_delta_exp_r=_to_float(env_overrides.get("min_delta_exp_r", getattr(cfg, "min_delta_exp_r", 0.002)), 0.002),
+        max_delta_tail=_to_float(env_overrides.get("max_delta_tail", getattr(cfg, "tail_slack", 0.01)), 0.01),
+        max_step=_to_float(env_overrides.get("max_step", getattr(cfg, "ramp_step", 0.05)), 0.05),
+        max_share=_to_float(env_overrides.get("max_share", getattr(cfg, "max_share", 0.50)), 0.50),
     )
 
     action = _norm_action(action_raw)
@@ -264,11 +264,11 @@ def decide_meta_ab_v2_policy(
 
     if blocked and pcfg.fail_closed:
         return PolicyDecision(
-            blocked=True
-            allow_apply=False
-            share_next_final=float(share_current)
-            action_final="hold"
-            reasons=tuple(reasons)
+            blocked=True,
+            allow_apply=False,
+            share_next_final=float(share_current),
+            action_final="hold",
+            reasons=tuple(reasons),
         )
 
     # if blocked but not fail_closed -> allow apply (not default)

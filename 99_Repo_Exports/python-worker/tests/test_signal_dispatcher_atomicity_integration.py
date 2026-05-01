@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Integration tests for SignalDispatcher atomicity guarantees.
 
@@ -7,7 +8,6 @@ atomicity: either both delivery AND marker succeed, or neither does.
 Run with: pytest -m integration tests/test_signal_dispatcher_atomicity_integration.py
 """
 
-from __future__ import annotations
 
 import json
 import time

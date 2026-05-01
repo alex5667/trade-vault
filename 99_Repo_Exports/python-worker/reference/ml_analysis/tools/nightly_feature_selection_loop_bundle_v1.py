@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Nightly bundle: minimal feature selection loop (importance + stability by regime/session).
 
 Goal
@@ -17,12 +18,11 @@ Artifacts
   <out_dir>/runs/<run_id>/feature_selection/summary.json + report.md + CSVs
 
 Redis metrics (low-cardinality)
-  status, success, run_id, updated_ts_ms, schema_ver, schema_hash
-  n_rows, n_features, auc_val, brier_val, noise_n
+  status, success, run_id, updated_ts_ms, schema_ver, schema_hash,
+  n_rows, n_features, auc_val, brier_val, noise_n,
   out_dir, run_dir, summary_path, report_path
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -72,27 +72,27 @@ def _write_metrics(redis_url: str, metrics_key: str, mapping: Dict[str, Any]) ->
 
 
 def _fail(
-    *
-    redis_url: str
-    metrics_key: str
-    run_id: str
-    out_dir: str
-    run_dir: str
-    status: str
-    reason: str
-    exit_code: int
-    latest_json: str
-    version_json: str
+    *,
+    redis_url: str,
+    metrics_key: str,
+    run_id: str,
+    out_dir: str,
+    run_dir: str,
+    status: str,
+    reason: str,
+    exit_code: int,
+    latest_json: str,
+    version_json: str,
 ) -> int:
     mapping: Dict[str, Any] = {
-        "status": status
-        "reason": reason
-        "success": 0
-        "run_id": run_id
-        "exit_code": int(exit_code)
-        "updated_ts_ms": now_ms()
-        "out_dir": str(out_dir)
-        "run_dir": str(run_dir)
+        "status": status,
+        "reason": reason,
+        "success": 0,
+        "run_id": run_id,
+        "exit_code": int(exit_code),
+        "updated_ts_ms": now_ms(),
+        "out_dir": str(out_dir),
+        "run_dir": str(run_dir),
     }
     _write_metrics(redis_url, metrics_key, mapping)
     atomic_write_json(version_json, mapping)
@@ -114,9 +114,9 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--y_min_r", type=float, default=float(os.environ.get("Y_MIN_R", "0.10")))
 
     ap.add_argument(
-        "--feature_schema_ver"
-        default=os.environ.get("FEATURE_SELECTION_LOOP_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", "v5_of"))
-        choices=_schema_choices(include_empty=True)
+        "--feature_schema_ver",
+        default=os.environ.get("FEATURE_SELECTION_LOOP_SCHEMA_VER", os.environ.get("ML_FEATURE_SCHEMA_VER", "v5_of")),
+        choices=_schema_choices(include_empty=True),
     )
     ap.add_argument("--scenario_prefix", default=os.environ.get("EDGE_STACK_SCENARIO_PREFIX", "bucket:"))
     ap.add_argument("--include_time_onehot", type=int, default=int(os.environ.get("EDGE_STACK_INCLUDE_TIME_ONEHOT", "1")))
@@ -155,87 +155,87 @@ def main(argv: Optional[list] = None) -> int:
     start_ms = end_ms - int(args.window_hours) * 3600 * 1000
 
     build_args = [
-        "--redis_url"
-        str(args.redis_url)
-        "--signal_stream"
-        str(args.signals_stream)
-        "--closed_stream"
-        str(args.closed_stream)
-        "--signals_count"
-        str(args.signals_count)
-        "--closes_count"
-        str(args.closes_count)
-        "--since_ms"
-        str(start_ms)
-        "--until_ms"
-        str(end_ms)
-        "--y_min_r"
-        str(args.y_min_r)
-        "--out_jsonl"
-        dataset_jsonl
-        "--out_report_json"
-        dataset_report
-        "--out_quarantine_jsonl"
-        quarantine_jsonl
-        "--emit_feature_cols_json"
-        feature_cols_json
-        "--feature_schema_ver"
-        str(feature_schema_ver or "").strip()
-        "--scenario_prefix"
-        str(args.scenario_prefix)
-        "--include_time_onehot"
-        str(int(args.include_time_onehot))
-        "--strict_feature_cols"
-        str(int(args.strict_feature_cols))
-        "--forbid_scenario_v4_onehot"
-        str(int(args.forbid_scenario_v4_onehot))
+        "--redis_url",
+        str(args.redis_url),
+        "--signal_stream",
+        str(args.signals_stream),
+        "--closed_stream",
+        str(args.closed_stream),
+        "--signals_count",
+        str(args.signals_count),
+        "--closes_count",
+        str(args.closes_count),
+        "--since_ms",
+        str(start_ms),
+        "--until_ms",
+        str(end_ms),
+        "--y_min_r",
+        str(args.y_min_r),
+        "--out_jsonl",
+        dataset_jsonl,
+        "--out_report_json",
+        dataset_report,
+        "--out_quarantine_jsonl",
+        quarantine_jsonl,
+        "--emit_feature_cols_json",
+        feature_cols_json,
+        "--feature_schema_ver",
+        str(feature_schema_ver or "").strip(),
+        "--scenario_prefix",
+        str(args.scenario_prefix),
+        "--include_time_onehot",
+        str(int(args.include_time_onehot)),
+        "--strict_feature_cols",
+        str(int(args.strict_feature_cols)),
+        "--forbid_scenario_v4_onehot",
+        str(int(args.forbid_scenario_v4_onehot)),
     ]
     ok_build, rc_build = _run("ml_analysis.tools.build_edge_stack_dataset_from_redis", build_args, timeout=3600)
     if (not ok_build) or (not os.path.exists(dataset_report)):
         return _fail(
-            redis_url=str(args.redis_url)
-            metrics_key=str(args.metrics_key)
-            run_id=run_id
-            out_dir=out_dir
-            run_dir=run_dir
-            status="fail_build"
-            reason="dataset_build_failed"
-            exit_code=rc_build
-            latest_json=latest_json
-            version_json=version_json
+            redis_url=str(args.redis_url),
+            metrics_key=str(args.metrics_key),
+            run_id=run_id,
+            out_dir=out_dir,
+            run_dir=run_dir,
+            status="fail_build",
+            reason="dataset_build_failed",
+            exit_code=rc_build,
+            latest_json=latest_json,
+            version_json=version_json,
         )
 
     rep = _load_json(dataset_report)
     joined = int(rep.get("joined", 0) or 0)
     if joined < int(args.min_rows):
         return _fail(
-            redis_url=str(args.redis_url)
-            metrics_key=str(args.metrics_key)
-            run_id=run_id
-            out_dir=out_dir
-            run_dir=run_dir
-            status="fail_validate"
-            reason=f"too_few_rows joined={joined} min_rows={int(args.min_rows)}"
-            exit_code=3
-            latest_json=latest_json
-            version_json=version_json
+            redis_url=str(args.redis_url),
+            metrics_key=str(args.metrics_key),
+            run_id=run_id,
+            out_dir=out_dir,
+            run_dir=run_dir,
+            status="fail_validate",
+            reason=f"too_few_rows joined={joined} min_rows={int(args.min_rows)}",
+            exit_code=3,
+            latest_json=latest_json,
+            version_json=version_json,
         )
 
     loop_args = [
-        "--data_path"
-        dataset_jsonl
-        "--schema_ver"
-        str(feature_schema_ver)
-        "--out_dir"
-        fs_dir
-        "--model"
-        str(args.model)
-        "--min_group_rows"
-        str(int(args.min_group_rows))
-        "--n_repeats"
-        str(int(args.n_repeats))
-        "--seed"
-        str(int(args.seed))
+        "--data_path",
+        dataset_jsonl,
+        "--schema_ver",
+        str(feature_schema_ver),
+        "--out_dir",
+        fs_dir,
+        "--model",
+        str(args.model),
+        "--min_group_rows",
+        str(int(args.min_group_rows)),
+        "--n_repeats",
+        str(int(args.n_repeats)),
+        "--seed",
+        str(int(args.seed)),
     ]
     if int(args.max_features) > 0:
         loop_args += ["--max_features", str(int(args.max_features))]
@@ -244,52 +244,52 @@ def main(argv: Optional[list] = None) -> int:
     summary_path = os.path.join(fs_dir, "summary.json")
     if (not ok_loop) or (not os.path.exists(summary_path)):
         return _fail(
-            redis_url=str(args.redis_url)
-            metrics_key=str(args.metrics_key)
-            run_id=run_id
-            out_dir=out_dir
-            run_dir=run_dir
-            status="fail_loop"
-            reason="feature_selection_loop_failed"
-            exit_code=rc_loop
-            latest_json=latest_json
-            version_json=version_json
+            redis_url=str(args.redis_url),
+            metrics_key=str(args.metrics_key),
+            run_id=run_id,
+            out_dir=out_dir,
+            run_dir=run_dir,
+            status="fail_loop",
+            reason="feature_selection_loop_failed",
+            exit_code=rc_loop,
+            latest_json=latest_json,
+            version_json=version_json,
         )
 
     summary = _load_json(summary_path)
     noise_n = int(len(summary.get("noise_examples") or []))
 
     mapping: Dict[str, Any] = {
-        "status": "ok"
-        "reason": ""
-        "success": 1
-        "run_id": run_id
-        "exit_code": 0
-        "updated_ts_ms": now_ms()
-        "schema_ver": str(summary.get("schema_ver") or str(feature_schema_ver))
-        "schema_hash": str(summary.get("schema_hash") or "")
-        "n_rows": int(summary.get("n_rows", 0) or 0)
-        "n_features": int(summary.get("n_features", 0) or 0)
-        "auc_val": float(summary.get("auc_val", 0.0) or 0.0)
-        "brier_val": float(summary.get("brier_val", 0.0) or 0.0)
-        "noise_n": int(noise_n)
-        "out_dir": str(out_dir)
-        "run_dir": str(run_dir)
-        "summary_path": str(summary_path)
-        "report_path": str(os.path.join(fs_dir, "report.md"))
+        "status": "ok",
+        "reason": "",
+        "success": 1,
+        "run_id": run_id,
+        "exit_code": 0,
+        "updated_ts_ms": now_ms(),
+        "schema_ver": str(summary.get("schema_ver") or str(feature_schema_ver)),
+        "schema_hash": str(summary.get("schema_hash") or ""),
+        "n_rows": int(summary.get("n_rows", 0) or 0),
+        "n_features": int(summary.get("n_features", 0) or 0),
+        "auc_val": float(summary.get("auc_val", 0.0) or 0.0),
+        "brier_val": float(summary.get("brier_val", 0.0) or 0.0),
+        "noise_n": int(noise_n),
+        "out_dir": str(out_dir),
+        "run_dir": str(run_dir),
+        "summary_path": str(summary_path),
+        "report_path": str(os.path.join(fs_dir, "report.md")),
     }
     _write_metrics(str(args.redis_url), str(args.metrics_key), mapping)
     atomic_write_json(version_json, mapping)
     atomic_write_json(latest_json, mapping)
 
     logger.info(
-        "OK run_id=%s joined=%s n_features=%s noise_n=%s auc=%.4f brier=%.6f"
-        run_id
-        mapping["n_rows"]
-        mapping["n_features"]
-        mapping["noise_n"]
-        float(mapping["auc_val"])
-        float(mapping["brier_val"])
+        "OK run_id=%s joined=%s n_features=%s noise_n=%s auc=%.4f brier=%.6f",
+        run_id,
+        mapping["n_rows"],
+        mapping["n_features"],
+        mapping["noise_n"],
+        float(mapping["auc_val"]),
+        float(mapping["brier_val"]),
     )
     return 0
 

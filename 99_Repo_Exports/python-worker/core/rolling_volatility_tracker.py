@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Realized volatility tracker (std of log-returns) deterministic by ts_ms.
 
 Definition
@@ -11,7 +12,6 @@ If we have fewer than 3 prices (fewer than 2 log-returns):
   - realized_vol_no_data = 1
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

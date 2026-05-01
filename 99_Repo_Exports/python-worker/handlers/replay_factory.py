@@ -50,15 +50,15 @@ class CryptoOrderFlowReplayHandler(CryptoOrderFlowHandler):
     def _get_symbol_specs(self) -> SymbolSpecs:
         # Return mock symbol specs for replay
         return SymbolSpecs(
-            symbol=self.symbol
-            contract_size=1.0
-            pip_value=0.01
-            lot_step=0.001
-            min_lot=0.001
-            max_lot=1000.0
-            tick_value=0.01
-            point_value=0.01
-            price_decimals=2
+            symbol=self.symbol,
+            contract_size=1.0,
+            pip_value=0.01,
+            lot_step=0.001,
+            min_lot=0.001,
+            max_lot=1000.0,
+            tick_value=0.01,
+            point_value=0.01,
+            price_decimals=2,
             volume_decimals=3
         )
 
@@ -123,8 +123,8 @@ class CryptoOrderFlowReplayAdapter:
         # Override emitter to use our outbox
         from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter, _NoopMetrics
         self.handler._emitter = UnifiedSignalEmitter(
-            outbox=self.outbox
-            logger=self.logger
+            outbox=self.outbox,
+            logger=self.logger,
             metrics=_NoopMetrics()
         )
 

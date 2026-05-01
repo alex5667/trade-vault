@@ -18,9 +18,9 @@ def test_missing_rule(service, mock_db):
     conn, cur = mock_db
     
     surface = {
-        "surface_id": "hard_dq_gate"
-        "domain": "runtime"
-        "surface_json": {}
+        "surface_id": "hard_dq_gate",
+        "domain": "runtime",
+        "surface_json": {},
         "owner": "test"
     }
     
@@ -38,9 +38,9 @@ def test_missing_rule(service, mock_db):
 def test_rule_exists_but_no_enforcement(service, mock_db):
     conn, cur = mock_db
     surface = {
-        "surface_id": "quarantine_gate"
-        "domain": "governance"
-        "surface_json": {}
+        "surface_id": "quarantine_gate",
+        "domain": "governance",
+        "surface_json": {},
         "owner": "owner_x"
     }
     
@@ -62,9 +62,9 @@ def test_rule_exists_but_no_enforcement(service, mock_db):
 def test_no_cert_for_protective_invariant(service, mock_db):
     conn, cur = mock_db
     surface = {
-        "surface_id": "sl_ratchet_invariant"
-        "domain": "protective"
-        "surface_json": {}
+        "surface_id": "sl_ratchet_invariant",
+        "domain": "protective",
+        "surface_json": {},
         "owner": "owner_y"
     }
     
@@ -101,7 +101,7 @@ def test_audit_outcome(mock_get_conn, service, mock_db):
     
     # Seed inventory
     service.load_surface_inventory = MagicMock(return_value=[
-        {"surface_id": "hard_dq_gate", "domain": "runtime", "surface_json": {}, "owner": "test"}
+        {"surface_id": "hard_dq_gate", "domain": "runtime", "surface_json": {}, "owner": "test"},
         {"surface_id": "order_queue_dispatch", "domain": "runtime", "surface_json": {}, "owner": "test"}
     ])
     

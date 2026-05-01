@@ -130,9 +130,9 @@ class DailyAggregator:
                 try:
                     # Читаем тики из стрима
                     messages = stream_helper.read(
-                        {TICK_STREAM: '>'}
-                        count=200
-                        block=1000
+                        {TICK_STREAM: '>'},
+                        count=200,
+                        block=1000,
                     )
                     
                     if not messages:
@@ -193,9 +193,9 @@ class DailyAggregator:
                     if "NOGROUP" in str(e).upper():
                         try:
                             self.redis_client.xgroup_create(
-                                TICK_STREAM
-                                GROUP
-                                id='0'
+                                TICK_STREAM,
+                                GROUP,
+                                id='0',
                                 mkstream=True
                             )
                             print(f"✅ Consumer group {GROUP} пересоздана для {TICK_STREAM}")
@@ -307,9 +307,9 @@ class DailyAggregator:
             return
         
         hlc = {
-            "H": self.day_high
-            "L": self.day_low
-            "C": self.day_close
+            "H": self.day_high,
+            "L": self.day_low,
+            "C": self.day_close,
             "day": self.current_day
         }
         
@@ -324,9 +324,9 @@ class DailyAggregator:
             
             # 3. Публикуем событие
             self.redis_client.xadd(
-                "pivots:events"
-                {"data": json.dumps({"type": "daily_close", "hlc": hlc})}
-                maxlen=100
+                "pivots:events",
+                {"data": json.dumps({"type": "daily_close", "hlc": hlc})},
+                maxlen=100,
                 approximate=True
             )
             

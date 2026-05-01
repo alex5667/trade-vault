@@ -109,9 +109,9 @@ class ConfigValidator:
         
         # Validate critical thresholds
         required_attrs = [
-            'main_z_threshold'
-            'breakout_z_threshold'
-            'obi_threshold'
+            'main_z_threshold',
+            'breakout_z_threshold',
+            'obi_threshold',
             'delta_bucket_ms'
         ]
         
@@ -142,10 +142,10 @@ class ConfigValidator:
                 )
     
     def validate_inputs(
-        self
-        symbol: str
-        config: Optional[Any]
-        source_name: str
+        self,
+        symbol: str,
+        config: Optional[Any],
+        source_name: str,
         signal_stream_prefix: str
     ) -> None:
         """
@@ -197,10 +197,10 @@ class ConfigValidator:
             raise DependencyError(f"{stream_name} not configured")
     
     def validate_infrastructure(
-        self
-        redis: Any
-        tick_stream: str
-        book_stream: str
+        self,
+        redis: Any,
+        tick_stream: str,
+        book_stream: str,
         cache_service: Any
     ) -> None:
         """

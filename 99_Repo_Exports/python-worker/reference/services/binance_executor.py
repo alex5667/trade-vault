@@ -6,8 +6,8 @@ from utils.time_utils import get_ny_time_millis
 
 Queue contract (orders:queue:binance):
   Required fields: action (open|modify|cancel|resize), sid, symbol
-  Open-specific:   side/direction (BUY/SELL or LONG/SHORT), qty/quantity
-                   type (MARKET|LIMIT), entry (for LIMIT)
+  Open-specific:   side/direction (BUY/SELL or LONG/SHORT), qty/quantity,
+                   type (MARKET|LIMIT), entry (for LIMIT),
                    sl, tp_levels (list of floats)
   Trailing:        trail_after_tp1=true, trail_callback_rate/trail_callback_bps/atr+trail_atr_mult
 
@@ -79,17 +79,17 @@ from services.binance_futures_client import BinanceAPIError, BinanceFuturesClien
 from services.execution_intent_validator import validate_exit_intent
 try:
     from services.execution_policy import (
-        MAKER_FIRST
-        SAFETY_FIRST
-        ExecutionPolicyDecision
-        resolve_execution_policy
+        MAKER_FIRST,
+        SAFETY_FIRST,
+        ExecutionPolicyDecision,
+        resolve_execution_policy,
     )
     from services.execution_journal import ExecutionJournalSink
     from services.quarantine_ledger import QuarantineLedgerSink
     from services.execution_state_replay import (
-        rebuild_state_from_stream
-        rebuild_state_with_fallback
-        persist_state_snapshot
+        rebuild_state_from_stream,
+        rebuild_state_with_fallback,
+        persist_state_snapshot,
     )
     from services.rollout_flags import RolloutFlags
 except Exception:  # pragma: no cover - standalone bundle / local tests
@@ -97,19 +97,19 @@ except Exception:  # pragma: no cover - standalone bundle / local tests
     from execution_intent_validator import validate_exit_intent
     try:
         from execution_policy import (
-            MAKER_FIRST
-            SAFETY_FIRST
-            ExecutionPolicyDecision
-            resolve_execution_policy
+            MAKER_FIRST,
+            SAFETY_FIRST,
+            ExecutionPolicyDecision,
+            resolve_execution_policy,
         )
     except Exception:
         pass
     from execution_journal import ExecutionJournalSink
     from quarantine_ledger import QuarantineLedgerSink
     from execution_state_replay import (
-        rebuild_state_from_stream
-        rebuild_state_with_fallback
-        persist_state_snapshot
+        rebuild_state_from_stream,
+        rebuild_state_with_fallback,
+        persist_state_snapshot,
     )
     from rollout_flags import RolloutFlags
 
@@ -133,20 +133,20 @@ def _metric(factory, name: str, *args, **kwargs):
         return collector
 
 # P3/P4 execution health counters
-EXECUTION_RECONCILE_PENDING_TOTAL = _metric(Counter
-    "execution_reconcile_pending_total"
-    "Number of executor transitions into PENDING_RECONCILE."
-    ["action", "symbol"]
+EXECUTION_RECONCILE_PENDING_TOTAL = _metric(Counter,
+    "execution_reconcile_pending_total",
+    "Number of executor transitions into PENDING_RECONCILE.",
+    ["action", "symbol"],
 )
-EXECUTION_EMERGENCY_FLATTEN_TOTAL = _metric(Counter
-    "execution_emergency_flatten_total"
-    "Number of emergency flatten operations executed by the Binance executor."
-    ["symbol", "reason"]
+EXECUTION_EMERGENCY_FLATTEN_TOTAL = _metric(Counter,
+    "execution_emergency_flatten_total",
+    "Number of emergency flatten operations executed by the Binance executor.",
+    ["symbol", "reason"],
 )
-EXECUTION_STATE_TRANSITION_TOTAL = _metric(Counter
-    "execution_state_transition_total"
-    "Number of executor finite-state-machine transitions."
-    ["action", "symbol", "next_state"]
+EXECUTION_STATE_TRANSITION_TOTAL = _metric(Counter,
+    "execution_state_transition_total",
+    "Number of executor finite-state-machine transitions.",
+    ["action", "symbol", "next_state"],
 )
 
 
@@ -267,11 +267,11 @@ def _round_half_up(x: float, decimals: int = 1) -> float:
 
 
 def compute_trailing_callback_rate_pct(
-    payload: Dict[str, Any]
-    *
-    min_pct: float
-    max_pct: float
-    default_pct: float
+    payload: Dict[str, Any],
+    *,
+    min_pct: float,
+    max_pct: float,
+    default_pct: float,
 ) -> float:
     """Extract callbackRate (%) for TRAILING_STOP_MARKET from signal payload.
 
@@ -328,12 +328,12 @@ def compute_limit_tp_price(tp_trigger_price: float, logical_side: str, *, offset
 
 
 def compute_trailing_activate_price(
-    logical_side: str
-    *
-    latest_price: float
-    tick_size: float
-    buffer_bps: float
-    user_activate_price: Optional[float] = None
+    logical_side: str,
+    *,
+    latest_price: float,
+    tick_size: float,
+    buffer_bps: float,
+    user_activate_price: Optional[float] = None,
 ) -> float:
     """Return a valid activatePrice for Binance TRAILING_STOP_MARKET.
 
@@ -426,8 +426,8 @@ class FiltersCache:
                 min_notional = _f(f.get("notional"), min_notional)
 
         sf = SymbolFilters(
-            tick_size=tick or 0.0, step_size=step or 0.0
-            min_qty=min_qty or 0.0, min_notional=min_notional or 0.0
+            tick_size=tick or 0.0, step_size=step or 0.0,
+            min_qty=min_qty or 0.0, min_notional=min_notional or 0.0,
         )
         self._cache[s] = sf
         return sf
@@ -704,8 +704,8 @@ class BinanceExecutor:
         if not self._is_sid_quarantined(sid):
             return
         self._exec_event({
-            'sid': sid, 'symbol': symbol, 'action': action, 'severity': 'warning'
-            'msg': 'resume/open blocked: sid is quarantined', 'event_type': 'RESUME_GUARD_BLOCKED'
+            'sid': sid, 'symbol': symbol, 'action': action, 'severity': 'warning',
+            'msg': 'resume/open blocked: sid is quarantined', 'event_type': 'RESUME_GUARD_BLOCKED',
         })
         raise RuntimeError(f'sid is quarantined: {sid}')
 
@@ -755,8 +755,8 @@ class BinanceExecutor:
         signal_id = str(src.get('signal_id') or src.get('decision_id') or src.get('id') or sid or '').strip()
         execution_plan_id = str(src.get('execution_plan_id') or src.get('decision_id') or signal_id or sid or '').strip()
         return {
-            'signal_id': signal_id
-            'execution_plan_id': execution_plan_id
+            'signal_id': signal_id,
+            'execution_plan_id': execution_plan_id,
         }
 
     @staticmethod
@@ -779,12 +779,12 @@ class BinanceExecutor:
         """
         if str(execution_policy).upper() == MAKER_FIRST:
             return {
-                'entry_policy': 'ENTRY_MARKET_OR_SHORT_IOC'
-                'exit_policy': 'SL_STOP_MARKET__TP_LIMIT_LADDER__TRAIL_OPTIONAL'
+                'entry_policy': 'ENTRY_MARKET_OR_SHORT_IOC',
+                'exit_policy': 'SL_STOP_MARKET__TP_LIMIT_LADDER__TRAIL_OPTIONAL',
             }
         return {
-            'entry_policy': 'ENTRY_MARKET_OR_SHORT_IOC'
-            'exit_policy': 'SL_STOP_MARKET__TP_MARKET__TRAIL_OPTIONAL'
+            'entry_policy': 'ENTRY_MARKET_OR_SHORT_IOC',
+            'exit_policy': 'SL_STOP_MARKET__TP_MARKET__TRAIL_OPTIONAL',
         }
 
     def _new_closed_trade_id(self, sid: str, *, exit_order_ref: str = '') -> str:
@@ -822,8 +822,8 @@ class BinanceExecutor:
         """Push unprocessable message to DLQ list (fail-open)."""
         try:
             self.r.lpush(
-                self.queue_dlq
-                json.dumps({"reason": reason, "raw": raw, "ts_ms": _ms_now()})
+                self.queue_dlq,
+                json.dumps({"reason": reason, "raw": raw, "ts_ms": _ms_now()}),
             )
         except Exception:
             pass
@@ -852,7 +852,7 @@ class BinanceExecutor:
 
         P5 note: the Redis state key is a *materialized view*, not the primary
         event log.  We therefore merge new fields into the existing snapshot so
-        durable chain fields (signal_id, execution_plan_id, entry/exit refs
+        durable chain fields (signal_id, execution_plan_id, entry/exit refs,
         closed_trade_id) survive partial updates such as TP watchdog or trail
         arming.
 
@@ -892,9 +892,9 @@ class BinanceExecutor:
             merged['updated_at_ms'] = _ms_now()
             doc = {"ts_ms": _ms_now(), "venue": "binance", **merged}
             self.r.set(
-                f"{self.state_key_prefix}{sid}"
-                json.dumps(doc, ensure_ascii=False, default=str)
-                ex=self.state_ttl if self.state_ttl > 0 else None
+                f"{self.state_key_prefix}{sid}",
+                json.dumps(doc, ensure_ascii=False, default=str),
+                ex=self.state_ttl if self.state_ttl > 0 else None,
             )
             try:
                 # Mirror state snapshot and protection refs to SQL journal (fail-open)
@@ -930,11 +930,11 @@ class BinanceExecutor:
             now_ms = _ms_now()
             payload = dict(state_doc or {})
             payload.update({
-                'sid': sid
-                'quarantined_at_ms': now_ms
-                'quarantine_reason': 'replay_mismatch'
-                'quarantine_source': 'executor_rehydrate'
-                'replay_mismatch': mismatch
+                'sid': sid,
+                'quarantined_at_ms': now_ms,
+                'quarantine_reason': 'replay_mismatch',
+                'quarantine_source': 'executor_rehydrate',
+                'replay_mismatch': mismatch,
             })
             pipe = self.r.pipeline()
             pipe.set(qkey, json.dumps(payload, ensure_ascii=False, default=str))
@@ -947,16 +947,16 @@ class BinanceExecutor:
                 sink = getattr(self, 'quarantine_ledger', None)
                 if sink is not None:
                     sink.record_quarantine_event({
-                        'sid': sid
-                        'symbol': str((state_doc or {}).get('symbol') or '')
-                        'action': 'REPLAY_MISMATCH_QUARANTINED'
-                        'severity': 'critical' if any(k in {'status', 'fsm_state'} for k in mismatch) else 'warning'
-                        'reason': 'replay_mismatch'
-                        'source': 'executor_rehydrate'
-                        'quarantine_key': qkey
-                        'state': payload
-                        'event_ts_ms': now_ms
-                        'created_at_ms': now_ms
+                        'sid': sid,
+                        'symbol': str((state_doc or {}).get('symbol') or ''),
+                        'action': 'REPLAY_MISMATCH_QUARANTINED',
+                        'severity': 'critical' if any(k in {'status', 'fsm_state'} for k in mismatch) else 'warning',
+                        'reason': 'replay_mismatch',
+                        'source': 'executor_rehydrate',
+                        'quarantine_key': qkey,
+                        'state': payload,
+                        'event_ts_ms': now_ms,
+                        'created_at_ms': now_ms,
                     })
             except Exception:
                 pass
@@ -971,7 +971,7 @@ class BinanceExecutor:
         state key, we replay the most recent execution facts for that ``sid``
         and persist the rebuilt snapshot back into Redis.
 
-        P3.3-ops-complete: uses rebuild_state_with_fallback (checkpoint-aware)
+        P3.3-ops-complete: uses rebuild_state_with_fallback (checkpoint-aware),
         publishes retention_guard_triggered and replay_latency_ms into the
         state_rehydrated event so operators can track replay health.
         """
@@ -980,36 +980,36 @@ class BinanceExecutor:
         try:
             checkpoint_id = str(self.r.get(self._replay_checkpoint_key(sid)) or '')
             result = rebuild_state_with_fallback(
-                self.r
-                exec_stream=self.exec_stream
-                sid=sid
-                scan_count=self.exec_replay_scan_count
-                checkpoint_id=checkpoint_id
-                sql_dsn=getattr(self, 'execution_journal_dsn', '')
+                self.r,
+                exec_stream=self.exec_stream,
+                sid=sid,
+                scan_count=self.exec_replay_scan_count,
+                checkpoint_id=checkpoint_id,
+                sql_dsn=getattr(self, 'execution_journal_dsn', ''),
             )
             state_doc = result.state_doc
             if not state_doc:
                 return {}
             persist_state_snapshot(
-                self.r
-                state_key=f"{self.state_key_prefix}{sid}"
-                state_doc=state_doc
-                ttl_sec=self.state_ttl if self.state_ttl > 0 else 0
-                checkpoint_key=self._replay_checkpoint_key(sid)
+                self.r,
+                state_key=f"{self.state_key_prefix}{sid}",
+                state_doc=state_doc,
+                ttl_sec=self.state_ttl if self.state_ttl > 0 else 0,
+                checkpoint_key=self._replay_checkpoint_key(sid),
             )
             self._exec_event({
-                "sid": sid
-                "action": "rehydrate"
-                "event_type": "state_rehydrated_from_stream"
-                "fsm_state": state_doc.get("fsm_state")
-                "stream_last_id": state_doc.get("stream_last_id")
-                "stream_replayed_events": state_doc.get("stream_replayed_events")
-                "rehydrate_source": result.source
-                "replay_truncated": int(bool(result.truncated))
-                "checkpoint_id": result.checkpoint_id
+                "sid": sid,
+                "action": "rehydrate",
+                "event_type": "state_rehydrated_from_stream",
+                "fsm_state": state_doc.get("fsm_state"),
+                "stream_last_id": state_doc.get("stream_last_id"),
+                "stream_replayed_events": state_doc.get("stream_replayed_events"),
+                "rehydrate_source": result.source,
+                "replay_truncated": int(bool(result.truncated)),
+                "checkpoint_id": result.checkpoint_id,
                 # P3.3-ops-complete: retention guard + latency telemetry
-                "retention_guard_triggered": int(bool(result.retention_guard_triggered))
-                "replay_latency_ms": int(result.latency_ms)
+                "retention_guard_triggered": int(bool(result.retention_guard_triggered)),
+                "replay_latency_ms": int(result.latency_ms),
             })
             return state_doc
         except Exception:
@@ -1035,13 +1035,13 @@ class BinanceExecutor:
             return self._recover_state_from_exec_stream(sid)
 
     def _transition_state(
-        self
-        sid: str
-        *
-        symbol: str
-        action: str
-        next_state: str
-        details: Optional[Dict[str, Any]] = None
+        self,
+        sid: str,
+        *,
+        symbol: str,
+        action: str,
+        next_state: str,
+        details: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Persist one idempotent FSM transition and mirror it into orders:exec."""
         prev = self._load_order_state(sid)
@@ -1061,13 +1061,13 @@ class BinanceExecutor:
         if EXECUTION_STATE_TRANSITION_TOTAL:
             EXECUTION_STATE_TRANSITION_TOTAL.labels(action=action, symbol=symbol, next_state=next_state).inc()
         self._exec_event({
-            "sid": sid
-            "symbol": symbol
-            "action": action
-            "event_type": "state_transition"
-            "prev_state": prev_state
-            "fsm_state": next_state
-            **(details or {})
+            "sid": sid,
+            "symbol": symbol,
+            "action": action,
+            "event_type": "state_transition",
+            "prev_state": prev_state,
+            "fsm_state": next_state,
+            **(details or {}),
         })
         return doc
 
@@ -1075,11 +1075,11 @@ class BinanceExecutor:
         if EXECUTION_RECONCILE_PENDING_TOTAL:
             EXECUTION_RECONCILE_PENDING_TOTAL.labels(action=action, symbol=symbol).inc()
         self._transition_state(
-            sid
-            symbol=symbol
-            action=action
-            next_state=FSM_PENDING_RECONCILE
-            details={"reconcile_reason": reason}
+            sid,
+            symbol=symbol,
+            action=action,
+            next_state=FSM_PENDING_RECONCILE,
+            details={"reconcile_reason": reason},
         )
 
     def _user_stream_cache_key(self, ref_kind: str, ref_value: str) -> str:
@@ -1157,9 +1157,9 @@ class BinanceExecutor:
         fsm_state = str(state.get("fsm_state") or "")
         if fsm_state in {FSM_PROTECTED, FSM_TP_POLICY_ARMED, FSM_TRAIL_ARMED, FSM_EXIT_FILLED, FSM_EMERGENCY_FLATTENED}:
             self._exec_event({
-                "sid": sid, "symbol": symbol, "action": "resume"
-                "event_type": "resume_from_materialized_state"
-                "fsm_state": fsm_state
+                "sid": sid, "symbol": symbol, "action": "resume",
+                "event_type": "resume_from_materialized_state",
+                "fsm_state": fsm_state,
             })
             return dict(state, recovered_from_state=True)
         order_id = _i(state.get("binance_order_id"), 0)
@@ -1178,7 +1178,7 @@ class BinanceExecutor:
 
         Leverage fallback logic:
           1. Try to set self.default_leverage (e.g. 100).
-          2. If Binance returns -4028 (leverage exceeds maximum for symbol)
+          2. If Binance returns -4028 (leverage exceeds maximum for symbol),
              parse maxLeverage from the error payload and retry with that value.
           3. All other errors are swallowed (margin type already set, etc.).
         """
@@ -1201,8 +1201,8 @@ class BinanceExecutor:
                     client.post_leverage(symbol, capped)
                     import logging as _logging
                     _logging.getLogger(__name__).info(
-                        "leverage fallback: %s requested=%d max_allowed=%d → set=%d"
-                        symbol, self.default_leverage, max_lev, capped
+                        "leverage fallback: %s requested=%d max_allowed=%d → set=%d",
+                        symbol, self.default_leverage, max_lev, capped,
                     )
                 except Exception:
                     pass
@@ -1242,8 +1242,8 @@ class BinanceExecutor:
     # --- Order quantisation ---
 
     def _quantize(
-        self, symbol: str, qty: float, price: Optional[float]
-        *, filters: "FiltersCache"
+        self, symbol: str, qty: float, price: Optional[float],
+        *, filters: "FiltersCache",
     ) -> Tuple[str, Optional[str]]:
         """Apply LOT_SIZE stepSize and PRICE_FILTER tickSize to qty and price. Returns formatted strings."""
         f = filters.get(symbol)
@@ -1261,8 +1261,8 @@ class BinanceExecutor:
     # --- Fill polling ---
 
     def _wait_fill(
-        self, symbol: str, order_id: int, *, timeout_s: float
-        client: "BinanceFuturesClient"
+        self, symbol: str, order_id: int, *, timeout_s: float,
+        client: "BinanceFuturesClient",
     ) -> Dict[str, Any]:
         """Poll order status until FILLED or terminal state or timeout."""
         deadline = time.time() + timeout_s
@@ -1281,8 +1281,8 @@ class BinanceExecutor:
     # --- TP qty splitting ---
 
     def _split_tp_qtys(
-        self, symbol: str, total_qty: float, n: int
-        *, filters: "FiltersCache"
+        self, symbol: str, total_qty: float, n: int,
+        *, filters: "FiltersCache",
     ) -> List[float]:
         """Split total_qty evenly across n TP orders respecting stepSize.
 
@@ -1317,12 +1317,12 @@ class BinanceExecutor:
 
 
     def _local_headroom_check(
-        self
-        *
-        client: "BinanceFuturesClient"
-        symbol: str
-        qty: float
-        reference_price: Optional[float]
+        self,
+        *,
+        client: "BinanceFuturesClient",
+        symbol: str,
+        qty: float,
+        reference_price: Optional[float],
     ) -> None:
         """Best-effort reserve check before submitting conditional protection.
 
@@ -1350,26 +1350,26 @@ class BinanceExecutor:
             return
 
     def _validate_exit_contract(
-        self
-        *
-        position_side: Optional[str]
-        reduce_only: bool
-        close_position: bool
-        quantity: Optional[float]
-        order_type: str
-        working_type: Optional[str]
-        is_algo: bool
+        self,
+        *,
+        position_side: Optional[str],
+        reduce_only: bool,
+        close_position: bool,
+        quantity: Optional[float],
+        order_type: str,
+        working_type: Optional[str],
+        is_algo: bool,
     ) -> None:
         result = validate_exit_intent(
-            position_mode=self.position_mode
-            position_side=position_side
-            exit_intent="close"
-            reduce_only=reduce_only
-            close_position=close_position
-            quantity=quantity
-            order_type=order_type
-            working_type=working_type
-            is_algo=is_algo
+            position_mode=self.position_mode,
+            position_side=position_side,
+            exit_intent="close",
+            reduce_only=reduce_only,
+            close_position=close_position,
+            quantity=quantity,
+            order_type=order_type,
+            working_type=working_type,
+            is_algo=is_algo,
         )
         if not result.is_valid_exit_contract:
             raise ValueError(f"invalid_exit_contract:{result.reason}")
@@ -1386,58 +1386,58 @@ class BinanceExecutor:
 
     def _emit_protection_incident(self, sid: str, symbol: str, reason: str) -> None:
         self._exec_event({
-            "sid": sid
-            "symbol": symbol
-            "action": "protection_invariant"
-            "status": "failed"
-            "reason": reason
-            "severity": "critical"
+            "sid": sid,
+            "symbol": symbol,
+            "action": "protection_invariant",
+            "status": "failed",
+            "reason": reason,
+            "severity": "critical",
         })
         self._save_order_state(sid, {
-            "action": "protection_invariant"
-            "status": "failed"
-            "symbol": symbol
-            "incident_flag": "protection_missing"
-            "incident_reason": reason
+            "action": "protection_invariant",
+            "status": "failed",
+            "symbol": symbol,
+            "incident_flag": "protection_missing",
+            "incident_reason": reason,
         })
 
     def _emergency_flatten_position(
-        self
-        *
-        sid: str
-        symbol: str
-        logical_side: str
-        qty: float
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self,
+        *,
+        sid: str,
+        symbol: str,
+        logical_side: str,
+        qty: float,
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> Dict[str, Any]:
         exit_side = "SELL" if logical_side == "LONG" else "BUY"
         pos_side = _position_side_for_mode(self.position_mode, logical_side)
         q_close, _ = self._quantize(symbol, qty, None, filters=filters)
         params: Dict[str, Any] = {
-            "symbol": symbol
-            "side": exit_side
-            "type": "MARKET"
-            "quantity": q_close
-            "newClientOrderId": _make_cid(sid, "emerg")
+            "symbol": symbol,
+            "side": exit_side,
+            "type": "MARKET",
+            "quantity": q_close,
+            "newClientOrderId": _make_cid(sid, "emerg"),
         }
         if self.position_mode == "oneway":
             params["reduceOnly"] = True
         elif pos_side:
             params["positionSide"] = pos_side
         self._validate_exit_contract(
-            position_side=pos_side
-            reduce_only=bool(params.get("reduceOnly"))
-            close_position=False
-            quantity=float(q_close)
-            order_type="MARKET"
-            working_type=None
-            is_algo=False
+            position_side=pos_side,
+            reduce_only=bool(params.get("reduceOnly")),
+            close_position=False,
+            quantity=float(q_close),
+            order_type="MARKET",
+            working_type=None,
+            is_algo=False,
         )
         j = client.post_plain_order(params)
         return {
-            "emergency_order_id": j.get("orderId")
-            "emergency_client_id": params["newClientOrderId"]
+            "emergency_order_id": j.get("orderId"),
+            "emergency_client_id": params["newClientOrderId"],
         }
 
     # --- Protective orders (SL + TPs) ---
@@ -1448,14 +1448,14 @@ class BinanceExecutor:
     _PROTECTIVE_NUDGE_OFFSET: float    = 0.0005  # 0.05 % cushion away from mark
 
     def _validate_protective_prices(
-        self
-        symbol: str
-        logical_side: str
-        sl: Optional[float]
-        tps: List[float]
-        *
-        client: "BinanceFuturesClient"
-        ref_price: Optional[float] = None
+        self,
+        symbol: str,
+        logical_side: str,
+        sl: Optional[float],
+        tps: List[float],
+        *,
+        client: "BinanceFuturesClient",
+        ref_price: Optional[float] = None,
     ) -> Tuple[Optional[float], List[float]]:
         """Validate SL and TP prices against the current mark price.
 
@@ -1541,15 +1541,15 @@ class BinanceExecutor:
         if not self.rollout_flags.maker_allowed(infra_degraded=infra_degraded):
             maker_allowed_symbols = set()
         return resolve_execution_policy(
-            payload=payload
-            symbol=symbol
-            default_policy=default_policy
-            maker_allowed_symbols=maker_allowed_symbols
-            tp_market_working_type=self.tp_market_working_type
-            tp_limit_trigger_working_type=self.tp_limit_trigger_working_type
-            tp_limit_time_in_force=self.tp_limit_time_in_force
-            watchdog_enabled=self.tp_limit_watchdog_enable
-            watchdog_timeout_ms=self.tp_limit_watchdog_timeout_ms
+            payload=payload,
+            symbol=symbol,
+            default_policy=default_policy,
+            maker_allowed_symbols=maker_allowed_symbols,
+            tp_market_working_type=self.tp_market_working_type,
+            tp_limit_trigger_working_type=self.tp_limit_trigger_working_type,
+            tp_limit_time_in_force=self.tp_limit_time_in_force,
+            watchdog_enabled=self.tp_limit_watchdog_enable,
+            watchdog_timeout_ms=self.tp_limit_watchdog_timeout_ms,
         )
 
     def _position_qty_tolerance(self, symbol: str, *, filters: "FiltersCache") -> float:
@@ -1561,13 +1561,13 @@ class BinanceExecutor:
     def _emit_tp_state(self, sid: str, symbol: str, level: int, state: str, **extra) -> None:
         tp_state = _tp_state_name(level, state)
         ev = {
-            "sid": sid
-            "symbol": symbol
-            "action": "tp_state"
-            "event_type": "tp_watchdog"
-            "tp_level": int(level)
-            "tp_state": tp_state
-            **extra
+            "sid": sid,
+            "symbol": symbol,
+            "action": "tp_state",
+            "event_type": "tp_watchdog",
+            "tp_level": int(level),
+            "tp_state": tp_state,
+            **extra,
         }
         self._exec_event(ev)
         # P5: mirror TP watchdog events to SQL for durable forensic audit
@@ -1583,71 +1583,71 @@ class BinanceExecutor:
         self._save_order_state(sid, state_doc)
         if str(state).upper() in {"TRIGGERED", "PARTIAL", "FILLED", "WATCHDOG_MARKET_FALLBACK", "MONITOR_TIMEOUT", "ERROR"}:
             self._transition_state(
-                sid
-                symbol=symbol
-                action="tp_state"
-                next_state=tp_state
-                details={"tp_level": int(level)}
+                sid,
+                symbol=symbol,
+                action="tp_state",
+                next_state=tp_state,
+                details={"tp_level": int(level)},
             )
 
     def _submit_reduce_only_market_exit(
-        self
-        *
-        sid: str
-        symbol: str
-        logical_side: str
-        qty: float
-        reason_tag: str
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self,
+        *,
+        sid: str,
+        symbol: str,
+        logical_side: str,
+        qty: float,
+        reason_tag: str,
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> dict:
         exit_side = "SELL" if logical_side == "LONG" else "BUY"
         pos_side = _position_side_for_mode(self.position_mode, logical_side)
         q_close, _ = self._quantize(symbol, qty, None, filters=filters)
         params = {
-            "symbol": symbol
-            "side": exit_side
-            "type": "MARKET"
-            "quantity": q_close
-            "newClientOrderId": _make_cid(sid, reason_tag)
-            "newOrderRespType": "RESULT"
+            "symbol": symbol,
+            "side": exit_side,
+            "type": "MARKET",
+            "quantity": q_close,
+            "newClientOrderId": _make_cid(sid, reason_tag),
+            "newOrderRespType": "RESULT",
         }
         if self.position_mode == "oneway":
             params["reduceOnly"] = True
             self._validate_exit_contract(
-                position_side=pos_side
-                reduce_only=True
-                close_position=False
-                quantity=float(q_close)
-                order_type="MARKET"
-                working_type=None
-                is_algo=False
+                position_side=pos_side,
+                reduce_only=True,
+                close_position=False,
+                quantity=float(q_close),
+                order_type="MARKET",
+                working_type=None,
+                is_algo=False,
             )
         elif pos_side:
             params["positionSide"] = pos_side
             self._validate_exit_contract(
-                position_side=pos_side
-                reduce_only=False
-                close_position=False
-                quantity=float(q_close)
-                order_type="MARKET"
-                working_type=None
-                is_algo=False
+                position_side=pos_side,
+                reduce_only=False,
+                close_position=False,
+                quantity=float(q_close),
+                order_type="MARKET",
+                working_type=None,
+                is_algo=False,
             )
         j = self._submit_plain_order_with_reconcile(
             sid=sid, symbol=symbol, action="emergency_flatten", params=params, client=client
         )
         # P5: return exit_order_ref for chain linkage
         exit_order_ref = self._format_order_ref(
-            venue="binance", kind="close_market"
+            venue="binance", kind="close_market",
             order_id=j.get("orderId"), client_id=params["newClientOrderId"]
         )
         return {
-            "close_order_id": j.get("orderId")
-            "close_client_id": params["newClientOrderId"]
-            "close_order_status": j.get("status")
-            "close_reason_tag": reason_tag
-            "exit_order_ref": exit_order_ref
+            "close_order_id": j.get("orderId"),
+            "close_client_id": params["newClientOrderId"],
+            "close_order_status": j.get("status"),
+            "close_reason_tag": reason_tag,
+            "exit_order_ref": exit_order_ref,
         }
 
     def _emergency_flatten_position(self, *, sid: str, symbol: str, logical_side: str, qty: float, client: "BinanceFuturesClient", filters: "FiltersCache") -> dict:
@@ -1658,25 +1658,25 @@ class BinanceExecutor:
         # P5: propagate exit_order_ref and derive closed_trade_id
         exit_order_ref = str(close.get('exit_order_ref') or '')
         return {
-            "emergency_order_id": close.get("close_order_id")
-            "emergency_client_id": close.get("close_client_id")
-            "exit_order_ref": exit_order_ref
-            "closed_trade_id": self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref) if exit_order_ref else ''
+            "emergency_order_id": close.get("close_order_id"),
+            "emergency_client_id": close.get("close_client_id"),
+            "exit_order_ref": exit_order_ref,
+            "closed_trade_id": self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref) if exit_order_ref else '',
         }
 
 
     def _place_protective(
-        self, *, sid: str, symbol: str, logical_side: str
-        qty: float, sl: Optional[float], tps: List[float]
-        policy: ExecutionPolicyDecision
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
-        ref_price: Optional[float] = None
+        self, *, sid: str, symbol: str, logical_side: str,
+        qty: float, sl: Optional[float], tps: List[float],
+        policy: ExecutionPolicyDecision,
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
+        ref_price: Optional[float] = None,
     ) -> Dict[str, Any]:
         out: Dict[str, Any] = {
-            "execution_policy": policy.name
-            "execution_policy_reason": policy.reason
-            "tp_watchdog_enabled": bool(policy.tp_watchdog_enabled)
+            "execution_policy": policy.name,
+            "execution_policy_reason": policy.reason,
+            "tp_watchdog_enabled": bool(policy.tp_watchdog_enabled),
         }
         exit_side = "SELL" if logical_side == "LONG" else "BUY"
         pos_side = _position_side_for_mode(self.position_mode, logical_side)
@@ -1690,51 +1690,51 @@ class BinanceExecutor:
         self._local_headroom_check(client=client, symbol=symbol, qty=qty, reference_price=check_ref)
 
         valid_sl, valid_tps = self._validate_protective_prices(
-            symbol, logical_side, sl, tps
-            client=client, ref_price=ref_price
+            symbol, logical_side, sl, tps,
+            client=client, ref_price=ref_price,
         )
 
         if sl is not None and sl > 0 and valid_sl is None:
             self._exec_event({
-                "sid": sid, "symbol": symbol, "action": "sl_skip"
-                "status": "warning"
-                "msg": f"SL price {sl} already crossed mark price — skipped to avoid -2021"
-                "sl_skipped": sl
+                "sid": sid, "symbol": symbol, "action": "sl_skip",
+                "status": "warning",
+                "msg": f"SL price {sl} already crossed mark price — skipped to avoid -2021",
+                "sl_skipped": sl,
             })
         dropped_tps = [tp for tp in tps if tp not in valid_tps]
         if dropped_tps:
             self._exec_event({
-                "sid": sid, "symbol": symbol, "action": "tp_skip"
-                "status": "warning"
-                "msg": f"TP price(s) {dropped_tps} already crossed mark price — skipped to avoid -2021"
-                "tp_skipped": str(dropped_tps)
+                "sid": sid, "symbol": symbol, "action": "tp_skip",
+                "status": "warning",
+                "msg": f"TP price(s) {dropped_tps} already crossed mark price — skipped to avoid -2021",
+                "tp_skipped": str(dropped_tps),
             })
 
         if valid_sl is not None and valid_sl > 0:
             q_sl, sl_q = self._quantize(symbol, qty, valid_sl, filters=filters)
             p: Dict[str, Any] = {
-                "symbol": symbol
-                "side": exit_side
-                "type": "STOP_MARKET"
-                "triggerPrice": sl_q
-                "workingType": self.sl_working_type
-                "clientAlgoId": _make_cid(sid, "sl")
+                "symbol": symbol,
+                "side": exit_side,
+                "type": "STOP_MARKET",
+                "triggerPrice": sl_q,
+                "workingType": self.sl_working_type,
+                "clientAlgoId": _make_cid(sid, "sl"),
             }
             if reduce_only_allowed:
                 p["reduceOnly"] = True
                 self._validate_exit_contract(
-                    position_side=pos_side, reduce_only=True, close_position=False
-                    quantity=float(q_sl), order_type="STOP_MARKET"
-                    working_type=self.sl_working_type, is_algo=True
+                    position_side=pos_side, reduce_only=True, close_position=False,
+                    quantity=float(q_sl), order_type="STOP_MARKET",
+                    working_type=self.sl_working_type, is_algo=True,
                 )
                 p["quantity"] = q_sl
             elif pos_side:
                 p["positionSide"] = pos_side
                 p["closePosition"] = True
                 self._validate_exit_contract(
-                    position_side=pos_side, reduce_only=False, close_position=True
-                    quantity=None, order_type="STOP_MARKET"
-                    working_type=self.sl_working_type, is_algo=True
+                    position_side=pos_side, reduce_only=False, close_position=True,
+                    quantity=None, order_type="STOP_MARKET",
+                    working_type=self.sl_working_type, is_algo=True,
                 )
             j = self._submit_algo_order_with_reconcile(
                 sid=sid, symbol=symbol, action="place_sl", params=p, client=client
@@ -1753,39 +1753,39 @@ class BinanceExecutor:
                 expected_remaining = max(0.0, float(qty) - cumulative)
                 q_tp2, tp_q = self._quantize(symbol, q_tp, tp, filters=filters)
                 common: Dict[str, Any] = {
-                    "symbol": symbol
-                    "side": exit_side
-                    "workingType": policy.tp_working_type
-                    "clientAlgoId": _make_cid(sid, f"tp{idx}")
+                    "symbol": symbol,
+                    "side": exit_side,
+                    "workingType": policy.tp_working_type,
+                    "clientAlgoId": _make_cid(sid, f"tp{idx}"),
                 }
                 if policy.name == MAKER_FIRST:
                     limit_px = compute_limit_tp_price(
-                        float(tp_q), logical_side
-                        offset_bps=self.tp_limit_price_offset_bps
-                        tick_size=float(filters_obj.tick_size or 0.0)
+                        float(tp_q), logical_side,
+                        offset_bps=self.tp_limit_price_offset_bps,
+                        tick_size=float(filters_obj.tick_size or 0.0),
                     )
                     limit_px_s = _format_float(limit_px, float(filters_obj.tick_size or 0.0))
                     p = {
-                        **common
-                        "type": "TAKE_PROFIT"
-                        "triggerPrice": tp_q
-                        "price": limit_px_s
-                        "timeInForce": policy.tp_limit_time_in_force
-                        "quantity": q_tp2
+                        **common,
+                        "type": "TAKE_PROFIT",
+                        "triggerPrice": tp_q,
+                        "price": limit_px_s,
+                        "timeInForce": policy.tp_limit_time_in_force,
+                        "quantity": q_tp2,
                     }
                     if reduce_only_allowed:
                         p["reduceOnly"] = True
                         self._validate_exit_contract(
-                            position_side=pos_side, reduce_only=True, close_position=False
-                            quantity=float(q_tp2), order_type="TAKE_PROFIT"
-                            working_type=policy.tp_working_type, is_algo=True
+                            position_side=pos_side, reduce_only=True, close_position=False,
+                            quantity=float(q_tp2), order_type="TAKE_PROFIT",
+                            working_type=policy.tp_working_type, is_algo=True,
                         )
                     elif pos_side:
                         p["positionSide"] = pos_side
                         self._validate_exit_contract(
-                            position_side=pos_side, reduce_only=False, close_position=False
-                            quantity=float(q_tp2), order_type="TAKE_PROFIT"
-                            working_type=policy.tp_working_type, is_algo=True
+                            position_side=pos_side, reduce_only=False, close_position=False,
+                            quantity=float(q_tp2), order_type="TAKE_PROFIT",
+                            working_type=policy.tp_working_type, is_algo=True,
                         )
                     j = self._submit_algo_order_with_reconcile(
                         sid=sid, symbol=symbol, action=f"place_tp{idx}", params=p, client=client
@@ -1801,39 +1801,39 @@ class BinanceExecutor:
                     out[f"tp{idx}_expected_remaining_qty"] = expected_remaining
                     out[f"tp{idx}_state"] = _tp_state_name(idx, "ARMED")
                     self._emit_tp_state(
-                        sid, symbol, idx, "ARMED"
-                        order_type="TAKE_PROFIT", policy=policy.name
-                        qty=q_tp2, trigger_price=tp_q, limit_price=limit_px_s
+                        sid, symbol, idx, "ARMED",
+                        order_type="TAKE_PROFIT", policy=policy.name,
+                        qty=q_tp2, trigger_price=tp_q, limit_price=limit_px_s,
                     )
                 else:
                     p = {
-                        **common
-                        "type": "TAKE_PROFIT_MARKET"
-                        "triggerPrice": tp_q
+                        **common,
+                        "type": "TAKE_PROFIT_MARKET",
+                        "triggerPrice": tp_q,
                     }
                     if reduce_only_allowed:
                         p["reduceOnly"] = True
                         p["quantity"] = q_tp2
                         self._validate_exit_contract(
-                            position_side=pos_side, reduce_only=True, close_position=False
-                            quantity=float(q_tp2), order_type="TAKE_PROFIT_MARKET"
-                            working_type=policy.tp_working_type, is_algo=True
+                            position_side=pos_side, reduce_only=True, close_position=False,
+                            quantity=float(q_tp2), order_type="TAKE_PROFIT_MARKET",
+                            working_type=policy.tp_working_type, is_algo=True,
                         )
                     elif pos_side:
                         p["positionSide"] = pos_side
                         p["closePosition"] = True if idx == len(valid_tps) and len(valid_tps) == 1 else False
                         if p["closePosition"]:
                             self._validate_exit_contract(
-                                position_side=pos_side, reduce_only=False, close_position=True
-                                quantity=None, order_type="TAKE_PROFIT_MARKET"
-                                working_type=policy.tp_working_type, is_algo=True
+                                position_side=pos_side, reduce_only=False, close_position=True,
+                                quantity=None, order_type="TAKE_PROFIT_MARKET",
+                                working_type=policy.tp_working_type, is_algo=True,
                             )
                         else:
                             p["quantity"] = q_tp2
                             self._validate_exit_contract(
-                                position_side=pos_side, reduce_only=False, close_position=False
-                                quantity=float(q_tp2), order_type="TAKE_PROFIT_MARKET"
-                                working_type=policy.tp_working_type, is_algo=True
+                                position_side=pos_side, reduce_only=False, close_position=False,
+                                quantity=float(q_tp2), order_type="TAKE_PROFIT_MARKET",
+                                working_type=policy.tp_working_type, is_algo=True,
                             )
                     j = self._submit_algo_order_with_reconcile(
                         sid=sid, symbol=symbol, action=f"place_tp{idx}", params=p, client=client
@@ -1893,8 +1893,8 @@ class BinanceExecutor:
     # --- Position quantity / margin query ---
 
     def _get_position_info(
-        self, symbol: str, logical_side: Optional[str] = None
-        *, client: "BinanceFuturesClient"
+        self, symbol: str, logical_side: Optional[str] = None,
+        *, client: "BinanceFuturesClient",
     ) -> Tuple[float, float, int]:
         """Return (abs_qty, margin_usdt, leverage) for the symbol position.
 
@@ -1922,8 +1922,8 @@ class BinanceExecutor:
         return 0.0, 0.0, 0
 
     def _get_position_qty(
-        self, symbol: str, logical_side: Optional[str] = None
-        *, client: "BinanceFuturesClient"
+        self, symbol: str, logical_side: Optional[str] = None,
+        *, client: "BinanceFuturesClient",
     ) -> float:
         """Return absolute position quantity. Returns 0.0 if no position."""
         qty, _, _lev = self._get_position_info(symbol, logical_side, client=client)
@@ -1932,12 +1932,12 @@ class BinanceExecutor:
     # --- Trailing stop placement / maker TP watchdog ---
 
     def _cancel_algo_order_best_effort(
-        self
-        *
-        symbol: str
-        client: "BinanceFuturesClient"
-        algo_id: Optional[int] = None
-        client_algo_id: Optional[str] = None
+        self,
+        *,
+        symbol: str,
+        client: "BinanceFuturesClient",
+        algo_id: Optional[int] = None,
+        client_algo_id: Optional[str] = None,
     ) -> None:
         try:
             if algo_id:
@@ -1949,15 +1949,15 @@ class BinanceExecutor:
             return
 
     def _try_arm_trailing_after_confirmed_tp(
-        self
-        *
-        sid: str
-        symbol: str
-        logical_side: str
-        sl_algo_id: Optional[int]
-        callback_rate_pct: float
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self,
+        *,
+        sid: str,
+        symbol: str,
+        logical_side: str,
+        sl_algo_id: Optional[int],
+        callback_rate_pct: float,
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> Dict[str, Any]:
         qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
         if qty <= 0:
@@ -1968,17 +1968,17 @@ class BinanceExecutor:
         if sl_algo_id:
             self._cancel_algo_order_best_effort(symbol=symbol, client=client, algo_id=sl_algo_id)
         trail = self._place_trailing_stop(
-            sid=sid, symbol=symbol, logical_side=logical_side, qty=qty
-            callback_rate_pct=callback_rate_pct, client=client, filters=filters
+            sid=sid, symbol=symbol, logical_side=logical_side, qty=qty,
+            callback_rate_pct=callback_rate_pct, client=client, filters=filters,
         )
         self._exec_event({
-            "sid": sid, "symbol": symbol, "action": "trail_arm", "status": "armed"
-            "side": logical_side, "qty": qty, "trail_callback_rate_pct": callback_rate_pct, **trail
+            "sid": sid, "symbol": symbol, "action": "trail_arm", "status": "armed",
+            "side": logical_side, "qty": qty, "trail_callback_rate_pct": callback_rate_pct, **trail,
         })
         self._transition_state(sid, symbol=symbol, action="trail_arm", next_state=FSM_TRAIL_ARMED, details=trail)
         self._save_order_state(sid, {
-            "action": "trail_arm", "status": "armed", "symbol": symbol, "side": logical_side
-            "trail_pending": False, **trail
+            "action": "trail_arm", "status": "armed", "symbol": symbol, "side": logical_side,
+            "trail_pending": False, **trail,
         })
         if self.tg is not None and self.trail_notify:
             self.tg.send_text(
@@ -1990,24 +1990,24 @@ class BinanceExecutor:
         return trail
 
     def _track_maker_tp_level_thread(
-        self
-        *
-        sid: str
-        symbol: str
-        logical_side: str
-        level: int
-        trigger_price: float
-        planned_qty: float
-        target_remaining_qty: float
-        initial_qty: float
-        working_type: str
-        algo_id: Optional[int]
-        client_algo_id: Optional[str]
-        sl_algo_id: Optional[int]
-        trail_after_tp1: bool
-        callback_rate_pct: Optional[float]
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self,
+        *,
+        sid: str,
+        symbol: str,
+        logical_side: str,
+        level: int,
+        trigger_price: float,
+        planned_qty: float,
+        target_remaining_qty: float,
+        initial_qty: float,
+        working_type: str,
+        algo_id: Optional[int],
+        client_algo_id: Optional[str],
+        sl_algo_id: Optional[int],
+        trail_after_tp1: bool,
+        callback_rate_pct: Optional[float],
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> None:
         try:
             deadline = time.time() + float(self.tp_trigger_monitor_timeout_s)
@@ -2029,62 +2029,62 @@ class BinanceExecutor:
                     if touched:
                         touch_ts_ms = _ms_now()
                         self._emit_tp_state(
-                            sid, symbol, level, "TRIGGERED"
-                            working_price=px, trigger_price=trigger_price, working_type=working_type
+                            sid, symbol, level, "TRIGGERED",
+                            working_price=px, trigger_price=trigger_price, working_type=working_type,
                         )
 
                 if touched:
                     current_qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
                     if current_qty <= target_remaining_qty + tol:
                         self._emit_tp_state(
-                            sid, symbol, level, "FILLED"
-                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty
+                            sid, symbol, level, "FILLED",
+                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty,
                         )
                         if level == 1 and trail_after_tp1 and callback_rate_pct is not None and not trail_armed:
                             self._try_arm_trailing_after_confirmed_tp(
-                                sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id
-                                callback_rate_pct=callback_rate_pct, client=client, filters=filters
+                                sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id,
+                                callback_rate_pct=callback_rate_pct, client=client, filters=filters,
                             )
                         return
                     if current_qty < initial_qty - tol and not partial_emitted:
                         partial_emitted = True
                         self._emit_tp_state(
-                            sid, symbol, level, "PARTIAL"
-                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty
+                            sid, symbol, level, "PARTIAL",
+                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty,
                         )
                         if level == 1 and trail_after_tp1 and callback_rate_pct is not None and not trail_armed:
                             self._try_arm_trailing_after_confirmed_tp(
-                                sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id
-                                callback_rate_pct=callback_rate_pct, client=client, filters=filters
+                                sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id,
+                                callback_rate_pct=callback_rate_pct, client=client, filters=filters,
                             )
                             trail_armed = True
 
                     if touch_ts_ms is not None and (_ms_now() - touch_ts_ms) >= int(self.tp_limit_watchdog_timeout_ms):
                         self._cancel_algo_order_best_effort(
-                            symbol=symbol, client=client, algo_id=algo_id, client_algo_id=client_algo_id
+                            symbol=symbol, client=client, algo_id=algo_id, client_algo_id=client_algo_id,
                         )
                         current_qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
                         missing_qty = max(0.0, current_qty - float(target_remaining_qty))
                         if missing_qty > tol:
                             close = self._submit_reduce_only_market_exit(
-                                sid=sid, symbol=symbol, logical_side=logical_side, qty=missing_qty
-                                reason_tag=f"tp{int(level)}wd", client=client, filters=filters
+                                sid=sid, symbol=symbol, logical_side=logical_side, qty=missing_qty,
+                                reason_tag=f"tp{int(level)}wd", client=client, filters=filters,
                             )
                             self._emit_tp_state(
-                                sid, symbol, level, "WATCHDOG_MARKET_FALLBACK"
-                                current_qty=current_qty, target_remaining_qty=target_remaining_qty
-                                missing_qty=missing_qty, close_order_id=close.get("close_order_id")
+                                sid, symbol, level, "WATCHDOG_MARKET_FALLBACK",
+                                current_qty=current_qty, target_remaining_qty=target_remaining_qty,
+                                missing_qty=missing_qty, close_order_id=close.get("close_order_id"),
                             )
                             if level == 1 and trail_after_tp1 and callback_rate_pct is not None and not trail_armed:
                                 time.sleep(0.2)
                                 self._try_arm_trailing_after_confirmed_tp(
-                                    sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id
-                                    callback_rate_pct=callback_rate_pct, client=client, filters=filters
+                                    sid=sid, symbol=symbol, logical_side=logical_side, sl_algo_id=sl_algo_id,
+                                    callback_rate_pct=callback_rate_pct, client=client, filters=filters,
                                 )
                             return
                         self._emit_tp_state(
-                            sid, symbol, level, "FILLED"
-                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty
+                            sid, symbol, level, "FILLED",
+                            current_qty=current_qty, target_remaining_qty=target_remaining_qty, planned_qty=planned_qty,
                         )
                         return
 
@@ -2096,17 +2096,17 @@ class BinanceExecutor:
             self._emit_tp_state(sid, symbol, level, "ERROR", msg=str(e)[:400])
 
     def _start_maker_tp_watchdogs(
-        self
-        *
-        payload: Dict[str, Any]
-        sid: str
-        symbol: str
-        logical_side: str
-        filled_qty: float
-        prot: Dict[str, Any]
-        tps: List[float]
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self,
+        *,
+        payload: Dict[str, Any],
+        sid: str,
+        symbol: str,
+        logical_side: str,
+        filled_qty: float,
+        prot: Dict[str, Any],
+        tps: List[float],
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> Dict[str, Any]:
         if prot.get("execution_policy") != MAKER_FIRST or not tps or not _truthy(prot.get("tp_watchdog_enabled")):
             return {}
@@ -2121,57 +2121,57 @@ class BinanceExecutor:
                 except Exception:
                     atr = None
             callback_rate_pct = compute_trailing_callback_rate_pct(
-                payload
-                entry_price=float(payload.get("entry")) if payload.get("entry") not in (None, "", 0, "0") else None
-                atr=atr
-                min_pct=float(self.trail_cb_min)
-                max_pct=float(self.trail_cb_max)
-                default_pct=float(self.trail_cb_default)
-                atr_mult_default=float(self.trail_atr_mult_default)
-            )
+                payload,
+                entry_price=float(payload.get("entry")) if payload.get("entry") not in (None, "", 0, "0") else None,
+                atr=atr,
+                min_pct=float(self.trail_cb_min),
+                max_pct=float(self.trail_cb_max),
+                default_pct=float(self.trail_cb_default),
+                atr_mult_default=float(self.trail_atr_mult_default),
+            ),
 
-        summary = {"tp_watchdog_status": "started", "tp_watchdog_timeout_ms": self.tp_limit_watchdog_timeout_ms}
+        summary = {"tp_watchdog_status": "started", "tp_watchdog_timeout_ms": self.tp_limit_watchdog_timeout_ms},
         if callback_rate_pct is not None:
-            summary["trail_callback_rate_pct"] = callback_rate_pct
+            summary["trail_callback_rate_pct"] = callback_rate_pct,
 
         for idx, _ in enumerate(tps, start=1):
-            algo_id = _i(prot.get(f"tp{idx}_algo_id"), 0) or None
+            algo_id = _i(prot.get(f"tp{idx}_algo_id"), 0) or None,
             if algo_id is None and not prot.get(f"tp{idx}_client_algo_id"):
                 continue
-            planned_qty = _f(prot.get(f"tp{idx}_qty"), 0.0)
-            target_remaining_qty = _f(prot.get(f"tp{idx}_expected_remaining_qty"), 0.0)
-            trigger_price = _f(prot.get(f"tp{idx}_trigger_price"), 0.0)
-            working_type = str(prot.get(f"tp{idx}_working_type") or self.tp_limit_trigger_working_type).upper()
+            planned_qty = _f(prot.get(f"tp{idx}_qty"), 0.0),
+            target_remaining_qty = _f(prot.get(f"tp{idx}_expected_remaining_qty"), 0.0),
+            trigger_price = _f(prot.get(f"tp{idx}_trigger_price"), 0.0),
+            working_type = str(prot.get(f"tp{idx}_working_type") or self.tp_limit_trigger_working_type).upper(),
             t = threading.Thread(
-                target=self._track_maker_tp_level_thread
+                target=self._track_maker_tp_level_thread,
                 kwargs={
-                    "sid": sid
-                    "symbol": symbol
-                    "logical_side": logical_side
-                    "level": idx
-                    "trigger_price": trigger_price
-                    "planned_qty": planned_qty
-                    "target_remaining_qty": target_remaining_qty
-                    "initial_qty": float(filled_qty)
-                    "working_type": working_type
-                    "algo_id": algo_id
-                    "client_algo_id": prot.get(f"tp{idx}_client_algo_id")
-                    "sl_algo_id": _i(prot.get("sl_algo_id"), 0) or None
-                    "trail_after_tp1": bool(trail_enabled and idx == 1)
-                    "callback_rate_pct": callback_rate_pct if idx == 1 else None
-                    "client": client
-                    "filters": filters
-                }
-                daemon=True
+                    "sid": sid,
+                    "symbol": symbol,
+                    "logical_side": logical_side,
+                    "level": idx,
+                    "trigger_price": trigger_price,
+                    "planned_qty": planned_qty,
+                    "target_remaining_qty": target_remaining_qty,
+                    "initial_qty": float(filled_qty),
+                    "working_type": working_type,
+                    "algo_id": algo_id,
+                    "client_algo_id": prot.get(f"tp{idx}_client_algo_id"),
+                    "sl_algo_id": _i(prot.get("sl_algo_id"), 0) or None,
+                    "trail_after_tp1": bool(trail_enabled and idx == 1),
+                    "callback_rate_pct": callback_rate_pct if idx == 1 else None,
+                    "client": client,
+                    "filters": filters,
+                },
+                daemon=True,
             )
             t.start()
         return summary
 
     def _place_trailing_stop(
-        self, *, sid: str, symbol: str, logical_side: str
-        qty: float, callback_rate_pct: float
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self, *, sid: str, symbol: str, logical_side: str,
+        qty: float, callback_rate_pct: float,
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> Dict[str, Any]:
         """Place TRAILING_STOP_MARKET through the Algo API."""
         exit_side = "SELL" if logical_side == "LONG" else "BUY"
@@ -2181,24 +2181,24 @@ class BinanceExecutor:
             raise ValueError("trail qty <= 0")
 
         p: Dict[str, Any] = {
-            "symbol": symbol
-            "side": exit_side
-            "type": "TRAILING_STOP_MARKET"
-            "quantity": q
-            "callbackRate": float(callback_rate_pct)
-            "workingType": self.trail_working_type
-            "clientAlgoId": _make_cid(sid, "trail")
+            "symbol": symbol,
+            "side": exit_side,
+            "type": "TRAILING_STOP_MARKET",
+            "quantity": q,
+            "callbackRate": float(callback_rate_pct),
+            "workingType": self.trail_working_type,
+            "clientAlgoId": _make_cid(sid, "trail"),
         }
         if self.position_mode == "oneway":
             p["reduceOnly"] = True
             self._validate_exit_contract(
-                position_side=pos_side
-                reduce_only=True
-                close_position=False
-                quantity=float(q)
-                order_type="TRAILING_STOP_MARKET"
-                working_type=self.trail_working_type
-                is_algo=True
+                position_side=pos_side,
+                reduce_only=True,
+                close_position=False,
+                quantity=float(q),
+                order_type="TRAILING_STOP_MARKET",
+                working_type=self.trail_working_type,
+                is_algo=True,
             )
         if pos_side:
             p["positionSide"] = pos_side
@@ -2207,18 +2207,18 @@ class BinanceExecutor:
             sid=sid, symbol=symbol, action="place_trailing", params=p, client=client
         )
         return {
-            "trail_algo_id": j.get("algoId")
-            "trail_client_id": p["clientAlgoId"]
-            "trail_working_type": p["workingType"]
+            "trail_algo_id": j.get("algoId"),
+            "trail_client_id": p["clientAlgoId"],
+            "trail_working_type": p["workingType"],
         }
 
     # --- Trailing arming background thread ---
 
     def _arm_trailing_after_tp1_thread(
-        self, *, sid: str, symbol: str, logical_side: str
-        tp1: float, callback_rate_pct: float, sl_order_id: Optional[int]
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self, *, sid: str, symbol: str, logical_side: str,
+        tp1: float, callback_rate_pct: float, sl_order_id: Optional[int],
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> None:
         """Daemon thread: poll mark price → when TP1 touched, replace SL with trailing stop.
 
@@ -2251,9 +2251,9 @@ class BinanceExecutor:
             if not touched:
                 # Timed out without TP1 touch — log and exit silently
                 self._exec_event({
-                    "sid": sid, "symbol": symbol, "action": "trail_arm"
-                    "status": "timeout", "trail_tp1": tp1
-                    "trail_callback_rate_pct": callback_rate_pct
+                    "sid": sid, "symbol": symbol, "action": "trail_arm",
+                    "status": "timeout", "trail_tp1": tp1,
+                    "trail_callback_rate_pct": callback_rate_pct,
                 })
                 return
 
@@ -2261,8 +2261,8 @@ class BinanceExecutor:
             qty, margin_usdt, leverage = self._get_position_info(symbol, logical_side=logical_side, client=client)
             if qty <= 0:
                 self._exec_event({
-                    "sid": sid, "symbol": symbol
-                    "action": "trail_arm", "status": "no_position"
+                    "sid": sid, "symbol": symbol,
+                    "action": "trail_arm", "status": "no_position",
                 })
                 return
 
@@ -2274,29 +2274,29 @@ class BinanceExecutor:
                     pass
 
             trail = self._place_trailing_stop(
-                sid=sid, symbol=symbol, logical_side=logical_side
-                qty=qty, callback_rate_pct=callback_rate_pct
-                client=client, filters=filters
+                sid=sid, symbol=symbol, logical_side=logical_side,
+                qty=qty, callback_rate_pct=callback_rate_pct,
+                client=client, filters=filters,
             )
 
             ev = {
-                "sid": sid, "symbol": symbol, "action": "trail_arm"
-                "status": "armed", "side": logical_side, "qty": qty
-                "trail_tp1": tp1, "trail_callback_rate_pct": callback_rate_pct
-                **trail
+                "sid": sid, "symbol": symbol, "action": "trail_arm",
+                "status": "armed", "side": logical_side, "qty": qty,
+                "trail_tp1": tp1, "trail_callback_rate_pct": callback_rate_pct,
+                **trail,
             }
             self._exec_event(ev)
 
             # Update orders:state:{sid} with trail_order_id so lookup shows full picture
             self._save_order_state(sid, {
-                "action": "trail_arm"
-                "status": "armed"
-                "symbol": symbol
-                "side": logical_side
-                "trail_algo_id": trail.get("trail_algo_id")
-                "trail_client_id": trail.get("trail_client_id")
-                "trail_tp1": tp1
-                "trail_callback_rate_pct": callback_rate_pct
+                "action": "trail_arm",
+                "status": "armed",
+                "symbol": symbol,
+                "side": logical_side,
+                "trail_algo_id": trail.get("trail_algo_id"),
+                "trail_client_id": trail.get("trail_client_id"),
+                "trail_tp1": tp1,
+                "trail_callback_rate_pct": callback_rate_pct,
             })
 
             if self.tg is not None and self.trail_notify:
@@ -2321,17 +2321,17 @@ class BinanceExecutor:
                     )
         except Exception as e:
             self._exec_event({
-                "sid": sid, "symbol": symbol, "action": "trail_arm"
-                "status": "error", "msg": str(e)[:900]
+                "sid": sid, "symbol": symbol, "action": "trail_arm",
+                "status": "error", "msg": str(e)[:900],
             })
 
     def _maybe_start_trailing_after_tp1(
-        self, *, payload: Dict[str, Any], sid: str, symbol: str
-        logical_side: str, entry_price: Optional[float], initial_qty: float
-        sl_algo_id: Optional[int], tp_levels: List[float], tp1_working_type: str
-        policy: ExecutionPolicyDecision
-        client: "BinanceFuturesClient"
-        filters: "FiltersCache"
+        self, *, payload: Dict[str, Any], sid: str, symbol: str,
+        logical_side: str, entry_price: Optional[float], initial_qty: float,
+        sl_algo_id: Optional[int], tp_levels: List[float], tp1_working_type: str,
+        policy: ExecutionPolicyDecision,
+        client: "BinanceFuturesClient",
+        filters: "FiltersCache",
     ) -> Dict[str, Any]:
         """Start trailing arming daemon thread if trail_after_tp1=true in payload."""
         if not _truthy(payload.get("trail_after_tp1")):
@@ -2340,37 +2340,37 @@ class BinanceExecutor:
             return {"trail_after_tp1": True, "trail_status": "no_tp_levels"}
 
         cb = compute_trailing_callback_rate_pct(
-            payload
-            min_pct=float(self.trail_cb_min)
-            max_pct=float(self.trail_cb_max)
-            default_pct=float(self.trail_cb_default)
+            payload,
+            min_pct=float(self.trail_cb_min),
+            max_pct=float(self.trail_cb_max),
+            default_pct=float(self.trail_cb_default),
         )
         if policy.name == MAKER_FIRST:
             return {
-                "trail_after_tp1": True
-                "trail_callback_rate_pct": cb
-                "trail_status": "managed_by_tp_watchdog"
+                "trail_after_tp1": True,
+                "trail_callback_rate_pct": cb,
+                "trail_status": "managed_by_tp_watchdog",
                 "trail_pending": True
-            }
+            },
 
-        tp1 = float(tp_levels[0])
+        tp1 = float(tp_levels[0]),
         t = threading.Thread(
-            target=self._arm_trailing_after_tp1_thread
+            target=self._arm_trailing_after_tp1_thread,
             kwargs={
-                "sid": sid, "symbol": symbol, "logical_side": logical_side
-                "tp1": tp1, "callback_rate_pct": cb, "sl_algo_id": sl_algo_id
-                "initial_qty": initial_qty, "tp1_working_type": tp1_working_type
-                "client": client, "filters": filters
-            }
-            daemon=True
+                "sid": sid, "symbol": symbol, "logical_side": logical_side,
+                "tp1": tp1, "callback_rate_pct": cb, "sl_algo_id": sl_algo_id,
+                "initial_qty": initial_qty, "tp1_working_type": tp1_working_type,
+                "client": client, "filters": filters,
+            },
+            daemon=True,
         )
         t.start()
         return {
-            "trail_after_tp1": True
-            "trail_tp1": tp1
-            "trail_callback_rate_pct": cb
-            "trail_status": "arming"
-            "trail_pending": True
+            "trail_after_tp1": True,
+            "trail_tp1": tp1,
+            "trail_callback_rate_pct": cb,
+            "trail_status": "arming",
+            "trail_pending": True,
         }
 
     # --- Action handlers ---
@@ -2398,7 +2398,7 @@ class BinanceExecutor:
         
         # --- Dirty Reversal & Orphan Cleanup ---
         # If opening a position, we must clean up old orphaned algo orders.
-        # Furthermore, in One-Way mode, if we already have an opposing position
+        # Furthermore, in One-Way mode, if we already have an opposing position,
         # we must cancel all its orders and explicitly close it to avoid 
         # leaving orphaned reduceOnly orders behind.
         try:
@@ -2433,12 +2433,12 @@ class BinanceExecutor:
                 close_qty = abs(current_amt)
                 q_close, _ = self._quantize(symbol, close_qty, None, filters=filters)
                 close_params: Dict[str, Any] = {
-                    "symbol": symbol
-                    "side": exit_side
-                    "type": "MARKET"
-                    "quantity": q_close
-                    "reduceOnly": True
-                    "newClientOrderId": _make_cid(sid, "rev_close")
+                    "symbol": symbol,
+                    "side": exit_side,
+                    "type": "MARKET",
+                    "quantity": q_close,
+                    "reduceOnly": True,
+                    "newClientOrderId": _make_cid(sid, "rev_close"),
                 }
                 client.post_order(close_params)
                 
@@ -2489,14 +2489,14 @@ class BinanceExecutor:
                     )
                     if limit_is_stale:
                         self._exec_event({
-                            "sid": sid, "symbol": symbol, "action": "entry_fallback"
-                            "status": "warning"
+                            "sid": sid, "symbol": symbol, "action": "entry_fallback",
+                            "status": "warning",
                             "msg": (
                                 f"LIMIT entry {price} crossed by mark {mark_price_entry:.4f} "
                                 f"({logical}) — falling back to MARKET to avoid -2021"
-                            )
-                            "entry_requested": price
-                            "mark_price": mark_price_entry
+                            ),
+                            "entry_requested": price,
+                            "mark_price": mark_price_entry,
                         })
                         order_type = "MARKET"
                         price = None
@@ -2506,18 +2506,18 @@ class BinanceExecutor:
 
         q, p = self._quantize(symbol, qty, price, filters=filters)
         self._transition_state(
-            sid, symbol=symbol, action="open", next_state=FSM_VALIDATED
+            sid, symbol=symbol, action="open", next_state=FSM_VALIDATED,
             details={"execution_policy": policy.name, "logical_side": logical}
         )
         if float(q) <= 0:
             raise ValueError("qty <= 0 after quantisation")
 
         params: Dict[str, Any] = {
-            "symbol": symbol
-            "side": side
-            "type": order_type
-            "quantity": q
-            "newClientOrderId": _make_cid(sid, "entry")
+            "symbol": symbol,
+            "side": side,
+            "type": order_type,
+            "quantity": q,
+            "newClientOrderId": _make_cid(sid, "entry"),
         }
 
         pos_side = _position_side_for_mode(self.position_mode, logical)
@@ -2531,7 +2531,7 @@ class BinanceExecutor:
             params["timeInForce"] = self.safety_entry_time_in_force if policy.name == SAFETY_FIRST else "GTC"
 
         self._transition_state(
-            sid, symbol=symbol, action="open", next_state=FSM_ENTRY_SUBMITTED
+            sid, symbol=symbol, action="open", next_state=FSM_ENTRY_SUBMITTED,
             details={"entry_client_order_id": params["newClientOrderId"], "entry_type": order_type}
         )
         j_entry = self._submit_plain_order_with_reconcile(
@@ -2541,7 +2541,7 @@ class BinanceExecutor:
         if not order_id:
             raise RuntimeError(f"no orderId in response: {j_entry}")
         self._transition_state(
-            sid, symbol=symbol, action="open", next_state=FSM_ENTRY_ACKED
+            sid, symbol=symbol, action="open", next_state=FSM_ENTRY_ACKED,
             details={"binance_order_id": order_id, "entry_client_order_id": params["newClientOrderId"]}
         )
 
@@ -2555,7 +2555,7 @@ class BinanceExecutor:
             raise RuntimeError(f"filled_qty=0: order={j_final}")
         entry_fsm = FSM_ENTRY_PARTIAL if status == "PARTIALLY_FILLED" else FSM_ENTRY_FILLED
         self._transition_state(
-            sid, symbol=symbol, action="open", next_state=entry_fsm
+            sid, symbol=symbol, action="open", next_state=entry_fsm,
             details={"filled_qty": filled_qty, "avg_price": avg_price, "entry_status": status}
         )
 
@@ -2567,13 +2567,13 @@ class BinanceExecutor:
 
         self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_PROTECTION_ARMING)
         prot = self._place_protective(
-            sid=sid, symbol=symbol, logical_side=logical
-            qty=filled_qty, sl=sl, tps=tps
-            client=client, filters=filters
-            ref_price=avg_price if avg_price > 0 else None
+            sid=sid, symbol=symbol, logical_side=logical,
+            qty=filled_qty, sl=sl, tps=tps,
+            client=client, filters=filters,
+            ref_price=avg_price if avg_price > 0 else None,
         )
 
-        # Extra guard: warn if caller supplied no SL/TP at all (payload omitted them)
+        # Extra guard: warn if caller supplied no SL/TP at all (payload omitted them),
         # distinct from the validator-skip case handled inside _place_protective.
         if not sl and not tps and self.tg is not None:
             self.tg.send_text(
@@ -2584,11 +2584,11 @@ class BinanceExecutor:
             )
 
         trail = self._maybe_start_trailing_after_tp1(
-            payload=payload, sid=sid, symbol=symbol, logical_side=logical
-            entry_price=avg_price if avg_price > 0 else (p or None)
-            sl_order_id=_i(prot.get("sl_algo_id"), 0) or None
-            tp_levels=tps
-            client=client, filters=filters
+            payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+            entry_price=avg_price if avg_price > 0 else (p or None),
+            sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
+            tp_levels=tps,
+            client=client, filters=filters,
         )
 
 
@@ -2598,8 +2598,8 @@ class BinanceExecutor:
         if not self._protection_confirmed(prot, tps, trail_enabled):
             self._emit_protection_incident(sid, symbol, "entry_filled_without_confirmed_protection")
             emerg = self._emergency_flatten_position(
-                sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty
-                client=client, filters=filters
+                sid=sid, symbol=symbol, logical_side=logical, qty=filled_qty,
+                client=client, filters=filters,
             )
             self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_EMERGENCY_FLATTENED, details=emerg)
             prot = {**prot, **emerg, "protection_invariant_failed": True}
@@ -2609,7 +2609,7 @@ class BinanceExecutor:
         audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
         order_refs = {
             "entry_order_ref": self._format_order_ref(
-                venue="binance", kind="entry"
+                venue="binance", kind="entry",
                 order_id=order_id, client_id=params["newClientOrderId"]
             )
         }
@@ -2619,35 +2619,35 @@ class BinanceExecutor:
             self._transition_state(sid, symbol=symbol, action="open", next_state=FSM_TP_POLICY_ARMED, details={"tp_levels_count": len(tps)})
 
         result = {
-            "sid": sid, "symbol": symbol, "action": "open"
-            "status": status.lower(), "side": logical
-            "qty": filled_qty, "exec_price": avg_price
-            "binance_order_id": order_id
-            "is_virtual": str(is_virtual).lower()
-            "venue": f"binance_{'demo' if is_virtual else 'prod'}"
-            "execution_policy": policy.name
-            **audit_chain, **audit_policies, **order_refs
-            **prot, **trail, **maker_watchdogs
+            "sid": sid, "symbol": symbol, "action": "open",
+            "status": status.lower(), "side": logical,
+            "qty": filled_qty, "exec_price": avg_price,
+            "binance_order_id": order_id,
+            "is_virtual": str(is_virtual).lower(),
+            "venue": f"binance_{'demo' if is_virtual else 'prod'}",
+            "execution_policy": policy.name,
+            **audit_chain, **audit_policies, **order_refs,
+            **prot, **trail, **maker_watchdogs,
             "json": json.dumps(
-                {"entry": j_final, "protective": prot, "trailing": trail, "tp_watchdogs": maker_watchdogs}
-                ensure_ascii=False, default=str
+                {"entry": j_final, "protective": prot, "trailing": trail, "tp_watchdogs": maker_watchdogs},
+                ensure_ascii=False, default=str,
             )
         }
 
         # Save orders:state:{sid} for fast SID→Binance ID lookup by downstream services
         self._save_order_state(sid, {
-            "action": "open"
-            "status": status.lower()
-            "symbol": symbol
-            "side": logical
-            "qty": filled_qty
-            "exec_price": avg_price
-            "binance_order_id": order_id
-            "is_virtual": is_virtual
-            "venue": f"binance_{'demo' if is_virtual else 'prod'}"
-            "execution_policy": policy.name
-            **audit_chain, **audit_policies, **order_refs
-            **prot, **trail, **maker_watchdogs
+            "action": "open",
+            "status": status.lower(),
+            "symbol": symbol,
+            "side": logical,
+            "qty": filled_qty,
+            "exec_price": avg_price,
+            "binance_order_id": order_id,
+            "is_virtual": is_virtual,
+            "venue": f"binance_{'demo' if is_virtual else 'prod'}",
+            "execution_policy": policy.name,
+            **audit_chain, **audit_policies, **order_refs,
+            **prot, **trail, **maker_watchdogs,
         })
         return result
 
@@ -2677,8 +2677,8 @@ class BinanceExecutor:
 
         if amt == 0.0:
             return {
-                "sid": sid, "symbol": symbol, "action": "modify"
-                "status": "no_position", "canceled_orders": canceled
+                "sid": sid, "symbol": symbol, "action": "modify",
+                "status": "no_position", "canceled_orders": canceled,
             }
 
         logical = "LONG" if amt > 0 else "SHORT"
@@ -2700,10 +2700,10 @@ class BinanceExecutor:
             pass
 
         prot = self._place_protective(
-            sid=sid, symbol=symbol, logical_side=logical
-            qty=qty, sl=sl, tps=tps, policy=policy
-            client=client, filters=filters
-            ref_price=mark_price
+            sid=sid, symbol=symbol, logical_side=logical,
+            qty=qty, sl=sl, tps=tps, policy=policy,
+            client=client, filters=filters,
+            ref_price=mark_price,
         )
 
         # Determine entry price for trailing callbackRate calculation
@@ -2718,11 +2718,11 @@ class BinanceExecutor:
                 pass  # keep mark_price fallback
 
         trail = self._maybe_start_trailing_after_tp1(
-            payload=payload, sid=sid, symbol=symbol, logical_side=logical
-            entry_price=entry_price
-            sl_order_id=_i(prot.get("sl_algo_id"), 0) or None
-            tp_levels=tps
-            client=client, filters=filters
+            payload=payload, sid=sid, symbol=symbol, logical_side=logical,
+            entry_price=entry_price,
+            sl_order_id=_i(prot.get("sl_algo_id"), 0) or None,
+            tp_levels=tps,
+            client=client, filters=filters,
         )
         if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
             EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
@@ -2732,24 +2732,24 @@ class BinanceExecutor:
         audit_policies = self._derive_entry_exit_policies(execution_policy=policy.name)
         # P5: persist audit chain into state so it survives modify→cancel handoff
         self._save_order_state(sid, {
-            "action": "modify"
-            "status": "ok"
-            "symbol": symbol
-            "side": logical
-            "qty": qty
-            "execution_policy": policy.name
-            **audit_chain, **audit_policies
-            **prot, **trail
+            "action": "modify",
+            "status": "ok",
+            "symbol": symbol,
+            "side": logical,
+            "qty": qty,
+            "execution_policy": policy.name,
+            **audit_chain, **audit_policies,
+            **prot, **trail,
         })
         return {
-            "sid": sid, "symbol": symbol, "action": "modify"
-            "status": "ok", "side": logical, "qty": qty
-            "canceled_orders": canceled
-            **audit_chain, **audit_policies
-            **prot, **trail
+            "sid": sid, "symbol": symbol, "action": "modify",
+            "status": "ok", "side": logical, "qty": qty,
+            "canceled_orders": canceled,
+            **audit_chain, **audit_policies,
+            **prot, **trail,
             "json": json.dumps(
-                {"canceled": canceled, "protective": prot, "trailing": trail}
-                ensure_ascii=False, default=str
+                {"canceled": canceled, "protective": prot, "trailing": trail},
+                ensure_ascii=False, default=str,
             )
         }
 
@@ -2785,8 +2785,8 @@ class BinanceExecutor:
             logical = "LONG" if amt > 0 else "SHORT"
             qty = abs(amt)
             close = self._submit_reduce_only_market_exit(
-                sid=sid, symbol=symbol, logical_side=logical, qty=qty
-                reason_tag="close", client=client, filters=filters
+                sid=sid, symbol=symbol, logical_side=logical, qty=qty,
+                reason_tag="close", client=client, filters=filters,
             )
             close_order_id = _i(close.get("close_order_id"), 0) or None
             closed = True
@@ -2801,27 +2801,27 @@ class BinanceExecutor:
                 or self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref)
             )
         result = {
-            "sid": sid, "symbol": symbol, "action": "cancel"
-            "status": "ok", "side": logical or ""
-            "qty": qty, "canceled_orders": canceled
-            "close_order_id": close_order_id or ""
-            "exit_order_ref": exit_order_ref
-            "closed_trade_id": closed_trade_id
-            "closed": str(closed).lower()
-            **audit_chain
+            "sid": sid, "symbol": symbol, "action": "cancel",
+            "status": "ok", "side": logical or "",
+            "qty": qty, "canceled_orders": canceled,
+            "close_order_id": close_order_id or "",
+            "exit_order_ref": exit_order_ref,
+            "closed_trade_id": closed_trade_id,
+            "closed": str(closed).lower(),
+            **audit_chain,
         }
         # Update orders:state:{sid}: mark position as closed
         if closed:
             self._save_order_state(sid, {
-                "action": "cancel"
-                "status": "closed"
-                "symbol": symbol
-                "side": logical or ""
-                "close_order_id": close_order_id or ""
-                "exit_order_ref": exit_order_ref
-                "closed_trade_id": closed_trade_id
-                "closed": True
-                **audit_chain
+                "action": "cancel",
+                "status": "closed",
+                "symbol": symbol,
+                "side": logical or "",
+                "close_order_id": close_order_id or "",
+                "exit_order_ref": exit_order_ref,
+                "closed_trade_id": closed_trade_id,
+                "closed": True,
+                **audit_chain,
             })
         return result
 
@@ -2854,8 +2854,8 @@ class BinanceExecutor:
         if not action or not sid or not symbol:
             self._dlq(raw, "missing_required_fields")
             self._exec_event({
-                "sid": sid or "", "symbol": symbol or "", "action": action or ""
-                "severity": "error", "msg": "missing_required_fields"
+                "sid": sid or "", "symbol": symbol or "", "action": action or "",
+                "severity": "error", "msg": "missing_required_fields",
             })
             self._ack_processing(raw)
             return
@@ -2879,8 +2879,8 @@ class BinanceExecutor:
             cls = _classify_error(e)
             msg = str(e)
             self._exec_event({
-                "sid": sid, "symbol": symbol, "action": action
-                "severity": "error", "msg": msg, "error_class": cls
+                "sid": sid, "symbol": symbol, "action": action,
+                "severity": "error", "msg": msg, "error_class": cls,
             })
             if self.tg is not None:
                 self.tg.send_text(

@@ -10,7 +10,7 @@ from utils.env_config import get_env_var
 logger = logging.getLogger("atr_legacy_decommission_cert_service")
 
 class ATRLegacyDecommissionCertService:
-    """
+    """,
     Evaluates whether a component is formally ready to be fully retired.
     Checks 6 conditions:
     D1: Graph primary active
@@ -19,7 +19,7 @@ class ATRLegacyDecommissionCertService:
     D4: No authority violations for 14d
     D5: Rollback path tested successfully
     D6: Legacy reads/writes reduced to target class
-    """
+    """,
 
     def __init__(self, pg_dsn: str = None):
         self.pg_dsn = pg_dsn or get_env_var("TRADE_PG_DSN", "postgresql://trading:trading@postgres:5432/trade")
@@ -32,7 +32,7 @@ class ATRLegacyDecommissionCertService:
                 
                 # Check D3: Open findings in atr_hidden_dependency_findings
                 findings_result = await conn.fetchval(
-                    """
+                    """,
                     SELECT count(*) FROM atr_hidden_dependency_findings
                     WHERE component = $1 AND status = 'open'
                     """,
@@ -44,7 +44,7 @@ class ATRLegacyDecommissionCertService:
                 # Assume a table 'atr_graph_reconciliation_drifts' exists from 8.8
                 try:
                     critical_drifts_14d = await conn.fetchval(
-                        """
+                        """,
                         SELECT count(*) FROM atr_graph_reconciliation_drifts
                         WHERE component = $1 AND detected_at >= $2 AND status = 'unresolved'
                         """,
@@ -56,7 +56,7 @@ class ATRLegacyDecommissionCertService:
                 # Check D4: authority violations
                 try:
                     auth_violations_14d = await conn.fetchval(
-                        """
+                        """,
                         SELECT count(*) FROM atr_legacy_decommission_events
                         WHERE component = $1 AND reason_code = 'authority_violation'
                         AND created_at >= $2
@@ -70,7 +70,7 @@ class ATRLegacyDecommissionCertService:
 
                 # D1 & D6 checked via ENV / configuration state or inventory table
                 row = await conn.fetchrow(
-                    """
+                    """,
                     SELECT status, inventory_json FROM atr_legacy_path_inventory
                     WHERE component = $1 LIMIT 1
                     """,

@@ -1,7 +1,8 @@
+from __future__ import annotations
 """
 MT5 Deals Watcher - отслеживание реальных сделок
 
-Читает историю сделок MT5 и публикует ExecutionEvent для сделок
+Читает историю сделок MT5 и публикует ExecutionEvent для сделок,
 относящихся к сигналам (по comment с sig=<signal_id>).
 
 Обеспечивает учет ФАКТИЧЕСКИХ результатов торговли:
@@ -10,7 +11,6 @@ MT5 Deals Watcher - отслеживание реальных сделок
 - Реальный PnL в валюте счета
 """
 
-from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Set, Optional
@@ -23,8 +23,8 @@ from .exec_events import ExecEventsPublisher, ExecutionEvent
 
 class Mt5DealsWatcher:
     """
-    Периодически читает историю сделок MT5 и по новым сделкам
-    помеченным как относящиеся к сигналам (comment содержит "sig=<signal_id>")
+    Периодически читает историю сделок MT5 и по новым сделкам,
+    помеченным как относящиеся к сигналам (comment содержит "sig=<signal_id>"),
     публикует ExecutionEvent в stream:signals:exec_events.
 
     Это обеспечивает учет ФАКТИЧЕСКОГО результата:
@@ -34,9 +34,9 @@ class Mt5DealsWatcher:
     """
 
     def __init__(
-        self
-        mt5_client: Mt5Client
-        publisher: ExecEventsPublisher
+        self,
+        mt5_client: Mt5Client,
+        publisher: ExecEventsPublisher,
         history_window_minutes: int = 1440,  # заглядываем максимум на сутки назад при старте
     ):
         """
@@ -148,26 +148,26 @@ class Mt5DealsWatcher:
             ts_event = datetime.fromtimestamp(deal.time, tz=timezone.utc)
 
             ev = ExecutionEvent(
-                signal_id=signal_id
-                symbol=deal.symbol
-                side=side
-                venue="mt5"
-                kind="fill"
-                event_type=event_type
-                ts_event=ts_event
-                price=deal.price
-                qty_lots=deal.volume
-                pnl_ccy=deal.profit
-                account_ccy=self._mt5.account_currency
-                mt5_deal=deal.ticket
-                mt5_order=deal.order
-                mt5_position_id=deal.position_id
-                comment=comment or None
+                signal_id=signal_id,
+                symbol=deal.symbol,
+                side=side,
+                venue="mt5",
+                kind="fill",
+                event_type=event_type,
+                ts_event=ts_event,
+                price=deal.price,
+                qty_lots=deal.volume,
+                pnl_ccy=deal.profit,
+                account_ccy=self._mt5.account_currency,
+                mt5_deal=deal.ticket,
+                mt5_order=deal.order,
+                mt5_position_id=deal.position_id,
+                comment=comment or None,
                 meta={
-                    "swap": deal.swap
-                    "commission": deal.commission
-                    "fee": deal.fee if hasattr(deal, 'fee') else 0.0
-                }
+                    "swap": deal.swap,
+                    "commission": deal.commission,
+                    "fee": deal.fee if hasattr(deal, 'fee') else 0.0,
+                },
             )
 
             self._pub.publish(ev)

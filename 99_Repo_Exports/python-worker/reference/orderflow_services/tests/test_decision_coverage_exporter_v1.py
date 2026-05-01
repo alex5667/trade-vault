@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for P66 Decision Coverage exporter (decision_coverage_exporter_v1).
 
@@ -7,7 +8,6 @@ Covers:
   - _read_state: graceful error handling
   - Compile check (no import errors when prometheus_client not installed in test env)
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time
@@ -39,11 +39,11 @@ class TestSetMetrics:
         mod = self._import_module()
         d = {
             "last_ts_ms": str(get_ny_time_millis() - 5000),  # 5s ago
-            "rolling_ok": "100"
-            "rolling_warn": "20"
-            "rolling_block": "5"
-            "rolling_unknown": "2"
-            "rolling_total": "127"
+            "rolling_ok": "100",
+            "rolling_warn": "20",
+            "rolling_block": "5",
+            "rolling_unknown": "2",
+            "rolling_total": "127",
         }
         # Patch the module-level gauges
         with patch.object(mod.LAST_TS, "set") as mock_last_ts, \
@@ -60,12 +60,12 @@ class TestSetMetrics:
         """total=0 should not raise ZeroDivisionError; all shares should be 0."""
         mod = self._import_module()
         d = {
-            "last_ts_ms": "0"
-            "rolling_ok": "0"
-            "rolling_warn": "0"
-            "rolling_block": "0"
-            "rolling_unknown": "0"
-            "rolling_total": "0"
+            "last_ts_ms": "0",
+            "rolling_ok": "0",
+            "rolling_warn": "0",
+            "rolling_block": "0",
+            "rolling_unknown": "0",
+            "rolling_total": "0",
         }
         # Should not raise
         with patch.object(mod.LAST_TS, "set"), \
@@ -90,9 +90,9 @@ class TestSetMetrics:
         mod = self._import_module()
         old_ts_ms = int((time.time() - 60) * 1000)  # 60 seconds ago
         d = {
-            "last_ts_ms": str(old_ts_ms)
-            "rolling_ok": "1", "rolling_warn": "0", "rolling_block": "0"
-            "rolling_unknown": "0", "rolling_total": "1"
+            "last_ts_ms": str(old_ts_ms),
+            "rolling_ok": "1", "rolling_warn": "0", "rolling_block": "0",
+            "rolling_unknown": "0", "rolling_total": "1",
         }
         age_set = []
         with patch.object(mod.LAST_TS, "set"), \

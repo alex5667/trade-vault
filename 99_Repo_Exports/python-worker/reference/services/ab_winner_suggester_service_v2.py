@@ -91,19 +91,19 @@ class ABWinnerSuggesterV2:
         self._policy_overrides: Dict[str, Dict[str, Any]] = {}
         try:
             self._policy_overrides["trend"] = {
-                "conf": float(os.getenv("AB_LCB_CONF_TREND", "0.90"))
-                "min_n": int(os.getenv("AB_LCB_MINN_TREND", "60"))
-                "min_edge_lcb": float(os.getenv("AB_LCB_EDGE_TREND", "0.07"))
+                "conf": float(os.getenv("AB_LCB_CONF_TREND", "0.90")),
+                "min_n": int(os.getenv("AB_LCB_MINN_TREND", "60")),
+                "min_edge_lcb": float(os.getenv("AB_LCB_EDGE_TREND", "0.07")),
             }
             self._policy_overrides["range"] = {
-                "conf": float(os.getenv("AB_LCB_CONF_RANGE", "0.95"))
-                "min_n": int(os.getenv("AB_LCB_MINN_RANGE", "80"))
-                "min_edge_lcb": float(os.getenv("AB_LCB_EDGE_RANGE", "0.10"))
+                "conf": float(os.getenv("AB_LCB_CONF_RANGE", "0.95")),
+                "min_n": int(os.getenv("AB_LCB_MINN_RANGE", "80")),
+                "min_edge_lcb": float(os.getenv("AB_LCB_EDGE_RANGE", "0.10")),
             }
             self._policy_overrides["thin"] = {
-                "conf": float(os.getenv("AB_LCB_CONF_THIN", "0.975"))
-                "min_n": int(os.getenv("AB_LCB_MINN_THIN", "120"))
-                "min_edge_lcb": float(os.getenv("AB_LCB_EDGE_THIN", "0.15"))
+                "conf": float(os.getenv("AB_LCB_CONF_THIN", "0.975")),
+                "min_n": int(os.getenv("AB_LCB_MINN_THIN", "120")),
+                "min_edge_lcb": float(os.getenv("AB_LCB_EDGE_THIN", "0.15")),
             }
         except Exception:
             self._policy_overrides = {}
@@ -125,10 +125,10 @@ class ABWinnerSuggesterV2:
         s = self._samples.get(k, {})
         tr = self._ts_range.get(k, (0, 0))
         return {
-            "A": s.get("A", [])
-            "B": s.get("B", [])
-            "C": s.get("C", [])
-            "ts_lo": tr[0]
+            "A": s.get("A", []),
+            "B": s.get("B", []),
+            "C": s.get("C", []),
+            "ts_lo": tr[0],
             "ts_hi": tr[1]
         }
 
@@ -136,9 +136,9 @@ class ABWinnerSuggesterV2:
         symbol, regime, group, scenario = k
         stats = self._collect_stats(symbol=symbol, regime=regime, group=group, scenario=scenario)
         samples_by_arm = {
-            "A": list(stats.get("A", []) or [])
-            "B": list(stats.get("B", []) or [])
-            "C": list(stats.get("C", []) or [])
+            "A": list(stats.get("A", []) or []),
+            "B": list(stats.get("B", []) or []),
+            "C": list(stats.get("C", []) or []),
         }
 
         # --- Step 2: Cost-aware LCB with hysteresis ---
@@ -177,10 +177,10 @@ class ABWinnerSuggesterV2:
                 # Build scores dict from stats_list
                 scores_dict = {
                     s.arm: {
-                        "n": s.n
-                        "mean": s.mean
-                        "stdev": s.std
-                        "stderr": s.stderr
+                        "n": s.n,
+                        "mean": s.mean,
+                        "stdev": s.std,
+                        "stderr": s.stderr,
                         "lcb": s.lcb
                     }
                     for s in stats_list
@@ -275,18 +275,18 @@ class ABWinnerSuggesterV2:
         sid = hashlib.sha1(sid_src.encode("utf-8")).hexdigest()
 
         meta = {
-            "v": 2
-            "sid": sid
-            "symbol": str(symbol)
-            "regime": str(regime)
-            "group": str(group)
-            "scenario": str(scenario)
-            "winner_arm": str(winner)
-            "reason": str(reason)
-            "cost_aware": bool(self._cost_aware)
-            "scores": scores_dict
-            "window": {"ts_lo": ts_lo, "ts_hi": ts_hi}
-            "updated_ts_ms": get_ny_time_millis()
+            "v": 2,
+            "sid": sid,
+            "symbol": str(symbol),
+            "regime": str(regime),
+            "group": str(group),
+            "scenario": str(scenario),
+            "winner_arm": str(winner),
+            "reason": str(reason),
+            "cost_aware": bool(self._cost_aware),
+            "scores": scores_dict,
+            "window": {"ts_lo": ts_lo, "ts_hi": ts_hi},
+            "updated_ts_ms": get_ny_time_millis(),
         }
         if not self._cost_aware:
             # Add policy info for non-cost-aware mode

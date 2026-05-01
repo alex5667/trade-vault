@@ -169,21 +169,21 @@ class DualSignalDeliverer:
         kv = self._kv_flat(payload)
 
         res = self.dual.evalsha(
-            sha
-            5
-            self.outbox_stream
-            self._done_key(msg_id)
-            marker_key
-            stream
-            counter_key
-            self.group
-            msg_id
-            str(int(self.marker_ttl_sec))
-            str(int(self.done_ttl_sec))
-            str(int(maxlen))
-            str(int(every_n))
-            is_notify
-            *kv
+            sha,
+            5,
+            self.outbox_stream,
+            self._done_key(msg_id),
+            marker_key,
+            stream,
+            counter_key,
+            self.group,
+            msg_id,
+            str(int(self.marker_ttl_sec)),
+            str(int(self.done_ttl_sec)),
+            str(int(maxlen)),
+            str(int(every_n)),
+            is_notify,
+            *kv,
         )
         return bool(res) and int(res[0]) == 1
 
@@ -195,10 +195,10 @@ class DualSignalDeliverer:
 
         try:
             next_id, msgs = helper.claim_pending(
-                self.outbox_stream
-                min_idle_ms=self.claim_min_idle_ms
-                start_id=self._claim_start_id
-                count=self.claim_count
+                self.outbox_stream,
+                min_idle_ms=self.claim_min_idle_ms,
+                start_id=self._claim_start_id,
+                count=self.claim_count,
             )
             if (not msgs) and (next_id == "0-0"):
                 next_id = self._claim_start_id

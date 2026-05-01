@@ -1,7 +1,7 @@
+from __future__ import annotations
 """P13: Tests for hold-aware triage and ack-aware suppression / renew-reminder
 in ActiveSymbolGuardIncidentPolicyEngine.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

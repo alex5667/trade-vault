@@ -1,3 +1,4 @@
+from __future__ import annotations
 """services.orderflow.liquidity_geom_policy
 
 Shared, pure logic for Phase C (P2) liquidity geometry/resiliency gating.
@@ -13,7 +14,6 @@ Profiles:
   - hard: tighten + veto
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -41,17 +41,17 @@ def slope_min(slope_bid: float, slope_ask: float) -> float:
 
 
 def evaluate_liq_geom(
-    *
-    profile: str
-    slope_bid: float
-    slope_ask: float
-    dws_bps: float
-    recovery_ms: int
-    thr_slope: float
-    thr_dws: float
-    thr_recovery_ms: int
-    tighten_cap_bps: float
-    tighten_mult: float
+    *,
+    profile: str,
+    slope_bid: float,
+    slope_ask: float,
+    dws_bps: float,
+    recovery_ms: int,
+    thr_slope: float,
+    thr_dws: float,
+    thr_recovery_ms: int,
+    tighten_cap_bps: float,
+    tighten_mult: float,
 ) -> LiqGeomDecision:
     """Return flags + tighten add + veto decision.
 
@@ -106,9 +106,9 @@ def evaluate_liq_geom(
     veto = bool(flags and p == "hard")
     veto_reason = "liq_geom:" + ",".join(flags) if veto else ""
     return LiqGeomDecision(
-        flags=flags
-        slope_min=float(smin)
-        tighten_add_bps=float(add)
-        veto=veto
-        veto_reason=veto_reason
+        flags=flags,
+        slope_min=float(smin),
+        tighten_add_bps=float(add),
+        veto=veto,
+        veto_reason=veto_reason,
     )

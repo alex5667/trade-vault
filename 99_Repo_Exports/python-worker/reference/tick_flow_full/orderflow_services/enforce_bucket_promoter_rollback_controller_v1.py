@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """enforce_bucket_promoter_rollback_controller_v1.py
 
 Rollback controller for bucket-aware enforcement.
 
 Purpose:
-- If promoter expanded enforcement to additional buckets and post-change QA worsens
+- If promoter expanded enforcement to additional buckets and post-change QA worsens,
   rollback to previous allowlists and block further auto-apply.
 
 Inputs:
@@ -40,7 +41,6 @@ Usage:
   python -m orderflow_services.enforce_bucket_promoter_rollback_controller_v1 --apply 1
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -160,15 +160,15 @@ class RollbackDecision:
 
 
 def decide_rollback(
-    *
-    added_buckets: List[str]
-    stats_by_bucket: Dict[str, BucketStats]
-    min_db_n: int
-    max_p95: float
-    max_p99: float
-    max_edge_neg_share: float
-    target_slip: str
-    target_taker: str
+    *,
+    added_buckets: List[str],
+    stats_by_bucket: Dict[str, BucketStats],
+    min_db_n: int,
+    max_p95: float,
+    max_p99: float,
+    max_edge_neg_share: float,
+    target_slip: str,
+    target_taker: str,
 ) -> RollbackDecision:
     reasons: List[str] = []
     for b in added_buckets:
@@ -203,10 +203,10 @@ async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -
     # We include a lookback cap to limit scans.
     q = f"""
     SELECT
-      exec_regime_bucket
-      count(*) as n
-      percentile_cont(0.95) within group (order by slippage_residual_bps) as p95_resid
-      percentile_cont(0.99) within group (order by slippage_residual_bps) as p99_resid
+      exec_regime_bucket,
+      count(*) as n,
+      percentile_cont(0.95) within group (order by slippage_residual_bps) as p95_resid,
+      percentile_cont(0.99) within group (order by slippage_residual_bps) as p99_resid,
       avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
     FROM v_exec_slippage_eval
     WHERE ts >= greatest(to_timestamp($1::double precision/1000.0), now() - interval '{int(lookback_h)} hours')
@@ -217,11 +217,11 @@ async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -
     for r in rows:
         b = _norm_bucket(r.get("exec_regime_bucket") or "NORMAL")
         out[b] = BucketStats(
-            bucket=b
-            db_n=int(r.get("n") or 0)
-            resid_p95=float(r.get("p95_resid") or 0.0)
-            resid_p99=float(r.get("p99_resid") or 0.0)
-            edge_neg_share=float(r.get("edge_neg_share") or 0.0)
+            bucket=b,
+            db_n=int(r.get("n") or 0),
+            resid_p95=float(r.get("p95_resid") or 0.0),
+            resid_p99=float(r.get("p99_resid") or 0.0),
+            edge_neg_share=float(r.get("edge_neg_share") or 0.0),
         )
     return out
 
@@ -351,30 +351,30 @@ async def run(apply: bool) -> int:
         return 2
 
     dec = decide_rollback(
-        added_buckets=added
-        stats_by_bucket=stats
-        min_db_n=min_db_n
-        max_p95=max_p95
-        max_p99=max_p99
-        max_edge_neg_share=max_edge_neg
-        target_slip=prev_slip
-        target_taker=prev_taker
+        added_buckets=added,
+        stats_by_bucket=stats,
+        min_db_n=min_db_n,
+        max_p95=max_p95,
+        max_p99=max_p99,
+        max_edge_neg_share=max_edge_neg,
+        target_slip=prev_slip,
+        target_taker=prev_taker,
     )
 
     out = {
-        "ok": True
-        "ts_ms": now
-        "last_apply_ts_ms": last_apply_ts
-        "added_buckets": added
+        "ok": True,
+        "ts_ms": now,
+        "last_apply_ts_ms": last_apply_ts,
+        "added_buckets": added,
         "decision": {
-            "rollback": dec.rollback
-            "reasons": dec.reasons
-            "target_slip": dec.target_slip
-            "target_taker": dec.target_taker
-        }
-        "bucket_stats": {k: vars(v) for k, v in stats.items()}
-        "apply": bool(apply)
-    }
+            "rollback": dec.rollback,
+            "reasons": dec.reasons,
+            "target_slip": dec.target_slip,
+            "target_taker": dec.target_taker,
+        },
+        "bucket_stats": {k: vars(v) for k, v in stats.items()},
+        "apply": bool(apply),
+    },
 
     if not dec.rollback:
         await r.aclose()
@@ -403,12 +403,12 @@ async def run(apply: bool) -> int:
         meta_key = f"{block_prefix}:{block_reason}:meta"
         ts_key = f"{block_prefix}:{block_reason}:ts_ms"
         meta = {
-            "blocked": True
-            "reason": "rollback_triggered"
-            "rollback_ts_ms": rb_ts
-            "last_apply_ts_ms": last_apply_ts
-            "reasons": dec.reasons
-        }
+            "blocked": True,
+            "reason": "rollback_triggered",
+            "rollback_ts_ms": rb_ts,
+            "last_apply_ts_ms": last_apply_ts,
+            "reasons": dec.reasons,
+        },
         pipe2.set(block_key, "1")
         pipe2.set(meta_key, json.dumps(meta, separators=(",", ":")))
         pipe2.set(ts_key, str(rb_ts))
@@ -419,17 +419,17 @@ async def run(apply: bool) -> int:
         await pipe2.execute()
 
         await _xadd_event(
-            r
-            stream=ev_stream
+            r,
+            stream=ev_stream,
             fields={
-                "type": "rollback"
-                "ts_ms": rb_ts
-                "added_buckets": _allowlist_to_str(added)
-                "target_slip": prev_slip
-                "target_taker": prev_taker
-                "reasons": ";".join(dec.reasons)
-            }
-            maxlen=ev_maxlen
+                "type": "rollback",
+                "ts_ms": rb_ts,
+                "added_buckets": _allowlist_to_str(added),
+                "target_slip": prev_slip,
+                "target_taker": prev_taker,
+                "reasons": ";".join(dec.reasons),
+            },
+            maxlen=ev_maxlen,
         )
 
         # Notify ops channel (with cooldown)

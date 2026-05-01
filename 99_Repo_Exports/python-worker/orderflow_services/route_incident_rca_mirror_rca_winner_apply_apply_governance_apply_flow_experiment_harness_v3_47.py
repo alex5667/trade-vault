@@ -201,7 +201,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "local_candidate_weight": local_candidate_weight,
         "total_weight": total,
         "max_bundle_bytes": parse_int(raw.get("max_bundle_bytes"), DEFAULT_MAX_BUNDLE_BYTES),
-    }
+    },
 
 
 def deterministic_bucket(bundle_id: str, salt: str = "apply-flow-exp-v3-47") -> int:
@@ -253,7 +253,7 @@ def build_request(bundle: Dict[str, Any], arm: str) -> Tuple[str, Dict[str, Any]
         "source": APP_NAME,
         "prompt": build_prompt(bundle, arm),
         "ts_ms": str(now_ms()),
-    }
+    },
     if arm in {"vertex_primary", "vertex_compact_candidate"}:
         base["task_type"] = "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_vertex_rca"
         base["bundle_json"] = stable_json(bundle)
@@ -271,7 +271,7 @@ def evaluate_bundle(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str,
         "reason_code": "REJECTED",
         "arm": "",
         "severity": severity,
-    }
+    },
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
         return out
@@ -311,7 +311,7 @@ async def persist_if_configured(db_url: str, bundle: Dict[str, Any], decision: D
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_rca_governance_apply_flow_exp_exposures (
                     bundle_id, ts_ms, arm, severity, destination_stream, exposure_json
                 ) VALUES (
@@ -328,7 +328,7 @@ async def persist_if_configured(db_url: str, bundle: Dict[str, Any], decision: D
                 },
             )
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_rca_governance_apply_flow_exp_decisions (
                     bundle_id, ts_ms, severity, decision, reason_code, arm, destination_stream, decision_json
                 ) VALUES (
@@ -378,7 +378,7 @@ async def main() -> None:  # pragma: no cover
                             "bundle_id": row.get("bundle_id", ""),
                             "trigger_type": row.get("trigger_type", ""),
                             "trigger_severity": row.get("trigger_severity", ""),
-                        }
+                        },
                     policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
                     try:
                         exec_kill = await r.get('trade:exec_kill_switch')

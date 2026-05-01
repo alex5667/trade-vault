@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Strong Gate Calibrator — pure computation module (no IO).
 
@@ -21,7 +22,6 @@ Safety invariants:
 Import as:
     from core.strong_gate_calibrator import evaluate_strong_gate, StrongGateCalibResult
 """
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, asdict

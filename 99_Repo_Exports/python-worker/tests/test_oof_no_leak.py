@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_oof_no_leak.py
 
@@ -7,7 +8,6 @@ Test that OOF (Out-of-Fold) predictions are built correctly without leakage.
 Verifies that each sample's OOF prediction is computed only from folds that don't contain that sample.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

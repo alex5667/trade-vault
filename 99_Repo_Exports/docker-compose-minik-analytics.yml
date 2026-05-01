@@ -353,7 +353,6 @@ services:
     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     - TRACKER_CONFIG_PATH=/app/python-worker/config/signal_tracker_config.json
-    - SYMBOLS=XAUUSD,XAUUSDT,BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,SUIUSDT,APTUSDT,ARBUSDT,DOGEUSDT,WIFUSDT,1000PEPEUSDT,1000SHIBUSDT,1000FLOKIUSDT,1000BONKUSDT,AVAXUSDT,INJUSDT
     - STRATEGIES=orderflow,ta,aggregated,cryptoorderflow
     - PERIODIC_REPORT_HOURS=1
     - TP_RATIO=${TP_RATIO:-0.5,0.3,0.2}
@@ -761,9 +760,9 @@ services:
       \ r.ping()\\\" 2>/dev/null && echo '[OF-GATE-SRE] Redis ready.' && break\n \
       \   echo \\\"[OF-GATE-SRE] Redis not ready, retry (max 12)...\\\"\n    sleep\
       \ 5\n  done\n\n  while true; do\n    M=`date +%M`\n    H=`date +%H`\n\n    #\
-      \ SRE monitor: 00, 10, 20, 30, 40, 50\n    case \"$$M\" in 00|10|20|30|40|50)\
+      \ SRE monitor: 00,10,20,30,40,50\n    case \"$$M\" in 00|10|20|30|40|50)\
       \ python -m tools.of_gate_sre_monitor --window-min 10 --always 0 || echo 'SRE\
-      \ monitor failed' ;; esac\n\n    # Latency benchmark: 05, 35\n    case \"$$M\"\
+      \ monitor failed' ;; esac\n\n    # Latency benchmark: 05,35\n    case \"$$M\"\
       \ in 05|35) python -m tools.bench_of_gate_latency --window-min 60 --out /var/lib/trade/of_bench/latency_bench_last.json\
       \ || echo 'Benchmark failed' ;; esac\n    \n    # Nightly tasks\n    if [ \"\
       $$M\" = \"00\" ]; then\n      if [ \"$$H\" = \"02\" ]; then python -m tools.of_gate_golden_snapshot\

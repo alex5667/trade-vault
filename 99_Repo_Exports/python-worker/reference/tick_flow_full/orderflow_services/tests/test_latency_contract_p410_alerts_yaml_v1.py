@@ -1,5 +1,5 @@
-"""P4.10 alerts YAML structural tests."""
 from __future__ import annotations
+"""P4.10 alerts YAML structural tests."""
 
 import os
 import yaml

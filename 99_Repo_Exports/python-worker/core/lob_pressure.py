@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """LOB Pressure features (P91).
 
 Performance notes
@@ -22,7 +23,6 @@ Features:
 4) Depth-weighted OBI (weights 1/(level)) for stronger near-touch emphasis
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 import math

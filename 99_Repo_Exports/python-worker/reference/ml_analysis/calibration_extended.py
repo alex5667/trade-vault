@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Extended calibration diagnostics for confidence models.
 
 Complements classic ECE/Brier with:
@@ -6,7 +7,6 @@ Complements classic ECE/Brier with:
 - sharpness mean / entropy
 - probability mass near 0.5
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -109,12 +109,12 @@ def _sigmoid(z: np.ndarray) -> np.ndarray:
 
 
 def calibration_regression(
-    y: Any
-    p: Any
-    *
-    ridge: float = 1e-6
-    max_iter: int = 50
-    tol: float = 1e-8
+    y: Any,
+    p: Any,
+    *,
+    ridge: float = 1e-6,
+    max_iter: int = 50,
+    tol: float = 1e-8,
 ) -> Dict[str, float]:
     """Fit logistic regression y ~ intercept + slope * logit(p) via IRLS/ridge.
 
@@ -162,32 +162,32 @@ def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> 
     """Full extended calibration report.
 
     Returns dict with keys:
-        n, ece, mce, brier
-        calibration_slope, calibration_intercept
+        n, ece, mce, brier,
+        calibration_slope, calibration_intercept,
         sharpness_mean, sharpness_entropy, prob_mass_near_half
     """
     yy, pp = _as_arrays(y, p)
     if len(yy) == 0:
         return {
-            "n": 0
-            "ece": float("nan")
-            "mce": float("nan")
-            "brier": float("nan")
-            "calibration_slope": float("nan")
-            "calibration_intercept": float("nan")
-            "sharpness_mean": float("nan")
-            "sharpness_entropy": float("nan")
-            "prob_mass_near_half": float("nan")
+            "n": 0,
+            "ece": float("nan"),
+            "mce": float("nan"),
+            "brier": float("nan"),
+            "calibration_slope": float("nan"),
+            "calibration_intercept": float("nan"),
+            "sharpness_mean": float("nan"),
+            "sharpness_entropy": float("nan"),
+            "prob_mass_near_half": float("nan"),
         }
     reg = calibration_regression(yy, pp)
     return {
-        "n": int(len(yy))
-        "ece": ece(yy, pp, bins=bins)
-        "mce": mce(yy, pp, bins=bins)
-        "brier": brier(yy, pp)
-        "calibration_slope": float(reg.get("calibration_slope", float("nan")))
-        "calibration_intercept": float(reg.get("calibration_intercept", float("nan")))
-        "sharpness_mean": sharpness_mean(pp)
-        "sharpness_entropy": sharpness_entropy(pp)
-        "prob_mass_near_half": prob_mass_near_half(pp, half_width=near_half_width)
+        "n": int(len(yy)),
+        "ece": ece(yy, pp, bins=bins),
+        "mce": mce(yy, pp, bins=bins),
+        "brier": brier(yy, pp),
+        "calibration_slope": float(reg.get("calibration_slope", float("nan"))),
+        "calibration_intercept": float(reg.get("calibration_intercept", float("nan"))),
+        "sharpness_mean": sharpness_mean(pp),
+        "sharpness_entropy": sharpness_entropy(pp),
+        "prob_mass_near_half": prob_mass_near_half(pp, half_width=near_half_width),
     }

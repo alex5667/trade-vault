@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ML Scoring Gate — runtime inference for ML Scorer V2.
 
 Provides MLScoringGate: a fail-open drop-in replacement for rule-based ConfidenceScorer.
-Loads a trained LightGBM model (scorer_v2.joblib) and predicts R-multiple
+Loads a trained LightGBM model (scorer_v2.joblib) and predicts R-multiple,
 then calibrates to conf01 (0..1) via isotonic regression.
 
 Design:
@@ -12,7 +13,6 @@ Design:
   - Fail-open: if model unavailable → returns None → caller uses rule-based fallback
   - Same interface as ConfidenceScorer.score(): returns (conf01, parts_dict)
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import logging
@@ -72,28 +72,28 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
 
 # Feature names — must match train_ml_scorer.py NUMERIC_FEATURES + DERIVED_FEATURES
 _NUMERIC_FEATURE_ATTRS = [
-    ("atr_14", ["atr_14", "atr"])
-    ("obi_avg_20", ["obi_avg_20", "obi_avg", "obi"])
-    ("weak_progress_ratio", ["weak_progress_ratio", "weak_progress"])
-    ("l3_spread_bps", ["l3_spread_bps", "spread_bps"])
-    ("l3_microprice_shift_bps_20", ["l3_microprice_shift_bps_20", "microprice_shift_bps_20"])
-    ("l3_microprice_velocity_bps", ["l3_microprice_velocity_bps", "microprice_velocity_bps"])
-    ("l3_obi_5", ["l3_obi_5", "obi_5"])
-    ("l3_obi_20", ["l3_obi_20", "obi_20"])
-    ("l3_obi_50", ["l3_obi_50", "obi_50"])
-    ("l3_obi_persistence_score", ["l3_obi_persistence_score", "obi_persistence_score"])
-    ("l3_cancel_to_trade_bid_5s", ["l3_cancel_to_trade_bid_5s", "cancel_to_trade_bid_5s", "cancel_to_trade_bid"])
-    ("l3_cancel_to_trade_ask_5s", ["l3_cancel_to_trade_ask_5s", "cancel_to_trade_ask_5s", "cancel_to_trade_ask"])
-    ("l3_cancel_to_trade_bid_20s", ["l3_cancel_to_trade_bid_20s", "cancel_to_trade_bid_20s"])
-    ("l3_cancel_to_trade_ask_20s", ["l3_cancel_to_trade_ask_20s", "cancel_to_trade_ask_20s"])
-    ("l3_queue_pressure_bid", ["l3_queue_pressure_bid", "queue_pressure_bid"])
-    ("l3_queue_pressure_ask", ["l3_queue_pressure_ask", "queue_pressure_ask"])
-    ("l3_market_depth_imbalance", ["l3_market_depth_imbalance", "market_depth_imbalance"])
+    ("atr_14", ["atr_14", "atr"]),
+    ("obi_avg_20", ["obi_avg_20", "obi_avg", "obi"]),
+    ("weak_progress_ratio", ["weak_progress_ratio", "weak_progress"]),
+    ("l3_spread_bps", ["l3_spread_bps", "spread_bps"]),
+    ("l3_microprice_shift_bps_20", ["l3_microprice_shift_bps_20", "microprice_shift_bps_20"]),
+    ("l3_microprice_velocity_bps", ["l3_microprice_velocity_bps", "microprice_velocity_bps"]),
+    ("l3_obi_5", ["l3_obi_5", "obi_5"]),
+    ("l3_obi_20", ["l3_obi_20", "obi_20"]),
+    ("l3_obi_50", ["l3_obi_50", "obi_50"]),
+    ("l3_obi_persistence_score", ["l3_obi_persistence_score", "obi_persistence_score"]),
+    ("l3_cancel_to_trade_bid_5s", ["l3_cancel_to_trade_bid_5s", "cancel_to_trade_bid_5s", "cancel_to_trade_bid"]),
+    ("l3_cancel_to_trade_ask_5s", ["l3_cancel_to_trade_ask_5s", "cancel_to_trade_ask_5s", "cancel_to_trade_ask"]),
+    ("l3_cancel_to_trade_bid_20s", ["l3_cancel_to_trade_bid_20s", "cancel_to_trade_bid_20s"]),
+    ("l3_cancel_to_trade_ask_20s", ["l3_cancel_to_trade_ask_20s", "cancel_to_trade_ask_20s"]),
+    ("l3_queue_pressure_bid", ["l3_queue_pressure_bid", "queue_pressure_bid"]),
+    ("l3_queue_pressure_ask", ["l3_queue_pressure_ask", "queue_pressure_ask"]),
+    ("l3_market_depth_imbalance", ["l3_market_depth_imbalance", "market_depth_imbalance"]),
     # V3: Continuation-context quality (non-zero only for continuation scenarios)
     # NOTE: Commented out to match current 23-feature V3 model. 
     # Will be re-enabled in V3.1 after retraining.
-    # ("cont_ctx_age_ms", ["cont_ctx_age_ms"])
-    # ("hidden_ctx_recent", ["hidden_ctx_recent"])
+    # ("cont_ctx_age_ms", ["cont_ctx_age_ms"]),
+    # ("hidden_ctx_recent", ["hidden_ctx_recent"]),
 ]
 
 _EXPECTED_FEATURE_NAMES = [name for name, _ in _NUMERIC_FEATURE_ATTRS] + [
@@ -112,10 +112,10 @@ class MLScoringGate:
     """
 
     def __init__(
-        self
-        *
-        model_path: str = ""
-        refresh_ms: int = 0
+        self,
+        *,
+        model_path: str = "",
+        refresh_ms: int = 0,
     ) -> None:
         # V3 path takes priority; fall back to V2 legacy var; final default = V3
         self._model_path = model_path or (
@@ -136,13 +136,13 @@ class MLScoringGate:
                     self._threshold = t
                 else:
                     logger.warning(
-                        "ML_CONFIDENCE_THRESHOLD=%r out of [0,1] — ignored"
-                        raw_thr
+                        "ML_CONFIDENCE_THRESHOLD=%r out of [0,1] — ignored",
+                        raw_thr,
                     )
             except ValueError:
                 logger.warning(
-                    "ML_CONFIDENCE_THRESHOLD=%r not a float — ignored"
-                    raw_thr
+                    "ML_CONFIDENCE_THRESHOLD=%r not a float — ignored",
+                    raw_thr,
                 )
 
         # [NEW] Throttle for mtime checks (reduce syscalls)
@@ -197,8 +197,8 @@ class MLScoringGate:
             if not os.path.isfile(self._model_path):
                 if self._load_failures == 0:
                     logger.info(
-                        "ML scorer model not found at %s — rule-based fallback"
-                        self._model_path
+                        "ML scorer model not found at %s — rule-based fallback",
+                        self._model_path,
                     )
                 self._load_failures += 1
                 return False
@@ -228,11 +228,11 @@ class MLScoringGate:
 
             metrics = pack.get("metrics", {})
             logger.info(
-                "✅ ML scorer loaded: samples=%d MAE=%.4f R²=%.4f Spearman=%.4f"
-                pack.get("n_samples", 0)
-                metrics.get("mae_oof", -1)
-                metrics.get("r2_oof", -1)
-                metrics.get("spearman_oof", -1)
+                "✅ ML scorer loaded: samples=%d MAE=%.4f R²=%.4f Spearman=%.4f",
+                pack.get("n_samples", 0),
+                metrics.get("mae_oof", -1),
+                metrics.get("r2_oof", -1),
+                metrics.get("spearman_oof", -1),
             )
             return True
 
@@ -265,10 +265,10 @@ class MLScoringGate:
             out.append(1.0 if dir_sign > 0 else 0.0)  # direction_long
 
             c2t_vals = [
-                _f_any(ctx, "l3_cancel_to_trade_bid_5s", "cancel_to_trade_bid_5s", "cancel_to_trade_bid", default=0.0)
-                _f_any(ctx, "l3_cancel_to_trade_ask_5s", "cancel_to_trade_ask_5s", "cancel_to_trade_ask", default=0.0)
-                _f_any(ctx, "l3_cancel_to_trade_bid_20s", "cancel_to_trade_bid_20s", default=0.0)
-                _f_any(ctx, "l3_cancel_to_trade_ask_20s", "cancel_to_trade_ask_20s", default=0.0)
+                _f_any(ctx, "l3_cancel_to_trade_bid_5s", "cancel_to_trade_bid_5s", "cancel_to_trade_bid", default=0.0),
+                _f_any(ctx, "l3_cancel_to_trade_ask_5s", "cancel_to_trade_ask_5s", "cancel_to_trade_ask", default=0.0),
+                _f_any(ctx, "l3_cancel_to_trade_bid_20s", "cancel_to_trade_bid_20s", default=0.0),
+                _f_any(ctx, "l3_cancel_to_trade_ask_20s", "cancel_to_trade_ask_20s", default=0.0),
             ]
             out.append(max(c2t_vals))  # cancel_to_trade_max
 
@@ -352,11 +352,11 @@ class MLScoringGate:
     # ------------------------------------------------------------------
 
     def score(
-        self
-        *
-        kind: str = ""
-        side: str = ""
-        ctx: Any = None
+        self,
+        *,
+        kind: str = "",
+        side: str = "",
+        ctx: Any = None,
     ) -> Tuple[Optional[float], Dict[str, Any]]:
         """Score a signal using ML model.
 
@@ -391,8 +391,8 @@ class MLScoringGate:
             model_ver = str(self._pack.get("kind", "unknown")) if self._pack else "unknown"
             schema_ver = str(getattr(self, "_feature_schema_version", 0))
             ml_feature_mismatch_total.labels(
-                symbol=getattr(ctx, "symbol", "unknown")
-                model_ver=model_ver
+                symbol=getattr(ctx, "symbol", "unknown"),
+                model_ver=model_ver,
                 schema_ver=schema_ver
             ).inc()
             logger.error("MLScoringGate schema mismatch: extracted features do not match model expectations (fail-open)")
@@ -421,11 +421,11 @@ class MLScoringGate:
         )
 
         parts.update({
-            "ml_status": "ok"
-            "ml_predicted_r": predicted_r
-            "ml_conf01": conf01
-            "ml_model_age_ms": model_age_ms
-            "ml_kind": kind
+            "ml_status": "ok",
+            "ml_predicted_r": predicted_r,
+            "ml_conf01": conf01,
+            "ml_model_age_ms": model_age_ms,
+            "ml_kind": kind,
         })
 
         # Phase 4.1: surface threshold info for observability. Default = no

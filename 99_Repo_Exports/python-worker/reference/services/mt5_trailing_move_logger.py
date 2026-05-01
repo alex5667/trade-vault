@@ -21,11 +21,11 @@ from services.mt5_trailing_move_logger import MT5TrailingMoveLogger
 
 logger = MT5TrailingMoveLogger()
 logger.log_move(
-    sid="signal-XAUUSD-123"
-    symbol="XAUUSD"
-    new_sl=2771.4
-    current_price=2776.5
-    profile="rocket_v1"
+    sid="signal-XAUUSD-123",
+    symbol="XAUUSD",
+    new_sl=2771.4,
+    current_price=2776.5,
+    profile="rocket_v1",
 )
 ```
 """
@@ -64,13 +64,13 @@ class MT5TrailingMoveLogger:
         log.info("✅ MT5TrailingMoveLogger initialized")
     
     def log_move(
-        self
-        sid: str
-        symbol: str
-        new_sl: float
-        current_price: Optional[float] = None
-        profile: str = "unknown"
-        position_id: Optional[str] = None
+        self,
+        sid: str,
+        symbol: str,
+        new_sl: float,
+        current_price: Optional[float] = None,
+        profile: str = "unknown",
+        position_id: Optional[str] = None,
         atr: Optional[float] = None
     ) -> bool:
         """
@@ -115,13 +115,13 @@ class MT5TrailingMoveLogger:
         
         # Логируем событие
         success = self.events_logger.log_trailing_move(
-            sid=sid
-            symbol=symbol
-            new_sl=new_sl
-            current_price=current_price
-            profile=profile
-            position_id=position_id
-            distance_from_entry=distance_from_entry
+            sid=sid,
+            symbol=symbol,
+            new_sl=new_sl,
+            current_price=current_price,
+            profile=profile,
+            position_id=position_id,
+            distance_from_entry=distance_from_entry,
             atr=atr
         )
         
@@ -130,7 +130,7 @@ class MT5TrailingMoveLogger:
             self.last_sl_cache[sid] = new_sl
             
             log.info(
-                "📈 Trailing move: sid=%s new_sl=%.2f distance=%.2f profile=%s"
+                "📈 Trailing move: sid=%s new_sl=%.2f distance=%.2f profile=%s",
                 sid, new_sl, distance_from_entry or 0.0, profile
             )
         
@@ -193,12 +193,12 @@ class MT5TrailingMoveLogger:
                 return None
             
             return {
-                "moves_count": len(sl_values)
-                "first_sl": sl_values[0]
-                "last_sl": sl_values[-1]
-                "max_sl": max(sl_values)
-                "min_sl": min(sl_values)
-                "total_movement": sl_values[-1] - sl_values[0]
+                "moves_count": len(sl_values),
+                "first_sl": sl_values[0],
+                "last_sl": sl_values[-1],
+                "max_sl": max(sl_values),
+                "min_sl": min(sl_values),
+                "total_movement": sl_values[-1] - sl_values[0],
                 "avg_sl": sum(sl_values) / len(sl_values)
             }
             
@@ -219,11 +219,11 @@ if __name__ == "__main__":
     # Создаём тестовый сигнал
     import json
     signal = {
-        "sid": test_sid
-        "symbol": "XAUUSD"
-        "side": "LONG"
-        "entry": 2765.5
-        "sl": 2758.7
+        "sid": test_sid,
+        "symbol": "XAUUSD",
+        "side": "LONG",
+        "entry": 2765.5,
+        "sl": 2758.7,
         "tp_levels": [2769.9, 2773.1, 2776.3]
     }
     logger.r.set(f"signals:{test_sid}", json.dumps(signal), ex=3600)
@@ -241,11 +241,11 @@ if __name__ == "__main__":
     
     for i, (new_sl, current_price) in enumerate(moves, 1):
         success = logger.log_move(
-            sid=test_sid
-            symbol="XAUUSD"
-            new_sl=new_sl
-            current_price=current_price
-            profile="rocket_v1"
+            sid=test_sid,
+            symbol="XAUUSD",
+            new_sl=new_sl,
+            current_price=current_price,
+            profile="rocket_v1",
             atr=2.5
         )
         

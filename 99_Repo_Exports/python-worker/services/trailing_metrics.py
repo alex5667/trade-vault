@@ -143,11 +143,11 @@ if __name__ == "__main__":
     # Имитация работы
     TrailingMetrics.set_system_info("1.0.0", "rocket_v1")
     
-    TrailingMetrics.record_event("TP1_HIT", "XAUUSD")
-    TrailingMetrics.record_trailing_started("XAUUSD", "rocket_v1")
+    TrailingMetrics.record_event("TP1_HIT")
+    TrailingMetrics.record_trailing_started("rocket_v1")
     
-    TrailingMetrics.record_event("TP2_HIT", "XAUUSD")
-    TrailingMetrics.record_trailing_stopped("XAUUSD")
+    TrailingMetrics.record_event("TP2_HIT")
+    TrailingMetrics.record_trailing_stopped("")
     
     # Генерация метрик
     print("=== Prometheus Metrics ===")

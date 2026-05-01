@@ -22,16 +22,16 @@ class ExitIntentResult:
 
 
 def validate_exit_intent(
-    *
-    position_mode: str
-    position_side: Optional[str]
-    exit_intent: str
-    reduce_only: bool
-    close_position: bool
-    quantity: Optional[float]
-    order_type: str
-    working_type: Optional[str]
-    is_algo: bool
+    *,
+    position_mode: str,
+    position_side: Optional[str],
+    exit_intent: str,
+    reduce_only: bool,
+    close_position: bool,
+    quantity: Optional[float],
+    order_type: str,
+    working_type: Optional[str],
+    is_algo: bool,
 ) -> ExitIntentResult:
     pm = (position_mode or "oneway").strip().lower()
     ps = (position_side or "").strip().upper() or None

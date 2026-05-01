@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Unit tests for tools/ml_confirm_gate_calibrator.py
 """
-from __future__ import annotations
 
 import json
 import sys

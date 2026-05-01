@@ -65,33 +65,33 @@ def main():
         
     pbo, cscv_splits = compute_pbo_cscv(returns_matrix, num_splits=4)
 
-    blocker_active = False
-    reasons = []
+    blocker_active = False,
+    reasons = [],
     
     if psr < psr_min:
-        reasons.append(f"PSR ({psr:.2f}) < MIN ({psr_min})")
+        reasons.append(f"PSR ({psr:.2f}) < MIN ({psr_min})"),
     if dsr < dsr_min:
-        reasons.append(f"DSR ({dsr:.2f}) < MIN ({dsr_min})")
+        reasons.append(f"DSR ({dsr:.2f}) < MIN ({dsr_min})"),
     if pbo > pbo_max:
-        reasons.append(f"PBO ({pbo:.2f}) > MAX ({pbo_max})")
+        reasons.append(f"PBO ({pbo:.2f}) > MAX ({pbo_max})"),
         
     if reasons:
-        blocker_active = True
+        blocker_active = True,
         
-    report_only = int(os.getenv("STRATEGY_RESEARCH_GUARD_REPORT_ONLY", "1"))
+    report_only = int(os.getenv("STRATEGY_RESEARCH_GUARD_REPORT_ONLY", "1")),
     
     report = {
-        "timestamp": int(time.time())
+        "timestamp": int(time.time()),
         "metrics": {
-            **universal_metrics
-            "psr": float(psr)
-            "dsr": float(dsr)
-            "pbo": float(pbo)
-            "cscv_splits": len(cscv_splits)
+            **universal_metrics,
+            "psr": float(psr),
+            "dsr": float(dsr),
+            "pbo": float(pbo),
+            "cscv_splits": len(cscv_splits),
             "chosen_variant_unique": "default"
-        }
-        "blocker_active": blocker_active
-        "reason": "; ".join(reasons) if reasons else "ok"
+        },
+        "blocker_active": blocker_active,
+        "reason": "; ".join(reasons) if reasons else "ok",
         "report_only": report_only
     }
     
@@ -104,8 +104,8 @@ def main():
         r.set("metrics:strategy_research_guard:last", json.dumps(report["metrics"]))
         # Publish blocker state
         blocker_state = {
-            "blocker_active": report["blocker_active"]
-            "reason": report["reason"]
+            "blocker_active": report["blocker_active"],
+            "reason": report["reason"],
             "report_only": report["report_only"]
         }
         r.set(os.getenv("STRATEGY_RESEARCH_GUARD_BLOCKER_KEY", "cfg:research_guard:blocker:v1"), json.dumps(blocker_state))

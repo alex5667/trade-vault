@@ -1,3 +1,4 @@
+from __future__ import annotations
 """atr_horizon_live_surface.py — Phase 2.4B: live risk surface builder from selected ATR.
 
 Computes live sl_price / tp1_price / max_signal_age_ms from meta.atr_profile.
@@ -5,7 +6,6 @@ Does NOT touch trailing — that stays on get_atr(pos.symbol) path downstream.
 
 Fail-open: missing/invalid fields → reason_code=LIVE_SURFACE_INCOMPLETE, zero prices.
 """
-from __future__ import annotations
 
 import math
 import os

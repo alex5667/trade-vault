@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Multi Publish Best Threshold - Мульти-тюнинг порога для нескольких символов/стратегий.
 
 Использование:
     python -m analytics.multi_publish_best_threshold \\
-        --symbols XAUUSD,XAGUSD \\
+        --symbols ,XAGUSD \\
         --strategies aggregated,orderflow \\
         --days 7 \\
         --emit-telegram 1
@@ -15,7 +16,6 @@ Multi Publish Best Threshold - Мульти-тюнинг порога для н�
 - Telegram уведомления
 """
 
-from __future__ import annotations
 import argparse
 import time
 import os
@@ -46,30 +46,30 @@ def main():
     )
 
     parser.add_argument(
-        "--redis"
-        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
+        "--redis",
+        default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
         help="Redis URL"
     )
     parser.add_argument(
-        "--symbols"
-        required=True
-        help="Comma-separated symbols: XAUUSD,XAGUSD,BTCUSD"
+        "--symbols",
+        required=True,
+        help="Comma-separated symbols: ,XAGUSD,BTCUSD"
     )
     parser.add_argument(
-        "--strategies"
-        required=True
+        "--strategies",
+        required=True,
         help="Comma-separated strategies: aggregated,orderflow,ta"
     )
     parser.add_argument(
-        "--days"
-        type=int
-        default=7
+        "--days",
+        type=int,
+        default=7,
         help="Количество дней истории для анализа"
     )
     parser.add_argument(
-        "--emit-telegram"
-        type=int
-        default=1
+        "--emit-telegram",
+        type=int,
+        default=1,
         help="Отправлять уведомления в Telegram (1=да, 0=нет)"
     )
 
@@ -121,9 +121,9 @@ def main():
 
                 # Получаем сигналы
                 signals = list(repo.iter_signals(
-                    symbol=symbol
-                    strategy=strategy
-                    since_ts=since
+                    symbol=symbol,
+                    strategy=strategy,
+                    since_ts=since,
                     until_ts=until
                 ))
 
@@ -135,10 +135,10 @@ def main():
 
                 # Тюнинг и публикация
                 result = tuner.tune_and_publish(
-                    strategy=strategy
-                    symbol=symbol
-                    signals=signals
-                    orders=orders
+                    strategy=strategy,
+                    symbol=symbol,
+                    signals=signals,
+                    orders=orders,
                     emit_telegram=bool(args.emit_telegram)
                 )
 

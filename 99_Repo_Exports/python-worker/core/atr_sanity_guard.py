@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ATR Sanity Guard (deterministic, unit-testable).
 
@@ -20,7 +21,6 @@ Design constraints
 * Minimal coupling: pure logic in core/, no Redis dependency.
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass

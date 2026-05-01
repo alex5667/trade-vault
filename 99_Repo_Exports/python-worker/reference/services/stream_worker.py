@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 StreamWorker - единый каркас для обработки Redis Streams с поддержкой retry/pending-claim.
 
@@ -12,30 +13,29 @@ StreamWorker - единый каркас для обработки Redis Streams
     from services.stream_worker import StreamWorker, WorkerPolicy
     
     policy = WorkerPolicy(
-        ack_mode="lossless"
-        read_count=50
-        block_ms=2000
-        drain_pending_every_s=10
-        claim_orphan_every_s=60
-        min_idle_ms=60_000
-        max_attempts=5
+        ack_mode="lossless",
+        read_count=50,
+        block_ms=2000,
+        drain_pending_every_s=10,
+        claim_orphan_every_s=60,
+        min_idle_ms=60_000,
+        max_attempts=5,
     )
     
     worker = StreamWorker(
-        name="my_worker"
-        client=redis_client
-        group="my_group"
-        consumer="my_consumer"
-        build_streams=lambda: ["stream:1", "stream:2"]
-        process=my_processor
-        policy=policy
-        logger=logger
+        name="my_worker",
+        client=redis_client,
+        group="my_group",
+        consumer="my_consumer",
+        build_streams=lambda: ["stream:1", "stream:2"],
+        process=my_processor,
+        policy=policy,
+        logger=logger,
     )
     
     worker.run_loop(lambda: running_flag)
 """
 
-from __future__ import annotations
 
 import time
 import json
@@ -79,17 +79,17 @@ class StreamWorker:
     """
     
     def __init__(
-        self
-        *
-        name: str
-        client: redis.Redis
-        group: str
-        consumer: str
-        build_streams: Callable[[], List[str]]
-        process: ProcessFn
-        policy: WorkerPolicy
-        logger
-        health_cb: Optional[Callable[[str, str, Dict[str, Any]], None]] = None
+        self,
+        *,
+        name: str,
+        client: redis.Redis,
+        group: str,
+        consumer: str,
+        build_streams: Callable[[], List[str]],
+        process: ProcessFn,
+        policy: WorkerPolicy,
+        logger,
+        health_cb: Optional[Callable[[str, str, Dict[str, Any]], None]] = None,
     ):
         self.name = name
         self.client = client
@@ -139,15 +139,15 @@ class StreamWorker:
     def _to_dlq(self, stream: str, msg_id: str, data: Dict[str, Any], err: str, attempts: int) -> None:
         """Отправляет сообщение в Dead Letter Queue."""
         payload = {
-            "ts": int(time.time())
-            "worker": self.name
-            "group": self.group
-            "consumer": self.consumer
-            "stream": stream
-            "msg_id": msg_id
-            "attempts": attempts
-            "error": err[:5000]
-            "data": json.dumps(data, ensure_ascii=False)[:50_000]
+            "ts": int(time.time()),
+            "worker": self.name,
+            "group": self.group,
+            "consumer": self.consumer,
+            "stream": stream,
+            "msg_id": msg_id,
+            "attempts": attempts,
+            "error": err[:5000],
+            "data": json.dumps(data, ensure_ascii=False)[:50_000],
         }
         try:
             self.client.xadd(self.policy.dlq_stream, payload, maxlen=200_000, approximate=True)
@@ -205,11 +205,11 @@ class StreamWorker:
             return []
         try:
             return self.client.xreadgroup(
-                self.group
-                self.consumer
-                self._streams_dict(">")
-                count=self.policy.read_count
-                block=self.policy.block_ms
+                self.group,
+                self.consumer,
+                self._streams_dict(">"),
+                count=self.policy.read_count,
+                block=self.policy.block_ms,
             )
         except RedisError as e:
             # ✅ Auto-create consumer group if NOGROUP error
@@ -225,11 +225,11 @@ class StreamWorker:
                 # Retry read after creating groups
                 try:
                     return self.client.xreadgroup(
-                        self.group
-                        self.consumer
-                        self._streams_dict(">")
-                        count=self.policy.read_count
-                        block=self.policy.block_ms
+                        self.group,
+                        self.consumer,
+                        self._streams_dict(">"),
+                        count=self.policy.read_count,
+                        block=self.policy.block_ms,
                     )
                 except RedisError as retry_err:
                     self.log.error("[%s] ❌ Retry read failed after group creation: %s", self.name, retry_err)
@@ -244,11 +244,11 @@ class StreamWorker:
         # ID='0' => deliver pending messages to this consumer
         try:
             messages = self.client.xreadgroup(
-                self.group
-                self.consumer
-                self._streams_dict("0")
-                count=min(200, self.policy.read_count)
-                block=1
+                self.group,
+                self.consumer,
+                self._streams_dict("0"),
+                count=min(200, self.policy.read_count),
+                block=1,
             )
         except RedisError as e:
             # ✅ Auto-create consumer group if NOGROUP error
@@ -264,11 +264,11 @@ class StreamWorker:
                 # Retry after creating groups
                 try:
                     messages = self.client.xreadgroup(
-                        self.group
-                        self.consumer
-                        self._streams_dict("0")
-                        count=min(200, self.policy.read_count)
-                        block=1
+                        self.group,
+                        self.consumer,
+                        self._streams_dict("0"),
+                        count=min(200, self.policy.read_count),
+                        block=1,
                     )
                 except RedisError:
                     return 0  # No pending messages or error

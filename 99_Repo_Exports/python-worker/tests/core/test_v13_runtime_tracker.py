@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/core/test_v13_runtime_tracker.py
 ======================================
@@ -5,7 +6,6 @@ Unit tests for V13RuntimeTracker — the per-symbol tracker that computes
 runtime attributes for v13_of indicator groups NA/NB/NC/NE/NF.
 """
 
-from __future__ import annotations
 import math
 import pytest
 from types import SimpleNamespace

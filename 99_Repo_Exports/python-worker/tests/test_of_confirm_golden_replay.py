@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for OFConfirm golden replay tools"""
 
-from __future__ import annotations
 
 import json
 import tempfile

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Тесты для обработки двойной сериализации JSON в MLConfirmGate.
 
@@ -6,7 +7,6 @@
 Это может произойти при неправильном промоуте champion из challenger.
 """
 
-from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock

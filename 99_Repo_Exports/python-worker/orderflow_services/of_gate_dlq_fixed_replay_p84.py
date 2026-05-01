@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P84: OF-Gate DLQ fixed-then-replay pipeline (operator tool).
 
 What it does
@@ -31,7 +32,6 @@ Usage
     --require-fix
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -351,7 +351,7 @@ def _xadd_best_effort(r, stream: str, fields: Dict[str, Any], maxlen: int = 2000
     payload = {
         k: (v if isinstance(v, (str, bytes, bytearray, int, float)) else json.dumps(v, ensure_ascii=False))
         for k, v in fields.items()
-    }
+    },
     r.xadd(stream, payload, maxlen=maxlen, approximate=True)
 
 

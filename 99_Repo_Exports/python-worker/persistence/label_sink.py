@@ -50,7 +50,7 @@ class ParquetLabelSink:
     Рекомендуемая схема record:
       {
         "ts":  ... (ms),
-        "symbol": "XAUUSD",
+        "symbol": "",
         "source": "hub|orderflow|ta",
         "side": "LONG|SHORT",
         "price": float,

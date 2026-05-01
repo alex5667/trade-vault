@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 LiqMap Gate Calibrator.
 
@@ -19,7 +20,6 @@ ENV:
   RECS_HMAC_SECRET             for bundle signing (default CHANGE_ME)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -167,7 +167,7 @@ def query_decisions_from_stream(
                 "symbol":      symbol,
                 "direction":   str(rec.get("direction") or "").upper(),
                 "ts_ms":       _safe_int(rec.get("ts_ms"), 0),
-            }
+            },
 
     logger.info(f"Decisions with active liqmap gate found: {len(decisions)}")
     return decisions
@@ -218,7 +218,7 @@ def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
                             "r_mult":    _safe_float(t.get("r_mult"), 0.0),
                             "symbol":    str(t.get("symbol") or "").upper(),
                             "direction": str(t.get("direction") or t.get("side") or "").upper(),
-                        }
+                        },
                 except Exception:
                     pass
     finally:
@@ -286,7 +286,7 @@ def compute_stats(
             "veto_r_sum":  round(sum(s["veto_r"]), 3),
             "pass_count":  s["pass_count"],
             "pass_r_mean": round(_mean(s["pass_r"]), 3),
-        }
+        },
 
     return {
         "total_decisions": len(decisions),
@@ -300,7 +300,7 @@ def compute_stats(
         "pass_r_median": round(_median(pass_r), 3),
         "veto_reasons":  dict(veto_reasons.most_common()),
         "by_symbol":     by_sym_flat,
-    }
+    },
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +342,7 @@ def create_and_send_proposal(
             "key": "config:orderflow:GLOBAL",
             "field": "liqmap_gate_mode",
             "value": "enforce",
-        }
+        },
     ]
 
     meta = {
@@ -354,14 +354,14 @@ def create_and_send_proposal(
             "pass_r_mean":  stats["pass_r_mean"],
             "reasons":      stats["veto_reasons"],
         },
-    }
+    },
 
     bundle = {
         "id":         bundle_id,
         "created_ms": get_ny_time_millis(),
         "ops":        ops,
         "meta":       meta,
-    }
+    },
 
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle))
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=86400)

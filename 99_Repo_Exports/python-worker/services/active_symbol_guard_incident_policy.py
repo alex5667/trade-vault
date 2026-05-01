@@ -10,18 +10,18 @@ from typing import Any, Dict, List, Optional, Sequence
 try:  # pragma: no cover
     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
     from services.execution_metrics import (
-        EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL
-        EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL
-        EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL
-        EXECUTION_ACTIVE_SYMBOL_GUARD_RENEW_REMINDER_TOTAL
+        EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_RENEW_REMINDER_TOTAL,
     )
 except Exception:  # pragma: no cover
     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
     from execution_metrics import (  # type: ignore
-        EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL
-        EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL
-        EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL
-        EXECUTION_ACTIVE_SYMBOL_GUARD_RENEW_REMINDER_TOTAL
+        EXECUTION_ACTIVE_SYMBOL_GUARD_INCIDENT_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_NOTIFY_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_SUPPRESSION_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_RENEW_REMINDER_TOTAL,
     )
 
 
@@ -46,19 +46,19 @@ class ActiveSymbolGuardIncidentPolicyEngine:
     """
 
     def __init__(
-        self
-        redis_client: Any
-        diagnostics: ActiveSymbolGuardDiagnostics
-        *
-        incident_prefix: str = 'orders:active_symbol_guard:incident:last:'
-        dedupe_prefix: str = 'orders:active_symbol_guard:incident:dedupe:'
-        suppress_prefix: str = 'orders:active_symbol_guard:incident:suppress:'
-        hold_key_prefix: str = 'orders:active_symbol_guard:hold:symbol:'
-        escalation_key_prefix: str = 'orders:active_symbol_guard:incident:ack:'
-        dedupe_ttl_info_sec: int | None = None
-        dedupe_ttl_warning_sec: int | None = None
-        dedupe_ttl_critical_sec: int | None = None
-        ack_renew_reminder_sec: int | None = None
+        self,
+        redis_client: Any,
+        diagnostics: ActiveSymbolGuardDiagnostics,
+        *,
+        incident_prefix: str = 'orders:active_symbol_guard:incident:last:',
+        dedupe_prefix: str = 'orders:active_symbol_guard:incident:dedupe:',
+        suppress_prefix: str = 'orders:active_symbol_guard:incident:suppress:',
+        hold_key_prefix: str = 'orders:active_symbol_guard:hold:symbol:',
+        escalation_key_prefix: str = 'orders:active_symbol_guard:incident:ack:',
+        dedupe_ttl_info_sec: int | None = None,
+        dedupe_ttl_warning_sec: int | None = None,
+        dedupe_ttl_critical_sec: int | None = None,
+        ack_renew_reminder_sec: int | None = None,
     ) -> None:
         self.r = redis_client
         self.diagnostics = diagnostics
@@ -153,14 +153,14 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         hot_bucket = '5+' if hot_5m >= 5 else '3+' if hot_5m >= 3 else '1+' if hot_5m >= 1 else '0'
         race_types = sorted({str((item or {}).get('chain_type') or '') for item in (race_chains or []) if str((item or {}).get('chain_type') or '')})
         shape = {
-            'symbol': symbol
-            'classification': classification
-            'severity': severity
-            'hot_bucket': hot_bucket
-            'race_types': race_types
-            'exchange_has_live_position': bool((exchange_truth or {}).get('has_live_position'))
-            'exchange_has_open_orders': bool((exchange_truth or {}).get('has_open_orders'))
-            'exchange_reliable': bool((exchange_truth or {}).get('is_reliable'))
+            'symbol': symbol,
+            'classification': classification,
+            'severity': severity,
+            'hot_bucket': hot_bucket,
+            'race_types': race_types,
+            'exchange_has_live_position': bool((exchange_truth or {}).get('has_live_position')),
+            'exchange_has_open_orders': bool((exchange_truth or {}).get('has_open_orders')),
+            'exchange_reliable': bool((exchange_truth or {}).get('is_reliable')),
         }
         raw = json.dumps(shape, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
         return hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]
@@ -178,12 +178,12 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         reasons: List[str] = []
 
         base_points = {
-            'active': 5
-            'pending_release': 30
-            'released_tombstone': 12
-            'stale_tombstone': 45
-            'unknown': 8
-            'missing_symbol': 20
+            'active': 5,
+            'pending_release': 30,
+            'released_tombstone': 12,
+            'stale_tombstone': 45,
+            'unknown': 8,
+            'missing_symbol': 20,
         }
         score += int(base_points.get(classification, 0))
         if classification in base_points:
@@ -229,9 +229,9 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         elif score >= 35:
             severity = 'warning'
         return {
-            'score': int(score)
-            'severity': severity
-            'reasons': reasons
+            'score': int(score),
+            'severity': severity,
+            'reasons': reasons,
         }
 
     def _runbook_actions(self, bundle: Dict[str, Any], score_info: Dict[str, Any], hold_state: Dict[str, Any], ack_state: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -244,12 +244,12 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         base_url = os.getenv('ACTIVE_SYMBOL_GUARD_EXPORTER_BASE_URL', 'http://127.0.0.1:8788').rstrip('/')
         actions: List[Dict[str, Any]] = [
             {
-                'action': 'inspect'
-                'kind': 'read_only'
-                'endpoint': f'{base_url}/api/active-symbol-guard/incident/symbol/{symbol}'
-                'symbol': symbol
-                'sid': sid
-                'enabled': bool(symbol)
+                'action': 'inspect',
+                'kind': 'read_only',
+                'endpoint': f'{base_url}/api/active-symbol-guard/incident/symbol/{symbol}',
+                'symbol': symbol,
+                'sid': sid,
+                'enabled': bool(symbol),
             }
         ]
         # P13: hold-aware — if hold is active, offer revoke; else offer apply
@@ -259,8 +259,8 @@ class ActiveSymbolGuardIncidentPolicyEngine:
             actions.append({'action': 'hold_symbol', 'kind': 'runbook', 'symbol': symbol, 'sid': sid, 'enabled': bool(symbol and severity in {'warning', 'critical'})})
         force_release_enabled = bool(symbol and classification in {'pending_release', 'released_tombstone', 'stale_tombstone'} and bool(exchange_truth.get('is_flat')))
         actions.append({
-            'action': 'force_release', 'kind': 'runbook', 'symbol': symbol, 'sid': sid
-            'enabled': force_release_enabled, 'expected_sid': sid
+            'action': 'force_release', 'kind': 'runbook', 'symbol': symbol, 'sid': sid,
+            'enabled': force_release_enabled, 'expected_sid': sid,
         })
         # P13: ack-aware — if ack is active, offer renew; else offer ack
         if bool(ack_state.get('is_active')):
@@ -268,9 +268,9 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         else:
             actions.append({'action': 'ack', 'kind': 'runbook', 'symbol': symbol, 'sid': sid, 'enabled': bool(symbol and severity in {'warning', 'critical'})})
         actions.append({
-            'action': 'escalate', 'kind': 'notification', 'symbol': symbol, 'sid': sid
-            'enabled': bool(symbol and (severity == 'critical' or int(score_info.get('score') or 0) >= 65))
-            'target': os.getenv('ACTIVE_SYMBOL_GUARD_ESCALATION_TARGET', 'telegram:oncall')
+            'action': 'escalate', 'kind': 'notification', 'symbol': symbol, 'sid': sid,
+            'enabled': bool(symbol and (severity == 'critical' or int(score_info.get('score') or 0) >= 65)),
+            'target': os.getenv('ACTIVE_SYMBOL_GUARD_ESCALATION_TARGET', 'telegram:oncall'),
         })
         return actions
 
@@ -309,9 +309,9 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         sdoc = self._load_json_key(self._symbol_suppress_key(symbol)) if symbol else {}
         fdoc = self._load_json_key(self._fingerprint_suppress_key(fingerprint)) if fingerprint else {}
         return {
-            'symbol': sdoc
-            'fingerprint': fdoc
-            'is_suppressed': bool(sdoc or fdoc)
+            'symbol': sdoc,
+            'fingerprint': fdoc,
+            'is_suppressed': bool(sdoc or fdoc),
         }
 
     def _dedupe_state(self, fingerprint: str) -> Dict[str, Any]:
@@ -341,12 +341,12 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         summary['ack_remaining_sec'] = int(ack_state.get('remaining_sec') or 0)
         bundle['summary'] = summary
         policy = {
-            'severity': summary['severity']
-            'score': summary['score']
-            'score_reasons': list(score_info.get('reasons') or [])
-            'fingerprint': fingerprint
-            'hold_state': hold_state
-            'ack_state': ack_state
+            'severity': summary['severity'],
+            'score': summary['score'],
+            'score_reasons': list(score_info.get('reasons') or []),
+            'fingerprint': fingerprint,
+            'hold_state': hold_state,
+            'ack_state': ack_state,
         }
         policy['runbook_actions'] = self._runbook_actions(bundle, score_info, hold_state, ack_state)
         suppression = self._suppression_state(symbol, fingerprint)
@@ -404,14 +404,14 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         ttl = self._severity_ttl_sec(severity)
         if fingerprint:
             doc = {
-                'fingerprint': fingerprint
-                'symbol': symbol
-                'severity': severity
-                'classification': classification
-                'notified_at_ms': _ms_now()
-                'channel': str(channel or '')
-                'result': str(result or '')
-                'ttl_sec': ttl
+                'fingerprint': fingerprint,
+                'symbol': symbol,
+                'severity': severity,
+                'classification': classification,
+                'notified_at_ms': _ms_now(),
+                'channel': str(channel or ''),
+                'result': str(result or ''),
+                'ttl_sec': ttl,
             }
             self._store_dedupe(fingerprint=fingerprint, payload=doc, ttl_sec=ttl)
         self._metric_notify(severity, channel, result)
@@ -425,14 +425,14 @@ class ActiveSymbolGuardIncidentPolicyEngine:
         summary = dict((triaged or {}).get('summary') or {})
         policy = dict((triaged or {}).get('policy') or {})
         return {
-            'type': 'report'
-            'subtype': 'active_symbol_guard_incident'
-            'severity': str(summary.get('severity') or 'info')
-            'decision': str(policy.get('decision') or 'notify')
-            'symbol': str(summary.get('symbol') or '')
-            'sid': str(summary.get('sid') or '')
-            'fingerprint': str(policy.get('fingerprint') or summary.get('fingerprint') or '')
-            'text': str((triaged or {}).get('telegram_text') or '')
-            'payload': json.dumps(triaged, ensure_ascii=False, default=str)
-            'ts': str(_ms_now())
+            'type': 'report',
+            'subtype': 'active_symbol_guard_incident',
+            'severity': str(summary.get('severity') or 'info'),
+            'decision': str(policy.get('decision') or 'notify'),
+            'symbol': str(summary.get('symbol') or ''),
+            'sid': str(summary.get('sid') or ''),
+            'fingerprint': str(policy.get('fingerprint') or summary.get('fingerprint') or ''),
+            'text': str((triaged or {}).get('telegram_text') or ''),
+            'payload': json.dumps(triaged, ensure_ascii=False, default=str),
+            'ts': str(_ms_now()),
         }

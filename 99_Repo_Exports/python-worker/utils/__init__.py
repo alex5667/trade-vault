@@ -1,3 +1,4 @@
+from __future__ import annotations
 """utils — Shared utility helpers for python-worker.
 
 Submodules:
@@ -7,7 +8,6 @@ Submodules:
     log_throttler   — Thread-safe repeated-log rate limiter.
     telegram_notify — Thin Telegram message sender.
 """
-from __future__ import annotations
 
 from utils.atr_cache import ATRCache, get_atr_cache
 from utils.candle_utils import average, calc_volatility
@@ -17,17 +17,17 @@ from utils.telegram_notify import send_telegram_message
 
 __all__ = [
     # atr_cache
-    "ATRCache"
-    "get_atr_cache"
+    "ATRCache",
+    "get_atr_cache",
     # candle_utils
-    "calc_volatility"
-    "average"
+    "calc_volatility",
+    "average",
     # helpers
-    "_f"
-    "_i"
+    "_f",
+    "_i",
     # log_throttler
-    "LogThrottler"
-    "log_throttler"
+    "LogThrottler",
+    "log_throttler",
     # telegram_notify
-    "send_telegram_message"
+    "send_telegram_message",
 ]

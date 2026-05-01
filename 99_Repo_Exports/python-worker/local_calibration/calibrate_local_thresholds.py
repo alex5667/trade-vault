@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Offline calibration script for local signal thresholds.
 
@@ -17,7 +18,6 @@ Environment variables:
     CALIB_MIN_MEAN_PNL_R: Minimum mean PnL per bucket (default: 0.0)
 """
 
-from __future__ import annotations
 
 import json
 import math
@@ -52,10 +52,10 @@ MIN_MEAN_PNL_R = float(os.getenv("CALIB_MIN_MEAN_PNL_R", "0.0"))
 
 # какие метрики калибруем
 METRICS = (
-    "delta_spike_z"
-    "obi"
-    "weak_progress"
-    "atr_quantile"
+    "delta_spike_z",
+    "obi",
+    "weak_progress",
+    "atr_quantile",
 )
 
 
@@ -141,19 +141,19 @@ def bucket_by_quantiles(xs: List[float], ys: List[float], num_buckets: int = 5):
         mean_y = sum(ys_chunk) / len(ys_chunk)
         buckets.append(
             {
-                "q_low": float(q_low)
-                "q_high": float(q_high)
-                "mean_y": float(mean_y)
-                "count": len(xs_chunk)
+                "q_low": float(q_low),
+                "q_high": float(q_high),
+                "mean_y": float(mean_y),
+                "count": len(xs_chunk),
             }
         )
     return buckets
 
 
 def choose_threshold_from_buckets(
-    buckets
-    min_trades: int = MIN_TRADES_BUCKET
-    min_mean_pnl: float = MIN_MEAN_PNL_R
+    buckets,
+    min_trades: int = MIN_TRADES_BUCKET,
+    min_mean_pnl: float = MIN_MEAN_PNL_R,
 ) -> float:
     candidates = [
         b
@@ -180,13 +180,13 @@ def load_signals(conn) -> List[SignalRow]:
     # idx_trades_closed_ml_v2, enabling an Index-Only Scan on Timescale chunks.
     sql = f"""
         SELECT
-            symbol
-            COALESCE(entry_tag, 'mixed') AS session
-            'mixed'             AS regime
-            ind_delta_z         AS delta_spike_z
-            ind_obi             AS obi
-            ind_weak_progress   AS weak_progress
-            ind_atr_th_bps      AS atr_quantile
+            symbol,
+            COALESCE(entry_tag, 'mixed') AS session,
+            'mixed'             AS regime,
+            ind_delta_z         AS delta_spike_z,
+            ind_obi             AS obi,
+            ind_weak_progress   AS weak_progress,
+            ind_atr_th_bps      AS atr_quantile,
             r_multiple          AS pnl_r
         FROM trades_closed
         WHERE exit_ts >= NOW() - INTERVAL '{LOOKBACK_DAYS} days'
@@ -199,14 +199,14 @@ def load_signals(conn) -> List[SignalRow]:
         for r in cur:
             rows.append(
                 SignalRow(
-                    symbol=r["symbol"]
-                    session=r["session"]
-                    regime=r["regime"]
-                    delta_spike_z=r["delta_spike_z"]
-                    obi=r["obi"]
-                    weak_progress=r["weak_progress"]
-                    atr_quantile=r["atr_quantile"]
-                    pnl_r=r["pnl_r"]
+                    symbol=r["symbol"],
+                    session=r["session"],
+                    regime=r["regime"],
+                    delta_spike_z=r["delta_spike_z"],
+                    obi=r["obi"],
+                    weak_progress=r["weak_progress"],
+                    atr_quantile=r["atr_quantile"],
+                    pnl_r=r["pnl_r"],
                 )
             )
     return rows
@@ -267,14 +267,14 @@ def load_signals_from_redis() -> List[SignalRow]:
                     pnl_r = pnl / risk
             rows.append(
                 SignalRow(
-                    symbol=symbol
-                    session=session
-                    regime=regime
-                    delta_spike_z=None
-                    obi=None
-                    weak_progress=None
-                    atr_quantile=None
-                    pnl_r=float(pnl_r)
+                    symbol=symbol,
+                    session=session,
+                    regime=regime,
+                    delta_spike_z=None,
+                    obi=None,
+                    weak_progress=None,
+                    atr_quantile=None,
+                    pnl_r=float(pnl_r),
                 )
             )
     return rows
@@ -293,8 +293,8 @@ def build_clusters(rows: List[SignalRow]) -> Dict[ClusterKey, List[SignalRow]]:
 # --------------------
 
 def calibrate_metric_for_cluster(
-    metric_name: str
-    rows: List[SignalRow]
+    metric_name: str,
+    rows: List[SignalRow],
 ) -> MetricCalibration | None:
     # забираем метрику и pnl
     metric_values: List[float] = []
@@ -320,12 +320,12 @@ def calibrate_metric_for_cluster(
     cdf_points = build_empirical_cdf(metric_values, num_points=101)
 
     return MetricCalibration(
-        q90=q90
-        q95=q95
-        q98=q98
-        chosen_threshold=chosen_thr
-        count_samples=len(metric_values)
-        cdf_points=cdf_points
+        q90=q90,
+        q95=q95,
+        q98=q98,
+        chosen_threshold=chosen_thr,
+        count_samples=len(metric_values),
+        cdf_points=cdf_points,
     )
 
 
@@ -334,52 +334,52 @@ def calibrate_metric_for_cluster(
 # --------------------
 
 def upsert_calibration(
-    conn
-    symbol: str
-    session: str
-    regime: str
-    metric: str
-    calib: MetricCalibration
+    conn,
+    symbol: str,
+    session: str,
+    regime: str,
+    metric: str,
+    calib: MetricCalibration,
 ) -> None:
     sql = """
         INSERT INTO signal_local_calibration (
-            symbol, session, regime, metric
-            q90, q95, q98
-            chosen_threshold
-            count_samples
-            cdf_points
+            symbol, session, regime, metric,
+            q90, q95, q98,
+            chosen_threshold,
+            count_samples,
+            cdf_points,
             updated_at
         )
-        VALUES (%s, %s, %s, %s
-                %s, %s, %s
-                %s
-                %s
-                %s
+        VALUES (%s, %s, %s, %s,
+                %s, %s, %s,
+                %s,
+                %s,
+                %s,
                 NOW())
         ON CONFLICT (symbol, session, regime, metric)
         DO UPDATE SET
-            q90             = EXCLUDED.q90
-            q95             = EXCLUDED.q95
-            q98             = EXCLUDED.q98
-            chosen_threshold = EXCLUDED.chosen_threshold
-            count_samples   = EXCLUDED.count_samples
-            cdf_points      = EXCLUDED.cdf_points
+            q90             = EXCLUDED.q90,
+            q95             = EXCLUDED.q95,
+            q98             = EXCLUDED.q98,
+            chosen_threshold = EXCLUDED.chosen_threshold,
+            count_samples   = EXCLUDED.count_samples,
+            cdf_points      = EXCLUDED.cdf_points,
             updated_at      = NOW();
     """
     with conn.cursor() as cur:
         cur.execute(
-            sql
+            sql,
             (
-                symbol
-                session
-                regime
-                metric
-                calib.q90
-                calib.q95
-                calib.q98
-                calib.chosen_threshold
-                calib.count_samples
-                json.dumps(calib.cdf_points)
+                symbol,
+                session,
+                regime,
+                metric,
+                calib.q90,
+                calib.q95,
+                calib.q98,
+                calib.chosen_threshold,
+                calib.count_samples,
+                json.dumps(calib.cdf_points),
             )
         )
 

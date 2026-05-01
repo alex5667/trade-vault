@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Autopilot fields normalizer (unit-testable).
 
@@ -28,7 +29,6 @@ Design rules:
   - Determinism-friendly: prefer fields that are tied to ts_ms (indicators on emission)
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
@@ -91,7 +91,7 @@ def normalize_scenario(raw: Any) -> str:
 
 @dataclass
 class AutopilotFields:
-    symbol: str = ""
+    symbol=""
     regime: str = "na"
     scenario: str = "na"
     abs_lvl_tier: int = -1

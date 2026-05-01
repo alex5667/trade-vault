@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """P58: Build edge-stack dataset (JSONL) with archive fallback.
 
 This is a light wrapper around:
@@ -21,7 +22,6 @@ Output:
   EDGE_DATASET_DIR/YYYYMMDD_HHMM/latest.jsonl + report.json + feature_cols.json
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

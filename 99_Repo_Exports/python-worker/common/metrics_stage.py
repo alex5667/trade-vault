@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Fail-open stage metrics.
 
 Several hot-path services emit simple counters/histograms for monitoring.
@@ -6,7 +7,6 @@ Instrumentation MUST NEVER break trading/dispatch paths.
 This module centralizes best-effort metric emission.
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
@@ -69,22 +69,22 @@ def feature_missing_total(host: Any, *, feature: str) -> None:
     _inc(_get_metrics(host), "feature_missing_total", 1, _tags(feature=feature))
 
 
-def candidates_total(host: Any, *, kind: str = "", symbol: str = "") -> None:
+def candidates_total(host: Any, *, kind: str = "", symbol="") -> None:
     _inc(_get_metrics(host), "pipeline_candidates_total", 1, _tags(kind, symbol))
 
-def veto_total(host: Any, *, reason_code: str, kind: str = "", symbol: str = "", cfg_hash: str = "") -> None:
+def veto_total(host: Any, *, reason_code: str, kind: str = "", symbol="", cfg_hash: str = "") -> None:
     _inc(_get_metrics(host), "pipeline_veto_total", 1, _tags(kind, symbol, reason_code=reason_code, cfg_hash=cfg_hash))
 
-def div_match_fallback_total(host: Any, *, symbol: str = "") -> None:
+def div_match_fallback_total(host: Any, *, symbol="") -> None:
     _inc(_get_metrics(host), "div_match_fallback_total", 1, _tags(symbol=symbol))
 
-def emit_ok_total(host: Any, *, kind: str = "", symbol: str = "", cfg_hash: str = "") -> None:
+def emit_ok_total(host: Any, *, kind: str = "", symbol="", cfg_hash: str = "") -> None:
     _inc(_get_metrics(host), "pipeline_emit_ok_total", 1, _tags(kind, symbol, cfg_hash=cfg_hash))
 
-def stage_ms_hist(host: Any, *, stage: str, ms: float, kind: str = "", symbol: str = "") -> None:
+def stage_ms_hist(host: Any, *, stage: str, ms: float, kind: str = "", symbol="") -> None:
     _obs(_get_metrics(host), "pipeline_stage_ms", float(ms), _tags(kind, symbol, stage=stage))
 
-def dist(host: Any, name: str, value: float, *, kind: str = "", symbol: str = "", **extra_tags: str) -> None:
+def dist(host: Any, name: str, value: float, *, kind: str = "", symbol="", **extra_tags: str) -> None:
     """Generic distribution/histogram datapoint.
 
     Kept positional for backward-compat: dist(host, "metric_name", 1.23, ...)
@@ -132,7 +132,7 @@ def _obs(m: Any, name: str, value: float, tags: Optional[Dict[str, str]] = None)
         return
 
 
-def _tags(kind: str = "", symbol: str = "", cfg_hash: str = "", **extra: str) -> Dict[str, str]:
+def _tags(kind: str = "", symbol="", cfg_hash: str = "", **extra: str) -> Dict[str, str]:
     t: Dict[str, str] = {}
     if kind:
         t["kind"] = str(kind)

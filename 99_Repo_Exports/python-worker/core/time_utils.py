@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Core time utilities.
 
 This module exists to provide a stable import path for time normalization across
@@ -8,7 +9,6 @@ Public API:
 - extract_tick_ts_ms(tick: dict) -> int
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict
 from common.time_norm import normalize_epoch_ms as _normalize_epoch_ms

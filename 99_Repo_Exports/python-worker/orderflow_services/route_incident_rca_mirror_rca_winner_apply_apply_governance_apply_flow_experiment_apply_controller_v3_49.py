@@ -208,7 +208,7 @@ def normalize_profile(raw: Any, default: Dict[str, int]) -> Dict[str, int]:
         "vertex_primary_weight": parse_int(val.get("vertex_primary_weight"), default["vertex_primary_weight"]),
         "vertex_compact_weight": parse_int(val.get("vertex_compact_weight"), default["vertex_compact_weight"]),
         "local_candidate_weight": parse_int(val.get("local_candidate_weight"), default["local_candidate_weight"]),
-    }
+    },
 
 
 def default_profiles() -> Dict[str, Dict[str, int]]:
@@ -216,7 +216,7 @@ def default_profiles() -> Dict[str, Dict[str, int]]:
         "vertex_primary_profile": normalize_profile(DEFAULT_PROFILE_VERTEX_PRIMARY_JSON, {"vertex_primary_weight": 50, "vertex_compact_weight": 30, "local_candidate_weight": 20}),
         "vertex_compact_profile": normalize_profile(DEFAULT_PROFILE_VERTEX_COMPACT_JSON, {"vertex_primary_weight": 30, "vertex_compact_weight": 50, "local_candidate_weight": 20}),
         "local_profile": normalize_profile(DEFAULT_PROFILE_LOCAL_JSON, {"vertex_primary_weight": 25, "vertex_compact_weight": 25, "local_candidate_weight": 50}),
-    }
+    },
 
 
 def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -238,7 +238,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
             "vertex_compact_profile": normalize_profile(raw.get("profile_vertex_compact_json"), profiles["vertex_compact_profile"]),
             "local_profile": normalize_profile(raw.get("profile_local_json"), profiles["local_profile"]),
         },
-    }
+    },
 
 
 def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -248,14 +248,14 @@ def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "vertex_compact_weight": parse_int(raw.get("vertex_compact_weight"), 30),
         "local_candidate_weight": parse_int(raw.get("local_candidate_weight"), 20),
         "last_weight_rebalance_ts_ms": parse_int(raw.get("last_weight_rebalance_ts_ms"), 0),
-    }
+    },
 
 
 def winner_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     incumbent = str(raw.get("incumbent_arm") or "vertex_primary")
     return {
         "incumbent_arm": incumbent if incumbent in ARMS else "vertex_primary",
-    }
+    },
 
 
 def weights_dict(exp_policy: Dict[str, Any]) -> Dict[str, int]:
@@ -263,7 +263,7 @@ def weights_dict(exp_policy: Dict[str, Any]) -> Dict[str, int]:
         "vertex_primary_weight": parse_int(exp_policy.get("vertex_primary_weight"), 50),
         "vertex_compact_weight": parse_int(exp_policy.get("vertex_compact_weight"), 30),
         "local_candidate_weight": parse_int(exp_policy.get("local_candidate_weight"), 20),
-    }
+    },
 
 
 def infer_profile_name(weights: Dict[str, int], profiles: Dict[str, Dict[str, int]]) -> str:
@@ -321,7 +321,7 @@ def evaluate_apply(
         "current_weights": current_weights,
         "target_weights": current_weights,
         "cooldown_active": 1 if cooldown_active else 0,
-    }
+    },
     if controller_policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
         return out
@@ -386,7 +386,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_rr_winner_apply_gov_exp_apply_ctrl_decisions (
                     ts_ms, decision, reason_code, winner_decision, winner_arm, score_margin,
                     current_profile, target_profile, current_incumbent_arm, target_incumbent_arm,
@@ -413,7 +413,7 @@ async def persist_if_configured(
                 },
             )
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_rr_winner_apply_gov_exp_apply_ctrl_journal (
                     ts_ms, decision, reason_code, winner_arm, current_profile, target_profile,
                     current_weights_json, target_weights_json, applied, journal_json

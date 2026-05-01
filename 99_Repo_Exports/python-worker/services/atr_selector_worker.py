@@ -11,31 +11,31 @@ logger = setup_logger("ATRSelectorWorker")
 
 # Prometheus Metrics
 ATR_SEL_RUN_DURATION = Histogram(
-    "atr_selector_run_duration_seconds"
+    "atr_selector_run_duration_seconds",
     "Duration of ATR selection loop in seconds"
 )
 ATR_SEL_SYMBOLS_PROCESSED = Gauge(
-    "atr_selector_symbols_processed"
+    "atr_selector_symbols_processed",
     "Number of symbols processed in last run"
 )
 ATR_SEL_AGE_MS = Gauge(
-    "atr_selector_picked_age_ms"
-    "Age of the picked ATR source"
+    "atr_selector_picked_age_ms",
+    "Age of the picked ATR source",
     ["symbol", "tf", "src"]
 )
 ATR_SEL_BPS = Gauge(
-    "atr_selector_picked_bps"
-    "BPS value of the picked ATR source"
+    "atr_selector_picked_bps",
+    "BPS value of the picked ATR source",
     ["symbol", "tf", "src"]
 )
 ATR_SEL_SWITCH_TOTAL = Counter(
-    "atr_selector_switch_total"
-    "Total number of ATR source/TF switches detected"
+    "atr_selector_switch_total",
+    "Total number of ATR source/TF switches detected",
     ["symbol"]
 )
 ATR_SEL_ERROR_TOTAL = Counter(
-    "atr_selector_error_total"
-    "Total number of errors in ATR selector loop"
+    "atr_selector_error_total",
+    "Total number of errors in ATR selector loop",
     ["type"]
 )
 

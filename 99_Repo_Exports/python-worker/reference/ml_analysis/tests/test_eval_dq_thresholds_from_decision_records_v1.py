@@ -21,13 +21,13 @@ def test_quantiles_and_thresholds_smoke(tmp_path: Path):
     for i in range(500):
         rows.append(
             {
-                "sid": f"s{i}"
-                "ts_ms": base_ts + i * 60_000
-                "symbol": "BTCUSDT" if i < 300 else "ETHUSDT"
+                "sid": f"s{i}",
+                "ts_ms": base_ts + i * 60_000,
+                "symbol": "BTCUSDT" if i < 300 else "ETHUSDT",
                 "indicators": {
-                    "tick_gap_p95_ms": 100.0 + (i % 10)
-                    "tick_missing_seq_ema": 0.05 + (i % 5) * 0.01
-                    "book_missing_seq_ema": 0.12 + (i % 3) * 0.02
+                    "tick_gap_p95_ms": 100.0 + (i % 10),
+                    "tick_missing_seq_ema": 0.05 + (i % 5) * 0.01,
+                    "book_missing_seq_ema": 0.12 + (i % 3) * 0.02,
                 }
             }
         )
@@ -70,10 +70,10 @@ def test_payload_wrapped_variant(tmp_path: Path):
     rows = []
     for i in range(120):
         payload = {
-            "sid": f"x{i}"
-            "ts_ms": 1_700_000_000_000 + i * 60_000
-            "symbol": "BTCUSDT"
-            "indicators": {"tick_gap_p95_ms": 200 + i, "tick_missing_seq_ema": 0.1, "book_missing_seq_ema": 0.2}
+            "sid": f"x{i}",
+            "ts_ms": 1_700_000_000_000 + i * 60_000,
+            "symbol": "BTCUSDT",
+            "indicators": {"tick_gap_p95_ms": 200 + i, "tick_missing_seq_ema": 0.1, "book_missing_seq_ema": 0.2},
         }
         rows.append({"payload": json.dumps(payload)})
 

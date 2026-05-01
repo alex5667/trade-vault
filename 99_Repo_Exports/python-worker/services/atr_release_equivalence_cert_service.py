@@ -1,4 +1,5 @@
-"""
+from __future__ import annotations
+""",
 Phase 8.2 — Release Equivalence Cert Service
 (atr_release_equivalence_cert_service.py)
 
@@ -10,8 +11,7 @@ Intended usage:
     - Runs over atr_release_equivalence_checks for bounded scopes
     - Produces a release_equivalence_cert object written to
       atr_control_plane_certifications
-"""
-from __future__ import annotations
+""",
 
 import json
 import logging
@@ -33,7 +33,7 @@ def _gen_id(prefix: str) -> str:
 
 
 class ReleaseEquivalenceCertService:
-    """
+    """,
     Runs the formal E1–E6 equivalence certification across all bounded scopes
     for the changes run in the last N days.
 
@@ -44,14 +44,14 @@ class ReleaseEquivalenceCertService:
         E4  no graph-only missing cert chain  (replay/rollout cert edges)
         E5  no graph-only missing freeze/override blocker
         E6  no critical release drift open on bounded scope
-    """
+    """,
 
     @staticmethod
     def run_cert(window_days: int = 7) -> dict[str, Any]:
-        """
+        """,
         Run equivalence cert over bounded scopes within the last window_days.
         Persists a cert row in atr_control_plane_certifications and returns the cert dict.
-        """
+        """,
         cert_id = _gen_id("releq_cert")
         now     = datetime.now(tz=timezone.utc)
 
@@ -62,14 +62,14 @@ class ReleaseEquivalenceCertService:
 
                 # ── Load equivalence checks for bounded scopes ────────────────
                 cur.execute(
-                    """
+                    """,
                     SELECT *
                     FROM atr_release_equivalence_checks
                     WHERE scope_value = ANY(%s)
                       AND created_at > now() - interval '%s days'
                     ORDER BY created_at DESC
-                    """
-                    (list(_BOUNDED_SYMBOLS), window_days)
+                    """,
+                    (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 checks = cur.fetchall()
 
@@ -79,15 +79,15 @@ class ReleaseEquivalenceCertService:
 
                 # ── Load open critical drifts on bounded scopes ────────────────
                 cur.execute(
-                    """
+                    """,
                     SELECT *
                     FROM atr_release_drifts
                     WHERE scope_value = ANY(%s)
                       AND status = 'open'
                       AND severity = 'critical'
                       AND created_at > now() - interval '%s days'
-                    """
-                    (list(_BOUNDED_SYMBOLS), window_days)
+                    """,
+                    (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 critical_drifts = cur.fetchall()
 
@@ -126,81 +126,81 @@ class ReleaseEquivalenceCertService:
 
                 # ── Warning drifts (non-critical) ──────────────────────────────
                 cur.execute(
-                    """
+                    """,
                     SELECT count(*) AS c
                     FROM atr_release_drifts
                     WHERE scope_value = ANY(%s)
                       AND status = 'open'
                       AND severity != 'critical'
                       AND created_at > now() - interval '%s days'
-                    """
-                    (list(_BOUNDED_SYMBOLS), window_days)
+                    """,
+                    (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 warning_drifts = cur.fetchone()["c"]
 
                 checks_detail = {
-                    "E1_decision_match":        {"pass": e1_pass, "failures": len(failed_checks)}
-                    "E2_blocker_set_match":     {"pass": e2_pass, "failures": len(blocker_mismatches)}
-                    "E3_warning_set_match":      {"pass": e3_pass, "warning_mismatches": len(warning_mismatches)}
-                    "E4_no_missing_cert_edge":  {"pass": e4_pass, "failures": len(missing_cert_edges)}
-                    "E5_no_missing_freeze_blocker": {"pass": e5_pass, "failures": len(missing_blockers)}
-                    "E6_no_critical_drift":     {"pass": e6_pass, "critical_open": len(critical_drifts)}
+                    "E1_decision_match":        {"pass": e1_pass, "failures": len(failed_checks)},
+                    "E2_blocker_set_match":     {"pass": e2_pass, "failures": len(blocker_mismatches)},
+                    "E3_warning_set_match":      {"pass": e3_pass, "warning_mismatches": len(warning_mismatches)},
+                    "E4_no_missing_cert_edge":  {"pass": e4_pass, "failures": len(missing_cert_edges)},
+                    "E5_no_missing_freeze_blocker": {"pass": e5_pass, "failures": len(missing_blockers)},
+                    "E6_no_critical_drift":     {"pass": e6_pass, "critical_open": len(critical_drifts)},
                 }
 
                 summary = {
-                    "checked_changes":   total_checks
-                    "matching_decisions": matching_checks
-                    "critical_drifts":   len(critical_drifts)
-                    "warning_drifts":    warning_drifts
-                    "window_days":       window_days
-                    "bounded_symbols":   sorted(_BOUNDED_SYMBOLS)
-                    "certified_at":      now.isoformat()
+                    "checked_changes":   total_checks,
+                    "matching_decisions": matching_checks,
+                    "critical_drifts":   len(critical_drifts),
+                    "warning_drifts":    warning_drifts,
+                    "window_days":       window_days,
+                    "bounded_symbols":   sorted(_BOUNDED_SYMBOLS),
+                    "certified_at":      now.isoformat(),
                 }
 
                 cert_payload = {
-                    "cert_kind": "release_equivalence_cert"
-                    "cert_id":   cert_id
-                    "status":    status
-                    "summary":   summary
-                    "checks":    checks_detail
+                    "cert_kind": "release_equivalence_cert",
+                    "cert_id":   cert_id,
+                    "status":    status,
+                    "summary":   summary,
+                    "checks":    checks_detail,
                 }
 
                 # ── Persist to atr_control_plane_certifications ───────────────
                 with conn.cursor() as wcur:
                     wcur.execute(
-                        """
+                        """,
                         INSERT INTO atr_control_plane_certifications
                             (cert_id, cert_kind, target_node_id, status, checks_json, summary_json)
                         VALUES (%s, %s, %s, %s, %s, %s)
-                        """
+                        """,
                         (
-                            cert_id
-                            "release_equivalence_cert"
+                            cert_id,
+                            "release_equivalence_cert",
                             "release_gate_component",   # virtual target
-                            status
-                            json.dumps(checks_detail)
-                            json.dumps(summary)
+                            status,
+                            json.dumps(checks_detail),
+                            json.dumps(summary),
                         )
                     )
                 conn.commit()
 
                 level = logging.INFO if all_pass else logging.WARNING
                 logger.log(
-                    level
-                    "ReleaseEquivalenceCert %s: %s | checks=%d critical_drifts=%d"
-                    cert_id, status, total_checks, len(critical_drifts)
+                    level,
+                    "ReleaseEquivalenceCert %s: %s | checks=%d critical_drifts=%d",
+                    cert_id, status, total_checks, len(critical_drifts),
                 )
                 return cert_payload
 
         except Exception as exc:
             logger.error("ReleaseEquivalenceCertService.run_cert failed: %s", exc, exc_info=True)
             return {
-                "cert_kind": "release_equivalence_cert"
-                "cert_id":   cert_id
-                "status":    "failed"
-                "error":     str(exc)
-                "summary":   {"certified_at": now.isoformat()}
-                "checks":    {}
+                "cert_kind": "release_equivalence_cert",
+                "cert_id":   cert_id,
+                "status":    "failed",
+                "error":     str(exc),
+                "summary":   {"certified_at": now.isoformat()},
+                "checks":    {},
             }
 
     @staticmethod
@@ -211,14 +211,14 @@ class ReleaseEquivalenceCertService:
         icon    = "✅" if status == "passed" else "❌"
 
         lines = [
-            f"{icon} <b>ATR Release Equivalence Cert</b>"
-            ""
-            f"Status: <code>{status.upper()}</code>"
-            f"Cert ID: <code>{cert.get('cert_id', '?')}</code>"
-            f"Checked changes: <code>{summary.get('checked_changes', 0)}</code>"
-            f"Matching decisions: <code>{summary.get('matching_decisions', 0)}</code>"
-            f"Critical drifts: <code>{summary.get('critical_drifts', 0)}</code>"
-            f"Warning drifts: <code>{summary.get('warning_drifts', 0)}</code>"
+            f"{icon} <b>ATR Release Equivalence Cert</b>",
+            "",
+            f"Status: <code>{status.upper()}</code>",
+            f"Cert ID: <code>{cert.get('cert_id', '?')}</code>",
+            f"Checked changes: <code>{summary.get('checked_changes', 0)}</code>",
+            f"Matching decisions: <code>{summary.get('matching_decisions', 0)}</code>",
+            f"Critical drifts: <code>{summary.get('critical_drifts', 0)}</code>",
+            f"Warning drifts: <code>{summary.get('warning_drifts', 0)}</code>",
         ]
 
         checks = cert.get("checks", {})

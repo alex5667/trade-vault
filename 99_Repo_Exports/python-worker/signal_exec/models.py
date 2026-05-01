@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Signal Execution Domain Models for Production Use
 
@@ -5,7 +6,6 @@ Core data structures for signal execution planning and performance tracking
 in the scanner_infra system. These models integrate with existing SignalContext.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime

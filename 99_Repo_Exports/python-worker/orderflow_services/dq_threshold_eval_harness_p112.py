@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """dq_threshold_eval_harness_p112.py
 
 Goal
@@ -34,7 +35,6 @@ Usage (ndjson)
     --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json
 """
 
-from __future__ import annotations
 
 import argparse
 import gzip

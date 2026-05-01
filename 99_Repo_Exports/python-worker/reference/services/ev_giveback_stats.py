@@ -99,11 +99,11 @@ class GivebackEmaConfig:
         except Exception:
             ttl_sec = 60 * 60 * 24 * 30
         return cls(
-            enabled=enabled
-            alpha=float(alpha)
-            min_samples_for_use=int(max(min_samples, 0))
-            use_regime_dim=bool(use_regime_dim)
-            ttl_sec=int(max(ttl_sec, 0))
+            enabled=enabled,
+            alpha=float(alpha),
+            min_samples_for_use=int(max(min_samples, 0)),
+            use_regime_dim=bool(use_regime_dim),
+            ttl_sec=int(max(ttl_sec, 0)),
         )
 
     def key(self, *, kind: str, symbol: str, tf: str, regime: str) -> str:
@@ -126,18 +126,18 @@ def _decode_hgetall(h: Dict[Any, Any]) -> Dict[str, str]:
 
 
 def update_giveback_ema(
-    redis_client: Any
-    *
-    cfg: GivebackEmaConfig
-    kind: str
-    symbol: str
-    tf: str
-    regime: str
-    now_ms: int
-    giveback_pnl: Optional[float]
-    entry_price: Optional[float]
-    qty: Optional[float]
-    notional: Optional[float]
+    redis_client: Any,
+    *,
+    cfg: GivebackEmaConfig,
+    kind: str,
+    symbol: str,
+    tf: str,
+    regime: str,
+    now_ms: int,
+    giveback_pnl: Optional[float],
+    entry_price: Optional[float],
+    qty: Optional[float],
+    notional: Optional[float],
 ) -> None:
     """
     Fail-open writer called from StatsAggregator.update_stats() after applied==1.

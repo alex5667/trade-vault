@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """nightly_conf_score_weight_tuning_bundle_v1.py
 
 Phase2 production contour: nightly tuning job that:
@@ -31,7 +32,6 @@ Notes:
   - The runtime loader must parse conf_score_weight_tuning_json into cfg['conf_score_weight_tuning'].
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

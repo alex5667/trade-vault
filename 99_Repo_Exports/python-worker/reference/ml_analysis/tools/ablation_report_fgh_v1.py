@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
 """Offline ablation report for derived ROI features F/G/H.
 
 Goal:
@@ -14,7 +15,6 @@ Output:
   Optionally writes JSON report (--out_json).
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -60,18 +60,18 @@ def _fmt(x: Any) -> str:
 
 
 FGH_NUMERIC_KEYS: List[str] = [
-    "rel_ofi_ml_norm_btc"
-    "rel_lob_micro_shift_bps_btc"
-    "ask_replenish_imb"
-    "bid_replenish_imb"
-    "lob_replenishment_pressure"
-    "replenish_ratio_ask"
-    "replenish_ratio_bid"
-    "replenish_ratio_diff"
-    "ofi_ml_wsum_vel"
-    "micro_shift_bps_vel"
-    "ofi_ml_wsum_vel_z_ema"
-    "micro_shift_bps_vel_z_ema"
+    "rel_ofi_ml_norm_btc",
+    "rel_lob_micro_shift_bps_btc",
+    "ask_replenish_imb",
+    "bid_replenish_imb",
+    "lob_replenishment_pressure",
+    "replenish_ratio_ask",
+    "replenish_ratio_bid",
+    "replenish_ratio_diff",
+    "ofi_ml_wsum_vel",
+    "micro_shift_bps_vel",
+    "ofi_ml_wsum_vel_z_ema",
+    "micro_shift_bps_vel_z_ema",
 ]
 
 
@@ -79,18 +79,18 @@ def _variant_feature_cols(base_cols: List[str]) -> Dict[str, List[str]]:
     base = list(base_cols)
     add_f = ["f_rel_ofi_ml_norm_btc", "f_rel_lob_micro_shift_bps_btc"]
     add_g = [
-        "f_ask_replenish_imb"
-        "f_bid_replenish_imb"
-        "f_lob_replenishment_pressure"
-        "f_replenish_ratio_ask"
-        "f_replenish_ratio_bid"
-        "f_replenish_ratio_diff"
+        "f_ask_replenish_imb",
+        "f_bid_replenish_imb",
+        "f_lob_replenishment_pressure",
+        "f_replenish_ratio_ask",
+        "f_replenish_ratio_bid",
+        "f_replenish_ratio_diff",
     ]
     add_h = [
-        "f_ofi_ml_wsum_vel"
-        "f_micro_shift_bps_vel"
-        "f_ofi_ml_wsum_vel_z_ema"
-        "f_micro_shift_bps_vel_z_ema"
+        "f_ofi_ml_wsum_vel",
+        "f_micro_shift_bps_vel",
+        "f_ofi_ml_wsum_vel_z_ema",
+        "f_micro_shift_bps_vel_z_ema",
     ]
 
     def merge(extra: List[str]) -> List[str]:
@@ -101,11 +101,11 @@ def _variant_feature_cols(base_cols: List[str]) -> Dict[str, List[str]]:
         return out
 
     return {
-        "base": base
-        "base+F": merge(add_f)
-        "base+G": merge(add_g)
-        "base+H": merge(add_h)
-        "base+FGH": merge(add_f + add_g + add_h)
+        "base": base,
+        "base+F": merge(add_f),
+        "base+G": merge(add_g),
+        "base+H": merge(add_h),
+        "base+FGH": merge(add_f + add_g + add_h),
     }
 
 
@@ -116,7 +116,7 @@ def _get_bucket(mod, ex: Dict[str, Any]) -> str:
 
 
 def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], args) -> Dict[str, Any]:
-    # Mirrors train_edge_stack_v1_oof.py main() training loop
+    # Mirrors train_edge_stack_v1_oof.py main() training loop,
     # but returns OOF predictions for ablation slicing.
     base_feature_names = mod._collect_base_feature_names(feature_cols)
 
@@ -141,9 +141,9 @@ def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], arg
 
     # OOF base
     splitter = mod.PurgedEmbargoTimeSeriesSplit(
-        n_splits=int(args.n_splits)
-        purge_ms=int(args.purge_ms)
-        embargo_ms=int(args.embargo_ms)
+        n_splits=int(args.n_splits),
+        purge_ms=int(args.purge_ms),
+        embargo_ms=int(args.embargo_ms),
     )
 
     import numpy as np
@@ -164,23 +164,23 @@ def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], arg
         X_te = X_np[te]
 
         lr = LogisticRegression(
-            max_iter=500
-            C=float(args.lr_C)
-            solver="lbfgs"
-            class_weight="balanced" if int(args.lr_class_weight_balanced) == 1 else None
-            random_state=int(args.seed) + fold
+            max_iter=500,
+            C=float(args.lr_C),
+            solver="lbfgs",
+            class_weight="balanced" if int(args.lr_class_weight_balanced) == 1 else None,
+            random_state=int(args.seed) + fold,
         )
         lr.fit(X_tr, y_tr)
         p_lr = lr.predict_proba(X_te)[:, 1]
 
         gbdt = HistGradientBoostingClassifier(
-            learning_rate=float(args.gbdt_lr)
-            max_depth=int(args.gbdt_max_depth)
-            max_leaf_nodes=int(args.gbdt_max_leaf_nodes)
-            min_samples_leaf=int(args.gbdt_min_samples_leaf)
-            l2_regularization=float(args.gbdt_l2)
-            max_iter=int(args.gbdt_max_iter)
-            random_state=int(args.seed) + 1000 + fold
+            learning_rate=float(args.gbdt_lr),
+            max_depth=int(args.gbdt_max_depth),
+            max_leaf_nodes=int(args.gbdt_max_leaf_nodes),
+            min_samples_leaf=int(args.gbdt_min_samples_leaf),
+            l2_regularization=float(args.gbdt_l2),
+            max_iter=int(args.gbdt_max_iter),
+            random_state=int(args.seed) + 1000 + fold,
         )
         gbdt.fit(X_tr, y_tr)
         p_gbdt = gbdt.predict_proba(X_te)[:, 1]
@@ -191,35 +191,35 @@ def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], arg
     # Meta fit on OOF
     Z = np.stack([oof_lr, oof_gbdt], axis=1)
     meta = LogisticRegression(
-        max_iter=500
-        C=float(args.meta_C)
-        solver="lbfgs"
-        class_weight="balanced" if int(args.meta_class_weight_balanced) == 1 else None
-        random_state=int(args.seed) + 4242
+        max_iter=500,
+        C=float(args.meta_C),
+        solver="lbfgs",
+        class_weight="balanced" if int(args.meta_class_weight_balanced) == 1 else None,
+        random_state=int(args.seed) + 4242,
     )
     meta.fit(Z, y_np)
     p_meta = meta.predict_proba(Z)[:, 1]
 
     return {
-        "y": y
-        "p_lr": [float(x) for x in oof_lr.tolist()]
-        "p_gbdt": [float(x) for x in oof_gbdt.tolist()]
-        "p_meta": [float(x) for x in p_meta.tolist()]
-        "ts_ms": ts
-        "bucket": buckets
-        "feature_cols_n": int(len(feature_cols))
-        "derived_present": {k: any((k in (r.get("indicators") or {})) for r in ex) for k in FGH_NUMERIC_KEYS}
+        "y": y,
+        "p_lr": [float(x) for x in oof_lr.tolist()],
+        "p_gbdt": [float(x) for x in oof_gbdt.tolist()],
+        "p_meta": [float(x) for x in p_meta.tolist()],
+        "ts_ms": ts,
+        "bucket": buckets,
+        "feature_cols_n": int(len(feature_cols)),
+        "derived_present": {k: any((k in (r.get("indicators") or {})) for r in ex) for k in FGH_NUMERIC_KEYS},
     }
 
 
 def _slice_metrics(y: List[int], p: List[float]) -> Dict[str, Any]:
     out: Dict[str, Any] = {
-        "n": int(len(y))
-        "pos_rate": float(sum(int(v) for v in y)) / float(len(y) or 1)
-        "auc_roc": _safe_auc_roc(y, p)
-        "p_mean": float(sum(float(x) for x in p)) / float(len(p) or 1)
-        "prec_top_1pct": _topk_precision(y, p, 0.01)
-        "prec_top_5pct": _topk_precision(y, p, 0.05)
+        "n": int(len(y)),
+        "pos_rate": float(sum(int(v) for v in y)) / float(len(y) or 1),
+        "auc_roc": _safe_auc_roc(y, p),
+        "p_mean": float(sum(float(x) for x in p)) / float(len(p) or 1),
+        "prec_top_1pct": _topk_precision(y, p, 0.01),
+        "prec_top_5pct": _topk_precision(y, p, 0.05),
     }
     return out
 

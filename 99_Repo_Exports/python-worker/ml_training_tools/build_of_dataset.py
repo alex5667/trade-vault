@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Dataset join: OF replay rows ↔ POSITION_CLOSED by sid (fallback — approximate key) and labels.
 
 Why:
@@ -8,7 +9,6 @@ Usage:
   python -m tools.build_of_dataset --replay /tmp/replay.ndjson --trades /tmp/trades.ndjson --out /tmp/dataset.ndjson --pos-th 0.5 --neg-th -0.5
 """
 
-from __future__ import annotations
 
 import argparse
 import json

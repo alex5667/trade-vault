@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """meta_cov_rollout_controller_v1.py
 
 P30: Canary rollout for meta ENFORCE by *feature coverage* buckets.
@@ -27,7 +28,6 @@ python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 0  # d
 python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 1
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

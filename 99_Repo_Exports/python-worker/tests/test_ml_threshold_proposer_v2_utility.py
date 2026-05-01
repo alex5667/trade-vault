@@ -1,5 +1,5 @@
-"""Tests for ML threshold proposer v2 utility (v7: utility + drift-guard)."""
 from __future__ import annotations
+"""Tests for ML threshold proposer v2 utility (v7: utility + drift-guard)."""
 
 import json
 import os

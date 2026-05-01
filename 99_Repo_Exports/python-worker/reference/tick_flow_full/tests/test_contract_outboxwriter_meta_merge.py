@@ -21,15 +21,15 @@ def test_outboxwriter_meta_extra_goes_to_payload_meta_namespace(monkeypatch):
     ctx = SimpleNamespace()
 
     f = CandidateFrame(
-        handler=handler
-        ctx=ctx
-        cand=SimpleNamespace()
-        kind_str="k"
-        kind_key="k"
-        side_int=1
-        ctx_symbol="BTCUSDT"
-        ctx_ts=1
-        ctx_price=1.0
+        handler=handler,
+        ctx=ctx,
+        cand=SimpleNamespace(),
+        kind_str="k",
+        kind_key="k",
+        side_int=1,
+        ctx_symbol="BTCUSDT",
+        ctx_ts=1,
+        ctx_price=1.0,
     )
 
     w = OutboxWriter()

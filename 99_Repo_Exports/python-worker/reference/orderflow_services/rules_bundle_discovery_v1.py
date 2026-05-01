@@ -31,20 +31,20 @@ DEFAULT_MANIFEST_V1 = "orderflow_services/prometheus_rules_bundle_manifest_v1.ym
 
 # Safe fallback if manifests are missing.
 FALLBACK_PATTERNS: List[str] = [
-    "orderflow_services/prometheus_alerts_*.yml"
-    "orderflow_services/prometheus_rules_*.yml"
-    "tick_flow_full/orderflow_services/prometheus_alerts_*.yml"
-    "tick_flow_full/orderflow_services/prometheus_rules_*.yml"
-    "ok_rate_logic/prometheus_alerts_*.yml"
-    "services/orderflow/prometheus_alerts_*.yml"
-    "tick_flow_full/services/orderflow/prometheus_alerts_*.yml"
+    "orderflow_services/prometheus_alerts_*.yml",
+    "orderflow_services/prometheus_rules_*.yml",
+    "tick_flow_full/orderflow_services/prometheus_alerts_*.yml",
+    "tick_flow_full/orderflow_services/prometheus_rules_*.yml",
+    "ok_rate_logic/prometheus_alerts_*.yml",
+    "services/orderflow/prometheus_alerts_*.yml",
+    "tick_flow_full/services/orderflow/prometheus_alerts_*.yml",
 ]
 
 
 # Files that are *not* Prometheus rule files but may match the bundle glob patterns.
 # Example: bundle manifests themselves (they are YAML but not `groups:` rule docs).
 EXCLUDE_BASENAME_PREFIXES: tuple[str, ...] = (
-    "prometheus_rules_bundle_manifest_"
+    "prometheus_rules_bundle_manifest_",
 )
 
 
@@ -163,9 +163,9 @@ def _iter_glob_paths(repo_root: Path, patterns: Iterable[str]) -> List[Path]:
 
 
 def discover_rules_bundle(
-    *
-    repo_root: Optional[Path] = None
-    manifest_ref: Optional[str] = None
+    *,
+    repo_root: Optional[Path] = None,
+    manifest_ref: Optional[str] = None,
 ) -> BundleDiscoveryResult:
     root = repo_root or _repo_root_from_file()
     manifest_path = _resolve_manifest_path(root, manifest_ref)

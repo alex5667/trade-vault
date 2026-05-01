@@ -1,3 +1,4 @@
+from __future__ import annotations
 """LiqMap hard-risk gate.
 
 Philosophy:
@@ -8,7 +9,6 @@ Philosophy:
 The gate consumes already-computed liqmap_* features (see liqmap_features_v1).
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict

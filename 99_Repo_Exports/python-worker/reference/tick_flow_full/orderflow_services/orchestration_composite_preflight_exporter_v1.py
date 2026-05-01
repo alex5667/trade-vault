@@ -34,57 +34,57 @@ except Exception:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 ALLOWED_PURPOSES = (
-    'latency_contract_sensitive_apply'
-    'conf_score_guardrails_apply'
-    'conf_score_guardrails_promote'
-    'meta_cov_rollout_controller'
-    'conf_score_guardrails_autopromo_controller'
+    'latency_contract_sensitive_apply',
+    'conf_score_guardrails_apply',
+    'conf_score_guardrails_promote',
+    'meta_cov_rollout_controller',
+    'conf_score_guardrails_autopromo_controller',
 )
 KNOWN_STATUSES = ('ok', 'block', 'invalid', 'soft')
 KNOWN_SOURCES = ('none', 'deploy_lint', 'latency_contract', 'strategy_research_stats', 'research_guard')
 # Bounded family set for strategy_research_stats drilldown (P6.4).
 # Unknown sub-reason values fall back to 'other' — no cardinality explosion.
 STRATEGY_RESEARCH_STATS_REASON_FAMILIES = (
-    'ok'
-    'psr_low'
-    'dsr_low'
-    'pbo_high'
-    'metric_low'
-    'report_stale'
-    'state_missing'
-    'invalid'
-    'other'
+    'ok',
+    'psr_low',
+    'dsr_low',
+    'pbo_high',
+    'metric_low',
+    'report_stale',
+    'state_missing',
+    'invalid',
+    'other',
 )
 KNOWN_REASON_CODES = (
-    'ok'
-    'deploy_lint:persistent_config_drift'
-    'deploy_lint:state_missing'
-    'deploy_lint:redis_unavailable'
-    'deploy_lint:redis_connect_failed'
-    'deploy_lint:other'
-    'latency_contract:external_missing'
-    'latency_contract:state_missing'
-    'latency_contract:redis_unavailable'
-    'latency_contract:redis_connect_failed'
-    'latency_contract:other'
-    'strategy_research_stats:psr_low'
-    'strategy_research_stats:dsr_low'
-    'strategy_research_stats:pbo_high'
-    'strategy_research_stats:metric_low'
-    'strategy_research_stats:report_stale'
-    'strategy_research_stats:state_missing'
-    'strategy_research_stats:invalid'
-    'strategy_research_stats:redis_unavailable'
-    'strategy_research_stats:redis_connect_failed'
-    'strategy_research_stats:stage_allowed'
-    'strategy_research_stats:other'
-    'research_guard:report_stale'
-    'research_guard:state_missing'
-    'research_guard:report_only'
-    'research_guard:redis_unavailable'
-    'research_guard:redis_connect_failed'
-    'research_guard:other'
-    'none:ok'
+    'ok',
+    'deploy_lint:persistent_config_drift',
+    'deploy_lint:state_missing',
+    'deploy_lint:redis_unavailable',
+    'deploy_lint:redis_connect_failed',
+    'deploy_lint:other',
+    'latency_contract:external_missing',
+    'latency_contract:state_missing',
+    'latency_contract:redis_unavailable',
+    'latency_contract:redis_connect_failed',
+    'latency_contract:other',
+    'strategy_research_stats:psr_low',
+    'strategy_research_stats:dsr_low',
+    'strategy_research_stats:pbo_high',
+    'strategy_research_stats:metric_low',
+    'strategy_research_stats:report_stale',
+    'strategy_research_stats:state_missing',
+    'strategy_research_stats:invalid',
+    'strategy_research_stats:redis_unavailable',
+    'strategy_research_stats:redis_connect_failed',
+    'strategy_research_stats:stage_allowed',
+    'strategy_research_stats:other',
+    'research_guard:report_stale',
+    'research_guard:state_missing',
+    'research_guard:report_only',
+    'research_guard:redis_unavailable',
+    'research_guard:redis_connect_failed',
+    'research_guard:other',
+    'none:ok',
 )
 
 
@@ -171,11 +171,11 @@ def normalize_reason_code(source: str, reason_code: str) -> str:
 
     suffix = raw.strip()
     known_for_source = {
-        'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'}
-        'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'}
-        'strategy_research_stats': {'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'redis_unavailable', 'redis_connect_failed', 'stage_allowed'}
-        'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'}
-        'none': {'ok'}
+        'deploy_lint': {'persistent_config_drift', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
+        'latency_contract': {'external_missing', 'state_missing', 'redis_unavailable', 'redis_connect_failed'},
+        'strategy_research_stats': {'psr_low', 'dsr_low', 'pbo_high', 'metric_low', 'report_stale', 'state_missing', 'invalid', 'redis_unavailable', 'redis_connect_failed', 'stage_allowed'},
+        'research_guard': {'report_stale', 'state_missing', 'report_only', 'redis_unavailable', 'redis_connect_failed'},
+        'none': {'ok'},
     }
     if suffix in known_for_source.get(src, set()):
         return f'{src}:{suffix}'
@@ -227,18 +227,18 @@ def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | No
     )
 
     return PurposeState(
-        purpose=purpose
-        present=1.0
-        age_seconds=age_seconds
-        selected_priority_rank=_f(raw.get('selected_priority_rank') or 999.0)
-        decision_status=status
-        selected_source=source
-        selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or ''))
-        deploy_lint_status=str(raw.get('deploy_lint_status') or 'unknown')
-        latency_contract_status=str(raw.get('latency_contract_status') or 'unknown')
-        strategy_research_stats_status=str(raw.get('strategy_research_stats_status') or raw.get('research_stats_status') or 'unknown')
-        strategy_research_stats_reason_family=research_stats_reason_family(strategy_reason_raw)
-        research_guard_status=str(raw.get('research_guard_status') or 'unknown')
+        purpose=purpose,
+        present=1.0,
+        age_seconds=age_seconds,
+        selected_priority_rank=_f(raw.get('selected_priority_rank') or 999.0),
+        decision_status=status,
+        selected_source=source,
+        selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
+        deploy_lint_status=str(raw.get('deploy_lint_status') or 'unknown'),
+        latency_contract_status=str(raw.get('latency_contract_status') or 'unknown'),
+        strategy_research_stats_status=str(raw.get('strategy_research_stats_status') or raw.get('research_stats_status') or 'unknown'),
+        strategy_research_stats_reason_family=research_stats_reason_family(strategy_reason_raw),
+        research_guard_status=str(raw.get('research_guard_status') or 'unknown'),
     )
 
 
@@ -255,12 +255,12 @@ class SummaryState:
 def summarize(states: Iterable[PurposeState]) -> SummaryState:
     values = list(states)
     return SummaryState(
-        purposes_total=float(len(values))
-        present_total=float(sum(1 for s in values if s.present > 0))
-        block_total=float(sum(1 for s in values if s.decision_status == 'block'))
-        invalid_total=float(sum(1 for s in values if s.decision_status == 'invalid'))
-        ok_total=float(sum(1 for s in values if s.decision_status == 'ok'))
-        soft_total=float(sum(1 for s in values if s.decision_status == 'soft'))
+        purposes_total=float(len(values)),
+        present_total=float(sum(1 for s in values if s.present > 0)),
+        block_total=float(sum(1 for s in values if s.decision_status == 'block')),
+        invalid_total=float(sum(1 for s in values if s.decision_status == 'invalid')),
+        ok_total=float(sum(1 for s in values if s.decision_status == 'ok')),
+        soft_total=float(sum(1 for s in values if s.decision_status == 'soft')),
     )
 
 
@@ -275,14 +275,14 @@ SELECTED_REASON_CODE = Gauge('orchestration_composite_preflight_selected_reason_
 SOURCE_STATUS = Gauge('orchestration_composite_preflight_source_status', 'Per-source orchestration preflight status', ['purpose', 'source', 'status'])
 # P6.4: strategy_research_stats drilldown gauges — show which family blocks rollout
 RESEARCH_STATS_REASON_FAMILY = Gauge(
-    'orchestration_composite_preflight_strategy_research_stats_reason_family'
-    'Current strategy_research_stats reason family per purpose (one-hot from per-source state)'
-    ['purpose', 'family']
+    'orchestration_composite_preflight_strategy_research_stats_reason_family',
+    'Current strategy_research_stats reason family per purpose (one-hot from per-source state)',
+    ['purpose', 'family'],
 )
 RESEARCH_STATS_REASON_FAMILY_TOTAL = Gauge(
-    'orchestration_composite_preflight_strategy_research_stats_reason_family_total'
-    'Number of purposes currently showing each strategy_research_stats reason family'
-    ['family']
+    'orchestration_composite_preflight_strategy_research_stats_reason_family_total',
+    'Number of purposes currently showing each strategy_research_stats reason family',
+    ['family'],
 )
 SUMMARY_PURPOSES = Gauge('orchestration_composite_preflight_purposes_total', 'Configured orchestration purposes covered by exporter')
 SUMMARY_PRESENT = Gauge('orchestration_composite_preflight_present_total', 'Number of purposes with persisted state')
@@ -313,10 +313,10 @@ def export_states(states: list[PurposeState]) -> None:
         for source in KNOWN_SOURCES:
             SELECTED_SOURCE.labels(purpose=state.purpose, source=source).set(1.0 if source == state.selected_source else 0.0)
         source_statuses = {
-            'deploy_lint': state.deploy_lint_status
-            'latency_contract': state.latency_contract_status
-            'strategy_research_stats': state.strategy_research_stats_status
-            'research_guard': state.research_guard_status
+            'deploy_lint': state.deploy_lint_status,
+            'latency_contract': state.latency_contract_status,
+            'strategy_research_stats': state.strategy_research_stats_status,
+            'research_guard': state.research_guard_status,
         }
         for source in KNOWN_SOURCES:
             if source == 'none':

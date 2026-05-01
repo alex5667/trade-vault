@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OFInputs V3 circuit state exporter (P100).
 
 Purpose
@@ -48,7 +49,6 @@ Run
   python -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

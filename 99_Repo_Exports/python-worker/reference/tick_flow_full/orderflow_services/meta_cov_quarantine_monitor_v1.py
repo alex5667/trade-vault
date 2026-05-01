@@ -30,9 +30,9 @@ import redis
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    datefmt="%Y-%m-%d %H:%M:%S"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("QuarantineMon")
 
@@ -126,16 +126,16 @@ def main() -> None:
                 alerts.append(f"Bucket {b}: Quarantine EXPIRED (until {q_until}) but active=1.")
                 
             metrics.append({
-                "bucket": b
-                "quarantine_active": 1
-                "share": share
+                "bucket": b,
+                "quarantine_active": 1,
+                "share": share,
                 "ttl_ms": max(0, q_until - now_ms) if q_until > 0 else 0
             })
         else:
             metrics.append({
-                "bucket": b
-                "quarantine_active": 0
-                "share": share
+                "bucket": b,
+                "quarantine_active": 0,
+                "share": share,
                 "ttl_ms": 0
             })
 

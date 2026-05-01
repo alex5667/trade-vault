@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 v9_of — Feature schema version derived from actual infer_feature_cols() output.
 
@@ -10,7 +11,6 @@ Coverage: 128 numeric indicators (vs v7_of=128 nominal but only 25 matching),
            + direction/bucket/hour/dow one-hots → 168 total feature_cols.
 """
 
-from __future__ import annotations
 from typing import List
 
 SCHEMA_HASH = "1c813fb2b468"

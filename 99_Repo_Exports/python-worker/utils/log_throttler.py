@@ -1,3 +1,4 @@
+from __future__ import annotations
 """utils.log_throttler — Rate-limit repeated log messages.
 
 Allows emitting only every N-th occurrence of a keyed message to avoid
@@ -10,7 +11,6 @@ Usage::
     if log_throttler.should_log("expired_ticker", 10_000):
         logger.warning("Stale ticker detected")
 """
-from __future__ import annotations
 
 import logging
 import threading
@@ -59,7 +59,7 @@ class LogThrottler:
         self,
         message_key: str,
         message: str,
-        every_n: int = 10_000
+        every_n: int = 10_000,
     ) -> bool:
         """Log *message* via ``logging.info`` if this occurrence should be emitted.
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Execution Events - MT5 сделки в Redis Streams
 
@@ -5,7 +6,6 @@ Execution Events - MT5 сделки в Redis Streams
 Обеспечивает связь между реальными сделками MT5 и остальной системой scanner_infra.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -66,11 +66,11 @@ class ExecutionEvent:
         """
         payload = self._to_payload()
         return {
-            "signal_id": self.signal_id
-            "venue": self.venue
-            "kind": self.kind
-            "event_type": self.event_type
-            "payload": json.dumps(payload, separators=(",", ":"))
+            "signal_id": self.signal_id,
+            "venue": self.venue,
+            "kind": self.kind,
+            "event_type": self.event_type,
+            "payload": json.dumps(payload, separators=(",", ":")),
         }
 
 

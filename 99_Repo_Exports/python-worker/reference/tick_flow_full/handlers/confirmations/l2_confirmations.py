@@ -38,14 +38,14 @@ class L2ConfirmResult:
 
 
 def l2_confirm_breakout(
-    *
-    ctx: Any
-    l2: Any
+    *,
+    ctx: Any,
+    l2: Any,
     side: str,  # "buy" => breakout up, "sell" => breakout down
-    max_spread_bps: float = 8.0
-    wall_near_bps: float = 6.0
-    min_wall_notional: float = 50_000.0
-    mp_contra_bps: float = 2.0
+    max_spread_bps: float = 8.0,
+    wall_near_bps: float = 6.0,
+    min_wall_notional: float = 50_000.0,
+    mp_contra_bps: float = 2.0,
 ) -> L2ConfirmResult:
     """
     Логика минимальная и детерминированная:
@@ -58,10 +58,10 @@ def l2_confirm_breakout(
       - источником истины по veto "VETO_WALL_NEAR" является class-валидатор:
            handlers/confirmations/l2_confirm_breakout.py :: L2ConfirmBreakout.confirm()
       - эта functional-функция остаётся:
-           * чистым детерминированным "feature/scoring" компонентом
+           * чистым детерминированным "feature/scoring" компонентом,
            * без самостоятельного veto по wall_dist (чтобы не было раздвоения поведения).
 
-    Если вам нужно включить wall_near veto обратно (например, для legacy пайплайна)
+    Если вам нужно включить wall_near veto обратно (например, для legacy пайплайна),
     делайте это фичефлагом/обёрткой, но НЕ держите два разных решения одновременно.
     """
     parts: dict[str, Any] = {}
@@ -95,9 +95,9 @@ def l2_confirm_breakout(
     # делегируем class-валидатору для stale + near_big_wall soft quality
     v = L2ConfirmBreakout(
         BreakoutConfirmCfg(
-            l2_stale_ms=int(getattr(getattr(ctx, "cfg", None), "l2_stale_ms", 1500) or 1500)
-            min_wall_notional=float(min_wall_notional)
-            max_near_wall_bps=float(wall_near_bps)
+            l2_stale_ms=int(getattr(getattr(ctx, "cfg", None), "l2_stale_ms", 1500) or 1500),
+            min_wall_notional=float(min_wall_notional),
+            max_near_wall_bps=float(wall_near_bps),
         )
     )
     res = v.confirm(ctx=ctx, side=side, level_price=ctx.level_price if hasattr(ctx, 'level_price') else 100.0)
@@ -113,15 +113,15 @@ def l2_confirm_breakout(
     return L2ConfirmResult(False, score01, r, parts, rc, u16)
 
 def l2_confirm_absorption(
-    *
-    ctx: Any
-    l2: Any
+    *,
+    ctx: Any,
+    l2: Any,
     side: str,  # "buy" => absorption of buys, "sell" => absorption of sells
-    min_taker_rate: float = 0.05
-    refill_min: float = 0.3
-    wall_near_bps: float = 8.0
-    min_wall_notional: float = 75_000.0
-    mp_contra_bps: float = 1.5
+    min_taker_rate: float = 0.05,
+    refill_min: float = 0.3,
+    wall_near_bps: float = 8.0,
+    min_wall_notional: float = 75_000.0,
+    mp_contra_bps: float = 1.5,
 ) -> L2ConfirmResult:
     """
     Абсорб — более строгий (ваш 3.3):
@@ -149,8 +149,8 @@ def l2_confirm_absorption(
     # 2) делегируем class-валидатору для флагов wall_here/micro_proxy/mp_contra (и stale тоже)
     v = L2ConfirmAbsorption(
         AbsorptionConfirmCfg(
-            l2_stale_ms=int(getattr(getattr(ctx, "cfg", None), "l2_stale_ms", 1500) or 1500)
-            min_wall_notional=float(min_wall_notional)
+            l2_stale_ms=int(getattr(getattr(ctx, "cfg", None), "l2_stale_ms", 1500) or 1500),
+            min_wall_notional=float(min_wall_notional),
             level_band_bps=1.5,  # узкая полоса вокруг уровня
         )
     )

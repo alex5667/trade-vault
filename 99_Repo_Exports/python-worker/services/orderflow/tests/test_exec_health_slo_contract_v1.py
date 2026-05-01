@@ -65,20 +65,20 @@ class TestExecHealthSloContractFlush(unittest.TestCase):
 
         if ExecHealthDecision is not None:
             dec = ExecHealthDecision(
-                apply=True
-                veto=False
-                mode="tighten"
-                reason_code="TIGHTEN_IS"
-                flags=["IS_HIGH"]
-                tighten_add_bps=3.0
-                tighten_k_mult=1.0
+                apply=True,
+                veto=False,
+                mode="tighten",
+                reason_code="TIGHTEN_IS",
+                flags=["IS_HIGH"],
+                tighten_add_bps=3.0,
+                tighten_k_mult=1.0,
             )
             m.record_exec_health_contract_state(
-                scope="edge"
-                profile="strict"
-                symbol="BTCUSDT"
-                decision=dec
-                now_ms=1_700_000_000_000
+                scope="edge",
+                profile="strict",
+                symbol="BTCUSDT",
+                decision=dec,
+                now_ms=1_700_000_000_000,
             )
         else:
             # Minimal without real ExecHealthDecision

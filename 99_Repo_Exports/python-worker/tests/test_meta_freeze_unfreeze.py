@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_meta_freeze_unfreeze.py
 
@@ -10,7 +11,6 @@ Unit tests for meta freeze/unfreeze functionality:
 - Last share per bucket storage
 """
 
-from __future__ import annotations
 
 import json
 import os

@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for MLConfirmGate util_mh v10.4 support."""
 
-from __future__ import annotations
 
 import json
 import os
@@ -51,8 +51,8 @@ def util_mh_cfg():
                 "trend": {"floor": 0.04}
             },
             "unc_k": 0.5
-        }
-    }
+        },
+    },
 
 
 def test_util_mh_best_h_and_floor(mock_redis, util_mh_cfg):

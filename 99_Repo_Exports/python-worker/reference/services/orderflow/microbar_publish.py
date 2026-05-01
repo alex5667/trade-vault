@@ -13,15 +13,15 @@ logger = logging.getLogger(__name__)
 def _env_cfg() -> Dict[str, Any]:
     """Cache all env reads once per process (hot path: called per bar × symbol)."""
     return {
-        "split": os.getenv("MICROBAR_SPLIT_STREAMS_ENABLE", "0").strip().lower() in {"1", "true", "yes"}
-        "dual": os.getenv("MICROBAR_SPLIT_DUAL_WRITE", "1").strip().lower() in {"1", "true", "yes"}
-        "per_prefix": os.getenv("MICROBAR_PER_SYMBOL_PREFIX", "events:microbar_closed:")
-        "majors_stream": os.getenv("MICROBAR_MAJORS_STREAM", "events:microbar_closed:majors")
-        "legacy_stream": os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
-        "symbols_set": os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
-        "per_maxlen": int(os.getenv("MICROBAR_PER_SYMBOL_MAXLEN", "50000"))
-        "legacy_maxlen": int(os.getenv("MICROBAR_LEGACY_MAXLEN", "200000"))
-        "set_ttl": int(os.getenv("MICROBAR_SYMBOLS_SET_TTL_SEC", "86400"))
+        "split": os.getenv("MICROBAR_SPLIT_STREAMS_ENABLE", "0").strip().lower() in {"1", "true", "yes"},
+        "dual": os.getenv("MICROBAR_SPLIT_DUAL_WRITE", "1").strip().lower() in {"1", "true", "yes"},
+        "per_prefix": os.getenv("MICROBAR_PER_SYMBOL_PREFIX", "events:microbar_closed:"),
+        "majors_stream": os.getenv("MICROBAR_MAJORS_STREAM", "events:microbar_closed:majors"),
+        "legacy_stream": os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed"),
+        "symbols_set": os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols"),
+        "per_maxlen": int(os.getenv("MICROBAR_PER_SYMBOL_MAXLEN", "50000")),
+        "legacy_maxlen": int(os.getenv("MICROBAR_LEGACY_MAXLEN", "200000")),
+        "set_ttl": int(os.getenv("MICROBAR_SYMBOLS_SET_TTL_SEC", "86400")),
         "majors": frozenset(
             x.strip().upper()
             for x in os.getenv("MICROBAR_MAJORS", "BTCUSDT,ETHUSDT").split(",")
@@ -81,14 +81,14 @@ async def publish_microbar_closed(redis_client, *, symbol: str, payload_obj: Dic
             import asyncio
             if isinstance(exc, (redis_exceptions.ConnectionError, redis_exceptions.TimeoutError)) and attempt < 3:
                 logger.debug(
-                    "microbar_publish: transient Redis error for %s (attempt %d/3): %s – retrying..."
+                    "microbar_publish: transient Redis error for %s (attempt %d/3): %s – retrying...",
                     sym, attempt, exc
                 )
                 await asyncio.sleep(0.5 * attempt)
                 continue
             else:
                 logger.warning(
-                    "microbar_publish: Redis error for %s after %d attempts (%s: %s) – skipping"
-                    sym, attempt, type(exc).__name__, exc
+                    "microbar_publish: Redis error for %s after %d attempts (%s: %s) – skipping",
+                    sym, attempt, type(exc).__name__, exc,
                 )
                 return

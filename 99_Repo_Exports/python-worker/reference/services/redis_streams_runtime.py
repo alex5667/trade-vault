@@ -55,12 +55,12 @@ def discover_streams(r: redis.Redis, patterns: List[str], scan_count: int = 5000
 
 
 def xreadgroup_multi(
-    r: redis.Redis
-    group: str
-    consumer: str
-    streams: List[str]
-    count: int = 200
-    block_ms: int = 1000
+    r: redis.Redis,
+    group: str,
+    consumer: str,
+    streams: List[str],
+    count: int = 200,
+    block_ms: int = 1000,
 ) -> List[StreamMsg]:
     if not streams:
         time.sleep(block_ms / 1000.0)
@@ -94,13 +94,13 @@ def xreadgroup_multi(
 
 
 def autoclaim_stale(
-    r: redis.Redis
-    stream: str
-    group: str
-    consumer: str
-    min_idle_ms: int
-    start_id: str = "0-0"
-    count: int = 50
+    r: redis.Redis,
+    stream: str,
+    group: str,
+    consumer: str,
+    min_idle_ms: int,
+    start_id: str = "0-0",
+    count: int = 50,
 ) -> List[StreamMsg]:
     """
     Перехватывает зависшие pending (после падения воркера, сетевых проблем и т.п.).

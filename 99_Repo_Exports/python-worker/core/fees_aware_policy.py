@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Fees-aware minimum ATR(bps) needed to cover roundtrip fees + buffer, given TP1 share and rocket multiplier.
 Pure function: easy to test and reuse.
 """
 
-from __future__ import annotations
 
 from typing import Dict, Tuple
 

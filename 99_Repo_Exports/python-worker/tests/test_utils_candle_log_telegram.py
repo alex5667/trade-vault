@@ -1,5 +1,5 @@
-"""Tests for utils.candle_utils, utils.helpers, utils.log_throttler, utils.telegram_notify."""
 from __future__ import annotations
+"""Tests for utils.candle_utils, utils.helpers, utils.log_throttler, utils.telegram_notify."""
 
 import json
 import os

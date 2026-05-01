@@ -26,13 +26,13 @@ def create_sample_experiment():
         with conn.cursor() as cur:
             # Create experiment
             experiment_data = {
-                "experiment_id": "confidence_threshold_boost_v1"
-                "name": "Confidence Threshold Boost Experiment"
-                "filter_name": "confidence_boost"
-                "signal_family": "orderflow"
+                "experiment_id": "confidence_threshold_boost_v1",
+                "name": "Confidence Threshold Boost Experiment",
+                "filter_name": "confidence_boost",
+                "signal_family": "orderflow",
                 "direction": 0,  # All directions
-                "status": "running"
-                "target_metric": "expectancy_r"
+                "status": "running",
+                "target_metric": "expectancy_r",
                 "config": json.dumps({
                     "confidence_threshold": 70.0,  # Boost threshold from default 30-60
                     "z_threshold_multiplier": 1.2,  # Slightly relaxed z-threshold
@@ -41,18 +41,18 @@ def create_sample_experiment():
 
             cur.execute("""
                 INSERT INTO signal_experiment (
-                    experiment_id, name, filter_name, signal_family, direction
+                    experiment_id, name, filter_name, signal_family, direction,
                     status, target_metric, config, start_at
                 ) VALUES (
-                    %(experiment_id)s, %(name)s, %(filter_name)s, %(signal_family)s, %(direction)s
+                    %(experiment_id)s, %(name)s, %(filter_name)s, %(signal_family)s, %(direction)s,
                     %(status)s, %(target_metric)s, %(config)s, NOW()
                 )
                 ON CONFLICT (experiment_id) DO UPDATE SET
-                    name = EXCLUDED.name
-                    filter_name = EXCLUDED.filter_name
-                    signal_family = EXCLUDED.signal_family
-                    status = EXCLUDED.status
-                    target_metric = EXCLUDED.target_metric
+                    name = EXCLUDED.name,
+                    filter_name = EXCLUDED.filter_name,
+                    signal_family = EXCLUDED.signal_family,
+                    status = EXCLUDED.status,
+                    target_metric = EXCLUDED.target_metric,
                     config = EXCLUDED.config
             """, experiment_data)
 
@@ -70,25 +70,25 @@ def create_weak_progress_experiment():
     try:
         with conn.cursor() as cur:
             experiment_data = {
-                "experiment_id": "weak_progress_filter_v1"
-                "name": "Weak Progress Absorption Filter"
-                "filter_name": "weak_progress_filter"
-                "signal_family": "orderflow"
-                "direction": 0
+                "experiment_id": "weak_progress_filter_v1",
+                "name": "Weak Progress Absorption Filter",
+                "filter_name": "weak_progress_filter",
+                "signal_family": "orderflow",
+                "direction": 0,
                 "status": "draft",  # Start as draft, can be activated later
-                "target_metric": "sharpe_r"
+                "target_metric": "sharpe_r",
                 "config": json.dumps({
-                    "require_weak_progress": True
-                    "weak_progress_threshold": 0.25
+                    "require_weak_progress": True,
+                    "weak_progress_threshold": 0.25,
                 })
             }
 
             cur.execute("""
                 INSERT INTO signal_experiment (
-                    experiment_id, name, filter_name, signal_family, direction
+                    experiment_id, name, filter_name, signal_family, direction,
                     status, target_metric, config, created_at
                 ) VALUES (
-                    %(experiment_id)s, %(name)s, %(filter_name)s, %(signal_family)s, %(direction)s
+                    %(experiment_id)s, %(name)s, %(filter_name)s, %(signal_family)s, %(direction)s,
                     %(status)s, %(target_metric)s, %(config)s, NOW()
                 )
                 ON CONFLICT (experiment_id) DO NOTHING
@@ -154,7 +154,7 @@ def list_experiments():
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT experiment_id, name, status, target_metric
+                SELECT experiment_id, name, status, target_metric,
                        start_at, end_at, created_at
                 FROM signal_experiment
                 ORDER BY created_at DESC
@@ -170,9 +170,9 @@ def list_experiments():
             print("-" * 80)
             for exp in experiments:
                 status_icon = {
-                    "draft": "📝"
-                    "running": "🟢"
-                    "stopped": "🟡"
+                    "draft": "📝",
+                    "running": "🟢",
+                    "stopped": "🟡",
                     "completed": "✅"
                 }.get(exp["status"], "❓")
 
@@ -199,8 +199,8 @@ def show_experiment_results(experiment_id: str):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Get latest snapshots for each variant
             cur.execute("""
-                SELECT variant, signals_total, traded_total, winners_total, losers_total
-                       expectancy_r, sharpe_r, max_dd_r, cl_ratio, winrate
+                SELECT variant, signals_total, traded_total, winners_total, losers_total,
+                       expectancy_r, sharpe_r, max_dd_r, cl_ratio, winrate,
                        precision, recall, f1, as_of
                 FROM signal_experiment_snapshot
                 WHERE experiment_id = %s

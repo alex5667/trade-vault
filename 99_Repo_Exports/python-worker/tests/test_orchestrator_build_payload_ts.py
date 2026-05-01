@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Regression tests: _build_payload must apply _normalize_ts_ms to ts field.
 
 Before the fix, _build_payload used:
@@ -14,7 +15,6 @@ Tests here verify:
   5. future-skew → 0 + DQ flag
   6. zero → 0 + DQ flag
 """
-from __future__ import annotations
 
 import time
 from types import SimpleNamespace

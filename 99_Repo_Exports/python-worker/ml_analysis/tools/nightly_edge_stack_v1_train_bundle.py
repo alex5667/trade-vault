@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P59 nightly bundle for edge_stack_v1 (Dataset -> Validate -> Train -> Validate -> Promote).
 
 Design goals:
@@ -16,7 +17,6 @@ Promotion policy:
   - only promotes to champion if EDGE_STACK_AUTO_PROMOTE=1 AND dataset+train validations pass
 """
 
-from __future__ import annotations
 
 import argparse
 import hashlib

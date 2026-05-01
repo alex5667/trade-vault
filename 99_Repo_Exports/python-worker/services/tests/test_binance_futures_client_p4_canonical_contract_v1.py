@@ -38,15 +38,15 @@ def test_inspect_protection_set_flags_mismatched_prices_even_when_ids_exist():
     client = mod.BinanceFuturesClient.__new__(mod.BinanceFuturesClient)
     sid = "sid-mismatch-1"
     client.get_open_algo_orders = lambda symbol: [
-        {"clientAlgoId": client._build_client_algo_id(sid, "sl"),  "triggerPrice": "95.0"}
-        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"}
-        {"clientAlgoId": client._build_client_algo_id(sid, "tp2"), "triggerPrice": "120.0"}
+        {"clientAlgoId": client._build_client_algo_id(sid, "sl"),  "triggerPrice": "95.0"},
+        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"},
+        {"clientAlgoId": client._build_client_algo_id(sid, "tp2"), "triggerPrice": "120.0"},
     ]
     out = client.inspect_protection_set(
-        "BTCUSDT"
-        sid=sid
-        expected_tp_count=2
-        expect_sl=True
+        "BTCUSDT",
+        sid=sid,
+        expected_tp_count=2,
+        expect_sl=True,
         expected_sl_price=94.0,      # on-exchange price 95 ≠ 94 → mismatched
         expected_tp_prices=[110.0, 121.0],  # tp2 on-exchange 120 ≠ 121 → mismatched
     )
@@ -60,15 +60,15 @@ def test_inspect_protection_set_complete_when_all_prices_match():
     client = mod.BinanceFuturesClient.__new__(mod.BinanceFuturesClient)
     sid = "sid-match-1"
     client.get_open_algo_orders = lambda symbol: [
-        {"clientAlgoId": client._build_client_algo_id(sid, "sl"),  "triggerPrice": "94.0"}
-        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"}
+        {"clientAlgoId": client._build_client_algo_id(sid, "sl"),  "triggerPrice": "94.0"},
+        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"},
     ]
     out = client.inspect_protection_set(
-        "BTCUSDT"
-        sid=sid
-        expect_sl=True
-        expected_sl_price=94.0
-        expected_tp_prices=[110.0]
+        "BTCUSDT",
+        sid=sid,
+        expect_sl=True,
+        expected_sl_price=94.0,
+        expected_tp_prices=[110.0],
     )
     assert out["is_complete"] is True
     assert out["missing"] == []
@@ -80,8 +80,8 @@ def test_reconcile_protection_by_sid_returns_canonical_contract_shape():
     client = mod.BinanceFuturesClient.__new__(mod.BinanceFuturesClient)
     sid = "sid-canonical-1"
     client.get_open_algo_orders = lambda symbol: [
-        {"clientAlgoId": client._build_client_algo_id(sid, "sl"),  "triggerPrice": "95.0"}
-        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"}
+        {"clientAlgoId": client._build_client_algo_id(sid, "sl"),  "triggerPrice": "95.0"},
+        {"clientAlgoId": client._build_client_algo_id(sid, "tp1"), "triggerPrice": "110.0"},
     ]
     out = client.reconcile_protection_by_sid("BTCUSDT", sid)
     assert out["sid"] == sid

@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 test_exec_health_slo_autoguard_v1.py
 Unit tests for the pure evaluate_autoguard() function of P5 AutoGuard.
 No Redis I/O required — all tests use the deterministic EvalResult path.
 """
-from __future__ import annotations
 
 from orderflow_services.exec_health_slo_autoguard_v1 import GuardCfg, evaluate_autoguard
 

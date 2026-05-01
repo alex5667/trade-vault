@@ -39,7 +39,7 @@ DEMO_STREAM = os.getenv("EXEC_STREAM", "orders:exec")
 @dataclass
 class TradeEntry:
     sid: str = ""
-    symbol: str = ""
+    symbol=""
     direction: str = ""
     entry_price: float = 0.0
     exit_price: float = 0.0
@@ -69,18 +69,18 @@ def parse_paper_entry(data: dict) -> TradeEntry:
     """Parse a trades:closed stream entry."""
     g = lambda k: _s(data.get(k, b""))
     return TradeEntry(
-        sid=g("sid")
-        symbol=g("symbol")
-        direction=g("direction")
-        entry_price=_f(data.get(b"entry_price", data.get(b"entry_px")))
-        exit_price=_f(data.get(b"exit_price", data.get(b"exit_px")))
-        pnl_net=_f(data.get(b"pnl_net", data.get(b"pnl")))
-        lot=_f(data.get(b"lot", data.get(b"qty")))
-        close_reason=g("close_reason") or g("close_reason_detail") or g("reason")
-        trailing_started=_s(data.get(b"trailing_started")) in ("1", "True", "true")
-        ts_open_ms=int(_f(data.get(b"entry_ts_ms", data.get(b"ts_open_ms"))))
-        ts_close_ms=int(_f(data.get(b"exit_ts_ms", data.get(b"ts_close_ms"))))
-        source="paper"
+        sid=g("sid"),
+        symbol=g("symbol"),
+        direction=g("direction"),
+        entry_price=_f(data.get(b"entry_price", data.get(b"entry_px"))),
+        exit_price=_f(data.get(b"exit_price", data.get(b"exit_px"))),
+        pnl_net=_f(data.get(b"pnl_net", data.get(b"pnl"))),
+        lot=_f(data.get(b"lot", data.get(b"qty"))),
+        close_reason=g("close_reason") or g("close_reason_detail") or g("reason"),
+        trailing_started=_s(data.get(b"trailing_started")) in ("1", "True", "true"),
+        ts_open_ms=int(_f(data.get(b"entry_ts_ms", data.get(b"ts_open_ms")))),
+        ts_close_ms=int(_f(data.get(b"exit_ts_ms", data.get(b"ts_close_ms")))),
+        source="paper",
     )
 
 
@@ -89,22 +89,22 @@ def parse_demo_entry(data: dict) -> Optional[TradeEntry]:
     g = lambda k: _s(data.get(k, b""))
     event_type = g("event_type") or g("type") or g("status")
     # We want the final close event
-    if event_type.upper() not in ("CLOSE", "CLOSED", "FILLED", "SL_HIT", "TP_HIT"
+    if event_type.upper() not in ("CLOSE", "CLOSED", "FILLED", "SL_HIT", "TP_HIT",
                                    "TRAILING_STOP", "FORCE_CLOSE", "FINALIZED"):
         return None
     return TradeEntry(
-        sid=g("sid")
-        symbol=g("symbol")
-        direction=g("direction") or g("side")
-        entry_price=_f(data.get(b"entry_price", data.get(b"entry_px")))
-        exit_price=_f(data.get(b"exit_price", data.get(b"exit_px", data.get(b"close_price"))))
-        pnl_net=_f(data.get(b"pnl_net", data.get(b"pnl", data.get(b"realized_pnl"))))
-        lot=_f(data.get(b"lot", data.get(b"qty", data.get(b"quantity"))))
-        close_reason=g("close_reason") or g("reason") or event_type
-        trailing_started=_s(data.get(b"trailing_started", b"")) in ("1", "True", "true")
-        ts_open_ms=int(_f(data.get(b"entry_ts_ms", data.get(b"ts_open_ms"))))
-        ts_close_ms=int(_f(data.get(b"exit_ts_ms", data.get(b"ts_close_ms", data.get(b"ts_ms")))))
-        source="demo"
+        sid=g("sid"),
+        symbol=g("symbol"),
+        direction=g("direction") or g("side"),
+        entry_price=_f(data.get(b"entry_price", data.get(b"entry_px"))),
+        exit_price=_f(data.get(b"exit_price", data.get(b"exit_px", data.get(b"close_price")))),
+        pnl_net=_f(data.get(b"pnl_net", data.get(b"pnl", data.get(b"realized_pnl")))),
+        lot=_f(data.get(b"lot", data.get(b"qty", data.get(b"quantity")))),
+        close_reason=g("close_reason") or g("reason") or event_type,
+        trailing_started=_s(data.get(b"trailing_started", b"")) in ("1", "True", "true"),
+        ts_open_ms=int(_f(data.get(b"entry_ts_ms", data.get(b"ts_open_ms")))),
+        ts_close_ms=int(_f(data.get(b"exit_ts_ms", data.get(b"ts_close_ms", data.get(b"ts_ms"))))),
+        source="demo",
     )
 
 
@@ -139,24 +139,24 @@ def bps_diff(a: float, b: float) -> float:
 
 def compare(paper: TradeEntry, demo: TradeEntry) -> Comparison:
     return Comparison(
-        sid=paper.sid
-        symbol=paper.symbol
-        direction=paper.direction
-        paper_entry=paper.entry_price
-        demo_entry=demo.entry_price
-        entry_delta_bps=bps_diff(paper.entry_price, demo.entry_price)
-        paper_exit=paper.exit_price
-        demo_exit=demo.exit_price
-        exit_delta_bps=bps_diff(paper.exit_price, demo.exit_price)
-        paper_pnl=paper.pnl_net
-        demo_pnl=demo.pnl_net
-        pnl_delta=paper.pnl_net - demo.pnl_net
-        paper_reason=paper.close_reason
-        demo_reason=demo.close_reason
+        sid=paper.sid,
+        symbol=paper.symbol,
+        direction=paper.direction,
+        paper_entry=paper.entry_price,
+        demo_entry=demo.entry_price,
+        entry_delta_bps=bps_diff(paper.entry_price, demo.entry_price),
+        paper_exit=paper.exit_price,
+        demo_exit=demo.exit_price,
+        exit_delta_bps=bps_diff(paper.exit_price, demo.exit_price),
+        paper_pnl=paper.pnl_net,
+        demo_pnl=demo.pnl_net,
+        pnl_delta=paper.pnl_net - demo.pnl_net,
+        paper_reason=paper.close_reason,
+        demo_reason=demo.close_reason,
         same_reason=(paper.close_reason.upper().replace("_", "") ==
-                     demo.close_reason.upper().replace("_", ""))
-        paper_trailing=paper.trailing_started
-        demo_trailing=demo.trailing_started
+                     demo.close_reason.upper().replace("_", "")),
+        paper_trailing=paper.trailing_started,
+        demo_trailing=demo.trailing_started,
     )
 
 
@@ -203,11 +203,11 @@ def main():
 
     if args.json:
         print(json.dumps({
-            "matched": [asdict(c) for c in comparisons]
-            "paper_only_count": len(paper_only)
-            "demo_only_count": len(demo_only)
-            "paper_only_sids": sorted(paper_only)[:20]
-            "demo_only_sids": sorted(demo_only)[:20]
+            "matched": [asdict(c) for c in comparisons],
+            "paper_only_count": len(paper_only),
+            "demo_only_count": len(demo_only),
+            "paper_only_sids": sorted(paper_only)[:20],
+            "demo_only_sids": sorted(demo_only)[:20],
         }, indent=2, default=str))
         return
 

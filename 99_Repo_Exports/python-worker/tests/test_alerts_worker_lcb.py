@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Tests for LCB alerts in alerts_worker_v2.
 """
-from __future__ import annotations
 
 import os
 from unittest.mock import MagicMock, patch

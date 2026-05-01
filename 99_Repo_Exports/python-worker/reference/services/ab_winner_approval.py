@@ -42,10 +42,10 @@ def _get_arm_row(d: Dict[str, Any], arm: str) -> Optional[Dict[str, Any]]:
     return row if isinstance(row, dict) else None
 
 def decide_approve(
-    sugg: Dict[str, Any]
-    *
-    min_samples: int
-    min_edge_r: float
+    sugg: Dict[str, Any],
+    *,
+    min_samples: int,
+    min_edge_r: float,
 ) -> ApproveDecision:
     """
     Approve policy:

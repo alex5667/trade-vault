@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 services/horizon_profile_bootstrap_service.py
 ──────────────────────────────────────────────
@@ -27,7 +28,6 @@ ENV:
   ANALYTICS_DB_DSN / TRADES_DB_DSN     -- Postgres DSN
   REDIS_URL                            -- Redis URL
 """
-from __future__ import annotations
 
 import json
 import math
@@ -55,27 +55,27 @@ except Exception:  # pragma: no cover
 try:
     from prometheus_client import Counter, Gauge
     _M_WRITTEN = Counter(
-        "trade_horizon_profile_bootstrap_written_total"
-        "Horizon profile keys written to Redis per bootstrap run"
-        ["source", "symbol"]
+        "trade_horizon_profile_bootstrap_written_total",
+        "Horizon profile keys written to Redis per bootstrap run",
+        ["source", "symbol"],
     )
     _M_ROWS = Counter(
-        "trade_horizon_profile_bootstrap_rows_total"
-        "Rows loaded from trades_closed_p0 per bootstrap run"
-        ["source", "symbol"]
+        "trade_horizon_profile_bootstrap_rows_total",
+        "Rows loaded from trades_closed_p0 per bootstrap run",
+        ["source", "symbol"],
     )
     _M_LOOKUP_HIT = Counter(
-        "trade_horizon_profile_lookup_hit_total"
-        "Horizon profile Redis lookup hits by fallback level"
+        "trade_horizon_profile_lookup_hit_total",
+        "Horizon profile Redis lookup hits by fallback level",
         ["level"],  # exact | scenario | default
     )
     _M_LOOKUP_MISS = Counter(
-        "trade_horizon_profile_lookup_miss_total"
-        "Horizon profile Redis lookup misses (no key at any level)"
+        "trade_horizon_profile_lookup_miss_total",
+        "Horizon profile Redis lookup misses (no key at any level)",
     )
     _M_LOOKUP_STALE = Counter(
-        "trade_horizon_profile_stale_total"
-        "Horizon profile Redis keys skipped because they were stale"
+        "trade_horizon_profile_stale_total",
+        "Horizon profile Redis keys skipped because they were stale",
     )
     _PROM_AVAILABLE = True
 except Exception:  # pragma: no cover
@@ -258,18 +258,18 @@ class HorizonProfileBootstrapService:
 
     def _open_conn(self):
         return psycopg2.connect(
-            self._dsn
-            connect_timeout=_env_int("HORIZON_PROFILE_PG_CONNECT_TIMEOUT_SEC", 5)
-            application_name="horizon_profile_bootstrap_service"
+            self._dsn,
+            connect_timeout=_env_int("HORIZON_PROFILE_PG_CONNECT_TIMEOUT_SEC", 5),
+            application_name="horizon_profile_bootstrap_service",
         )
 
     def _load_rows(self, conn, source: str, symbol: str) -> List[HorizonStatRow]:
         cutoff_ms = int(time.time() * 1000) - self._window_days * 86400 * 1000
         sql = """
         SELECT
-            lower(coalesce(nullif(p0.scenario, ''), 'unknown')) AS scenario
-            lower(coalesce(nullif(p0.regime, ''), 'na'))       AS regime
-            p0.hold_ms                                          AS hold_ms
+            lower(coalesce(nullif(p0.scenario, ''), 'unknown')) AS scenario,
+            lower(coalesce(nullif(p0.regime, ''), 'na'))       AS regime,
+            p0.hold_ms                                          AS hold_ms,
             CASE
               WHEN coalesce(p0.time_to_mfe_ms, 0) > 0
                 THEN LEAST(p0.time_to_mfe_ms, p0.hold_ms)
@@ -288,19 +288,19 @@ class HorizonProfileBootstrapService:
         out: List[HorizonStatRow] = []
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(sql, {
-                "source":       source
-                "symbol":       symbol
-                "cutoff_ms":    cutoff_ms
-                "min_hold_ms":  self._min_hold_ms
-                "max_hold_ms":  self._max_hold_ms
-                "limit":        self._sample_limit
+                "source":       source,
+                "symbol":       symbol,
+                "cutoff_ms":    cutoff_ms,
+                "min_hold_ms":  self._min_hold_ms,
+                "max_hold_ms":  self._max_hold_ms,
+                "limit":        self._sample_limit,
             })
             for r in cur.fetchall():
                 out.append(HorizonStatRow(
-                    scenario=str(r["scenario"] or "unknown")
-                    regime=str(r["regime"] or "na")
-                    hold_ms=_safe_int(r["hold_ms"], 0)
-                    time_to_mfe_ms=_safe_int(r["time_to_mfe_ms"], 0)
+                    scenario=str(r["scenario"] or "unknown"),
+                    regime=str(r["regime"] or "na"),
+                    hold_ms=_safe_int(r["hold_ms"], 0),
+                    time_to_mfe_ms=_safe_int(r["time_to_mfe_ms"], 0),
                 ))
         return out
 
@@ -357,27 +357,27 @@ class HorizonProfileBootstrapService:
         hold_target_ms     = int(hold_p50)
         alpha_half_life_ms = int(max(15_000, min(mfe_p50, hold_target_ms)))
         max_signal_age_ms  = int(max(
-            15_000
-            min(alpha_half_life_ms, int(hold_target_ms * 0.33), self._max_signal_age_cap_ms)
+            15_000,
+            min(alpha_half_life_ms, int(hold_target_ms * 0.33), self._max_signal_age_cap_ms),
         ))
         bucket = _bucket_by_hold_ms(hold_target_ms)
         n = len(hold)
         conf = _profile_conf(n, self._min_n, self._strong_n)
 
         return {
-            "contract_ver":         2
-            "hold_target_ms":       hold_target_ms
-            "alpha_half_life_ms":   alpha_half_life_ms
-            "max_signal_age_ms":    max_signal_age_ms
-            "risk_horizon_bucket":  bucket
-            "profile_source":       "history"
-            "profile_conf":         conf
-            "reason_code":          "HZ_HISTORY_PROFILE"
-            "sample_n":             n
-            "hold_p50_ms":          hold_p50
-            "hold_p75_ms":          hold_p75
-            "time_to_mfe_p50_ms":   mfe_p50
-            "updated_at_ms":        int(time.time() * 1000)
+            "contract_ver":         2,
+            "hold_target_ms":       hold_target_ms,
+            "alpha_half_life_ms":   alpha_half_life_ms,
+            "max_signal_age_ms":    max_signal_age_ms,
+            "risk_horizon_bucket":  bucket,
+            "profile_source":       "history",
+            "profile_conf":         conf,
+            "reason_code":          "HZ_HISTORY_PROFILE",
+            "sample_n":             n,
+            "hold_p50_ms":          hold_p50,
+            "hold_p75_ms":          hold_p75,
+            "time_to_mfe_p50_ms":   mfe_p50,
+            "updated_at_ms":        int(time.time() * 1000),
         }
 
     # ------------------------------------------------------------------
@@ -438,7 +438,7 @@ class HorizonProfileBootstrapService:
 
     def run_once(self) -> int:
         """
-        Full bootstrap run: discover all symbol/source pairs, load stats
+        Full bootstrap run: discover all symbol/source pairs, load stats,
         publish profiles to Redis.
 
         Returns total number of Redis keys written.
@@ -467,8 +467,8 @@ class HorizonProfileBootstrapService:
                     r = self._get_redis()
                     if r is not None:
                         r.set(
-                            self._state_key(source, symbol)
-                            _dump({"updated_at_ms": int(time.time() * 1000), "sample_n": len(rows), "keys_written": written})
+                            self._state_key(source, symbol),
+                            _dump({"updated_at_ms": int(time.time() * 1000), "sample_n": len(rows), "keys_written": written}),
                         )
 
                     try:
@@ -478,8 +478,8 @@ class HorizonProfileBootstrapService:
                         pass
 
                     logger.info(
-                        "HorizonProfileBootstrapService: %s/%s rows=%d keys_written=%d"
-                        source, symbol, len(rows), written
+                        "HorizonProfileBootstrapService: %s/%s rows=%d keys_written=%d",
+                        source, symbol, len(rows), written,
                     )
                 except Exception as exc:
                     logger.exception("HorizonProfileBootstrapService: failed for %s/%s: %s", source, symbol, exc)

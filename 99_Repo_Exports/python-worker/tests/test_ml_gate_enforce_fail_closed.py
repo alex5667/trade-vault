@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P0 / Capital-Safety тесты: ML gate fail-closed в ENFORCE-окружении.
 
@@ -11,7 +12,6 @@ P0 / Capital-Safety тесты: ML gate fail-closed в ENFORCE-окружени�
   G. При ImportError gate'а в __init__ CryptoOrderflowService — of_engine.ml_gate == None
   H. Smoke-test gate.check() вызывается со всеми обязательными kwargs (не вызывает TypeError)
 """
-from __future__ import annotations
 
 import json
 import os

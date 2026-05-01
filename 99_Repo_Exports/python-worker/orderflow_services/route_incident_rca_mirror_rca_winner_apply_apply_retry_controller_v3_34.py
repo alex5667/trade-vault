@@ -129,7 +129,7 @@ async def persist_if_configured(db_url: str, result: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_retry_results (
                     ts_ms, event_key, decision, reason_code, attempts, rollback_mode, rollback_primary_arm, result_json
                 ) VALUES (
@@ -193,7 +193,7 @@ async def main() -> None:  # pragma: no cover
                 "decision": "NOOP",
                 "reason_code": "NO_ACTION",
                 "ts_ms": str(now_ms()),
-            }
+            },
 
             if resolved == 1:
                 result["reason_code"] = "ALREADY_RESOLVED"

@@ -1,4 +1,5 @@
 # python-worker/news_pipeline/news_logging.py
+from __future__ import annotations
 """
 News logging helpers for signal/tick pipelines.
 
@@ -22,7 +23,6 @@ Environment knobs:
 - NEWS_DEBUG_SAMPLE_PCT=1  (default 1%)
 - NEWS_DEBUG_MAX_BYTES=65536
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -102,12 +102,12 @@ class NewsFullDebugFetcher:
     """
 
     def __init__(
-        self
-        *
-        redis
-        max_queue: int = 4096
-        sample_pct_default: int = 1
-        max_bytes_default: int = 65536
+        self,
+        *,
+        redis,
+        max_queue: int = 4096,
+        sample_pct_default: int = 1,
+        max_bytes_default: int = 65536,
     ) -> None:
         self.r = redis
         self.q: "queue.Queue[Tuple[str, str, int]]" = queue.Queue(maxsize=max_queue)
@@ -181,17 +181,17 @@ class NewsFullDebugFetcher:
             log_full.info(
                 json.dumps(
                     {
-                        "kind": "news_full"
-                        "ok": False
-                        "symbol": symbol
-                        "ts_ms": int(ts_ms)
-                        "ref": ref
-                        "key": key
-                        "err": str(e)[:256]
-                        "fetched_ts_ms": get_ny_time_millis()
-                    }
-                    ensure_ascii=False
-                    separators=(",", ":")
+                        "kind": "news_full",
+                        "ok": False,
+                        "symbol": symbol,
+                        "ts_ms": int(ts_ms),
+                        "ref": ref,
+                        "key": key,
+                        "err": str(e)[:256],
+                        "fetched_ts_ms": get_ny_time_millis(),
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
                 )
             )
             return
@@ -200,17 +200,17 @@ class NewsFullDebugFetcher:
             log_full.info(
                 json.dumps(
                     {
-                        "kind": "news_full"
-                        "ok": False
-                        "symbol": symbol
-                        "ts_ms": int(ts_ms)
-                        "ref": ref
-                        "key": key
-                        "miss": True
-                        "fetched_ts_ms": get_ny_time_millis()
-                    }
-                    ensure_ascii=False
-                    separators=(",", ":")
+                        "kind": "news_full",
+                        "ok": False,
+                        "symbol": symbol,
+                        "ts_ms": int(ts_ms),
+                        "ref": ref,
+                        "key": key,
+                        "miss": True,
+                        "fetched_ts_ms": get_ny_time_millis(),
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
                 )
             )
             return
@@ -223,17 +223,17 @@ class NewsFullDebugFetcher:
         log_full.info(
             json.dumps(
                 {
-                    "kind": "news_full"
-                    "ok": True
-                    "symbol": symbol
-                    "ts_ms": int(ts_ms)
-                    "ref": ref
-                    "key": key
-                    "json": s
-                    "json_len": len(str(raw))
-                    "fetched_ts_ms": get_ny_time_millis()
-                }
-                ensure_ascii=False
-                separators=(",", ":")
+                    "kind": "news_full",
+                    "ok": True,
+                    "symbol": symbol,
+                    "ts_ms": int(ts_ms),
+                    "ref": ref,
+                    "key": key,
+                    "json": s,
+                    "json_len": len(str(raw)),
+                    "fetched_ts_ms": get_ny_time_millis(),
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
         )

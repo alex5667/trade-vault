@@ -154,7 +154,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "mode": mode,
         "max_payload_bytes": parse_int(raw.get("max_payload_bytes"), DEFAULT_MAX_PAYLOAD_BYTES),
         "max_prompt_chars": parse_int(raw.get("max_prompt_chars"), DEFAULT_MAX_PROMPT_CHARS),
-    }
+    },
 
 
 def build_payload_json(row: Dict[str, Any]) -> str:
@@ -187,7 +187,7 @@ def evaluate_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
         "request_id": request_id,
         "incident_id": incident_id,
         "mode": policy["mode"],
-    }
+    },
     if policy["enabled"] != 1:
         out["reason_code"] = "DISABLED"
         return out
@@ -223,7 +223,7 @@ def build_handoff_shadow_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "force_local": str(parse_int(row.get("force_local"), 0)),
         "shadow_mode": "1",
         "ts_ms": str(now_ms()),
-    }
+    },
 
 
 def build_legacy_shadow_row(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -237,7 +237,7 @@ def build_legacy_shadow_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "source": "route_incident_rca_shadow_handoff_v3_5",
         "shadow_mode": "1",
         "ts_ms": str(now_ms()),
-    }
+    },
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -264,7 +264,7 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_route_incident_rca_shadow_handoff_decisions (
                     request_id,
                     incident_id,
@@ -359,7 +359,7 @@ async def main() -> None:  # pragma: no cover
                         "handoff_shadow_stream": HANDOFF_SHADOW_STREAM if handoff_shadow_row else "",
                         "legacy_shadow_stream": LEGACY_SHADOW_STREAM if legacy_shadow_row else "",
                         "ts_ms": str(now_ms()),
-                    }
+                    },
                     await r.xadd(DECISIONS_STREAM, decision_payload, maxlen=MAXLEN, approximate=True)
                     await r.xadd(
                         AUDIT_STREAM,

@@ -12,14 +12,14 @@ from .redis_streams import ensure_group, xreadgroup_block, xack
 from .utils import now_ms, safe_float, safe_int
 from . import config
 from .grade import (
-    compute_grade_id
-    compute_horizon_sec
-    compute_horizon_sec_with_grade
+    compute_grade_id,
+    compute_horizon_sec,
+    compute_horizon_sec_with_grade,
 )
 
 from common.redis_errors import (
-    is_transient_error as is_transient_redis_error
-    get_redis_error_category
+    is_transient_error as is_transient_redis_error,
+    get_redis_error_category,
 )
 
 try:
@@ -85,13 +85,13 @@ def _read_prev_grade_change_ts(prev: Dict[str, Any], *, prev_ts_ms: int) -> int:
 
 
 def _apply_grade_cooldown(
-    *
-    prev_grade_id: int
-    prev_change_ts_ms: int
-    new_grade_id: int
-    now_ts_ms: int
-    cooldown_up_sec: int
-    cooldown_down_sec: int
+    *,
+    prev_grade_id: int,
+    prev_change_ts_ms: int,
+    new_grade_id: int,
+    now_ts_ms: int,
+    cooldown_up_sec: int,
+    cooldown_down_sec: int,
 ) -> Tuple[int, int, bool]:
     """
     Store-level hysteresis:
@@ -194,13 +194,13 @@ def _read_prev_grade_change_ts(prev: Dict[str, Any], *, prev_ts_ms: int) -> int:
 
 
 def _apply_grade_cooldown(
-    *
-    prev_grade_id: int
-    prev_change_ts_ms: int
-    new_grade_id: int
-    now_ts_ms: int
-    cooldown_up_sec: int
-    cooldown_down_sec: int
+    *,
+    prev_grade_id: int,
+    prev_change_ts_ms: int,
+    new_grade_id: int,
+    now_ts_ms: int,
+    cooldown_up_sec: int,
+    cooldown_down_sec: int,
 ) -> Tuple[int, int, bool]:
     """
     Store-level anti-flap:
@@ -240,13 +240,13 @@ def _read_prev_grade_change_ts(prev: Dict[str, Any], prev_ts_ms: int) -> int:
 
 
 def _apply_grade_cooldown(
-    *
-    prev_grade_id: int
-    prev_change_ts_ms: int
-    new_grade_id: int
-    now_ts_ms: int
-    cooldown_up_sec: int
-    cooldown_down_sec: int
+    *,
+    prev_grade_id: int,
+    prev_change_ts_ms: int,
+    new_grade_id: int,
+    now_ts_ms: int,
+    cooldown_up_sec: int,
+    cooldown_down_sec: int,
 ) -> Tuple[int, int, bool]:
     """
     Anti-flap for discrete grade.
@@ -323,21 +323,21 @@ def _dir_tag(prev_grade: int, new_grade: int) -> str:
 
 
 def _compute_grade_and_horizon(
-    *
-    risk_ewma: float
-    surprise_ewma: float
-    confidence: float
-    primary_tag_id: int
-    tags_mask: int
+    *,
+    risk_ewma: float,
+    surprise_ewma: float,
+    confidence: float,
+    primary_tag_id: int,
+    tags_mask: int,
 ) -> Tuple[int, int]:
     """
     grade_id: 0..4
     horizon_sec: 0..(72h cap inside compute_horizon_sec_with_grade)
     """
     grade_id = compute_grade_id(
-        risk=float(risk_ewma)
-        surprise=float(surprise_ewma)
-        confidence=float(confidence)
+        risk=float(risk_ewma),
+        surprise=float(surprise_ewma),
+        confidence=float(confidence),
     )
 
     # grade=0 => ignore semantics => horizon=0
@@ -417,15 +417,15 @@ class NewsFeatureStoreService:
     """
 
     def __init__(
-        self
-        r: redis.Redis
-        consumer: str = "fs-1"
-        block_ms: int = 5000
-        batch: int = 50
-        *
-        retry_attempts: Optional[int] = None
-        retry_sleep_ms: Optional[int] = None
-        metrics: Optional[Any] = None
+        self,
+        r: redis.Redis,
+        consumer: str = "fs-1",
+        block_ms: int = 5000,
+        batch: int = 50,
+        *,
+        retry_attempts: Optional[int] = None,
+        retry_sleep_ms: Optional[int] = None,
+        metrics: Optional[Any] = None,
     ) -> None:
         self.r = r
         self.consumer = consumer
@@ -509,20 +509,20 @@ class NewsFeatureStoreService:
             except Exception:
                 uid = ""
             self.r.xadd(
-                stream
+                stream,
                 {
-                    "ts_ms": str(int(now))
-                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", "news:analysis"))
-                    "src_msg_id": str(src_msg_id)
-                    "consumer": str(self.consumer)
-                    "uid": str(uid)
-                    "err_category": str(cat)
-                    "err_type": str(type(err).__name__)
-                    "err": str(err)[:512]
-                    "fields_json": payload_json
-                }
-                maxlen=maxlen
-                approximate=True
+                    "ts_ms": str(int(now)),
+                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", "news:analysis")),
+                    "src_msg_id": str(src_msg_id),
+                    "consumer": str(self.consumer),
+                    "uid": str(uid),
+                    "err_category": str(cat),
+                    "err_type": str(type(err).__name__),
+                    "err": str(err)[:512],
+                    "fields_json": payload_json,
+                },
+                maxlen=maxlen,
+                approximate=True,
             )
             self._m_inc("news_feature_store_dlq_total", 1, tags={"cat": str(cat)})
         except Exception:
@@ -551,20 +551,20 @@ class NewsFeatureStoreService:
             payload_json = "{}"
         try:
             self.r.xadd(
-                stream
+                stream,
                 {
-                    "ts_ms": str(int(now))
-                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", "news:analysis"))
-                    "src_msg_id": str(src_msg_id)
-                    "consumer": str(self.consumer)
-                    "uid": str(uid or "")
-                    "err_category": str(cat)
-                    "err_type": str(type(err).__name__)
-                    "err": str(err)[:512]
-                    "fields_json": payload_json
-                }
-                maxlen=maxlen
-                approximate=True
+                    "ts_ms": str(int(now)),
+                    "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", "news:analysis")),
+                    "src_msg_id": str(src_msg_id),
+                    "consumer": str(self.consumer),
+                    "uid": str(uid or ""),
+                    "err_category": str(cat),
+                    "err_type": str(type(err).__name__),
+                    "err": str(err)[:512],
+                    "fields_json": payload_json,
+                },
+                maxlen=maxlen,
+                approximate=True,
             )
             self._m_inc("news_feature_store_dlq_total", 1, tags={"cat": str(cat)})
         except Exception:
@@ -600,14 +600,14 @@ class NewsFeatureStoreService:
         self._stop = True
 
     def _push_dlq(
-        self
-        *
-        src_msg_id: str
-        fields: Dict[str, Any]
-        uid: str
-        err: BaseException
-        category: Optional[str] = None
-        now_ts_ms: Optional[int] = None
+        self,
+        *,
+        src_msg_id: str,
+        fields: Dict[str, Any],
+        uid: str,
+        err: BaseException,
+        category: Optional[str] = None,
+        now_ts_ms: Optional[int] = None,
     ) -> None:
         """
         Best-effort DLQ (fail-open).
@@ -626,20 +626,20 @@ class NewsFeatureStoreService:
             err_s = truncate_message(str(err) or "", 1024)
 
             self.r.xadd(
-                dlq_stream
+                dlq_stream,
                 {
-                    "ts_ms": str(now)
-                    "src_stream": str(config.NEWS_ANALYSIS_STREAM)
-                    "src_msg_id": str(src_msg_id)
-                    "consumer": str(self.consumer)
-                    "uid": str(uid or "")
-                    "err_category": str(cat)
-                    "err_type": type(err).__name__
-                    "err": err_s
-                    "fields_json": payload_json
-                }
-                maxlen=maxlen
-                approximate=True
+                    "ts_ms": str(now),
+                    "src_stream": str(config.NEWS_ANALYSIS_STREAM),
+                    "src_msg_id": str(src_msg_id),
+                    "consumer": str(self.consumer),
+                    "uid": str(uid or ""),
+                    "err_category": str(cat),
+                    "err_type": type(err).__name__,
+                    "err": err_s,
+                    "fields_json": payload_json,
+                },
+                maxlen=maxlen,
+                approximate=True,
             )
             self._inc("news_feature_store_dlq_total", 1, tags={"category": str(cat)})
         except Exception:
@@ -696,23 +696,23 @@ class NewsFeatureStoreService:
 
             if local_grade_in is None:
                 cand_grade = compute_grade_id(
-                    risk=float(risk_ewma)
-                    surprise=float(sur_ewma)
-                    confidence=float(getattr(a, "confidence", 0.0) or 0.0)
+                    risk=float(risk_ewma),
+                    surprise=float(sur_ewma),
+                    confidence=float(getattr(a, "confidence", 0.0) or 0.0),
                 )
             else:
                 cand_grade = int(local_grade_in)
 
             # ---- IMPORTANT FIX #2:
-            # apply cooldown first => effective grade_id
+            # apply cooldown first => effective grade_id,
             # then compute horizon using *effective* grade (keeps semantics consistent).
             eff_grade_id, grade_change_ts_ms, frozen = _apply_grade_cooldown(
-                prev_grade_id=int(prev_grade)
-                prev_change_ts_ms=int(prev_grade_change_ts)
-                new_grade_id=int(cand_grade)
-                now_ts_ms=int(cur_now)
-                cooldown_up_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_UP_SEC", 900))
-                cooldown_down_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_DOWN_SEC", 300))
+                prev_grade_id=int(prev_grade),
+                prev_change_ts_ms=int(prev_grade_change_ts),
+                new_grade_id=int(cand_grade),
+                now_ts_ms=int(cur_now),
+                cooldown_up_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_UP_SEC", 900)),
+                cooldown_down_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_DOWN_SEC", 300)),
             )
 
             if local_horizon_in is None:
@@ -720,12 +720,12 @@ class NewsFeatureStoreService:
                     eff_horizon = 0
                 else:
                     base_h = compute_horizon_sec(
-                        primary_tag_id=int(a.primary_tag_id or 0)
-                        tags_mask=int(a.tags_mask or 0)
+                        primary_tag_id=int(a.primary_tag_id or 0),
+                        tags_mask=int(a.tags_mask or 0),
                     )
                     eff_horizon = compute_horizon_sec_with_grade(
-                        base_horizon_sec=int(base_h)
-                        grade_id=int(eff_grade_id)
+                        base_horizon_sec=int(base_h),
+                        grade_id=int(eff_grade_id),
                     )
                     if eff_horizon < 0:
                         eff_horizon = 0
@@ -734,27 +734,27 @@ class NewsFeatureStoreService:
 
             # Store minimal compact state (strings for Redis HASH)
             mapping = {
-                "ref": str(a.news_ref or "")
+                "ref": str(a.news_ref or ""),
                 # EWMA: write both naming conventions (compat)
-                "risk_ewma": f"{float(risk_ewma):.6f}"
-                "surprise_ewma": f"{float(sur_ewma):.6f}"
-                "risk_ema": f"{float(risk_ewma):.6f}"
-                "surprise_ema": f"{float(sur_ewma):.6f}"
+                "risk_ewma": f"{float(risk_ewma):.6f}",
+                "surprise_ewma": f"{float(sur_ewma):.6f}",
+                "risk_ema": f"{float(risk_ewma):.6f}",
+                "surprise_ema": f"{float(sur_ewma):.6f}",
 
-                "news_grade_id": str(int(eff_grade_id))
-                "horizon_sec": str(int(eff_horizon))
-                "grade_change_ts_ms": str(int(grade_change_ts_ms or cur_now))
-                "grade_frozen": "1" if frozen else "0"
+                "news_grade_id": str(int(eff_grade_id)),
+                "horizon_sec": str(int(eff_horizon)),
+                "grade_change_ts_ms": str(int(grade_change_ts_ms or cur_now)),
+                "grade_frozen": "1" if frozen else "0",
 
-                "tags_mask": str(int(a.tags_mask))
-                "primary_tag_id": str(int(a.primary_tag_id))
-                "confidence": f"{float(getattr(a, 'confidence', 0.0) or 0.0):.6f}"
+                "tags_mask": str(int(a.tags_mask)),
+                "primary_tag_id": str(int(a.primary_tag_id)),
+                "confidence": f"{float(getattr(a, 'confidence', 0.0) or 0.0):.6f}",
 
                 # canonical timestamp for EWMA dt
-                "ts_ms": str(int(cur_now))
+                "ts_ms": str(int(cur_now)),
                 # legacy alias
-                "asof_ts_ms": str(int(cur_now))
-            }
+                "asof_ts_ms": str(int(cur_now)),
+            },
 
             pipe.hset(key, mapping=mapping)
             pipe.expire(key, int(config.NEWS_AGG_TTL_SEC))
@@ -833,16 +833,16 @@ class NewsFeatureStoreService:
             # ---- TODOs implemented: grade + horizon ----
             grade_id = int(
                 compute_grade_id(
-                    risk=float(risk_ewma)
-                    surprise=float(sur_ewma)
-                    confidence=float(getattr(a, "confidence", 0.0) or 0.0)
+                    risk=float(risk_ewma),
+                    surprise=float(sur_ewma),
+                    confidence=float(getattr(a, "confidence", 0.0) or 0.0),
                 )
             )
 
             base_hz = int(
                 compute_horizon_sec(
-                    primary_tag_id=int(getattr(a, "primary_tag_id", 0) or 0)
-                    tags_mask=int(getattr(a, "tags_mask", 0) or 0)
+                    primary_tag_id=int(getattr(a, "primary_tag_id", 0) or 0),
+                    tags_mask=int(getattr(a, "tags_mask", 0) or 0),
                 )
             )
             horizon_sec = int(compute_horizon_sec_with_grade(base_horizon_sec=base_hz, grade_id=grade_id))
@@ -851,12 +851,12 @@ class NewsFeatureStoreService:
             prev_grade = safe_int(prev.get("news_grade_id"), 0)
             prev_chg_ts = safe_int(prev.get("grade_change_ts_ms"), 0)
             eff_grade, eff_chg_ts, changed = _apply_grade_cooldown(
-                prev_grade_id=int(prev_grade)
-                prev_change_ts_ms=int(prev_chg_ts)
-                new_grade_id=int(grade_id)
-                now_ts_ms=int(now)
-                cooldown_up_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_UP_SEC", 900))
-                cooldown_down_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_DOWN_SEC", 300))
+                prev_grade_id=int(prev_grade),
+                prev_change_ts_ms=int(prev_chg_ts),
+                new_grade_id=int(grade_id),
+                now_ts_ms=int(now),
+                cooldown_up_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_UP_SEC", 900)),
+                cooldown_down_sec=int(getattr(config, "NEWS_GRADE_COOLDOWN_DOWN_SEC", 300)),
             )
 
             # metrics: grade distribution + changes + cooldown blocks
@@ -865,25 +865,25 @@ class NewsFeatureStoreService:
                 self._inc("news_feature_store_grade_cooldown_block_total", 1, tags={"scope": str(scope)})
             if not changed and int(eff_grade) != int(prev_grade):
                 self._inc(
-                    "news_feature_store_grade_change_total"
-                    1
-                    tags={"from": str(int(prev_grade)), "to": str(int(eff_grade)), "scope": str(scope)}
+                    "news_feature_store_grade_change_total",
+                    1,
+                    tags={"from": str(int(prev_grade)), "to": str(int(eff_grade)), "scope": str(scope)},
                 )
 
             pipe.hset(
-                key
+                key,
                 mapping={
-                    "ref": str(getattr(a, "news_ref", "") or "")
-                    "risk_ewma": f"{float(risk_ewma):.6f}"
-                    "surprise_ewma": f"{float(sur_ewma):.6f}"
-                    "news_grade_id": str(int(eff_grade))
-                    "grade_change_ts_ms": str(int(eff_chg_ts))
-                    "tags_mask": str(int(getattr(a, "tags_mask", 0) or 0))
-                    "primary_tag_id": str(int(getattr(a, "primary_tag_id", 0) or 0))
-                    "horizon_sec": str(int(horizon_sec))
-                    "confidence": f"{float(getattr(a, 'confidence', 0.0) or 0.0):.6f}"
-                    "asof_ts_ms": str(int(now))
-                }
+                    "ref": str(getattr(a, "news_ref", "") or ""),
+                    "risk_ewma": f"{float(risk_ewma):.6f}",
+                    "surprise_ewma": f"{float(sur_ewma):.6f}",
+                    "news_grade_id": str(int(eff_grade)),
+                    "grade_change_ts_ms": str(int(eff_chg_ts)),
+                    "tags_mask": str(int(getattr(a, "tags_mask", 0) or 0)),
+                    "primary_tag_id": str(int(getattr(a, "primary_tag_id", 0) or 0)),
+                    "horizon_sec": str(int(horizon_sec)),
+                    "confidence": f"{float(getattr(a, 'confidence', 0.0) or 0.0):.6f}",
+                    "asof_ts_ms": str(int(now)),
+                },
             )
             pipe.expire(key, int(config.NEWS_AGG_TTL_SEC))
 
@@ -975,12 +975,12 @@ class NewsFeatureStoreService:
 
         while not self._stop:
             items = xreadgroup_block(
-                self.r
-                config.NEWS_ANALYSIS_STREAM
-                config.NEWS_FEATURE_GROUP
-                consumer=self.consumer
-                count=self.batch
-                block_ms=self.block_ms
+                self.r,
+                config.NEWS_ANALYSIS_STREAM,
+                config.NEWS_FEATURE_GROUP,
+                consumer=self.consumer,
+                count=self.batch,
+                block_ms=self.block_ms,
             )
             if not items:
                 continue
@@ -1007,20 +1007,20 @@ class NewsFeatureStoreService:
                     payload_json = _safe_json_dumps(fields, limit=int(getattr(config, "NEWS_FEATURE_DLQ_FIELDS_LIMIT", 4096)))
                     err_s = (str(err) or "")[:512]
                     self.r.xadd(
-                        _dlq_stream()
+                        _dlq_stream(),
                         {
-                            "ts_ms": str(now)
-                            "src_stream": str(config.NEWS_ANALYSIS_STREAM)
-                            "src_msg_id": str(src_msg_id)
-                            "consumer": str(self.consumer)
-                            "uid": str(uid or "")
-                            "err_category": str(cat)
-                            "err_type": type(err).__name__
-                            "err": err_s
-                            "fields_json": payload_json
-                        }
-                        maxlen=int(getattr(config, "NEWS_FEATURE_DLQ_MAXLEN", 200_000))
-                        approximate=True
+                            "ts_ms": str(now),
+                            "src_stream": str(config.NEWS_ANALYSIS_STREAM),
+                            "src_msg_id": str(src_msg_id),
+                            "consumer": str(self.consumer),
+                            "uid": str(uid or ""),
+                            "err_category": str(cat),
+                            "err_type": type(err).__name__,
+                            "err": err_s,
+                            "fields_json": payload_json,
+                        },
+                        maxlen=int(getattr(config, "NEWS_FEATURE_DLQ_MAXLEN", 200_000)),
+                        approximate=True,
                     )
                     self._inc("news_feature_store_dlq_total", 1, tags={"category": str(cat)})
                 except Exception:
@@ -1065,44 +1065,44 @@ class NewsFeatureStoreService:
 
                             # Grade: use EWMA risk/surprise for stability, and current confidence to suppress noise.
                             grade_id = compute_grade_id(
-                                risk=float(risk_ewma)
-                                surprise=float(sur_ewma)
-                                confidence=float(getattr(a, "confidence", 0.0) or 0.0)
+                                risk=float(risk_ewma),
+                                surprise=float(sur_ewma),
+                                confidence=float(getattr(a, "confidence", 0.0) or 0.0),
                             )
 
                             # Horizon: tag-based base (2h..48h) then grade scaling + caps.
                             base_h = compute_horizon_sec(
-                                primary_tag_id=int(a.primary_tag_id or 0)
-                                tags_mask=int(a.tags_mask or 0)
+                                primary_tag_id=int(a.primary_tag_id or 0),
+                                tags_mask=int(a.tags_mask or 0),
                             )
                             horizon_sec = compute_horizon_sec_with_grade(
-                                base_horizon_sec=int(base_h)
-                                grade_id=int(grade_id)
+                                base_horizon_sec=int(base_h),
+                                grade_id=int(grade_id),
                             )
 
                             # tags_mask/primary_tag — храним последнее (самое свежее)
                             # Если хочешь "max risk" по окну — добавь отдельное поле.
                             pipe.hset(
-                                key
+                                key,
                                 mapping={
-                                    "ref": a.news_ref
+                                    "ref": a.news_ref,
                                     # EWMA (write both aliases so old consumers keep working)
-                                    "risk_ewma": f"{float(risk_ewma):.6f}"
-                                    "surprise_ewma": f"{float(sur_ewma):.6f}"
-                                    "risk_ema": f"{float(risk_ewma):.6f}"
-                                    "surprise_ema": f"{float(sur_ewma):.6f}"
+                                    "risk_ewma": f"{float(risk_ewma):.6f}",
+                                    "surprise_ewma": f"{float(sur_ewma):.6f}",
+                                    "risk_ema": f"{float(risk_ewma):.6f}",
+                                    "surprise_ema": f"{float(sur_ewma):.6f}",
                                     # Grade 0..4
-                                    "news_grade_id": str(int(grade_id))
-                                    "tags_mask": str(int(a.tags_mask))
-                                    "primary_tag_id": str(int(a.primary_tag_id))
+                                    "news_grade_id": str(int(grade_id)),
+                                    "tags_mask": str(int(a.tags_mask)),
+                                    "primary_tag_id": str(int(a.primary_tag_id)),
                                     # Horizon in seconds (0 => ignore)
-                                    "horizon_sec": str(int(horizon_sec))
-                                    "confidence": f"{float(a.confidence):.6f}"
+                                    "horizon_sec": str(int(horizon_sec)),
+                                    "confidence": f"{float(a.confidence):.6f}",
                                     # ts_ms is the canonical "asof" for EWMA dt;
                                     # keep asof_ts_ms alias for backward compatibility.
-                                    "ts_ms": str(int(now))
-                                    "asof_ts_ms": str(int(now))
-                                }
+                                    "ts_ms": str(int(now)),
+                                    "asof_ts_ms": str(int(now)),
+                                },
                             )
                             pipe.expire(key, int(config.NEWS_AGG_TTL_SEC))
 

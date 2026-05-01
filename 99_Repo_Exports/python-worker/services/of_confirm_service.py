@@ -46,8 +46,8 @@ events_received_total = Counter("of_confirm_events_received_total", "Total event
 
 # Logging
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO")
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("of_confirm_service")
 
@@ -163,12 +163,12 @@ class OFConfirmService:
 
         # Consumers
         tasks = [
-            safe_create_task(self._consume_ticks())
-            safe_create_task(self._poll_books())
-            safe_create_task(self._consume_bars())
-            safe_create_task(self._consume_spikes())
-            safe_create_task(self._config_refresher())
-            safe_create_task(self._poll_regime())
+            safe_create_task(self._consume_ticks()),
+            safe_create_task(self._poll_books()),
+            safe_create_task(self._consume_bars()),
+            safe_create_task(self._consume_spikes()),
+            safe_create_task(self._config_refresher()),
+            safe_create_task(self._poll_regime()),
         ]
         
         await asyncio.gather(*tasks)
@@ -230,11 +230,11 @@ class OFConfirmService:
         while self.running:
             try:
                 resp = await self.redis.xreadgroup(
-                    groupname=self.consumer_group
-                    consumername=self.consumer_name
-                    streams={self.stream_spikes: ">"}
-                    count=batch_size
-                    block=block_ms
+                    groupname=self.consumer_group,
+                    consumername=self.consumer_name,
+                    streams={self.stream_spikes: ">"},
+                    count=batch_size,
+                    block=block_ms,
                 )
                 if not resp:
                     continue
@@ -310,14 +310,14 @@ class OFConfirmService:
 
                     state = self._get_state(sym)
 
-                    # Normalize: book:levels uses "ts" in seconds (float)
+                    # Normalize: book:levels uses "ts" in seconds (float),
                     # detectors expect "ts_ms" in milliseconds (int).
                     ts_sec = book.get("ts", 0)
                     ts_ms = _i(_f(ts_sec, 0.0) * 1000) if ts_sec is not None else _iget_ny_time_millis()
                     book_for_detector = {
-                        "bids": book.get("bids", [])
-                        "asks": book.get("asks", [])
-                        "ts_ms": ts_ms
+                        "bids": book.get("bids", []),
+                        "asks": book.get("asks", []),
+                        "ts_ms": ts_ms,
                     }
 
                     # Feed OBI detector
@@ -416,9 +416,9 @@ class OFConfirmService:
             
             # We construct a normalized tick payload
             norm_tick = {
-                "ts": tick_ts
-                "price": price
-                "qty": qty
+                "ts": tick_ts,
+                "price": price,
+                "qty": qty,
                 "is_buyer_maker": is_buyer_maker
             }
             
@@ -496,15 +496,15 @@ class OFConfirmService:
             delta_z = spike.get("delta_z", 0.0)
             
             indicators = {
-                "now_ts_ms": ts_ms
-                "delta": _f(spike.get("delta", 0.0), 0.0)
-                "delta_z": delta_z
+                "now_ts_ms": ts_ms,
+                "delta": _f(spike.get("delta", 0.0), 0.0),
+                "delta_z": delta_z,
                 # L3-lite stats forwarded from spike payload
-                "cancel_bid_rate_ema": _f(spike.get("cancel_bid_rate_ema", 0.0), 0.0)
-                "cancel_ask_rate_ema": _f(spike.get("cancel_ask_rate_ema", 0.0), 0.0)
-                "taker_buy_rate_ema": _f(spike.get("taker_buy_rate_ema", 0.0), 0.0)
-                "taker_sell_rate_ema": _f(spike.get("taker_sell_rate_ema", 0.0), 0.0)
-                "trade_intensity": _f(spike.get("taker_buy_rate_ema", 0.0), 0.0) + _f(spike.get("taker_sell_rate_ema", 0.0), 0.0)
+                "cancel_bid_rate_ema": _f(spike.get("cancel_bid_rate_ema", 0.0), 0.0),
+                "cancel_ask_rate_ema": _f(spike.get("cancel_ask_rate_ema", 0.0), 0.0),
+                "taker_buy_rate_ema": _f(spike.get("taker_buy_rate_ema", 0.0), 0.0),
+                "taker_sell_rate_ema": _f(spike.get("taker_sell_rate_ema", 0.0), 0.0),
+                "trade_intensity": _f(spike.get("taker_buy_rate_ema", 0.0), 0.0) + _f(spike.get("taker_sell_rate_ema", 0.0), 0.0),
             }
 
             # Forward absorption evidence if present in spike
@@ -515,16 +515,16 @@ class OFConfirmService:
             
             # Run engine
             of_confirm, decision = self.engine.build(
-                symbol=symbol
-                tf="tick"
-                direction=spike.get("direction", "none")
-                tick_ts_ms=ts_ms
-                price=spike.get("price", 0.0)
-                delta_z=delta_z
-                runtime=state
-                cfg=state.config
-                indicators=indicators
-                absorption=absorption if isinstance(absorption, dict) else None
+                symbol=symbol,
+                tf="tick",
+                direction=spike.get("direction", "none"),
+                tick_ts_ms=ts_ms,
+                price=spike.get("price", 0.0),
+                delta_z=delta_z,
+                runtime=state,
+                cfg=state.config,
+                indicators=indicators,
+                absorption=absorption if isinstance(absorption, dict) else None,
             )
             
             status = "skipped"
@@ -533,9 +533,9 @@ class OFConfirmService:
                 out_payload = of_confirm.to_dict()
                 out_payload["generated_at"] = get_ny_time_millis()
                 await self.redis.xadd(
-                    self.stream_out
-                    {"payload": json.dumps(out_payload)}
-                    maxlen=50000
+                    self.stream_out,
+                    {"payload": json.dumps(out_payload)},
+                    maxlen=50000,
                     approximate=True
                 )
                 confirm_signals_total.labels(symbol=symbol).inc()
@@ -596,11 +596,11 @@ class OFConfirmService:
         stream_map: Dict[str, str] = {k: ">" for k in keys}
         try:
             resp = await self.redis.xreadgroup(
-                groupname=self.consumer_group
-                consumername=self.consumer_name
-                streams=stream_map
-                count=int(os.getenv("OF_CONFIRM_BARS_BATCH", "200"))
-                block=int(os.getenv("OF_CONFIRM_BARS_BLOCK_MS", "500"))
+                groupname=self.consumer_group,
+                consumername=self.consumer_name,
+                streams=stream_map,
+                count=int(os.getenv("OF_CONFIRM_BARS_BATCH", "200")),
+                block=int(os.getenv("OF_CONFIRM_BARS_BLOCK_MS", "500")),
             )
         except Exception:
             return 0
@@ -652,8 +652,8 @@ class OFConfirmService:
                 from types import SimpleNamespace
                 sw = bar["sweep"]
                 state.last_sweep = SimpleNamespace(
-                    kind=sw.get("kind")
-                    ts_ms=sw.get("ts_ms")
+                    kind=sw.get("kind"),
+                    ts_ms=sw.get("ts_ms"),
                     # Add defaults if engine needs them
                     direction_bias="NONE" 
                 )
@@ -662,8 +662,8 @@ class OFConfirmService:
                 from types import SimpleNamespace
                 rc = bar["reclaim"]
                 state.last_reclaim = SimpleNamespace(
-                    hold_bars=rc.get("hold_bars")
-                    ts_ms=rc.get("ts_ms")
+                    hold_bars=rc.get("hold_bars"),
+                    ts_ms=rc.get("ts_ms"),
                     direction_bias="NONE"
                 )
             
@@ -786,37 +786,37 @@ class OFConfirmService:
             state.config = config
 
             # ── Standalone-service config overrides ──────────────────────
-            # The of-confirm-service lacks the full strategy.py runtime
+            # The of-confirm-service lacks the full strategy.py runtime,
             # so hidden_div / OBI / cont_ctx are never populated natively.
             # We relax gate requirements so the engine can produce output
             # based on the evidence it actually receives.
             _svc_overrides = {
                 # Permanent warmup: bypass unpopulated legs (div, OBI, cont_ctx)
-                "continuation_warmup_sec": int(os.getenv("OF_CONFIRM_WARMUP_SEC", "999999999"))
+                "continuation_warmup_sec": int(os.getenv("OF_CONFIRM_WARMUP_SEC", "999999999")),
                 # 1-of-3 gate: trend_dir alignment alone is sufficient
-                "strong_need_continuation": int(os.getenv("OF_CONFIRM_NEED_CONT", "1"))
-                "strong_need_reversal": int(os.getenv("OF_CONFIRM_NEED_REV", "1"))
+                "strong_need_continuation": int(os.getenv("OF_CONFIRM_NEED_CONT", "1")),
+                "strong_need_reversal": int(os.getenv("OF_CONFIRM_NEED_REV", "1")),
                 # Disable need escalation (service lacks legs for 3-of-3)
-                "strong_need_escalated": 1
-                "strong_need_extreme_enable": 0
+                "strong_need_escalated": 1,
+                "strong_need_extreme_enable": 0,
                 # Lower dz bypass so strong spikes auto-classify scenario
-                "scenario_dz_bypass_threshold": float(os.getenv("SCENARIO_DZ_BYPASS_THRESHOLD", "4.0"))
+                "scenario_dz_bypass_threshold": float(os.getenv("SCENARIO_DZ_BYPASS_THRESHOLD", "4.0")),
                 # Lower score threshold: standalone service has ~2/7 evidence legs → typical score ~0.25-0.45
-                "of_score_min": float(os.getenv("OF_CONFIRM_SCORE_MIN", "0.20"))
+                "of_score_min": float(os.getenv("OF_CONFIRM_SCORE_MIN", "0.20")),
             }
             for k, v in _svc_overrides.items():
                 state.config[k] = v
             
             state.delta_detector = DeltaSpikeDetector(
-                window=delta_win
+                window=delta_win,
                 z_threshold=delta_z
             )
             state.obi_detector = OBIDetector(
-                threshold=obi_thr
+                threshold=obi_thr,
                 hold_secs=obi_dur
             )
             state.iceberg_detector = IcebergDetector(
-                min_refresh=ice_ref
+                min_refresh=ice_ref,
                 min_duration=ice_dur
             )
             

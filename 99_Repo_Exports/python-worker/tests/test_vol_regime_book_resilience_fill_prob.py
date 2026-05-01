@@ -1,5 +1,6 @@
 # tests/test_vol_regime_book_resilience_fill_prob.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Integration tests for:
   - VolRegimeTracker (tick_flow_full/core/vol_regime_tracker.py)
@@ -9,7 +10,6 @@ Integration tests for:
 Tests verify correctness, determinism, edge-case safety, and monotone properties
 as specified by the diff integration (Stage 4, commit 3-style recommendations).
 """
-from __future__ import annotations
 
 import math
 import sys

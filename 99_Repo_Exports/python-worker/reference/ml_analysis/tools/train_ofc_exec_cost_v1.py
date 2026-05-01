@@ -73,37 +73,37 @@ def train_exec_cost_model(rows_jsonl: str, *, out_model_json: str, out_report_js
         groups.setdefault(ctx_key, []).append(target)
         all_costs.append(target)
 
-    global_p50 = _quantile(all_costs, 0.50)
-    global_p90 = _quantile(all_costs, 0.90)
-    model_groups: Dict[str, Dict[str, Any]] = {}
+    global_p50 = _quantile(all_costs, 0.50),
+    global_p90 = _quantile(all_costs, 0.90),
+    model_groups: Dict[str, Dict[str, Any]] = {},
     for key, vals in groups.items():
         if len(vals) < int(min_group_rows):
             continue
         model_groups[key] = {
-            'n': int(len(vals))
-            'cost_p50_bps': float(_quantile(vals, 0.50))
-            'cost_p90_bps': float(_quantile(vals, 0.90))
-            'exec_risk_ref_bps_ctx': float(max(_quantile(vals, 0.75), global_p50, 1e-9))
-        }
+            'n': int(len(vals)),
+            'cost_p50_bps': float(_quantile(vals, 0.50)),
+            'cost_p90_bps': float(_quantile(vals, 0.90)),
+            'exec_risk_ref_bps_ctx': float(max(_quantile(vals, 0.75), global_p50, 1e-9)),
+        },
 
     model = {
-        'kind': 'ofc_exec_cost_v1'
-        'version': time.strftime('%Y%m%d_%H%M%S', time.gmtime())
-        'created_ts_ms': _now_ms()
-        'min_group_rows': int(min_group_rows)
+        'kind': 'ofc_exec_cost_v1',
+        'version': time.strftime('%Y%m%d_%H%M%S', time.gmtime()),
+        'created_ts_ms': _now_ms(),
+        'min_group_rows': int(min_group_rows),
         'defaults': {
-            'cost_p50_bps': float(global_p50)
-            'cost_p90_bps': float(global_p90)
-            'exec_risk_ref_bps_ctx': float(max(global_p50, 1e-9))
-        }
-        'groups': model_groups
+            'cost_p50_bps': float(global_p50),
+            'cost_p90_bps': float(global_p90),
+            'exec_risk_ref_bps_ctx': float(max(global_p50, 1e-9)),
+        },
+        'groups': model_groups,
     }
     report = {
-        'rows': int(len(all_costs))
-        'groups_total': int(len(groups))
-        'groups_kept': int(len(model_groups))
-        'global_p50': float(global_p50)
-        'global_p90': float(global_p90)
+        'rows': int(len(all_costs)),
+        'groups_total': int(len(groups)),
+        'groups_kept': int(len(model_groups)),
+        'global_p50': float(global_p50),
+        'global_p90': float(global_p90),
     }
     _write_json_atomic(out_model_json, model)
     _write_json_atomic(out_report_json, report)

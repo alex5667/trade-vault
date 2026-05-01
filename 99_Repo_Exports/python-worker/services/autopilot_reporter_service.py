@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Autopilot Reporter
  - exports closed trades NDJSON (7d)
@@ -9,7 +10,6 @@ Autopilot Reporter
 Runs inside container with a Redis SETNX lock (prevents double-run).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 import asyncio
 import json

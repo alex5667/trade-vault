@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Engine-based replay from OFInputs → NDJSON with full evidence/legs_detail/score_breakdown.
 
 Why:
@@ -8,7 +9,6 @@ Usage:
   python -m tools.of_engine_replay_from_inputs --inputs /tmp/of_inputs.ndjson --out /tmp/replay.ndjson --tf 1s
 """
 
-from __future__ import annotations
 
 import argparse
 import json

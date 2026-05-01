@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Cross-service latency contract SLO gate (P4.1).
 
-Reads latency contract Redis hashes from Python + external writers (Go/NestJS)
+Reads latency contract Redis hashes from Python + external writers (Go/NestJS),
 checks required stage ownership coverage, freshness and budget compliance, and
 writes a compact summary hash consumed by the exporter / alert rules.
 
@@ -60,22 +60,22 @@ class Cfg:
 def load_cfg() -> Cfg:
     syms = tuple(sorted(default_symbol_allowlist()))
     return Cfg(
-        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0')
-        key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last')
-        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last')
-        interval_s=float(_env('LATENCY_CONTRACT_SLO_GATE_INTERVAL_S', '10') or 10)
-        stale_s=_i(_env('LATENCY_CONTRACT_SLO_STAGE_STALE_S', '180'), 180)
-        symbols=syms
+        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+        key_prefix=_env('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'),
+        summary_key=_env('LATENCY_CONTRACT_SLO_SUMMARY_KEY', 'metrics:latency_contract:slo:last'),
+        interval_s=float(_env('LATENCY_CONTRACT_SLO_GATE_INTERVAL_S', '10') or 10),
+        stale_s=_i(_env('LATENCY_CONTRACT_SLO_STAGE_STALE_S', '180'), 180),
+        symbols=syms,
     )
 
 
 def _budget(stage: str) -> float:
     env_map = {
-        'ingest_to_redis': 'LATENCY_BUDGET_INGEST_TO_REDIS_MS'
-        'redis_to_feature': 'LATENCY_BUDGET_REDIS_TO_FEATURE_MS'
-        'feature_to_emit': 'LATENCY_BUDGET_FEATURE_TO_EMIT_MS'
-        'emit_to_ws': 'LATENCY_BUDGET_EMIT_TO_WS_MS'
-        'end_to_end_event': 'LATENCY_BUDGET_END_TO_END_EVENT_MS'
+        'ingest_to_redis': 'LATENCY_BUDGET_INGEST_TO_REDIS_MS',
+        'redis_to_feature': 'LATENCY_BUDGET_REDIS_TO_FEATURE_MS',
+        'feature_to_emit': 'LATENCY_BUDGET_FEATURE_TO_EMIT_MS',
+        'emit_to_ws': 'LATENCY_BUDGET_EMIT_TO_WS_MS',
+        'end_to_end_event': 'LATENCY_BUDGET_END_TO_END_EVENT_MS',
     }
     return _f(os.getenv(env_map.get(stage, ''), '0') or '0', 0.0)
 
@@ -132,17 +132,17 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
 
     gate_ok = 1 if (missing_total == 0 and stale_total == 0) else 0
     mapping: Dict[str, str] = {
-        'schema_version': '1'
-        'last_ts_ms': str(int(now * 1000))
-        'required_total': str(required_total)
-        'present_total': str(present_total)
-        'missing_total': str(missing_total)
-        'stale_total': str(stale_total)
+        'schema_version': '1',
+        'last_ts_ms': str(int(now * 1000)),
+        'required_total': str(required_total),
+        'present_total': str(present_total),
+        'missing_total': str(missing_total),
+        'stale_total': str(stale_total),
         # P4.2: rollout gate reads these to check external coverage specifically.
-        'external_missing_total': str(external_missing_total)
-        'external_stale_total': str(external_stale_total)
-        'budget_breach_total': str(budget_breach_total)
-        'gate_ok': str(gate_ok)
+        'external_missing_total': str(external_missing_total),
+        'external_stale_total': str(external_stale_total),
+        'budget_breach_total': str(budget_breach_total),
+        'gate_ok': str(gate_ok),
     }
     mapping.update(per_stage)
     return mapping

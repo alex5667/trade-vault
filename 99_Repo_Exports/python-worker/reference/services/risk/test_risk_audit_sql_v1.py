@@ -74,10 +74,10 @@ def test_record_decision_writes_two_tables():
     """record_decision() must issue exactly 2 SQL execute calls (one per table)."""
     sink, fake = _make_sink()
     ok = sink.record_decision(
-        decision_id='d1'
-        signal={'symbol': 'BTCUSDT', 'sid': 's1'}
-        risk_input=_Input()
-        risk_decision=_Decision()
+        decision_id='d1',
+        signal={'symbol': 'BTCUSDT', 'sid': 's1'},
+        risk_input=_Input(),
+        risk_decision=_Decision(),
     )
     assert ok is True
     assert len(fake.cur.calls) == 2
@@ -87,10 +87,10 @@ def test_record_decision_disabled_returns_false():
     """When sink is disabled (no DSN), record_decision returns False without writing."""
     sink = mod.RiskAuditSqlSink(dsn='', enabled=False)
     ok = sink.record_decision(
-        decision_id='d2'
-        signal={'symbol': 'BTCUSDT'}
-        risk_input=_Input()
-        risk_decision=_Decision()
+        decision_id='d2',
+        signal={'symbol': 'BTCUSDT'},
+        risk_input=_Input(),
+        risk_decision=_Decision(),
     )
     assert ok is False
 
@@ -108,9 +108,9 @@ def test_record_decision_bad_conn_returns_false():
     sink = mod.RiskAuditSqlSink(dsn='postgres://x', enabled=True)
     sink._connect = lambda: None
     ok = sink.record_decision(
-        decision_id='d3'
-        signal={'symbol': 'BTCUSDT'}
-        risk_input=_Input()
-        risk_decision=_Decision()
+        decision_id='d3',
+        signal={'symbol': 'BTCUSDT'},
+        risk_input=_Input(),
+        risk_decision=_Decision(),
     )
     assert ok is False

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """OFC_CAPTURE v1 (mirror copy): deterministic sampling + NDJSON capture to stable storage.
 
 Why this exists (Train==Serve / golden replay):
@@ -10,7 +11,7 @@ Why this exists (Train==Serve / golden replay):
 Design goals:
   - Deterministic sampling (stable, restart-safe): same (symbol, ts_ms, direction)
     always results in the same capture decision.
-  - Low overhead: append-only files, one file per (day, policy_hash, pid)
+  - Low overhead: append-only files, one file per (day, policy_hash, pid),
     optional fsync throttling.
   - JSON-safe: everything is encoded as primitives/dicts; unknown types -> str().
 
@@ -19,7 +20,6 @@ Security note:
     on trusted machines only and apply retention policies.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -140,12 +140,12 @@ class NDJSONRotatingWriter:
     """
 
     def __init__(
-        self
-        *
-        base_dir: str
-        max_bytes: int = 256 * 1024 * 1024
-        rotate_sec: int = 3600
-        fsync_every_n: int = 0
+        self,
+        *,
+        base_dir: str,
+        max_bytes: int = 256 * 1024 * 1024,
+        rotate_sec: int = 3600,
+        fsync_every_n: int = 0,
     ) -> None:
         self.base_dir = str(base_dir)
         self.max_bytes = int(max_bytes)
@@ -167,18 +167,18 @@ class NDJSONRotatingWriter:
             pass
         self._stats_path = os.path.join(self._stats_dir, f"ofc_capture_stats_{self._host}-{self._pid}.json")
         self._stats = {
-            "schema": "ofc_capture_stats_v1"
-            "host": self._host
-            "pid": int(self._pid)
-            "started_ts_ms": get_ny_time_millis()
-            "written_total": 0
-            "bytes_total": 0
-            "errors_total": 0
-            "sampled_out_total": 0
-            "last_write_ts_ms": 0
-            "last_error_ts_ms": 0
-            "last_error": ""
-            "last_path": ""
+            "schema": "ofc_capture_stats_v1",
+            "host": self._host,
+            "pid": int(self._pid),
+            "started_ts_ms": get_ny_time_millis(),
+            "written_total": 0,
+            "bytes_total": 0,
+            "errors_total": 0,
+            "sampled_out_total": 0,
+            "last_write_ts_ms": 0,
+            "last_error_ts_ms": 0,
+            "last_error": "",
+            "last_path": "",
         }
         self._stats_flush_every_n = 0
         self._stats_flush_sec = 0
@@ -247,18 +247,18 @@ class NDJSONRotatingWriter:
             pass
         self._stats_path = os.path.join(self._stats_dir, f"ofc_capture_stats_{self._host}-{self._pid}.json")
         self._stats = {
-            "schema": "ofc_capture_stats_v1"
-            "host": self._host
-            "pid": int(self._pid)
-            "started_ts_ms": get_ny_time_millis()
-            "written_total": 0
-            "bytes_total": 0
-            "errors_total": 0
-            "sampled_out_total": 0
-            "last_write_ts_ms": 0
-            "last_error_ts_ms": 0
-            "last_error": ""
-            "last_path": ""
+            "schema": "ofc_capture_stats_v1",
+            "host": self._host,
+            "pid": int(self._pid),
+            "started_ts_ms": get_ny_time_millis(),
+            "written_total": 0,
+            "bytes_total": 0,
+            "errors_total": 0,
+            "sampled_out_total": 0,
+            "last_write_ts_ms": 0,
+            "last_error_ts_ms": 0,
+            "last_error": "",
+            "last_path": "",
         }
         self._stats_flush_every_n = 0
         self._stats_flush_sec = 0
@@ -329,10 +329,10 @@ def _get_writer(cfg2: Dict[str, Any]) -> NDJSONRotatingWriter:
     fsync_every_n = int(cfg2.get("ofc_capture_fsync_every_n") or _env_int("OFC_CAPTURE_FSYNC_EVERY_N", 0))
 
     _WRITER = NDJSONRotatingWriter(
-        base_dir=base_dir
-        max_bytes=max_bytes
-        rotate_sec=rotate_sec
-        fsync_every_n=fsync_every_n
+        base_dir=base_dir,
+        max_bytes=max_bytes,
+        rotate_sec=rotate_sec,
+        fsync_every_n=fsync_every_n,
     )
     return _WRITER
 
@@ -349,14 +349,14 @@ def capture_enabled(cfg2: Dict[str, Any]) -> bool:
 
 
 def maybe_capture_ofc_v1(
-    *
-    engine: Any
-    runtime: Any
-    indicators: Dict[str, Any]
-    cfg2: Dict[str, Any]
-    ofc: Any
-    dec: Any
-    now_ts_ms: int
+    *,
+    engine: Any,
+    runtime: Any,
+    indicators: Dict[str, Any],
+    cfg2: Dict[str, Any],
+    ofc: Any,
+    dec: Any,
+    now_ts_ms: int,
 ) -> Optional[str]:
     """Capture one decision record (fail-open). Returns path if written."""
 
@@ -409,21 +409,21 @@ def maybe_capture_ofc_v1(
         dec_snap = {}
 
     record = {
-        "schema": "ofc_capture_v1"
-        "ts_ms": ts_ms
-        "symbol": symbol
-        "direction": direction
-        "policy_hash": policy_hash
-        "manifest_hash": manifest_hash
-        "sample_ppm": int(sample_ppm)
-        "stable_key": stable_key
-        "now_ts_ms": int(now_ts_ms)
+        "schema": "ofc_capture_v1",
+        "ts_ms": ts_ms,
+        "symbol": symbol,
+        "direction": direction,
+        "policy_hash": policy_hash,
+        "manifest_hash": manifest_hash,
+        "sample_ppm": int(sample_ppm),
+        "stable_key": stable_key,
+        "now_ts_ms": int(now_ts_ms),
         # payload
-        "indicators": _json_safe(indicators)
-        "of_confirm_v3": _json_safe(ofc)
-        "decision": _json_safe(dec_snap)
-        "runtime_snapshot": _json_safe(rt_snap)
-        "gate_state": _json_safe(gate_state)
+        "indicators": _json_safe(indicators),
+        "of_confirm_v3": _json_safe(ofc),
+        "decision": _json_safe(dec_snap),
+        "runtime_snapshot": _json_safe(rt_snap),
+        "gate_state": _json_safe(gate_state),
     }
 
     day = _utc_yyyymmdd(ts_ms)
@@ -432,10 +432,10 @@ def maybe_capture_ofc_v1(
 
 
 __all__ = [
-    "capture_enabled"
-    "maybe_capture_ofc_v1"
-    "should_sample"
-    "NDJSONRotatingWriter"
+    "capture_enabled",
+    "maybe_capture_ofc_v1",
+    "should_sample",
+    "NDJSONRotatingWriter",
 ]
 
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 init_ml_champion_cfg.py
 
@@ -11,7 +12,6 @@ Usage:
 
 Exits 0 on success, 1 on error.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

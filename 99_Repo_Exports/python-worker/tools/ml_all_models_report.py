@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 ML All Models Report — Generates comprehensive Telegram reports for every ML model.
 
@@ -19,7 +20,6 @@ Usage:
   python3 -m tools.ml_all_models_report [--redis-url ...] [--send-telegram 1]
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -144,7 +144,7 @@ class RollingPercentileCalibrator:
 def _seed_history_for_tests(self: Any, *, kind: str, symbol: str, abs_scores: list[float]) -> None:
     """
     ТОЛЬКО ДЛЯ ТЕСТОВ.
-    Сидируем искусственную историю abs(final_score) для (symbol, kind)
+    Сидируем искусственную историю abs(final_score) для (symbol, kind),
     чтобы golden-тест был 100% детерминированным и не зависел от внутренних структур.
     """
     k = (str(symbol or ""), str(kind or ""))

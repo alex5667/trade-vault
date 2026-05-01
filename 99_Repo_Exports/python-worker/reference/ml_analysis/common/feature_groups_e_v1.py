@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Feature-group definitions for ablation/denylist (E block).
 
 Goal
@@ -14,7 +15,6 @@ Notes
   - If you pass full registry names ("n:xxx" / "b:xxx"), use normalize_feature_key().
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Sequence, Set
@@ -57,40 +57,40 @@ def build_e_groups() -> List[FeatureGroup]:
 
     return [
         FeatureGroup(
-            name="E_vpin"
-            description="VPIN-like toxicity (ema/z + related)"
-            matcher=lambda k: _starts_any(k, ("vpin_",)) or _contains_any(k, ("vpin_tox", "toxicity"))
-        )
+            name="E_vpin",
+            description="VPIN-like toxicity (ema/z + related)",
+            matcher=lambda k: _starts_any(k, ("vpin_",)) or _contains_any(k, ("vpin_tox", "toxicity")),
+        ),
         FeatureGroup(
-            name="E_limit_add"
-            description="Limit-add / replenishment rates (added/limit_add_*)"
-            matcher=lambda k: _starts_any(k, ("limit_add_", "added_")) or _contains_any(k, ("replenish", "replenishment"))
-        )
+            name="E_limit_add",
+            description="Limit-add / replenishment rates (added/limit_add_*)",
+            matcher=lambda k: _starts_any(k, ("limit_add_", "added_")) or _contains_any(k, ("replenish", "replenishment")),
+        ),
         FeatureGroup(
-            name="E_hawkes_split"
-            description="Hawkes-like split intensities (buy/sell/cancel bid/ask/limit-add)"
+            name="E_hawkes_split",
+            description="Hawkes-like split intensities (buy/sell/cancel bid/ask/limit-add)",
             matcher=lambda k: k
             in (
-                "hawkes_taker_buy_lam"
-                "hawkes_taker_sell_lam"
-                "hawkes_cancel_bid_lam"
-                "hawkes_cancel_ask_lam"
-                "hawkes_limit_add_lam"
-                "hawkes_limit_add_bid_lam"
-                "hawkes_limit_add_ask_lam"
-            )
-        )
+                "hawkes_taker_buy_lam",
+                "hawkes_taker_sell_lam",
+                "hawkes_cancel_bid_lam",
+                "hawkes_cancel_ask_lam",
+                "hawkes_limit_add_lam",
+                "hawkes_limit_add_bid_lam",
+                "hawkes_limit_add_ask_lam",
+            ),
+        ),
         FeatureGroup(
-            name="E_hawkes_legacy"
-            description="Legacy Hawkes aggregates + internal states (S_*)"
+            name="E_hawkes_legacy",
+            description="Legacy Hawkes aggregates + internal states (S_*)",
             matcher=lambda k: _starts_any(k, ("hawkes_S_",))
-            or k in ("hawkes_taker_lam", "hawkes_cancel_lam", "hawkes_churn_lam")
-        )
+            or k in ("hawkes_taker_lam", "hawkes_cancel_lam", "hawkes_churn_lam"),
+        ),
         FeatureGroup(
-            name="E_lambda_alias"
-            description="Aliases from EMAs (lambda_trade_buy/sell/limit_add)"
-            matcher=lambda k: _starts_any(k, ("lambda_trade_", "lambda_limit_", "lambda_limit_add"))
-        )
+            name="E_lambda_alias",
+            description="Aliases from EMAs (lambda_trade_buy/sell/limit_add)",
+            matcher=lambda k: _starts_any(k, ("lambda_trade_", "lambda_limit_", "lambda_limit_add")),
+        ),
     ]
 
 

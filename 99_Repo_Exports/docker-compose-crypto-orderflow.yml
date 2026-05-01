@@ -32,7 +32,6 @@ services:
     - LIQ_GATE_PROFILE=hard
     - LIQ_GEOM_TIGHTEN_ADD_CAP_BPS=10.0
     - LIQ_GEOM_TIGHTEN_ADD_MULT=1.0
-    - LIQ_GEOM_METRICS_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
     - ENTRY_POLICY_PROFILE=hard
     - ENTRY_LIQ_MIN_BOOK_SLOPE=0
     - ENTRY_LIQ_MAX_DWS_BPS=30
@@ -47,7 +46,6 @@ services:
     - FLOW_TOX_TIGHTEN_ADD_MULT=1.0
     - FLOW_GATE_PROFILE=hard
     - FLOW_TOX_VETO_WITHOUT_TCA=0
-    - FLOW_TOX_METRICS_SYMBOLS=
     - 'SMT_SNAP_EXTRA_PREFIX=smt:snap_extra:'
     - ENTRY_FLOW_TOX_TIGHTEN_ADD_CAP_BPS=6.0
     - ENTRY_FLOW_TOX_TIGHTEN_ADD_MULT=1.0
@@ -115,7 +113,6 @@ services:
     - DQ_TICK_MISSING_SEQ_EMA_HARD=0.15
     - DQ_BOOK_MISSING_SEQ_EMA_SOFT=0.03
     - DQ_BOOK_MISSING_SEQ_EMA_HARD=0.10
-    - SYMBOLS=${CRYPTO_SYMBOLS_SHARD_1}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - CRYPTO_OF_REFRESH_SEC=30
     - PERIODIC_REPORT_WINDOW_SECONDS=3600
@@ -127,7 +124,6 @@ services:
     - DAILY_REPORT_ENABLED=false
     - DAILY_REPORT_UTC_HOUR=17
     - DAILY_REPORT_UTC_MINUTE=0
-    - DAILY_REPORT_SYMBOLS=ALL
     - DAILY_REPORT_SOURCE=CryptoOrderFlow
     - CRYPTO_OF_LOG_LEVEL=INFO
     - DEBUG_VETO=1
@@ -232,7 +228,10 @@ services:
     - TM_ORPHAN_TIMEOUT_ENABLED=${TM_ORPHAN_TIMEOUT_ENABLED}
     - PUBLISH_OF_INPUTS=1
     - OF_INPUTS_STREAM=signals:of:inputs
-    - OF_INPUTS_STREAM_MAXLEN=5000000
+    # Redis is a warm transport buffer, not historical storage.
+    # Full OF inputs must be archived to /var/lib/trade/of_inputs_archive or Timescale.
+    - OF_INPUTS_STREAM_MAXLEN=${OF_INPUTS_STREAM_MAXLEN:-50000}
+    - DQ_BOOK_STALE_FLAG_MS=${DQ_BOOK_STALE_FLAG_MS:-25000}
     - OF_INPUTS_PERSIST_ENABLE=1
     - OF_INPUTS_PERSIST_PATH=/var/lib/trade/of_inputs_archive
     - OF_INPUTS_PERSIST_BATCH=1000
@@ -261,7 +260,6 @@ services:
     - OFC_CTX_P_MIN_DEFAULT=0.55
     - OFC_CTX_EDGE_FLOOR_P50_BPS=0.0
     - OFC_CTX_EDGE_FLOOR_P90_BPS=-2.0
-    - OFC_CTX_CANARY_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
     - ML_CONFIRM_ROLLOUT_MODE=${ML_CONFIRM_ROLLOUT_MODE:-shadow}
     - ML_CONFIRM_CANARY_RATE=${ML_CONFIRM_CANARY_RATE:-0.05}
     - ML_DENY_ALLOW_RULE_STRONG=${ML_DENY_ALLOW_RULE_STRONG:-true}
@@ -650,7 +648,6 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - SYMBOLS=${CRYPTO_SYMBOLS_SHARD_1B}
     - METRICS_PORT=8003
     - PROMETHEUS_PORT=8003
     - REDIS_URL=redis://redis-worker-1:6379/0
@@ -843,7 +840,9 @@ services:
     - CALIB_PERSIST_MIN_INTERVAL_MS=60000
     - PUBLISH_OF_INPUTS=1
     - OF_INPUTS_STREAM=signals:of:inputs
-    - OF_INPUTS_STREAM_MAXLEN=5000000
+    # Redis is a warm transport buffer, not historical storage.
+    # Full OF inputs are persisted to /var/lib/trade/of_inputs_archive.
+    - OF_INPUTS_STREAM_MAXLEN=${OF_INPUTS_STREAM_MAXLEN:-50000}
     - OF_INPUTS_PERSIST_ENABLE=1
     - OF_INPUTS_PERSIST_PATH=/var/lib/trade/of_inputs_archive
     - OF_INPUTS_PERSIST_BATCH=1000
@@ -880,7 +879,6 @@ services:
     - OFC_CTX_P_MIN_DEFAULT=0.55
     - OFC_CTX_EDGE_FLOOR_P50_BPS=0.0
     - OFC_CTX_EDGE_FLOOR_P90_BPS=-2.0
-    - OFC_CTX_CANARY_SYMBOLS=ETHUSDT
     - OFC_CAPTURE=1
     - OFC_CAPTURE_EVERY_N=50
     - OFC_CAPTURE_PATH=/tmp/ofc_capture.ndjson
@@ -995,7 +993,6 @@ services:
     - slippage_decomp_enable=1
     - slippage_decomp_enforce_max=1
     - slippage_decomp_impact_coeff_bps=10.0
-    - LIQ_GEOM_METRICS_SYMBOLS=ETHUSDT
     - SCANNER_CONSUMER_NAME=scanner-crypto-orderflow-eth
     - TM_NAMESPACE=scanner-crypto-orderflow-eth
     - TZ=UTC
@@ -1105,7 +1102,6 @@ services:
     - OFC_CTX_P_MIN_DEFAULT=0.55
     - OFC_CTX_EDGE_FLOOR_P50_BPS=0.0
     - OFC_CTX_EDGE_FLOOR_P90_BPS=-2.0
-    - OFC_CTX_CANARY_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
     - CVD_DIV_PUBLISH=1
     - CVD_SNAPSHOT_ENABLE=1
     - BIAS_REGIME_ENABLE=1
@@ -1119,7 +1115,6 @@ services:
     - DIV_INFER_MIN_STRENGTH=0.0
     - DIV_INFER_MAX_AGE_MS=180000
     - liqmap_gate_mode=enforce
-    - SYMBOLS=${CRYPTO_SYMBOLS_SHARD_2}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - OFC_CAPTURE=1
     - OFC_CAPTURE_EVERY_N=50
@@ -1472,7 +1467,6 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - SYMBOLS=${CRYPTO_SYMBOLS_SHARD_3}
     - REDIS_URL=redis://redis-worker-1:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
@@ -1615,7 +1609,6 @@ services:
     env_file:
     - config/crypto-of-common.env
     environment:
-    - SYMBOLS=${CRYPTO_SYMBOLS_SHARD_3B}
     - REDIS_URL=redis://redis-worker-1:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
@@ -1974,7 +1967,6 @@ services:
     # XAU: снижен notional tier1 (было 45000 → veto при delta ~$25k)
     - XAU_DN_TIER1_USD=15000
     # XAU+SUI в Tier B (были Tier C → min_conf=0.68 veto)
-    - RISK_TIER_B_SYMBOLS=SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,LTCUSDT,BCHUSDT,AVAXUSDT,ARBUSDT,XAUUSDT,SUIUSDT
     - RISK_TIER_B_MIN_CONFIDENCE=0.45
     command:
     - sh
@@ -2232,7 +2224,7 @@ services:
     command:
     - sh
     - -c
-    - '# P1.2.2+: On cold/restart, fast-forward cursor to stream tip so lag starts
+    - '# P1.2.2+: On cold/restart,fast-forward cursor to stream tip so lag starts
       near-zero.
 
       # The daemon loop then processes only new events instead of replaying days of
@@ -2391,7 +2383,6 @@ services:
     - BINANCE_RECV_WINDOW=${BINANCE_RECV_WINDOW:-60000}
     - BINANCE_TIME_SYNC=${BINANCE_TIME_SYNC:-1}
     - BINANCE_POSITION_MODE=${BINANCE_POSITION_MODE:-oneway}
-    - BINANCE_SYMBOL_ALLOWLIST=${BINANCE_SYMBOL_ALLOWLIST:-BTCUSDT}
     - BINANCE_INIT_SYMBOL_SETTINGS=${BINANCE_INIT_SYMBOL_SETTINGS:-1}
     - BINANCE_MARGIN_TYPE=${BINANCE_MARGIN_TYPE:-ISOLATED}
     - BINANCE_DEFAULT_LEVERAGE=${BINANCE_DEFAULT_LEVERAGE:-100}
@@ -2605,7 +2596,6 @@ services:
     - OUT_DIR=/app/of_reports_out
     - BASELINE_DIR=/app/of_reports_baselines
     - BASELINE_INPUTS=/app/of_reports_baselines/inputs_canary.ndjson
-    - CANARY_SYMBOLS=BTCUSDT,ETHUSDT
     - CANARY_SHARE=0.10
     - TELEGRAM_MODE=redis
     - NOTIFY_STREAM=${NOTIFY_STREAM:-notify:telegram}
@@ -2752,7 +2742,6 @@ services:
     - ENABLE_OF_INPUTS_DLQ_AUTO_REPLAY=1
     - ENABLE_OF_INPUTS_DLQ_DB_ARCHIVE_P98=1
     - OF_INPUTS_DLQ_AUTO_REPLAY_COMMIT=1
-    - CANARY_SYMBOLS=${CANARY_SYMBOLS:-BTCUSDT,ETHUSDT}
     - 'CFG_HASH_PREFIX=config:orderflow:'
     - CFG_DRIFT_STATE_KEY=sre:cfg:last_snapshot
     - BASELINE_INPUTS=${BASELINE_INPUTS:-/var/lib/trade/of_reports/baselines/inputs_canary.ndjson}
@@ -2762,7 +2751,6 @@ services:
     - THROUGHPUT_MIN=${THROUGHPUT_MIN:-2000}
     - REGRESS_MAX_MISMATCHES=${REGRESS_MAX_MISMATCHES:-0}
     - REGRESS_FAIL_DISABLE_ENFORCE=${REGRESS_FAIL_DISABLE_ENFORCE:-1}
-    - REGRESS_TARGET_SYMBOLS=${REGRESS_TARGET_SYMBOLS:-BTCUSDT,ETHUSDT}
     - RECS_HMAC_SECRET=${RECS_HMAC_SECRET:-CHANGE_ME_LONG_RANDOM}
     - RECS_TTL_SEC=${RECS_TTL_SEC:-86400}
     - ML_CONFIRM_MODE=OFF
@@ -2867,12 +2855,10 @@ services:
     - PROMOTE_MAX_SCAN=${PROMOTE_MAX_SCAN:-50000}
     - PROMOTE_PROPOSAL_TTL_SEC=${PROMOTE_PROPOSAL_TTL_SEC:-259200}
     - PROMOTE_SCOPE=${PROMOTE_SCOPE:-per_symbol}
-    - PROMOTE_SYMBOLS=${PROMOTE_SYMBOLS:-BTCUSDT,ETHUSDT}
     - PROMOTE_DB_STATS_SOURCE=${PROMOTE_DB_STATS_SOURCE:-mv}
     - PROMOTE_STATS_MV=${PROMOTE_STATS_MV:-mv_exec_slippage_eval_1h_stats}
     - ENABLE_EXEC_SLIP_STATS_REFRESHER=${ENABLE_EXEC_SLIP_STATS_REFRESHER:-1}
     - ENABLE_ENFORCE_BUCKET_SLO_FREEZER=${ENABLE_ENFORCE_BUCKET_SLO_FREEZER:-1}
-    - ENFORCE_FREEZE_SYMBOLS=${ENFORCE_FREEZE_SYMBOLS:-BTCUSDT,ETHUSDT}
     - ENFORCE_FREEZE_LOOKBACK_H=${ENFORCE_FREEZE_LOOKBACK_H:-4}
     - ENFORCE_FREEZE_MIN_DB_SAMPLES=${ENFORCE_FREEZE_MIN_DB_SAMPLES:-80}
     - ENFORCE_FREEZE_MAX_P95_RESID_BPS=${ENFORCE_FREEZE_MAX_P95_RESID_BPS:-6.0}
@@ -3699,7 +3685,6 @@ services:
     - DAILY_REPORT_ENABLED=true
     - DAILY_REPORT_UTC_HOUR=17
     - DAILY_REPORT_UTC_MINUTE=0
-    - DAILY_REPORT_SYMBOLS=ALL
     - DAILY_REPORT_SOURCE=CryptoOrderFlow
     - HOURLY_REPORT_ENABLED=true
     - PERIODIC_REPORT_WINDOW_SECONDS=3600

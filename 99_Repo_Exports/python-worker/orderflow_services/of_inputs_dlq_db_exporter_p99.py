@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Prometheus exporter: OFInputs DLQ DB rollups (P99).
 
 Exports *low-cardinality* gauges derived from Timescale/Postgres table `of_inputs_dlq_events`:
@@ -20,7 +21,6 @@ ENV:
   OF_INPUTS_DLQ_DB_REASON_ALLOWLIST (comma-separated; default set in code)
 """
 
-from __future__ import annotations
 
 import os
 import time

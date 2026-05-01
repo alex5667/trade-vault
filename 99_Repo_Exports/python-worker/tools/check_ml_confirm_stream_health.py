@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 check_ml_confirm_stream_health.py
 
@@ -13,7 +14,6 @@ Designed to be safe in prod:
 - tolerant to different payload layouts: {payload: json}, or flat fields.
 - does not require any project imports.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """conf_score_guardrails_autopromo_controller_v1.py
 
 World practice: automated, gated promotion with canary window + auto rollback.
@@ -44,7 +45,6 @@ Env (recommended):
   CONF_SCORE_GUARD_HEALTH_STATE_PATH
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -166,18 +166,18 @@ def extract_health_metrics(health: Dict[str, Any]) -> Dict[str, Any]:
     cohort_delta_brier_max = pick(worst, ("delta_brier_cal_max", "delta_brier_max"))
 
     out = {
-        "ts_ms": int(ts_ms) if ts_ms is not None else None
-        "degrade": int(degrade) if degrade is not None else 0
-        "ece_cal": float(ece_cal) if ece_cal is not None else None
-        "brier_cal": float(brier_cal) if brier_cal is not None else None
-        "n": int(n) if n is not None else None
-        "arm_delta_ece_cal": float(arm_delta_ece) if arm_delta_ece is not None else None
-        "arm_delta_brier_cal": float(arm_delta_brier) if arm_delta_brier is not None else None
-        "arm_n": int(arm_n) if arm_n is not None else None
-        "cohort_delta_ece_cal_wmean": float(cohort_delta_ece_wmean) if cohort_delta_ece_wmean is not None else None
-        "cohort_delta_brier_cal_wmean": float(cohort_delta_brier_wmean) if cohort_delta_brier_wmean is not None else None
-        "cohort_delta_ece_cal_max": float(cohort_delta_ece_max) if cohort_delta_ece_max is not None else None
-        "cohort_delta_brier_cal_max": float(cohort_delta_brier_max) if cohort_delta_brier_max is not None else None
+        "ts_ms": int(ts_ms) if ts_ms is not None else None,
+        "degrade": int(degrade) if degrade is not None else 0,
+        "ece_cal": float(ece_cal) if ece_cal is not None else None,
+        "brier_cal": float(brier_cal) if brier_cal is not None else None,
+        "n": int(n) if n is not None else None,
+        "arm_delta_ece_cal": float(arm_delta_ece) if arm_delta_ece is not None else None,
+        "arm_delta_brier_cal": float(arm_delta_brier) if arm_delta_brier is not None else None,
+        "arm_n": int(arm_n) if arm_n is not None else None,
+        "cohort_delta_ece_cal_wmean": float(cohort_delta_ece_wmean) if cohort_delta_ece_wmean is not None else None,
+        "cohort_delta_brier_cal_wmean": float(cohort_delta_brier_wmean) if cohort_delta_brier_wmean is not None else None,
+        "cohort_delta_ece_cal_max": float(cohort_delta_ece_max) if cohort_delta_ece_max is not None else None,
+        "cohort_delta_brier_cal_max": float(cohort_delta_brier_max) if cohort_delta_brier_max is not None else None,
     }
     return out
 
@@ -236,21 +236,21 @@ class EvalResult:
 
 
 def evaluate_canary(
-    *
-    baseline: Dict[str, Any]
-    current: Dict[str, Any]
-    now: int
-    max_health_age_sec: int
-    min_n: int
-    max_delta_ece: float
-    max_delta_brier: float
-    max_arm_delta_ece: float
-    max_arm_delta_brier: float
-    max_cohort_delta_ece_wmean: float
-    max_cohort_delta_brier_wmean: float
-    max_cohort_delta_ece_max: float
-    max_cohort_delta_brier_max: float
-    allow_missing: bool
+    *,
+    baseline: Dict[str, Any],
+    current: Dict[str, Any],
+    now: int,
+    max_health_age_sec: int,
+    min_n: int,
+    max_delta_ece: float,
+    max_delta_brier: float,
+    max_arm_delta_ece: float,
+    max_arm_delta_brier: float,
+    max_cohort_delta_ece_wmean: float,
+    max_cohort_delta_brier_wmean: float,
+    max_cohort_delta_ece_max: float,
+    max_cohort_delta_brier_max: float,
+    allow_missing: bool,
 ) -> EvalResult:
     reasons: List[str] = []
     ok = True
@@ -383,101 +383,101 @@ def evaluate_canary(
 def run_module(args: List[str], timeout_sec: int = 120) -> Tuple[int, str, str]:
     """Run `python -m <module> ...` and return (rc, stdout, stderr)."""
     p = subprocess.run(
-        args
-        stdout=subprocess.PIPE
-        stderr=subprocess.PIPE
-        encoding="utf-8"
-        timeout=timeout_sec
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        timeout=timeout_sec,
     )
     return p.returncode, p.stdout or "", p.stderr or ""
 
 
 def promote_canary(
-    *
-    bundle_dir: str
-    redis_url: str
-    key_prefix: str
-    staged_key_prefix: str
-    health_state_path: str
-    staged_pointer: str
-    pointer_path: str
-    promote_state_path: str
-    lock_path: str
-    apply: int
+    *,
+    bundle_dir: str,
+    redis_url: str,
+    key_prefix: str,
+    staged_key_prefix: str,
+    health_state_path: str,
+    staged_pointer: str,
+    pointer_path: str,
+    promote_state_path: str,
+    lock_path: str,
+    apply: int,
 ) -> Tuple[int, str, str]:
     cmd = [
-        "python", "-m", "orderflow_services.conf_score_guardrails_promote_v1"
-        "--bundle-dir", bundle_dir
-        "--redis-url", redis_url
-        "--key-prefix", key_prefix
-        "--staged-key-prefix", staged_key_prefix
-        "--staged-pointer-path", staged_pointer
-        "--pointer-path", pointer_path
-        "--health-state-path", health_state_path
-        "--max-health-age-sec", "600"
-        "--promote-canary-only", "1"
-        "--apply", str(int(apply))
-        "--promote-pointer", "0"
-        "--clear-staged", "0"
-        "--promote-state-path", promote_state_path
-        "--lock-path", lock_path
+        "python", "-m", "orderflow_services.conf_score_guardrails_promote_v1",
+        "--bundle-dir", bundle_dir,
+        "--redis-url", redis_url,
+        "--key-prefix", key_prefix,
+        "--staged-key-prefix", staged_key_prefix,
+        "--staged-pointer-path", staged_pointer,
+        "--pointer-path", pointer_path,
+        "--health-state-path", health_state_path,
+        "--max-health-age-sec", "600",
+        "--promote-canary-only", "1",
+        "--apply", str(int(apply)),
+        "--promote-pointer", "0",
+        "--clear-staged", "0",
+        "--promote-state-path", promote_state_path,
+        "--lock-path", lock_path,
     ]
     return run_module(cmd, timeout_sec=180)
 
 
 def promote_full(
-    *
-    bundle_dir: str
-    redis_url: str
-    key_prefix: str
-    staged_key_prefix: str
-    health_state_path: str
-    staged_pointer: str
-    pointer_path: str
-    promote_state_path: str
-    lock_path: str
-    apply: int
-    clear_staged: int
-    promote_pointer: int
+    *,
+    bundle_dir: str,
+    redis_url: str,
+    key_prefix: str,
+    staged_key_prefix: str,
+    health_state_path: str,
+    staged_pointer: str,
+    pointer_path: str,
+    promote_state_path: str,
+    lock_path: str,
+    apply: int,
+    clear_staged: int,
+    promote_pointer: int,
 ) -> Tuple[int, str, str]:
     cmd = [
-        "python", "-m", "orderflow_services.conf_score_guardrails_promote_v1"
-        "--bundle-dir", bundle_dir
-        "--redis-url", redis_url
-        "--key-prefix", key_prefix
-        "--staged-key-prefix", staged_key_prefix
-        "--staged-pointer-path", staged_pointer
-        "--pointer-path", pointer_path
-        "--health-state-path", health_state_path
-        "--max-health-age-sec", "600"
-        "--promote-canary-only", "0"
-        "--apply", str(int(apply))
-        "--promote-pointer", str(int(promote_pointer))
-        "--clear-staged", str(int(clear_staged))
-        "--promote-state-path", promote_state_path
-        "--lock-path", lock_path
+        "python", "-m", "orderflow_services.conf_score_guardrails_promote_v1",
+        "--bundle-dir", bundle_dir,
+        "--redis-url", redis_url,
+        "--key-prefix", key_prefix,
+        "--staged-key-prefix", staged_key_prefix,
+        "--staged-pointer-path", staged_pointer,
+        "--pointer-path", pointer_path,
+        "--health-state-path", health_state_path,
+        "--max-health-age-sec", "600",
+        "--promote-canary-only", "0",
+        "--apply", str(int(apply)),
+        "--promote-pointer", str(int(promote_pointer)),
+        "--clear-staged", str(int(clear_staged)),
+        "--promote-state-path", promote_state_path,
+        "--lock-path", lock_path,
     ]
     return run_module(cmd, timeout_sec=240)
 
 
 def rollback_to_current(
-    *
-    bundle_dir: str
-    redis_url: str
-    state_path: str
-    lock_path: str
-    apply: int
+    *,
+    bundle_dir: str,
+    redis_url: str,
+    state_path: str,
+    lock_path: str,
+    apply: int,
 ) -> Tuple[int, str, str]:
     # World-practice rollback: re-apply CURRENT bundle decisions into live keys.
     # This should safely restore canary changes because only guardrails keys are affected.
     cmd = [
-        "python", "-m", "orderflow_services.conf_score_guardrails_bundle_rollback_v1"
-        "--bundle-dir", bundle_dir
-        "--target", "current"
-        "--apply", str(int(apply))
-        "--redis-url", redis_url
-        "--state-path", state_path
-        "--lock-path", lock_path
+        "python", "-m", "orderflow_services.conf_score_guardrails_bundle_rollback_v1",
+        "--bundle-dir", bundle_dir,
+        "--target", "current",
+        "--apply", str(int(apply)),
+        "--redis-url", redis_url,
+        "--state-path", state_path,
+        "--lock-path", lock_path,
     ]
     return run_module(cmd, timeout_sec=240)
 
@@ -545,11 +545,11 @@ def main() -> int:
     prev_cand = (state.get("cycle") or {}).get("version")
     if prev_cand != cand.version:
         state["cycle"] = {
-            "version": cand.version
-            "started_ts_ms": t0
-            "baseline": None
-            "canary": None
-            "last_eval": None
+            "version": cand.version,
+            "started_ts_ms": t0,
+            "baseline": None,
+            "canary": None,
+            "last_eval": None,
         }
         state["phase"] = "baseline"
 
@@ -566,21 +566,21 @@ def main() -> int:
     # promote canary
     if state["phase"] == "canary_promote":
         rc, out, err = promote_canary(
-            bundle_dir=args.bundle_dir
-            redis_url=args.redis_url
-            key_prefix=args.key_prefix
-            staged_key_prefix=args.staged_key_prefix
-            health_state_path=args.health_state_path
-            staged_pointer=args.staged_pointer_path or str(Path(args.bundle_dir) / "staged.json")
-            pointer_path=args.pointer_path or str(Path(args.bundle_dir) / "current.json")
-            promote_state_path=args.promote_state_path
-            lock_path=args.lock_path
-            apply=args.apply
+            bundle_dir=args.bundle_dir,
+            redis_url=args.redis_url,
+            key_prefix=args.key_prefix,
+            staged_key_prefix=args.staged_key_prefix,
+            health_state_path=args.health_state_path,
+            staged_pointer=args.staged_pointer_path or str(Path(args.bundle_dir) / "staged.json"),
+            pointer_path=args.pointer_path or str(Path(args.bundle_dir) / "current.json"),
+            promote_state_path=args.promote_state_path,
+            lock_path=args.lock_path,
+            apply=args.apply,
         )
         cycle["canary"] = {
-            "promote_ts_ms": t0
-            "observe_until_ms": t0 + int(args.observe_window_sec) * 1000
-            "rc": rc
+            "promote_ts_ms": t0,
+            "observe_until_ms": t0 + int(args.observe_window_sec) * 1000,
+            "rc": rc,
         }
         state["history"].append(
             {"ts_ms": t0, "action": "promote_canary", "rc": rc, "stdout_tail": tail(out), "stderr_tail": tail(err)}
@@ -610,28 +610,28 @@ def main() -> int:
         health_raw = load_json_if_exists(args.health_state_path)
         cur = extract_health_metrics(health_raw)
         res = evaluate_canary(
-            baseline=baseline
-            current=cur
-            now=t0
-            max_health_age_sec=args.max_health_age_sec
-            min_n=args.min_n
-            max_delta_ece=args.max_delta_ece
-            max_delta_brier=args.max_delta_brier
-            max_arm_delta_ece=args.max_arm_delta_ece
-            max_arm_delta_brier=args.max_arm_delta_brier
-            max_cohort_delta_ece_wmean=args.max_cohort_delta_ece_wmean
-            max_cohort_delta_brier_wmean=args.max_cohort_delta_brier_wmean
-            max_cohort_delta_ece_max=args.max_cohort_delta_ece_max
-            max_cohort_delta_brier_max=args.max_cohort_delta_brier_max
-            allow_missing=bool(args.allow_missing)
+            baseline=baseline,
+            current=cur,
+            now=t0,
+            max_health_age_sec=args.max_health_age_sec,
+            min_n=args.min_n,
+            max_delta_ece=args.max_delta_ece,
+            max_delta_brier=args.max_delta_brier,
+            max_arm_delta_ece=args.max_arm_delta_ece,
+            max_arm_delta_brier=args.max_arm_delta_brier,
+            max_cohort_delta_ece_wmean=args.max_cohort_delta_ece_wmean,
+            max_cohort_delta_brier_wmean=args.max_cohort_delta_brier_wmean,
+            max_cohort_delta_ece_max=args.max_cohort_delta_ece_max,
+            max_cohort_delta_brier_max=args.max_cohort_delta_brier_max,
+            allow_missing=bool(args.allow_missing),
         )
         cycle["last_eval"] = {
-            "ts_ms": t0
-            "ok": res.ok
-            "reasons": res.reasons
-            "delta": res.delta
-            "baseline": res.baseline
-            "current": res.current
+            "ts_ms": t0,
+            "ok": res.ok,
+            "reasons": res.reasons,
+            "delta": res.delta,
+            "baseline": res.baseline,
+            "current": res.current,
         }
         state["history"].append({"ts_ms": t0, "action": "evaluate", "ok": res.ok, "reasons": res.reasons, "delta": res.delta})
         state["phase"] = "promote_full" if res.ok else "rollback"
@@ -639,18 +639,18 @@ def main() -> int:
     # promote full or rollback
     if state["phase"] == "promote_full":
         rc, out, err = promote_full(
-            bundle_dir=args.bundle_dir
-            redis_url=args.redis_url
-            key_prefix=args.key_prefix
-            staged_key_prefix=args.staged_key_prefix
-            health_state_path=args.health_state_path
-            staged_pointer=args.staged_pointer_path or str(Path(args.bundle_dir) / "staged.json")
-            pointer_path=args.pointer_path or str(Path(args.bundle_dir) / "current.json")
-            promote_state_path=args.promote_state_path
-            lock_path=args.lock_path
-            apply=args.apply
-            clear_staged=args.clear_staged_on_success
-            promote_pointer=args.promote_pointer_on_success
+            bundle_dir=args.bundle_dir,
+            redis_url=args.redis_url,
+            key_prefix=args.key_prefix,
+            staged_key_prefix=args.staged_key_prefix,
+            health_state_path=args.health_state_path,
+            staged_pointer=args.staged_pointer_path or str(Path(args.bundle_dir) / "staged.json"),
+            pointer_path=args.pointer_path or str(Path(args.bundle_dir) / "current.json"),
+            promote_state_path=args.promote_state_path,
+            lock_path=args.lock_path,
+            apply=args.apply,
+            clear_staged=args.clear_staged_on_success,
+            promote_pointer=args.promote_pointer_on_success,
         )
         state["history"].append({"ts_ms": t0, "action": "promote_full", "rc": rc, "stdout_tail": tail(out), "stderr_tail": tail(err)})
         if rc == 0:
@@ -665,11 +665,11 @@ def main() -> int:
             cycle["last_eval"] = {"ok": False, "reasons": ["rollback_disabled"]}
         else:
             rc, out, err = rollback_to_current(
-                bundle_dir=args.bundle_dir
-                redis_url=args.redis_url
-                state_path=state_path
-                lock_path=args.lock_path
-                apply=args.apply
+                bundle_dir=args.bundle_dir,
+                redis_url=args.redis_url,
+                state_path=state_path,
+                lock_path=args.lock_path,
+                apply=args.apply,
             )
             state["history"].append({"ts_ms": t0, "action": "rollback_current", "rc": rc, "stdout_tail": tail(out), "stderr_tail": tail(err)})
             state["phase"] = "rolled_back" if rc == 0 else "blocked"

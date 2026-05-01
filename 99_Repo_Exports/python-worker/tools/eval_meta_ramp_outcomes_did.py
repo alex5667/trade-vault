@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 eval_meta_ramp_outcomes_did.py
 
@@ -16,7 +17,6 @@ Usage:
   python tools/eval_meta_ramp_outcomes_did.py --trades /tmp/trades.ndjson --out /tmp/eval_did.json --ramp-ts-ms 1234567890000 --symbols BTCUSDT,ETHUSDT
 """
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """meta_enforce_guardrails_v1.py
 
 P31: Safety guardrails for meta-model ENFORCE.
@@ -35,7 +36,6 @@ Key written (cfg2)
 - (on trigger) meta_model_freeze=1, meta_freeze_mode=OPEN, meta_freeze_reason, meta_freeze_ts_ms
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

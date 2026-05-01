@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """tools.autopilot_run_once
 
 One-shot autopilot runner:
@@ -12,7 +13,6 @@ This file intentionally uses subprocess to reuse CLI tools, so behavior
 matches exactly what you run manually.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

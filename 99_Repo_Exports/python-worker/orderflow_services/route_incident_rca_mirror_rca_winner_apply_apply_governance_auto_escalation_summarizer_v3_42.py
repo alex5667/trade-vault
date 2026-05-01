@@ -138,7 +138,7 @@ async def persist_if_configured(db_url: str, summary: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO llm_governance_escalations (
                     ts_ms, severity, summary_json
                 ) VALUES (

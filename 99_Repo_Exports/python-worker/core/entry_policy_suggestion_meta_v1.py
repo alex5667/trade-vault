@@ -34,7 +34,7 @@ class EntryPolicySuggestionMetaV1:
     updated_ts_ms: int = 0
     expires_ts_ms: int = 0
 
-    symbol: str = ""
+    symbol=""
     regime: str = "na"
     group: str = "default"
     scenario: str = "na"

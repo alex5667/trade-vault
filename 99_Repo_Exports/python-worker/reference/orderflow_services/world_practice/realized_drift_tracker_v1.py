@@ -35,16 +35,16 @@ class _BucketState:
 
 class RealizedDriftTrackerV1:
     def __init__(
-        self
-        *
-        horizon_ms: int = 120_000
-        alpha: float = 0.03
-        min_n: int = 40
-        mean_th_bps: float = 0.8
-        bad_share_th: float = 0.60
-        z_th: float = 1.5
-        sigma_floor_bps: float = 0.05
-        max_pending: int = 4096
+        self,
+        *,
+        horizon_ms: int = 120_000,
+        alpha: float = 0.03,
+        min_n: int = 40,
+        mean_th_bps: float = 0.8,
+        bad_share_th: float = 0.60,
+        z_th: float = 1.5,
+        sigma_floor_bps: float = 0.05,
+        max_pending: int = 4096,
     ) -> None:
         self.horizon_ms = int(max(1, horizon_ms))
         self.alpha = float(min(max(alpha, 1e-6), 1.0))
@@ -135,12 +135,12 @@ class RealizedDriftTrackerV1:
         st = self._st.get(b)
         if st is None:
             return {
-                "adverse_rd_mean_bps": 0.0
-                "adverse_rd_sigma_bps": float(self.sigma_floor_bps)
-                "adverse_rd_z": 0.0
-                "adverse_rd_bad_share": 0.0
-                "adverse_rd_n": 0.0
-                "adverse_rd_veto": 0.0
+                "adverse_rd_mean_bps": 0.0,
+                "adverse_rd_sigma_bps": float(self.sigma_floor_bps),
+                "adverse_rd_z": 0.0,
+                "adverse_rd_bad_share": 0.0,
+                "adverse_rd_n": 0.0,
+                "adverse_rd_veto": 0.0,
             }
 
         sigma = math.sqrt(max(float(st.var_bps2), 0.0))
@@ -161,10 +161,10 @@ class RealizedDriftTrackerV1:
                 veto = 1.0
 
         return {
-            "adverse_rd_mean_bps": mean
-            "adverse_rd_sigma_bps": float(sigma)
-            "adverse_rd_z": float(z)
-            "adverse_rd_bad_share": bad
-            "adverse_rd_n": n
-            "adverse_rd_veto": veto
+            "adverse_rd_mean_bps": mean,
+            "adverse_rd_sigma_bps": float(sigma),
+            "adverse_rd_z": float(z),
+            "adverse_rd_bad_share": bad,
+            "adverse_rd_n": n,
+            "adverse_rd_veto": veto,
         }

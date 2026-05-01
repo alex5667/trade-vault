@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Hawkes-like intensity proxies (cheap, online, O(1)).
 
 Purpose
@@ -51,7 +52,6 @@ We keep state in a plain dict (json-safe):
   }
 """
 
-from __future__ import annotations
 
 import math
 import os

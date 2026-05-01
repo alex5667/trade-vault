@@ -1,5 +1,5 @@
-"""Rolling VWAP tracker (deterministic by ts_ms)."""
 from __future__ import annotations
+"""Rolling VWAP tracker (deterministic by ts_ms)."""
 
 import math
 from dataclasses import dataclass

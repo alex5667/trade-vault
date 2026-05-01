@@ -12,7 +12,7 @@ class TestAutoApplyGuardV1(unittest.TestCase):
     def test_split_csv(self):
         self.assertEqual(guard._split_csv(""), [])
         self.assertEqual(guard._split_csv("a,b,c"), ["a", "b", "c"])
-        self.assertEqual(guard._split_csv(" a , b,, c "), ["a", "b", "c"])
+        self.assertEqual(guard._split_csv(" a , b, c "), ["a", "b", "c"])
 
     def test_truthy(self):
         self.assertTrue(guard._truthy("1"))

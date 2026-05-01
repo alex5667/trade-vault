@@ -19,11 +19,11 @@ def test_meta_features_v9_liqmap_keys_present():
 def test_meta_features_v9_gate_keys_present():
     """Gate scalar keys must be in the schema."""
     gate_keys = [
-        "liqmap_gate_shadow_veto"
-        "liqmap_gate_veto"
-        "liqmap_gate_rr"
-        "liqmap_gate_risk_bps"
-        "liqmap_gate_reward_bps"
+        "liqmap_gate_shadow_veto",
+        "liqmap_gate_veto",
+        "liqmap_gate_rr",
+        "liqmap_gate_risk_bps",
+        "liqmap_gate_reward_bps",
     ]
     for k in gate_keys:
         assert k in META_FEAT_V9_COLS, f"Missing gate key: {k}"

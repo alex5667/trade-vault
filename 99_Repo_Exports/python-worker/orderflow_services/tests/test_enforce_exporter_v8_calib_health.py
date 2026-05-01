@@ -1,3 +1,4 @@
+from __future__ import annotations
 """test_enforce_exporter_v8_calib_health.py
 
 Tests for V8 slippage calibrator health additions to enforce_bucket_state_exporter_v1:
@@ -10,8 +11,7 @@ Tests for nightly_slippage_calibrator_v1 V8 additions:
   - _now_ms() returns valid ms integer
   - Timestamp key name format
   - State key names written after calibration loop
-"""
-from __future__ import annotations
+""",
 from utils.time_utils import get_ny_time_millis
 
 import ast
@@ -38,7 +38,7 @@ EXPORTER_PATH = os.path.join(
 def _load_source_as_module(path: str, module_name: str):
     """Load a Python source file without executing top-level side-effects on
     prometheus_client (which would call start_http_server or register dupes).
-    """
+    """,
     with open(path, "r", encoding="utf-8") as fh:
         source = fh.read()
     tree = ast.parse(source)
@@ -97,7 +97,7 @@ class TestCalibratorNowMs(unittest.TestCase):
         # Execute just the _now_ms function in isolation
         ns: dict = {}
         exec(
-            """
+            """,
 import time
 def _now_ms():
     try:
@@ -186,7 +186,7 @@ class TestExporterCalibStateMethod(unittest.TestCase):
         ns: dict = {}
         gauge_mock = MagicMock()
         exec(
-            """
+            """,
 def _as_int(x, default=0):
     try:
         if x is None: return int(default)

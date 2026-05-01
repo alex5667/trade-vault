@@ -10,9 +10,9 @@ from typing import Any, Dict, Optional
 
 try:
     from .confidence_cal_metrics import (
-        inc_decision_log
-        inc_decision_log_error
-        inc_decision_log_sampled_out
+        inc_decision_log,
+        inc_decision_log_error,
+        inc_decision_log_sampled_out,
     )
 except Exception:  # pragma: no cover
     def inc_decision_log(*args, **kwargs):
@@ -53,16 +53,16 @@ async def _xadd_any(redis: Any, stream: str, payload_json: str, maxlen: int) -> 
 
 
 def schedule_conf_cal_decision_log(
-    redis: Any
-    payload: Dict[str, Any]
-    *
-    stream: Optional[str] = None
-    maxlen: Optional[int] = None
-    sample_rate: Optional[float] = None
-    symbol: str = ""
-    stage: str = ""
-    served_arm: str = ""
-    mode: str = ""
+    redis: Any,
+    payload: Dict[str, Any],
+    *,
+    stream: Optional[str] = None,
+    maxlen: Optional[int] = None,
+    sample_rate: Optional[float] = None,
+    symbol="",
+    stage: str = "",
+    served_arm: str = "",
+    mode: str = "",
 ) -> bool:
     """Schedule an async XADD. Returns True if scheduled, False if skipped."""
     if redis is None:
@@ -110,10 +110,10 @@ def schedule_conf_cal_decision_log(
             await _xadd_any(redis, s, payload_json, ml)
             try:
                 inc_decision_log(
-                    symbol or payload.get("symbol", "")
-                    stage or payload.get("stage", "")
-                    served_arm or payload.get("served_arm", "")
-                    mode or payload.get("mode", "")
+                    symbol or payload.get("symbol", ""),
+                    stage or payload.get("stage", ""),
+                    served_arm or payload.get("served_arm", ""),
+                    mode or payload.get("mode", ""),
                 )
             except Exception:
                 pass

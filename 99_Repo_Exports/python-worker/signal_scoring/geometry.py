@@ -24,16 +24,16 @@ def normalize_zone_strength(raw_strength: Any) -> float:
 
 
 def distance_to_score(
-    *
-    dist_bps: float
-    dist_rel_atr: Optional[float]
-    bps_half_life: float = 25.0
-    atr_half_life: float = 0.35
+    *,
+    dist_bps: float,
+    dist_rel_atr: Optional[float],
+    bps_half_life: float = 25.0,
+    atr_half_life: float = 0.35,
 ) -> float:
     """
     Monotonic decreasing distance->score mapping in [0..1].
 
-    We combine bps distance and ATR-relative distance conservatively via max()
+    We combine bps distance and ATR-relative distance conservatively via max(),
     so score is monotonic in BOTH metrics (if either worsens -> score doesn't increase).
     """
     if not _is_finite(dist_bps) or dist_bps < 0:
@@ -50,12 +50,12 @@ def distance_to_score(
 
 
 def geometry_score(
-    *
-    zone_strength01: float
-    dist_bps: float
-    dist_rel_atr: Optional[float]
-    bps_half_life: float = 25.0
-    atr_half_life: float = 0.35
+    *,
+    zone_strength01: float,
+    dist_bps: float,
+    dist_rel_atr: Optional[float],
+    bps_half_life: float = 25.0,
+    atr_half_life: float = 0.35,
 ) -> float:
     """
     Final geometry score in [0..1], monotonic:
@@ -64,10 +64,10 @@ def geometry_score(
     """
     s = max(0.0, min(1.0, float(zone_strength01)))
     dscore = distance_to_score(
-        dist_bps=dist_bps
-        dist_rel_atr=dist_rel_atr
-        bps_half_life=bps_half_life
-        atr_half_life=atr_half_life
+        dist_bps=dist_bps,
+        dist_rel_atr=dist_rel_atr,
+        bps_half_life=bps_half_life,
+        atr_half_life=atr_half_life,
     )
     return max(0.0, min(1.0, s * dscore))
 
@@ -90,12 +90,12 @@ class GeoZoneHit:
 
 
 def compute_geo_hits(
-    *
-    price: float
-    atr: Optional[float]
-    zones: Iterable[Dict[str, Any]]
-    bps_half_life: float = 25.0
-    atr_half_life: float = 0.35
+    *,
+    price: float,
+    atr: Optional[float],
+    zones: Iterable[Dict[str, Any]],
+    bps_half_life: float = 25.0,
+    atr_half_life: float = 0.35,
 ) -> List[GeoZoneHit]:
     """
     zones: iterable of dicts with at least:
@@ -140,11 +140,11 @@ def compute_geo_hits(
             dist_rel_atr = abs(px - lvl_f) / atr_f
 
         sc = geometry_score(
-            zone_strength01=s01
-            dist_bps=dist_bps
-            dist_rel_atr=dist_rel_atr
-            bps_half_life=bps_half_life
-            atr_half_life=atr_half_life
+            zone_strength01=s01,
+            dist_bps=dist_bps,
+            dist_rel_atr=dist_rel_atr,
+            bps_half_life=bps_half_life,
+            atr_half_life=atr_half_life,
         )
 
         meta = dict(z.get("meta") or {})
@@ -154,13 +154,13 @@ def compute_geo_hits(
 
         hits.append(
             GeoZoneHit(
-                zone_type=str(zt)
-                zone_strength=s01
-                zone_price=lvl_f
-                dist_bps=dist_bps
-                dist_rel_atr=dist_rel_atr
-                score=sc
-                meta=meta
+                zone_type=str(zt),
+                zone_strength=s01,
+                zone_price=lvl_f,
+                dist_bps=dist_bps,
+                dist_rel_atr=dist_rel_atr,
+                score=sc,
+                meta=meta,
             )
         )
 
@@ -169,12 +169,12 @@ def compute_geo_hits(
 
 
 def compute_geometry_context(
-    *
-    price: Any
-    atr: Any
-    zones: Iterable[Dict[str, Any]]
-    bps_half_life: float = 25.0
-    atr_half_life: float = 0.35
+    *,
+    price: Any,
+    atr: Any,
+    zones: Iterable[Dict[str, Any]],
+    bps_half_life: float = 25.0,
+    atr_half_life: float = 0.35,
 ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], float]:
     """
     Returns:
@@ -186,11 +186,11 @@ def compute_geometry_context(
         return ([], None, 0.0)
 
     hits = compute_geo_hits(
-        price=float(price)
-        atr=float(atr) if _is_finite(atr) else None
-        zones=zones
-        bps_half_life=bps_half_life
-        atr_half_life=atr_half_life
+        price=float(price),
+        atr=float(atr) if _is_finite(atr) else None,
+        zones=zones,
+        bps_half_life=bps_half_life,
+        atr_half_life=atr_half_life,
     )
     if not hits:
         return ([], None, 0.0)

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """conf_score_guardrails_autopromo_exporter_v1.py
 
 Prometheus exporter for the autopromo controller state.
@@ -12,7 +13,6 @@ Env:
   CONF_SCORE_GUARD_AUTOPROMO_EXPORTER_PORT
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -49,16 +49,16 @@ def _safe_float(x: Any) -> Optional[float]:
 
 
 PHASES = {
-    "idle": 0
-    "baseline": 1
-    "canary_promote": 2
-    "observing": 3
-    "evaluate": 4
-    "promote_full": 5
-    "rollback": 6
-    "promoted": 7
-    "rolled_back": 8
-    "blocked": 9
+    "idle": 0,
+    "baseline": 1,
+    "canary_promote": 2,
+    "observing": 3,
+    "evaluate": 4,
+    "promote_full": 5,
+    "rollback": 6,
+    "promoted": 7,
+    "rolled_back": 8,
+    "blocked": 9,
 }
 
 

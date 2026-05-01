@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
 """Offline ablation report for derived ROI features F/G/H.
 
 Goal:
@@ -14,7 +15,6 @@ Output:
   Optionally writes JSON report (--out_json).
 """
 
-from __future__ import annotations
 
 import argparse
 import json

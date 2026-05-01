@@ -56,21 +56,21 @@ class Cfg:
 
 def load_cfg() -> Cfg:
     return Cfg(
-        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0')
-        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last')
-        notifier_state_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last')
-        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence')
-        ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1')
-        notify_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM', os.getenv('NOTIFY_TELEGRAM_STREAM') or 'notify:telegram')
+        redis_url=_env('REDIS_URL', 'redis://redis-worker-1:6379/0'),
+        state_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX', 'metrics:latency_contract:deploy_lint:last'),
+        notifier_state_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'),
+        silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
+        ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
+        notify_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM', os.getenv('NOTIFY_TELEGRAM_STREAM') or 'notify:telegram'),
         # P4.14: page stream for operational class changes requiring pager attention
-        notify_page_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_PAGE_STREAM', os.getenv('NOTIFY_TELEGRAM_PAGE_STREAM') or 'notify:telegram:page')
-        notify_enable=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE', '1').lower() in ('1', 'true', 'yes', 'on')
-        reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S', '21600'), 21600))
-        state_ttl_s=max(600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S', '172800'), 172800))
+        notify_page_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_PAGE_STREAM', os.getenv('NOTIFY_TELEGRAM_PAGE_STREAM') or 'notify:telegram:page'),
+        notify_enable=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE', '1').lower() in ('1', 'true', 'yes', 'on'),
+        reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S', '21600'), 21600)),
+        state_ttl_s=max(600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S', '172800'), 172800)),
         # P4.14: warning code policy CSVs for route-aware severity mapping
-        warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', '')
-        warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', '')
-        warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', '')
+        warn_codes_warn_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_WARN_CSV', ''),
+        warn_codes_crit_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_CRIT_CSV', ''),
+        warn_codes_page_csv=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_WARN_CODES_PAGE_CSV', ''),
     )
 
 
@@ -147,33 +147,33 @@ def _summary_text(active: list[str], details: dict[str, dict[str, str]], *, sile
 
 
 def _emit_ops_event(
-    r: Any
-    cfg: Cfg
-    *
-    event_kind: str
-    warning_policy: str
-    route_class: str
-    raw_active: list[str]
-    active: list[str]
-    silenced: list[str]
-    details: dict[str, dict[str, str]]
-    now_ms: int
+    r: Any,
+    cfg: Cfg,
+    *,
+    event_kind: str,
+    warning_policy: str,
+    route_class: str,
+    raw_active: list[str],
+    active: list[str],
+    silenced: list[str],
+    details: dict[str, dict[str, str]],
+    now_ms: int,
 ) -> None:
     fields = {
-        'ts_ms': str(now_ms)
-        'kind': event_kind
+        'ts_ms': str(now_ms),
+        'kind': event_kind,
         # P4.14: operational class fields for binding visibility
-        'warning_severity_policy': warning_policy
-        'notifier_route_class': route_class
-        'source': 'latency_contract_deploy_lint_notifier_v1'
-        'raw_active_purposes_csv': ','.join(raw_active) if raw_active else 'none'
-        'raw_active_purposes_count': str(len(raw_active))
-        'active_purposes_csv': ','.join(active) if active else 'none'
-        'active_purposes_count': str(len(active))
-        'active_hash': purposes_hash(active)
-        'silenced_purposes_csv': ','.join(silenced) if silenced else 'none'
-        'silenced_purposes_count': str(len(silenced))
-        'details_json': json.dumps({p: details.get(p) or {} for p in active}, sort_keys=True)
+        'warning_severity_policy': warning_policy,
+        'notifier_route_class': route_class,
+        'source': 'latency_contract_deploy_lint_notifier_v1',
+        'raw_active_purposes_csv': ','.join(raw_active) if raw_active else 'none',
+        'raw_active_purposes_count': str(len(raw_active)),
+        'active_purposes_csv': ','.join(active) if active else 'none',
+        'active_purposes_count': str(len(active)),
+        'active_hash': purposes_hash(active),
+        'silenced_purposes_csv': ','.join(silenced) if silenced else 'none',
+        'silenced_purposes_count': str(len(silenced)),
+        'details_json': json.dumps({p: details.get(p) or {} for p in active}, sort_keys=True),
     }
     r.xadd(cfg.ops_stream, fields, maxlen=200000, approximate=True)
 
@@ -200,14 +200,14 @@ def _emit_notify(r: Any, cfg: Cfg, *, event_kind: str, warning_policy: str, text
     severity = _severity_for_event(event_kind, warning_policy)
     route_class = _route_class_for_event(event_kind, warning_policy)
     r.xadd(_notify_stream_for_event(cfg, event_kind, warning_policy), {
-        'type': 'report'
-        'severity': severity
+        'type': 'report',
+        'severity': severity,
         # P4.14: operational class fields propagated to notify payload
-        'warning_severity_policy': warning_policy
-        'notifier_route_class': route_class
-        'text': text[:3500]
-        'ts': str(now_ms)
-        'source': 'latency_contract_deploy_lint_notifier_v1'
+        'warning_severity_policy': warning_policy,
+        'notifier_route_class': route_class,
+        'text': text[:3500],
+        'ts': str(now_ms),
+        'source': 'latency_contract_deploy_lint_notifier_v1',
     }, maxlen=200000, approximate=True)
 
 

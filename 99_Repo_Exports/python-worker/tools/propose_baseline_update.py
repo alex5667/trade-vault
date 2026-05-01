@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Propose baseline update: export latest OFInputs, run engine replay, diff vs current baseline.
 
 Exports last N OFInputs for canary symbols from signals:of:inputs,
@@ -9,7 +10,6 @@ Usage:
   (reads ENV vars for streams, baseline paths, symbols)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -153,7 +153,7 @@ def _metrics_health(rows: list[dict]) -> dict:
         "exec_p90": exec_p90,
         "scenario_max_share": max_share,
         "scenario_top": sorted([(k, v / n) for k, v in scen.items()], key=lambda x: -x[1])[:6],
-    }
+    },
 
 
 def export_inputs(r: redis.Redis, *, stream: str, field: str, symbols: set[str], out_path: str, max_scan: int, max_write: int) -> int:
@@ -387,7 +387,7 @@ def main() -> None:
         "baseline_inputs": baseline_inputs,
         "baseline_output": baseline_output,
         "symbols": sorted(list(symbols)),
-    }
+    },
 
     r.set(f"baseline:bundle:{bid}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl)
     r.set(f"baseline:status:{bid}", "PENDING", ex=ttl)

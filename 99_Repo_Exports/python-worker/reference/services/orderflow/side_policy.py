@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Side (aggressor) policy helpers.
 
 Unknown-side policy (env: CRYPTO_OF_UNKNOWN_SIDE_POLICY):
@@ -8,7 +9,6 @@ Unknown-side policy (env: CRYPTO_OF_UNKNOWN_SIDE_POLICY):
 Sampling is deterministic by event-time ms, so retries/replay won't change the sampled set.
 """
 
-from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
@@ -19,12 +19,12 @@ VALID_UNKNOWN_SIDE_POLICIES = ("ignore_delta", "drop", "quarantine")
 def normalize_unknown_side_policy(raw: Optional[str]) -> str:
     v = (raw or "ignore_delta").strip().lower()
     aliases = {
-        "ignore": "ignore_delta"
-        "keep": "ignore_delta"
-        "pass": "ignore_delta"
-        "none": "ignore_delta"
-        "0": "ignore_delta"
-        "false": "ignore_delta"
+        "ignore": "ignore_delta",
+        "keep": "ignore_delta",
+        "pass": "ignore_delta",
+        "none": "ignore_delta",
+        "0": "ignore_delta",
+        "false": "ignore_delta",
     }
     v = aliases.get(v, v)
     if v not in VALID_UNKNOWN_SIDE_POLICIES:

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Unit tests for exec-risk observability v16 integration.
 
 Tests cover:
@@ -6,7 +7,6 @@ Tests cover:
 - New alert names (OFExecPenaltyP95High, OFSpreadP95High) present in YAML
 - Smoke-check compiles without syntax errors
 """
-from __future__ import annotations
 
 import os
 import json
@@ -98,10 +98,10 @@ def test_world_practice_alerts_yaml_v16_alert_structure(tick_flow_full: bool) ->
 # ---------------------------------------------------------------------------
 
 def _apply_stuck_exec_heuristic(
-    max_exec_risk_norm: float
-    max_exec_pen: float
-    n_recent: int
-    min_recent: int = 200
+    max_exec_risk_norm: float,
+    max_exec_pen: float,
+    n_recent: int,
+    min_recent: int = 200,
 ) -> bool:
     """Inline replica of the stuck_exec heuristic from smoke-check."""
     stuck_exec = 0
@@ -113,34 +113,34 @@ def _apply_stuck_exec_heuristic(
 
 @pytest.mark.parametrize("exec_risk_norm, exec_pen, n_recent, expect_stuck", [
     # Enough points, high risk, zero penalty → STUCK
-    (0.15, 0.0, 300, True)
-    (0.10, 0.0, 200, True)
-    (0.50, 1e-9, 500, True)
+    (0.15, 0.0, 300, True),
+    (0.10, 0.0, 200, True),
+    (0.50, 1e-9, 500, True),
     # High risk, non-zero penalty → NOT stuck
-    (0.20, 0.01, 300, False)
-    (0.30, 1e-5, 400, False)
+    (0.20, 0.01, 300, False),
+    (0.30, 1e-5, 400, False),
     # Low risk → NOT stuck even if exec_pen is zero
-    (0.09, 0.0, 300, False)
-    (0.00, 0.0, 300, False)
+    (0.09, 0.0, 300, False),
+    (0.00, 0.0, 300, False),
     # Not enough recent points → NOT stuck
-    (0.50, 0.0, 50, False)
-    (0.50, 0.0, 199, False)
+    (0.50, 0.0, 50, False),
+    (0.50, 0.0, 199, False),
     # Boundary: exactly n_recent == min_recent
-    (0.10, 0.0, 200, True)
+    (0.10, 0.0, 200, True),
     # Boundary: exec_risk_norm just below threshold
-    (0.099, 0.0, 300, False)
+    (0.099, 0.0, 300, False),
 ])
 def test_stuck_exec_pen_zero_heuristic(
-    exec_risk_norm: float
-    exec_pen: float
-    n_recent: int
-    expect_stuck: bool
+    exec_risk_norm: float,
+    exec_pen: float,
+    n_recent: int,
+    expect_stuck: bool,
 ) -> None:
     """stuck_exec_pen_zero is raised iff exec_risk_norm>=0.10, exec_pen<=1e-6, n_recent>=min_recent."""
     result = _apply_stuck_exec_heuristic(
-        max_exec_risk_norm=exec_risk_norm
-        max_exec_pen=exec_pen
-        n_recent=n_recent
+        max_exec_risk_norm=exec_risk_norm,
+        max_exec_pen=exec_pen,
+        n_recent=n_recent,
     )
     assert result == expect_stuck, (
         f"exec_risk_norm={exec_risk_norm}, exec_pen={exec_pen}, n_recent={n_recent}: "
@@ -156,12 +156,12 @@ def test_smoke_check_output_fields_named() -> None:
     """Verify the v16 output field names are documented/present in the smoke-check source."""
     src = _smoke_check_path().read_text()
     for field in (
-        "max_exec_risk_norm"
-        "max_exec_pen"
-        "max_spread_bps"
-        "max_expected_slip_eff_bps"
-        "stuck_exec"
-        "stuck_exec_pen_zero"
+        "max_exec_risk_norm",
+        "max_exec_pen",
+        "max_spread_bps",
+        "max_expected_slip_eff_bps",
+        "stuck_exec",
+        "stuck_exec_pen_zero",
     ):
         assert field in src, f"Expected field '{field}' not found in smoke-check source"
 
@@ -170,12 +170,12 @@ def test_smoke_check_key_fields_v16() -> None:
     """Verify v16 exec-risk key fields appear in the smoke-check source."""
     src = _smoke_check_path().read_text()
     for field in (
-        "spread_bps_submit"
-        "impact_proxy"
-        "liq_score"
-        "expected_slippage_bps"
-        "expected_slippage_decomp_bps"
-        "exec_risk_norm"
-        "exec_pen"
+        "spread_bps_submit",
+        "impact_proxy",
+        "liq_score",
+        "expected_slippage_bps",
+        "expected_slippage_decomp_bps",
+        "exec_risk_norm",
+        "exec_pen",
     ):
         assert field in src, f"Expected key_field '{field}' not found in smoke-check source"

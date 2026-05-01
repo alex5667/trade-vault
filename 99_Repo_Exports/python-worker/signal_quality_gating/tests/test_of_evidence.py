@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for signal_quality_gating/core/of_evidence.py
 
 Tests cover: compute_sweep_recent, compute_reclaim_recent, compute_absorption_flags.
 """
 
-from __future__ import annotations
 
 import sys
 import os

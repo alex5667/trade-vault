@@ -2,7 +2,7 @@
 """
 Оффлайн-анализ сигналов с L3-метриками.
 
-Анализирует корреляции между L3-метриками и результатами сигналов
+Анализирует корреляции между L3-метриками и результатами сигналов,
 помогает оптимизировать пороги confidence scorer.
 """
 
@@ -103,13 +103,12 @@ class SignalAnalyzer:
 
         # Метрики для анализа
         l3_metrics = [
-            'l3_spread_bps'
-            'l3_obi_5', 'l3_obi_20', 'l3_obi_50'
-            'l3_obi_persistence_score'
-            'l3_cancel_to_trade_bid_5s', 'l3_cancel_to_trade_ask_5s'
-            'l3_cancel_to_trade_bid_20s', 'l3_cancel_to_trade_ask_20s'
-            'l3_microprice_shift_bps_20'
-        ]
+            'l3_spread_bps',
+            'l3_obi_5', 'l3_obi_20', 'l3_obi_50',
+            'l3_obi_persistence_score',
+            'l3_cancel_to_trade_bid_5s', 'l3_cancel_to_trade_ask_5s',
+            'l3_cancel_to_trade_bid_20s', 'l3_cancel_to_trade_ask_20s',
+            'l3_microprice_shift_bps_20']
 
         for metric in l3_metrics:
             if metric in df.columns:
@@ -143,9 +142,9 @@ class SignalAnalyzer:
                 count = len(q_data)
 
                 results[f'quantile_{q}'] = {
-                    'win_rate': win_rate
-                    'avg_pnl': avg_pnl
-                    'count': count
+                    'win_rate': win_rate,
+                    'avg_pnl': avg_pnl,
+                    'count': count,
                     'metric_range': (q_data[metric].min(), q_data[metric].max())
                 }
 
@@ -215,33 +214,33 @@ class SignalAnalyzer:
             return {"error": "No data available"}
 
         # Анализ
-        correlations = self.analyze_l3_correlations(df)
+        correlations = self.analyze_l3_correlations(df),
 
         # Квантильный анализ ключевых метрик
         quantile_analyses = {
-            'obi_persistence': self.analyze_by_quantiles(df, 'l3_obi_persistence_score')
-            'spread': self.analyze_by_quantiles(df, 'l3_spread_bps')
-            'cancel_to_trade': self.analyze_by_quantiles(df, 'l3_cancel_to_trade_bid_5s')
-        }
+            'obi_persistence': self.analyze_by_quantiles(df, 'l3_obi_persistence_score'),
+            'spread': self.analyze_by_quantiles(df, 'l3_spread_bps'),
+            'cancel_to_trade': self.analyze_by_quantiles(df, 'l3_cancel_to_trade_bid_5s'),
+        },
 
         # Рекомендации
-        recommendations = self.generate_recommendations(df)
+        recommendations = self.generate_recommendations(df),
 
         # Общая статистика
-        total_signals = len(df)
-        win_rate = df['is_win'].mean()
-        avg_pnl = df['pnl_r'].mean()
+        total_signals = len(df),
+        win_rate = df['is_win'].mean(),
+        avg_pnl = df['pnl_r'].mean(),
 
         result = {
             "summary": {
-                "total_signals": total_signals
-                "win_rate": win_rate
-                "avg_pnl": avg_pnl
-                "analysis_period_days": days
-            }
-            "correlations": correlations
-            "quantile_analyses": quantile_analyses
-            "recommendations": recommendations
+                "total_signals": total_signals,
+                "win_rate": win_rate,
+                "avg_pnl": avg_pnl,
+                "analysis_period_days": days,
+            },
+            "correlations": correlations,
+            "quantile_analyses": quantile_analyses,
+            "recommendations": recommendations,
         }
 
         self.logger.info(f"Analysis completed: {total_signals} signals, win rate {win_rate:.1%}")
@@ -276,10 +275,9 @@ def main():
     print("\n🔗 Key Correlations:")
     correlations = result["correlations"]
     key_metrics = [
-        'l3_obi_persistence_score_vs_win'
-        'l3_spread_bps_vs_win'
-        'l3_cancel_to_trade_bid_5s_vs_win'
-    ]
+        'l3_obi_persistence_score_vs_win',
+        'l3_spread_bps_vs_win',
+        'l3_cancel_to_trade_bid_5s_vs_win']
 
     for metric in key_metrics:
         _corr = correlations.get(metric, 0)

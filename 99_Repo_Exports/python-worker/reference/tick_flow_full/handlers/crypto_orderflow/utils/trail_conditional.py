@@ -125,14 +125,14 @@ class TrailConditionalEvaluator:
             return None
 
     def evaluate(
-        self
-        ctx: Any
-        *
-        side: str
-        symbol: str
-        kind: str
-        tf: str
-        regime: str
+        self,
+        ctx: Any,
+        *,
+        side: str,
+        symbol: str,
+        kind: str,
+        tf: str,
+        regime: str,
     ) -> TrailDecision:
         # Global hard switch: preserve legacy behavior when disabled.
         if not _env_bool("TRAIL_COND_EVAL_ENABLED", True):
@@ -196,16 +196,16 @@ class TrailConditionalEvaluator:
 
 
 def apply_trailing_policy_to_payload(
-    *
-    payload: Dict[str, Any]
-    ctx: Any
-    evaluator: Any
-    side: str
-    symbol: str
-    kind: str
-    tf: str
-    regime: str
-    reason_max_len: int = 256
+    *,
+    payload: Dict[str, Any],
+    ctx: Any,
+    evaluator: Any,
+    side: str,
+    symbol: str,
+    kind: str,
+    tf: str,
+    regime: str,
+    reason_max_len: int = 256,
 ) -> Tuple[bool, str]:
     """
     Single source of truth for propagating conditional trailing decision.

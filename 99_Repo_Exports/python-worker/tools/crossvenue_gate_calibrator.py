@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 CrossVenue Gate Calibrator.
 
@@ -14,7 +15,6 @@ If all thresholds are met (saved_r > MIN_SAVED_R, win_rate < MAX_VETO_WINRATE)
 via interactive Telegram (✅/❌).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

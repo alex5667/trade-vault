@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Promotion freeze registry.
 
 Purpose:
@@ -13,7 +14,6 @@ Fields:
   - source: e.g., monitoring_smoke
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

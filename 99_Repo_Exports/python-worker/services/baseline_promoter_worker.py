@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Baseline promoter worker: handles baseline:* callbacks from Telegram.
 
 Listens to bot:callbacks stream for baseline:preview/confirm/rollback/reject/cancel actions.
@@ -14,7 +15,6 @@ Usage:
   (reads ENV vars for Redis, auth, baseline paths)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import hmac

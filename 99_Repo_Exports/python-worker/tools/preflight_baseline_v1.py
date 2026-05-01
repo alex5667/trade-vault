@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """preflight_baseline_v1.py — Step 0: capture system baseline.
 
 Usage:
@@ -17,7 +18,6 @@ What it does (fail-open: network / parse errors produce partial output):
 The output file is machine-readable and suitable for diffing across deployments.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

@@ -278,11 +278,11 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
                     cache_ts = None
             ttl = float(getattr(self, "_risk_cfg_cache_ttl_sec", 0.0) or 0.0)
             cfg = resolve_risk_cfg_cached(
-                resolver=getattr(self, "_risk_cfg", None)
-                symbol=str(symbol)
-                cache=cache
-                cache_ts=cache_ts if isinstance(cache_ts, dict) else None
-                ttl_sec=ttl
+                resolver=getattr(self, "_risk_cfg", None),
+                symbol=str(symbol),
+                cache=cache,
+                cache_ts=cache_ts if isinstance(cache_ts, dict) else None,
+                ttl_sec=ttl,
             )
             return dict(cfg) if isinstance(cfg, dict) else {}
         except Exception:
@@ -358,15 +358,15 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
 
     @staticmethod
     def attach_trade_levels_once(
-        ctx: Any
-        *
-        side: str
-        symbol: str
-        kind: str
-        cfg: dict
-        regime: Any = None
-        empirical: Any = None
-        logger: Any = None
+        ctx: Any,
+        *,
+        side: str,
+        symbol: str,
+        kind: str,
+        cfg: dict,
+        regime: Any = None,
+        empirical: Any = None,
+        logger: Any = None,
     ) -> bool:
         from signals.level_enricher import attach_trade_levels_to_ctx
 
@@ -375,15 +375,15 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         def _do() -> bool:
             try:
                 attach_trade_levels_to_ctx(
-                    ctx
-                    side=str(side)
-                    symbol=str(symbol)
-                    cfg=dict(cfg)
-                    kind=str(kind)
-                    regime=regime
-                    empirical=empirical
-                    overwrite=False
-                    logger=logger
+                    ctx,
+                    side=str(side),
+                    symbol=str(symbol),
+                    cfg=dict(cfg),
+                    kind=str(kind),
+                    regime=regime,
+                    empirical=empirical,
+                    overwrite=False,
+                    logger=logger,
                 )
             except Exception:
                 if logger: logger.debug("attach_trade_levels_once failed", exc_info=True)
@@ -441,37 +441,37 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
           - но downstream (бот/аналитика) хочет видеть "на каких настройках" был сигнал.
 
         Поэтому config_params отправляем как meta, которая:
-          - хранится отдельным ключом по signal_id
-          - подтягивается консьюмером/ботом по signal_id
+          - хранится отдельным ключом по signal_id,
+          - подтягивается консьюмером/ботом по signal_id,
           - не влияет на детект/скоринг/дедуп.
         """
         if cfg is None:
             return {}
         raw = {
-            "delta_window_ticks": getattr(cfg, "delta_window_ticks", None)
-            "delta_z_threshold": getattr(cfg, "delta_z_threshold", None)
-            "weak_progress_atr": getattr(cfg, "weak_progress_atr", None)
-            "obi_threshold": getattr(cfg, "obi_threshold", None)
-            "obi_min_duration": getattr(cfg, "obi_min_duration", None)
-            "iceberg_refresh_count": getattr(cfg, "iceberg_refresh_count", None)
-            "iceberg_min_duration": getattr(cfg, "iceberg_min_duration", None)
-            "iceberg_refresh_min_abs": getattr(cfg, "iceberg_refresh_min_abs", None)
-            "dist_atr_threshold": getattr(cfg, "dist_atr_threshold", None)
-            "min_signal_interval_sec": getattr(cfg, "min_signal_interval_sec", None)
-            "stop_mode": getattr(cfg, "stop_mode", None)
-            "stop_atr_mult": getattr(cfg, "stop_atr_mult", None)
-            "stop_pct": getattr(cfg, "stop_pct", None)
-            "stop_points": getattr(cfg, "stop_points", None)
-            "tp_mode": getattr(cfg, "tp_mode", None)
-            "tp_rr": getattr(cfg, "tp_rr", None)
-            "tp_atr_mults": getattr(cfg, "tp_atr_mults", None)
+            "delta_window_ticks": getattr(cfg, "delta_window_ticks", None),
+            "delta_z_threshold": getattr(cfg, "delta_z_threshold", None),
+            "weak_progress_atr": getattr(cfg, "weak_progress_atr", None),
+            "obi_threshold": getattr(cfg, "obi_threshold", None),
+            "obi_min_duration": getattr(cfg, "obi_min_duration", None),
+            "iceberg_refresh_count": getattr(cfg, "iceberg_refresh_count", None),
+            "iceberg_min_duration": getattr(cfg, "iceberg_min_duration", None),
+            "iceberg_refresh_min_abs": getattr(cfg, "iceberg_refresh_min_abs", None),
+            "dist_atr_threshold": getattr(cfg, "dist_atr_threshold", None),
+            "min_signal_interval_sec": getattr(cfg, "min_signal_interval_sec", None),
+            "stop_mode": getattr(cfg, "stop_mode", None),
+            "stop_atr_mult": getattr(cfg, "stop_atr_mult", None),
+            "stop_pct": getattr(cfg, "stop_pct", None),
+            "stop_points": getattr(cfg, "stop_points", None),
+            "tp_mode": getattr(cfg, "tp_mode", None),
+            "tp_rr": getattr(cfg, "tp_rr", None),
+            "tp_atr_mults": getattr(cfg, "tp_atr_mults", None),
             # Dynamic SL Meta
-            "slq_used": cfg.get("slq_used")
-            "slq_bump_atr": cfg.get("slq_bump_atr")
-            "slq_n": cfg.get("slq_n")
-            "slq_q90": cfg.get("slq_q90")
-            "slq_tp1_prob": cfg.get("slq_tp1_prob")
-            "slq_original_mult": cfg.get("slq_original_mult")
+            "slq_used": cfg.get("slq_used"),
+            "slq_bump_atr": cfg.get("slq_bump_atr"),
+            "slq_n": cfg.get("slq_n"),
+            "slq_q90": cfg.get("slq_q90"),
+            "slq_tp1_prob": cfg.get("slq_tp1_prob"),
+            "slq_original_mult": cfg.get("slq_original_mult"),
         }
         # минимизация размера: выкидываем None
         return {k: v for k, v in raw.items() if v is not None}
@@ -527,8 +527,8 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         Delegated to SignalOrchestrator.
         """
         return self._orchestrator.process(
-            ctx=ctx
-            detect_fn=lambda _: [scored]
+            ctx=ctx,
+            detect_fn=lambda _: [scored],
         )
 
 
@@ -545,11 +545,11 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         """
         from regime.l3_lite_models import L3LiteEvent
         l3_ev = L3LiteEvent(
-            ts_ms=ev.ts_ms
-            kind=ev.kind
-            side=ev.side
-            price=ev.price
-            qty=ev.qty
+            ts_ms=ev.ts_ms,
+            kind=ev.kind,
+            side=ev.side,
+            price=ev.price,
+            qty=ev.qty,
         )
         self.l3_agg.on_l3_event(l3_ev)
 
@@ -560,9 +560,9 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         """
         from regime.l3_lite_models import BookSnapshot
         book_snap = BookSnapshot(
-            ts_ms=snap.ts_ms
-            bids=snap.bids
-            asks=snap.asks
+            ts_ms=snap.ts_ms,
+            bids=snap.bids,
+            asks=snap.asks,
         )
         self.l3_agg.on_book_update(book_snap)
 
@@ -573,19 +573,19 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         """
         # Form basic candidate object
         cand = CandidatePipeline(
-            kind=str(signal_kind or "custom")
-            side=side
-            raw_score=float(raw_score)
+            kind=str(signal_kind or "custom"),
+            side=side,
+            raw_score=float(raw_score),
             level_price=None, # will be attached by orchestrator logic if needed
-            level_key=None
-            reasons=[]
+            level_key=None,
+            reasons=[],
             meta=kwargs
         )
         
         # Delegate to orchestrator
         # detect_fn wraps the single candidate payload we received
         self._orchestrator.process(
-            ctx=ctx
+            ctx=ctx,
             detect_fn=lambda _: [cand]
         )
 
@@ -631,17 +631,17 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
                 return
             # Строим дешевую структурированную сводку (без гигантских блобов).
             obj = {
-                "type": "candidate_sample"
-                "ts": int(getattr(ctx, "ts", 0) or 0)
-                "symbol": getattr(ctx, "symbol", None)
-                "kind": self._safe_str(getattr(cand, "kind", "") or "")
-                "side": self._safe_str(getattr(cand, "side", "") or "")
-                "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0)
-                "regime": reg
+                "type": "candidate_sample",
+                "ts": int(getattr(ctx, "ts", 0) or 0),
+                "symbol": getattr(ctx, "symbol", None),
+                "kind": self._safe_str(getattr(cand, "kind", "") or ""),
+                "side": self._safe_str(getattr(cand, "side", "") or ""),
+                "raw_score": finite_or(getattr(cand, "raw_score", None), 0.0),
+                "regime": reg,
                 # только топовые скалярные части (избегаем дампа полного ctx)
-                "spread_bps": finite_or(getattr(ctx, "spread_bps", None), -1.0)
-                "taker_rate": finite_or(getattr(ctx, "taker_rate_ema", None), -1.0)
-                "geometry_score": finite_or(getattr(ctx, "geometry_score", None), -1.0)
+                "spread_bps": finite_or(getattr(ctx, "spread_bps", None), -1.0),
+                "taker_rate": finite_or(getattr(ctx, "taker_rate_ema", None), -1.0),
+                "geometry_score": finite_or(getattr(ctx, "geometry_score", None), -1.0),
             }
             # PERF: централизованный компактный json
             self.logger.info(dumps1(obj))
@@ -670,15 +670,15 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             if not isinstance(tr, dict):
                 return
             payload = {
-                "type": "diagnostic"
-                "tradeable": False
-                "reason": str(reason or "")
-                "trace_id": str(getattr(ctx, "trace_id", "") or tr.get("trace_id") or "")
-                "sid": str(tr.get("sid") or getattr(ctx, "sid", "") or "")
-                "symbol": str(tr.get("symbol") or getattr(ctx, "symbol", "") or "")
-                "kind": str(tr.get("kind") or "")
-                "trace": tr
-                "ts_ms": get_ny_time_millis()
+                "type": "diagnostic",
+                "tradeable": False,
+                "reason": str(reason or ""),
+                "trace_id": str(getattr(ctx, "trace_id", "") or tr.get("trace_id") or ""),
+                "sid": str(tr.get("sid") or getattr(ctx, "sid", "") or ""),
+                "symbol": str(tr.get("symbol") or getattr(ctx, "symbol", "") or ""),
+                "kind": str(tr.get("kind") or ""),
+                "trace": tr,
+                "ts_ms": get_ny_time_millis(),
             }
             stream = str(os.getenv("DECISION_TRACE_DIAG_STREAM") or "stream:signals:diagnostics")
             redis_client.xadd(stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=50000, approximate=True)

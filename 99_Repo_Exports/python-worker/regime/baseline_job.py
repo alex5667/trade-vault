@@ -2,7 +2,7 @@
 """
 Оффлайн-джоб для расчета baseline-квантилей по L3-метрикам.
 
-Вытаскивает данные из Timescale, считает baseline по signal_family
+Вытаскивает данные из Timescale, считает baseline по signal_family,
 генерирует YAML-конфиг для CryptoConfScorer.
 """
 
@@ -34,22 +34,22 @@ class BaselineJobConfig:
 # SQL для вытаскивания сигналов с результатами
 SIGNALS_WITH_PERF_SQL = """
 SELECT
-    s.ts                      AS ts_signal
-    s.signal_id
-    s.symbol
-    s.signal_family
-    s.direction
-    s.conf_score
+    s.ts                      AS ts_signal,
+    s.signal_id,
+    s.symbol,
+    s.signal_family,
+    s.direction,
+    s.conf_score,
 
-    s.l3_spread_bps
-    s.l3_microprice_shift_bps_20
-    s.l3_obi_persistence_score
-    s.l3_cancel_to_trade_bid_5s
-    s.l3_cancel_to_trade_ask_5s
-    s.l3_cancel_to_trade_bid_20s
-    s.l3_cancel_to_trade_ask_20s
+    s.l3_spread_bps,
+    s.l3_microprice_shift_bps_20,
+    s.l3_obi_persistence_score,
+    s.l3_cancel_to_trade_bid_5s,
+    s.l3_cancel_to_trade_ask_5s,
+    s.l3_cancel_to_trade_bid_20s,
+    s.l3_cancel_to_trade_ask_20s,
 
-    t.r
+    t.r,
     t.hit
 FROM signal_facts s
 JOIN trade_performance t
@@ -101,11 +101,11 @@ async def fetch_signals_with_perf(cfg: BaselineJobConfig) -> pd.DataFrame:
 
 
 def compute_group_baseline(
-    g: pd.DataFrame
-    as_of_ts: pd.Timestamp
-    lookback_days: int
-    min_signals: int
-    min_trades: int
+    g: pd.DataFrame,
+    as_of_ts: pd.Timestamp,
+    lookback_days: int,
+    min_signals: int,
+    min_trades: int,
 ) -> Optional[Dict[str, Any]]:
     """
     Расчет baseline для одной группы (symbol, signal_family, direction).
@@ -183,43 +183,43 @@ def compute_group_baseline(
     direction = int(g["direction"].iloc[0])
 
     return {
-        "as_of_ts": as_of_ts
-        "symbol": symbol
-        "signal_family": family
-        "direction": direction
-        "lookback_days": lookback_days
-        "n_signals": int(n_signals)
-        "n_trades": int(n_trades)
-        "hit_rate": float(hit_rate) if not math.isnan(hit_rate) else 0.0
-        "expectancy_r": float(expectancy) if not math.isnan(expectancy) else 0.0
-        "r_p25": float(r_p25) if not math.isnan(r_p25) else 0.0
-        "r_p50": float(r_p50) if not math.isnan(r_p50) else 0.0
-        "r_p75": float(r_p75) if not math.isnan(r_p75) else 0.0
-        "spread_p50": float(spread_p50) if not math.isnan(spread_p50) else 0.0
-        "spread_p80": float(spread_p80) if not math.isnan(spread_p80) else 0.0
-        "spread_p95": float(spread_p95) if not math.isnan(spread_p95) else 0.0
-        "obi_persist_p25": float(obi_p25) if not math.isnan(obi_p25) else 0.0
-        "obi_persist_p50": float(obi_p50) if not math.isnan(obi_p50) else 0.0
-        "obi_persist_p75": float(obi_p75) if not math.isnan(obi_p75) else 0.0
-        "mp_drift_abs_p50": float(mp_abs_p50) if not math.isnan(mp_abs_p50) else 0.0
-        "mp_drift_abs_p80": float(mp_abs_p80) if not math.isnan(mp_abs_p80) else 0.0
-        "canc_bid_p50": float(canc_bid_p50) if not math.isnan(canc_bid_p50) else 0.0
-        "canc_bid_p80": float(canc_bid_p80) if not math.isnan(canc_bid_p80) else 0.0
-        "canc_ask_p50": float(canc_ask_p50) if not math.isnan(canc_ask_p50) else 0.0
-        "canc_ask_p80": float(canc_ask_p80) if not math.isnan(canc_ask_p80) else 0.0
-        "l3_spread_max_ok_bps": l3_spread_max_ok
-        "l3_spread_hard_limit_bps": l3_spread_hard
-        "l3_cancel_soft": canc_soft
-        "l3_cancel_hard": canc_hard
-        "l3_obi_good_min": l3_obi_good_min
-        "l3_obi_bad_max": l3_obi_bad_max
-        "l3_mp_drift_max_bps": l3_mp_drift_max
+        "as_of_ts": as_of_ts,
+        "symbol": symbol,
+        "signal_family": family,
+        "direction": direction,
+        "lookback_days": lookback_days,
+        "n_signals": int(n_signals),
+        "n_trades": int(n_trades),
+        "hit_rate": float(hit_rate) if not math.isnan(hit_rate) else 0.0,
+        "expectancy_r": float(expectancy) if not math.isnan(expectancy) else 0.0,
+        "r_p25": float(r_p25) if not math.isnan(r_p25) else 0.0,
+        "r_p50": float(r_p50) if not math.isnan(r_p50) else 0.0,
+        "r_p75": float(r_p75) if not math.isnan(r_p75) else 0.0,
+        "spread_p50": float(spread_p50) if not math.isnan(spread_p50) else 0.0,
+        "spread_p80": float(spread_p80) if not math.isnan(spread_p80) else 0.0,
+        "spread_p95": float(spread_p95) if not math.isnan(spread_p95) else 0.0,
+        "obi_persist_p25": float(obi_p25) if not math.isnan(obi_p25) else 0.0,
+        "obi_persist_p50": float(obi_p50) if not math.isnan(obi_p50) else 0.0,
+        "obi_persist_p75": float(obi_p75) if not math.isnan(obi_p75) else 0.0,
+        "mp_drift_abs_p50": float(mp_abs_p50) if not math.isnan(mp_abs_p50) else 0.0,
+        "mp_drift_abs_p80": float(mp_abs_p80) if not math.isnan(mp_abs_p80) else 0.0,
+        "canc_bid_p50": float(canc_bid_p50) if not math.isnan(canc_bid_p50) else 0.0,
+        "canc_bid_p80": float(canc_bid_p80) if not math.isnan(canc_bid_p80) else 0.0,
+        "canc_ask_p50": float(canc_ask_p50) if not math.isnan(canc_ask_p50) else 0.0,
+        "canc_ask_p80": float(canc_ask_p80) if not math.isnan(canc_ask_p80) else 0.0,
+        "l3_spread_max_ok_bps": l3_spread_max_ok,
+        "l3_spread_hard_limit_bps": l3_spread_hard,
+        "l3_cancel_soft": canc_soft,
+        "l3_cancel_hard": canc_hard,
+        "l3_obi_good_min": l3_obi_good_min,
+        "l3_obi_bad_max": l3_obi_bad_max,
+        "l3_mp_drift_max_bps": l3_mp_drift_max,
     }
 
 
 def compute_baseline_table(
-    df: pd.DataFrame
-    cfg: BaselineJobConfig
+    df: pd.DataFrame,
+    cfg: BaselineJobConfig,
 ) -> List[Dict[str, Any]]:
     """
     Расчет baseline для всех групп.
@@ -233,11 +233,11 @@ def compute_baseline_table(
 
     for _, g in groups:
         row = compute_group_baseline(
-            g
-            as_of_ts=as_of_ts
-            lookback_days=cfg.lookback_days
-            min_signals=cfg.min_signals
-            min_trades=cfg.min_trades
+            g,
+            as_of_ts=as_of_ts,
+            lookback_days=cfg.lookback_days,
+            min_signals=cfg.min_signals,
+            min_trades=cfg.min_trades,
         )
         if row is not None:
             rows.append(row)
@@ -246,8 +246,8 @@ def compute_baseline_table(
 
 
 async def insert_baseline_rows(
-    cfg: BaselineJobConfig
-    rows: List[Dict[str, Any]]
+    cfg: BaselineJobConfig,
+    rows: List[Dict[str, Any]],
 ) -> None:
     """
     Вставка baseline-строк в TimescaleDB.
@@ -259,32 +259,32 @@ async def insert_baseline_rows(
     try:
         sql = """
         INSERT INTO signal_family_baseline (
-            as_of_ts, symbol, signal_family, direction, lookback_days
-            n_signals, n_trades
-            hit_rate, expectancy_r
-            r_p25, r_p50, r_p75
-            spread_p50, spread_p80, spread_p95
-            obi_persist_p25, obi_persist_p50, obi_persist_p75
-            mp_drift_abs_p50, mp_drift_abs_p80
-            canc_bid_p50, canc_bid_p80
-            canc_ask_p50, canc_ask_p80
-            l3_spread_max_ok_bps, l3_spread_hard_limit_bps
-            l3_cancel_soft, l3_cancel_hard
-            l3_obi_good_min, l3_obi_bad_max
+            as_of_ts, symbol, signal_family, direction, lookback_days,
+            n_signals, n_trades,
+            hit_rate, expectancy_r,
+            r_p25, r_p50, r_p75,
+            spread_p50, spread_p80, spread_p95,
+            obi_persist_p25, obi_persist_p50, obi_persist_p75,
+            mp_drift_abs_p50, mp_drift_abs_p80,
+            canc_bid_p50, canc_bid_p80,
+            canc_ask_p50, canc_ask_p80,
+            l3_spread_max_ok_bps, l3_spread_hard_limit_bps,
+            l3_cancel_soft, l3_cancel_hard,
+            l3_obi_good_min, l3_obi_bad_max,
             l3_mp_drift_max_bps
         ) VALUES (
-            $1,$2,$3,$4,$5
-            $6,$7
-            $8,$9
-            $10,$11,$12
-            $13,$14,$15
-            $16,$17,$18
-            $19,$20
-            $21,$22
-            $23,$24
-            $25,$26
-            $27,$28
-            $29,$30
+            $1,$2,$3,$4,$5,
+            $6,$7,
+            $8,$9,
+            $10,$11,$12,
+            $13,$14,$15,
+            $16,$17,$18,
+            $19,$20,
+            $21,$22,
+            $23,$24,
+            $25,$26,
+            $27,$28,
+            $29,$30,
             $31
         )
         """
@@ -292,38 +292,38 @@ async def insert_baseline_rows(
         async with conn.transaction():
             for r in rows:
                 await conn.execute(
-                    sql
-                    r["as_of_ts"]
-                    r["symbol"]
-                    r["signal_family"]
-                    r["direction"]
-                    r["lookback_days"]
-                    r["n_signals"]
-                    r["n_trades"]
-                    r["hit_rate"]
-                    r["expectancy_r"]
-                    r["r_p25"]
-                    r["r_p50"]
-                    r["r_p75"]
-                    r["spread_p50"]
-                    r["spread_p80"]
-                    r["spread_p95"]
-                    r["obi_persist_p25"]
-                    r["obi_persist_p50"]
-                    r["obi_persist_p75"]
-                    r["mp_drift_abs_p50"]
-                    r["mp_drift_abs_p80"]
-                    r["canc_bid_p50"]
-                    r["canc_bid_p80"]
-                    r["canc_ask_p50"]
-                    r["canc_ask_p80"]
-                    r["l3_spread_max_ok_bps"]
-                    r["l3_spread_hard_limit_bps"]
-                    r["l3_cancel_soft"]
-                    r["l3_cancel_hard"]
-                    r["l3_obi_good_min"]
-                    r["l3_obi_bad_max"]
-                    r["l3_mp_drift_max_bps"]
+                    sql,
+                    r["as_of_ts"],
+                    r["symbol"],
+                    r["signal_family"],
+                    r["direction"],
+                    r["lookback_days"],
+                    r["n_signals"],
+                    r["n_trades"],
+                    r["hit_rate"],
+                    r["expectancy_r"],
+                    r["r_p25"],
+                    r["r_p50"],
+                    r["r_p75"],
+                    r["spread_p50"],
+                    r["spread_p80"],
+                    r["spread_p95"],
+                    r["obi_persist_p25"],
+                    r["obi_persist_p50"],
+                    r["obi_persist_p75"],
+                    r["mp_drift_abs_p50"],
+                    r["mp_drift_abs_p80"],
+                    r["canc_bid_p50"],
+                    r["canc_bid_p80"],
+                    r["canc_ask_p50"],
+                    r["canc_ask_p80"],
+                    r["l3_spread_max_ok_bps"],
+                    r["l3_spread_hard_limit_bps"],
+                    r["l3_cancel_soft"],
+                    r["l3_cancel_hard"],
+                    r["l3_obi_good_min"],
+                    r["l3_obi_bad_max"],
+                    r["l3_mp_drift_max_bps"],
                 )
     finally:
         await conn.close()
@@ -344,13 +344,13 @@ def build_yaml_config(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         return float(values.median()) if not values.empty else default
 
     default_l3 = {
-        "spread_max_ok_bps": median_or_default("l3_spread_max_ok_bps", 5.0)
-        "spread_hard_limit_bps": median_or_default("l3_spread_hard_limit_bps", 20.0)
-        "cancel_soft": median_or_default("l3_cancel_soft", 2.0)
-        "cancel_hard": median_or_default("l3_cancel_hard", 5.0)
-        "obi_good_min": median_or_default("l3_obi_good_min", 0.5)
-        "obi_bad_max": median_or_default("l3_obi_bad_max", 0.2)
-        "mp_drift_max_bps": median_or_default("l3_mp_drift_max_bps", 5.0)
+        "spread_max_ok_bps": median_or_default("l3_spread_max_ok_bps", 5.0),
+        "spread_hard_limit_bps": median_or_default("l3_spread_hard_limit_bps", 20.0),
+        "cancel_soft": median_or_default("l3_cancel_soft", 2.0),
+        "cancel_hard": median_or_default("l3_cancel_hard", 5.0),
+        "obi_good_min": median_or_default("l3_obi_good_min", 0.5),
+        "obi_bad_max": median_or_default("l3_obi_bad_max", 0.2),
+        "mp_drift_max_bps": median_or_default("l3_mp_drift_max_bps", 5.0),
     }
 
     # По символам и фемили — overrides
@@ -361,13 +361,13 @@ def build_yaml_config(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         row = g.iloc[0]  # baseline на группу уже один
 
         l3 = {
-            "spread_max_ok_bps": float(row["l3_spread_max_ok_bps"])
-            "spread_hard_limit_bps": float(row["l3_spread_hard_limit_bps"])
-            "cancel_soft": float(row["l3_cancel_soft"])
-            "cancel_hard": float(row["l3_cancel_hard"])
-            "obi_good_min": float(row["l3_obi_good_min"])
-            "obi_bad_max": float(row["l3_obi_bad_max"])
-            "mp_drift_max_bps": float(row["l3_mp_drift_max_bps"])
+            "spread_max_ok_bps": float(row["l3_spread_max_ok_bps"]),
+            "spread_hard_limit_bps": float(row["l3_spread_hard_limit_bps"]),
+            "cancel_soft": float(row["l3_cancel_soft"]),
+            "cancel_hard": float(row["l3_cancel_hard"]),
+            "obi_good_min": float(row["l3_obi_good_min"]),
+            "obi_bad_max": float(row["l3_obi_bad_max"]),
+            "mp_drift_max_bps": float(row["l3_mp_drift_max_bps"]),
         }
 
         dir_key = {+1: "long", -1: "short", 0: "neutral"}.get(direction, "neutral")
@@ -378,8 +378,8 @@ def build_yaml_config(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {
         "crypto_conf_scorer": {
-            "default": {"l3": default_l3}
-            "by_symbol": by_symbol
+            "default": {"l3": default_l3},
+            "by_symbol": by_symbol,
         }
     }
 
@@ -400,12 +400,12 @@ async def run_baseline_job() -> None:
     Основная функция джоба.
     """
     cfg = BaselineJobConfig(
-        pg_dsn=os.environ.get("ANALYTICS_DB_DSN", os.environ.get("DATABASE_URL"))
-        lookback_days=int(os.getenv("BASELINE_LOOKBACK_DAYS", "60"))
-        min_signals=int(os.getenv("BASELINE_MIN_SIGNALS", "200"))
-        min_trades=int(os.getenv("BASELINE_MIN_TRADES", "50"))
-        yaml_output_path=os.getenv("BASELINE_YAML_PATH", "crypto_conf_scorer_baseline.yaml")
-        insert_to_db=os.getenv("BASELINE_INSERT_DB", "1") == "1"
+        pg_dsn=os.environ.get("ANALYTICS_DB_DSN", os.environ.get("DATABASE_URL")),
+        lookback_days=int(os.getenv("BASELINE_LOOKBACK_DAYS", "60")),
+        min_signals=int(os.getenv("BASELINE_MIN_SIGNALS", "200")),
+        min_trades=int(os.getenv("BASELINE_MIN_TRADES", "50")),
+        yaml_output_path=os.getenv("BASELINE_YAML_PATH", "crypto_conf_scorer_baseline.yaml"),
+        insert_to_db=os.getenv("BASELINE_INSERT_DB", "1") == "1",
     )
 
     print(f"Starting baseline job: lookback={cfg.lookback_days}d, min_signals={cfg.min_signals}")
@@ -448,7 +448,7 @@ class SignalFamilyBaselineJob:
         """Запустить джоб с текущей конфигурацией"""
         # Сохраняем старую конфигурацию и устанавливаем новую
         old_env = {}
-        for key in ["DATABASE_URL", "BASELINE_LOOKBACK_DAYS", "BASELINE_MIN_SIGNALS"
+        for key in ["DATABASE_URL", "BASELINE_LOOKBACK_DAYS", "BASELINE_MIN_SIGNALS",
                     "BASELINE_MIN_TRADES", "BASELINE_YAML_PATH", "BASELINE_INSERT_DB"]:
             old_env[key] = os.environ.get(key)
 

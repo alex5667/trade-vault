@@ -26,16 +26,16 @@ class FakeRedis:
 
 def _report(ok: bool, errors: list[str] | None = None):
     return {
-        'ok': ok
-        'errors': list(errors or [])
-        'warnings': []
+        'ok': ok,
+        'errors': list(errors or []),
+        'warnings': [],
         'checks': {
-            'compose_file': '/tmp/compose.yml'
-            'wrapper_file': '/tmp/wrapper.sh'
-            'unit_file': '/tmp/unit.service'
-            'env_file': '/tmp/env'
-            'missing_runtime_env': []
-            'missing_env_file_vars': []
+            'compose_file': '/tmp/compose.yml',
+            'wrapper_file': '/tmp/wrapper.sh',
+            'unit_file': '/tmp/unit.service',
+            'env_file': '/tmp/env',
+            'missing_runtime_env': [],
+            'missing_env_file_vars': [],
         }
     }
 
@@ -43,14 +43,14 @@ def _report(ok: bool, errors: list[str] | None = None):
 def test_transient_failure_does_not_activate_gate() -> None:
     r = FakeRedis()
     mapping = update_deploy_lint_state(
-        r
-        purpose='meta_cov_rollout_controller'
-        report=_report(False, ['missing_runtime_env:X'])
-        state_prefix='metrics:latency_contract:deploy_lint:last'
-        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate'
-        hold_s=300
-        ttl_s=3600
-        now_ms=1_000
+        r,
+        purpose='meta_cov_rollout_controller',
+        report=_report(False, ['missing_runtime_env:X']),
+        state_prefix='metrics:latency_contract:deploy_lint:last',
+        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
+        hold_s=300,
+        ttl_s=3600,
+        now_ms=1_000,
     )
     assert mapping['ok'] == '0'
     assert mapping['gate_active'] == '0'
@@ -61,38 +61,38 @@ def test_transient_failure_does_not_activate_gate() -> None:
 def test_persistent_failure_activates_gate_and_success_clears_it() -> None:
     r = FakeRedis()
     update_deploy_lint_state(
-        r
-        purpose='meta_cov_rollout_controller'
-        report=_report(False, ['wrapper_wrong_compose_file'])
-        state_prefix='metrics:latency_contract:deploy_lint:last'
-        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate'
-        hold_s=300
-        ttl_s=3600
-        now_ms=1_000
+        r,
+        purpose='meta_cov_rollout_controller',
+        report=_report(False, ['wrapper_wrong_compose_file']),
+        state_prefix='metrics:latency_contract:deploy_lint:last',
+        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
+        hold_s=300,
+        ttl_s=3600,
+        now_ms=1_000,
     )
     mapping = update_deploy_lint_state(
-        r
-        purpose='meta_cov_rollout_controller'
-        report=_report(False, ['wrapper_wrong_compose_file'])
-        state_prefix='metrics:latency_contract:deploy_lint:last'
-        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate'
-        hold_s=300
-        ttl_s=3600
-        now_ms=305_000
+        r,
+        purpose='meta_cov_rollout_controller',
+        report=_report(False, ['wrapper_wrong_compose_file']),
+        state_prefix='metrics:latency_contract:deploy_lint:last',
+        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
+        hold_s=300,
+        ttl_s=3600,
+        now_ms=305_000,
     )
     gkey = gate_key('cfg:orderflow:latency_contract:deploy_lint_gate', 'meta_cov_rollout_controller')
     assert mapping['gate_active'] == '1'
     assert r.hashes[gkey]['gate_reason_code'] == 'persistent_config_drift'
 
     cleared = update_deploy_lint_state(
-        r
-        purpose='meta_cov_rollout_controller'
-        report=_report(True)
-        state_prefix='metrics:latency_contract:deploy_lint:last'
-        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate'
-        hold_s=300
-        ttl_s=3600
-        now_ms=400_000
+        r,
+        purpose='meta_cov_rollout_controller',
+        report=_report(True),
+        state_prefix='metrics:latency_contract:deploy_lint:last',
+        gate_prefix='cfg:orderflow:latency_contract:deploy_lint_gate',
+        hold_s=300,
+        ttl_s=3600,
+        now_ms=400_000,
     )
     assert cleared['ok'] == '1'
     assert cleared['gate_active'] == '0'

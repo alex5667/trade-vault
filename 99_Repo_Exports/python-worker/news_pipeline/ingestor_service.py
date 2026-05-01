@@ -84,13 +84,13 @@ def normalize_news_item(raw: Dict[str, Any]) -> Optional[NewsRawItem]:
             uid = make_news_uid(source, url, title, ts_ms, config.NEWS_TS_BUCKET_SEC)
 
         return NewsRawItem(
-            uid=str(uid)
-            source=source
-            url=url
-            title=title
-            ts_ms=ts_ms
-            symbols=[str(s) for s in symbols][:50]
-            payload=payload
+            uid=str(uid),
+            source=source,
+            url=url,
+            title=title,
+            ts_ms=ts_ms,
+            symbols=[str(s) for s in symbols][:50],
+            payload=payload,
         )
     except Exception:
         return None
@@ -118,14 +118,14 @@ def normalize_calendar_event(raw: Dict[str, Any]) -> Optional[CalendarEvent]:
             payload = {}
 
         return CalendarEvent(
-            event_id=event_id
-            title=title
-            ts_ms=ts_ms
-            grade_id=grade_id
-            currency=currency
-            region=region
-            symbols=[str(s) for s in symbols][:50]
-            payload=payload
+            event_id=event_id,
+            title=title,
+            ts_ms=ts_ms,
+            grade_id=grade_id,
+            currency=currency,
+            region=region,
+            symbols=[str(s) for s in symbols][:50],
+            payload=payload,
         )
     except Exception:
         return None
@@ -145,11 +145,11 @@ class NewsIngestorService:
     """
 
     def __init__(
-        self
-        r: redis.Redis
-        news_sources: List[NewsSource]
-        calendar_sources: List[CalendarSource]
-        poll_sec: float = 10.0
+        self,
+        r: redis.Redis,
+        news_sources: List[NewsSource],
+        calendar_sources: List[CalendarSource],
+        poll_sec: float = 10.0,
     ) -> None:
         self.r = r
         self.news_sources = news_sources
@@ -187,10 +187,10 @@ class NewsIngestorService:
                     continue
 
                 xadd_trim(
-                    self.r
-                    config.NEWS_RAW_STREAM
-                    item.to_stream_fields()
-                    maxlen=config.NEWS_MAXLEN
+                    self.r,
+                    config.NEWS_RAW_STREAM,
+                    item.to_stream_fields(),
+                    maxlen=config.NEWS_MAXLEN,
                 )
 
         # CALENDAR
@@ -206,8 +206,8 @@ class NewsIngestorService:
                 if not ev:
                     continue
                 xadd_trim(
-                    self.r
-                    config.CALENDAR_EVENTS_STREAM
-                    ev.to_stream_fields()
-                    maxlen=config.NEWS_MAXLEN
+                    self.r,
+                    config.CALENDAR_EVENTS_STREAM,
+                    ev.to_stream_fields(),
+                    maxlen=config.NEWS_MAXLEN,
                 )

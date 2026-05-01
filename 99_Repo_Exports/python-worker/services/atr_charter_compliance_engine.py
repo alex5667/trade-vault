@@ -111,12 +111,12 @@ class ATRCharterComplianceEngine:
             evidence["error"] = str(e)
 
         return {
-            "rule_id": rule["rule_id"]
-            "context_kind": context_kind
-            "context_ref": context_ref
-            "status": status
-            "severity": rule["severity"]
-            "reason_code": reason_code
+            "rule_id": rule["rule_id"],
+            "context_kind": context_kind,
+            "context_ref": context_ref,
+            "status": status,
+            "severity": rule["severity"],
+            "reason_code": reason_code,
             "evidence_json": evidence
         }
 
@@ -189,14 +189,14 @@ class ATRCharterComplianceEngine:
             overall_status = "warning"
             
         return {
-            "bundle_id": self.generate_id("bundle")
-            "context_kind": context_kind
-            "context_ref": context_ref
-            "overall_status": overall_status
+            "bundle_id": self.generate_id("bundle"),
+            "context_kind": context_kind,
+            "context_ref": context_ref,
+            "overall_status": overall_status,
             "summary_json": {
-                "total_rules": len(results)
-                "passed": len([r for r in results if r["status"] == "passed"])
-                "failed": len(failed_rules)
+                "total_rules": len(results),
+                "passed": len([r for r in results if r["status"] == "passed"]),
+                "failed": len(failed_rules),
                 "failed_ids": [r["rule_id"] for r in failed_rules]
             }
         }

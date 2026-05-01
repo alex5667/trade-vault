@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 Unit tests for Phase E / P4: MessageRateTracker
 
 test_message_rate_tracker_p4_v1.py
 """
-from __future__ import annotations
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -176,13 +176,13 @@ class TestSnapshot:
         t = _make_tracker()
         s = t.snapshot()
         assert set(s.keys()) == {
-            "book_update_rate_hz"
-            "book_update_rate_z"
-            "trade_msg_rate_hz"
-            "trade_msg_rate_z"
-            "cancel_rate_z"
-            "otr"
-            "otr_z"
+            "book_update_rate_hz",
+            "book_update_rate_z",
+            "trade_msg_rate_hz",
+            "trade_msg_rate_z",
+            "cancel_rate_z",
+            "otr",
+            "otr_z",
         }
 
     def test_snapshot_all_float(self):

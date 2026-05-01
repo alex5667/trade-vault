@@ -2,7 +2,7 @@ from utils.time_utils import get_ny_time_millis
 """
 Optional dedicated retry pump (if you prefer separating concerns).
 
-If you run N dispatchers and want less variability in retry timing
+If you run N dispatchers and want less variability in retry timing,
 you can run exactly 1 scheduler instance (or many with leases - safe).
 """
 
@@ -92,15 +92,15 @@ class SignalRetryScheduler:
         sha = self._ensure()
         try:
             res = self.redis.evalsha(
-                sha, 2
-                self.retry_schedule_zset, self.outbox_stream
-                str(now_ms), str(self.batch), self.retry_lease_prefix, str(self.lease_ttl_ms), str(self.outbox_maxlen)
+                sha, 2,
+                self.retry_schedule_zset, self.outbox_stream,
+                str(now_ms), str(self.batch), self.retry_lease_prefix, str(self.lease_ttl_ms), str(self.outbox_maxlen),
             )
         except Exception:
             res = self.redis.eval(
-                _LUA_PUMP_RETRY_DUE_TO_OUTBOX, 2
-                self.retry_schedule_zset, self.outbox_stream
-                str(now_ms), str(self.batch), self.retry_lease_prefix, str(self.lease_ttl_ms), str(self.outbox_maxlen)
+                _LUA_PUMP_RETRY_DUE_TO_OUTBOX, 2,
+                self.retry_schedule_zset, self.outbox_stream,
+                str(now_ms), str(self.batch), self.retry_lease_prefix, str(self.lease_ttl_ms), str(self.outbox_maxlen),
             )
         if res and isinstance(res, (list, tuple)) and len(res) >= 3:
             moved, missing, leased = int(res[0] or 0), int(res[1] or 0), int(res[2] or 0)

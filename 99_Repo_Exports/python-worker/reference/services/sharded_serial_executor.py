@@ -41,13 +41,13 @@ class ShardedSerialExecutor:
     """
 
     def __init__(
-        self
-        *
-        shards: int = 8
-        queue_max: int = 20000
-        submit_timeout_s: float = 2.0
-        name: str = "SymbolExec"
-        logger=None
+        self,
+        *,
+        shards: int = 8,
+        queue_max: int = 20000,
+        submit_timeout_s: float = 2.0,
+        name: str = "SymbolExec",
+        logger=None,
     ):
         self.shards = max(1, int(shards))
         self.queue_max = max(1, int(queue_max))
@@ -63,10 +63,10 @@ class ShardedSerialExecutor:
 
         for i in range(self.shards):
             t = threading.Thread(
-                target=self._run_shard
-                args=(i,)
-                name=f"{self.name}-shard-{i}"
-                daemon=True
+                target=self._run_shard,
+                args=(i,),
+                name=f"{self.name}-shard-{i}",
+                daemon=True,
             )
             t.start()
             self._threads.append(t)
@@ -96,11 +96,11 @@ class ShardedSerialExecutor:
         k = str(key or "unknown")
         fut: Future = Future()
         task = _Task(
-            key=k
-            name=name or "task"
-            fn=fn
-            fut=fut
-            enqueued_ts=time.time()
+            key=k,
+            name=name or "task",
+            fn=fn,
+            fut=fut,
+            enqueued_ts=time.time(),
         )
 
         shard = self._pick_shard(k)
@@ -162,8 +162,8 @@ class ShardedSerialExecutor:
     def snapshot_stats(self) -> Dict[str, int]:
         with self._stats_lock:
             return {
-                "submitted": int(self.stats.submitted)
-                "executed": int(self.stats.executed)
-                "failed": int(self.stats.failed)
-                "queue_full": int(self.stats.queue_full)
+                "submitted": int(self.stats.submitted),
+                "executed": int(self.stats.executed),
+                "failed": int(self.stats.failed),
+                "queue_full": int(self.stats.queue_full),
             }

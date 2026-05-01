@@ -14,12 +14,12 @@ from services.orderflow.liquidity_resiliency import LiquidityResiliencyTracker
 class TestLiquidityResiliencyV1(unittest.TestCase):
     def _make_tracker(self, **kwargs) -> LiquidityResiliencyTracker:
         defaults = dict(
-            ema_alpha=0.5
-            stress_spread_mult=1.5
-            stress_depth_drop_frac=0.5
-            recover_spread_mult=1.1
-            recover_depth_drop_frac=0.2
-            recover_hold_ms=200
+            ema_alpha=0.5,
+            stress_spread_mult=1.5,
+            stress_depth_drop_frac=0.5,
+            recover_spread_mult=1.1,
+            recover_depth_drop_frac=0.2,
+            recover_hold_ms=200,
         )
         defaults.update(kwargs)
         return LiquidityResiliencyTracker(**defaults)
@@ -96,8 +96,8 @@ class TestLiquidityResiliencyV1(unittest.TestCase):
         tr = self._make_tracker()
         out = tr.update(ts_ms=1000, spread_bps=1.0, depth_usd=10_000.0)
         expected_keys = {
-            "liq_stress_active", "liq_recovery_time_ms", "liq_fragility_score"
-            "liq_spread_ema", "liq_depth_ema_usd", "liq_spread_ratio", "liq_depth_ratio"
+            "liq_stress_active", "liq_recovery_time_ms", "liq_fragility_score",
+            "liq_spread_ema", "liq_depth_ema_usd", "liq_spread_ratio", "liq_depth_ratio",
         }
         for k in expected_keys:
             self.assertIn(k, out, f"Missing key: {k}")

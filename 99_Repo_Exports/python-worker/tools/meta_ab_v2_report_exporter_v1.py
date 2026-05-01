@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Meta AB v2 — Prometheus exporter (v1)
 
 Reads the JSON report produced by `tools.meta_ab_v2_nightly_job_v1` and exposes
@@ -18,7 +19,6 @@ Env:
   META_AB_V2_STALE_AFTER_H          Staleness threshold hours (default 30)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

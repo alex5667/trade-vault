@@ -57,11 +57,11 @@ async def tg_send_text(text: str, parse: str = "HTML") -> bool:
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.post(
-                f"{TELEGRAM_API}/sendMessage"
+                f"{TELEGRAM_API}/sendMessage",
                 json={
-                    "chat_id": CHAT_ID
-                    "text": text
-                    "parse_mode": parse
+                    "chat_id": CHAT_ID,
+                    "text": text,
+                    "parse_mode": parse,
                 }
             )
             return response.status_code == 200
@@ -89,11 +89,11 @@ async def tg_send_photo_by_url(url: str, caption: str = "") -> bool:
             
             # Send to Telegram
             response = await client.post(
-                f"{TELEGRAM_API}/sendPhoto"
-                data={
-                    "chat_id": CHAT_ID
-                    "caption": caption
-                }
+#                 f"{TELEGRAM_API}/sendPhoto",,
+#                 data={
+#                     "chat_id": CHAT_ID,
+#                     "caption": caption
+#                 }
                 files={
                     "photo": ("obi.png", img_response.content, "image/png")
                 }
@@ -152,8 +152,8 @@ async def notify(req: Request):
     photo_sent = await tg_send_photo_by_url(url, caption=f"📊 {symbol} OBI Timeline")
     
     return JSONResponse({
-        "ok": True
-        "text_sent": text_sent
+        "ok": True,
+        "text_sent": text_sent,
         "photo_sent": photo_sent
     })
 
@@ -162,9 +162,9 @@ async def notify(req: Request):
 def health():
     """Health check."""
     return {
-        "ok": True
-        "service": "notify-bridge"
-        "telegram_api": TELEGRAM_API.split(BOT_TOKEN)[0] + "***"
+        "ok": True,
+        "service": "notify-bridge",
+        "telegram_api": TELEGRAM_API.split(BOT_TOKEN)[0] + "***",
         "chat_id": CHAT_ID
     }
 
@@ -184,9 +184,9 @@ if __name__ == "__main__":
     print()
     
     uvicorn.run(
-        "services.notify_bridge:app"
-        host="127.0.0.1"
-        port=PORT
+        "services.notify_bridge:app",
+        host="127.0.0.1",
+        port=PORT,
         reload=False
     )
 

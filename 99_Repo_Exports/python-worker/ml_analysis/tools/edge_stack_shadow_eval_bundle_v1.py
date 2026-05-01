@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """P60 Edge Stack Shadow Eval Bundle.
 
 Runs nightly:
@@ -21,7 +22,6 @@ Usage:
   python -m ml_analysis.tools.edge_stack_shadow_eval_bundle_v1 [--window_hours 24] [--auto_promote_guarded 0]
 """
 
-from __future__ import annotations
 
 import argparse
 import json

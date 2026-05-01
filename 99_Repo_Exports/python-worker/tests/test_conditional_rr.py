@@ -64,7 +64,7 @@ class TestConditionalTrueRR(unittest.TestCase):
             "STOP_ATR_MULT_BASE": 0.8,
             "STOP_ATR_MULT": 0.84, # ratio = 0.84 / 0.8 = 1.05
             "TP_MODE": "RR",
-            "TP_RR": "1.0, 2.0, 3.0"
+            "TP_RR": "1.0, 2.0, 3.0",
         }
         
         res = compute_levels(entry, atr, side, cfg, symbol="TEST_C")
@@ -81,7 +81,7 @@ class TestConditionalTrueRR(unittest.TestCase):
             "STOP_MODE": "ATR",
             "STOP_ATR_MULT_BASE": 0.8,
             "STOP_ATR_MULT": 0.6, # ratio = 0.75
-            "TP_MODE": "RR"
+            "TP_MODE": "RR",
         }
         
         res = compute_levels(entry, atr, side, cfg, symbol="TEST_D")

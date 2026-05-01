@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 EntryPolicyOverridesV1
 Strict schema for runtime overrides consumed by smt_entry_policy_service.
@@ -11,7 +12,6 @@ Design goals:
   - supports hold-down & hysteresis in consumer service
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Tuple, Optional
@@ -63,7 +63,7 @@ class EntryPolicyOverridesV1:
     enabled: int = 1
 
     # ---- scope (optional; empty => broader scope) ----
-    symbol: str = ""          # BTCUSDT; empty => any symbol
+    symbol=""          # BTCUSDT; empty => any symbol
     regime: str = "na"        # thin/range/trend/...
     scenario: str = ""        # continuation/reversal; empty => any
     group: str = "default"    # default/thin/... (AB group)

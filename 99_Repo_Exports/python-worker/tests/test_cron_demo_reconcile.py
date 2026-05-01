@@ -1,7 +1,7 @@
+from __future__ import annotations
 """
 Tests for tools/cron_demo_reconcile.py  —  SL/TP coverage + reconcile logic.
 """
-from __future__ import annotations
 
 import pytest
 from typing import Any, Dict, List

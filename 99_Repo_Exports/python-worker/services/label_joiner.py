@@ -24,20 +24,20 @@ class LabelJoinerService:
         self.decision_store = DecisionStore(redis_client=self.redis)
         
         self.policy = WorkerPolicy(
-            ack_mode="lossless"
-            read_count=50
-            block_ms=2000
+            ack_mode="lossless",
+            read_count=50,
+            block_ms=2000,
             dlq_stream="dlq:label_joiner"
         )
         
         self.worker = StreamWorker(
-            name="label-joiner"
-            client=self.redis
-            group="scanner-label-joiner"
-            consumer="worker-1"
-            build_streams=lambda: [RS.EVENTS_TRADES]
-            process=self.process_trade_event
-            policy=self.policy
+            name="label-joiner",
+            client=self.redis,
+            group="scanner-label-joiner",
+            consumer="worker-1",
+            build_streams=lambda: [RS.EVENTS_TRADES],
+            process=self.process_trade_event,
+            policy=self.policy,
             logger=logger
         )
 
@@ -137,21 +137,21 @@ class LabelJoinerService:
             result = "BE"
             
         return {
-            "result": result
-            "r_multiple": r_mult
-            "pnl": pnl
-            "entry_price": entry
-            "exit_price": exit_price
+            "result": result,
+            "r_multiple": r_mult,
+            "pnl": pnl,
+            "entry_price": entry,
+            "exit_price": exit_price,
             "close_ts": int(trade.get("exit_ts_ms", 0) or get_ny_time_millis())
         }
 
     def _publish_closed_trade(
-        self
-        decision: DecisionRecord
-        metrics: Dict[str, Any]
-        trade: Dict[str, Any]
-        *
-        trace_id: str = ""
+        self,
+        decision: DecisionRecord,
+        metrics: Dict[str, Any],
+        trade: Dict[str, Any],
+        *,
+        trace_id: str = "",
     ) -> None:
         """
         Publishes to trades:closed for monitoring.
@@ -159,37 +159,37 @@ class LabelJoinerService:
         to maintain end-to-end traceability (Go → Python → NestJS).
         """
         out = {
-            "sid": decision.sid
-            "symbol": decision.symbol
-            "result": metrics["result"]
-            "r_multiple": str(metrics["r_multiple"])
-            "pnl": str(metrics["pnl"])
-            "rule_score": str(decision.rule_score)
-            "ml_prob": str(decision.ml_prob)
-            "final_permit": str(decision.final_permit)
-            "ts_decision": str(decision.ts)
-            "ts_close": str(metrics["close_ts"])
-            "trace_id": trace_id
+            "sid": decision.sid,
+            "symbol": decision.symbol,
+            "result": metrics["result"],
+            "r_multiple": str(metrics["r_multiple"]),
+            "pnl": str(metrics["pnl"]),
+            "rule_score": str(decision.rule_score),
+            "ml_prob": str(decision.ml_prob),
+            "final_permit": str(decision.final_permit),
+            "ts_decision": str(decision.ts),
+            "ts_close": str(metrics["close_ts"]),
+            "trace_id": trace_id,
         }
         self.redis.xadd(RS.TRADES_CLOSED, out, maxlen=10000)
 
     def _publish_ml_replay(
-        self
-        decision: DecisionRecord
-        metrics: Dict[str, Any]
-        trade: Dict[str, Any]
-        *
-        trace_id: str = ""
+        self,
+        decision: DecisionRecord,
+        metrics: Dict[str, Any],
+        trade: Dict[str, Any],
+        *,
+        trace_id: str = "",
     ) -> None:
         """
         Publishes to ml_replay_inputs_v1 for dataset collection.
         trace_id is included so replay audit can correlate decision → trade → outcome.
         """
         data = {
-            "decision": decision.to_dict()
-            "trade": trade
-            "label": metrics
-            "trace_id": trace_id
+            "decision": decision.to_dict(),
+            "trade": trade,
+            "label": metrics,
+            "trace_id": trace_id,
         }
         self.redis.xadd("ml_replay_inputs_v1", {"json": json.dumps(data)}, maxlen=200000)
 

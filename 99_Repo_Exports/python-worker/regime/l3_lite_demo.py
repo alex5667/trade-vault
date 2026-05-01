@@ -13,8 +13,8 @@ from utils.time_utils import get_ny_time_millis
 import time
 import logging
 from regime import (
-    L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot
-    CryptoConfScorer, CryptoConfScorerConfig
+    L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot,
+    CryptoConfScorer, CryptoConfScorerConfig,
     SignalQualityMonitor
 )
 
@@ -27,49 +27,47 @@ def simulate_l3_stream(symbol: str = "BTCUSDT"):
     """
     Симуляция L3-Lite потока для демонстрации.
     В реальности данные приходят из Redis/MQTT/Kafka стримов.
-    """
-    logger.info(f"🚀 Starting L3-Lite stream simulation for {symbol}")
+    """,
+    logger.info(f"🚀 Starting L3-Lite stream simulation for {symbol}"),
 
     # Инициализация компонентов
     l3_agg = L3LiteMetricsAggregator(
-        microprice_horizon_sec=20
-        obi_persistence_sec=30
-    )
+        microprice_horizon_sec=20,
+        obi_persistence_sec=30,
+    ),
 
     # Конфигурация для BTCUSDT (ужесточенная)
-    l3_cfg = CryptoConfScorerConfig()
-    conf_scorer = CryptoConfScorer(l3_cfg)
+    l3_cfg = CryptoConfScorerConfig(),
+    conf_scorer = CryptoConfScorer(l3_cfg),
 
-    quality_monitor = SignalQualityMonitor(max_history_days=7)
+    quality_monitor = SignalQualityMonitor(max_history_days=7),
 
     # Базовая книга для симуляции
     base_book = BookSnapshot(
-        ts_ms=get_ny_time_millis()
+        ts_ms=get_ny_time_millis(),
         bids=[
-            (49999.0, 1.0), (49998.0, 2.0), (49997.0, 1.5)
-            (49996.0, 3.0), (49995.0, 2.5), (49994.0, 1.8)
-            (49993.0, 2.2), (49992.0, 1.7), (49991.0, 2.8), (49990.0, 1.9)
-        ]
+            (49999.0, 1.0), (49998.0, 2.0), (49997.0, 1.5),
+            (49996.0, 3.0), (49995.0, 2.5), (49994.0, 1.8),
+            (49993.0, 2.2), (49992.0, 1.7), (49991.0, 2.8), (49990.0, 1.9)],
         asks=[
-            (50001.0, 1.0), (50002.0, 2.0), (50003.0, 1.5)
-            (50004.0, 3.0), (50005.0, 2.5), (50006.0, 1.8)
-            (50007.0, 2.2), (50008.0, 1.7), (50009.0, 2.8), (50010.0, 1.9)
-        ]
+            (50001.0, 1.0), (50002.0, 2.0), (50003.0, 1.5),
+            (50004.0, 3.0), (50005.0, 2.5), (50006.0, 1.8),
+            (50007.0, 2.2), (50008.0, 1.7), (50009.0, 2.8), (50010.0, 1.9)]
     )
 
     # Симуляция потока событий
     events_sequence = [
         # Торги (активность)
         [L3LiteEvent(ts_ms=base_book.ts_ms + i*100, kind="trade", side="bid", price=49999.0, qty=0.1 + i*0.05)
-         for i in range(10)]
+         for i in range(10)],
 
         # Отмены (давление на bid)
         [L3LiteEvent(ts_ms=base_book.ts_ms + 2000 + i*150, kind="cancel", side="bid", price=49998.0, qty=0.2 + i*0.1)
-         for i in range(8)]
+         for i in range(8)],
 
         # Торги на ask (баланс)
         [L3LiteEvent(ts_ms=base_book.ts_ms + 4000 + i*200, kind="trade", side="ask", price=50001.0, qty=0.15 + i*0.03)
-         for i in range(6)]
+         for i in range(6)],
     ]
 
     # Обработка событий
@@ -81,8 +79,8 @@ def simulate_l3_stream(symbol: str = "BTCUSDT"):
         # Обновление книги после каждой партии событий
         current_time = event_batch[-1].ts_ms
         updated_book = BookSnapshot(
-            ts_ms=current_time
-            bids=base_book.bids
+            ts_ms=current_time,
+            bids=base_book.bids,
             asks=base_book.asks
         )
         l3_agg.on_book_update(updated_book)
@@ -132,17 +130,17 @@ def simulate_l3_stream(symbol: str = "BTCUSDT"):
         logger.info(".3f")
         # Запись в монитор качества
         quality_monitor.record_signal(
-            signal_id=f"demo_{symbol}_{int(time.time())}"
-            symbol=symbol
-            family="crypto_orderflow"
-            ctx=ctx
+            signal_id=f"demo_{symbol}_{int(time.time())}",
+            symbol=symbol,
+            family="crypto_orderflow",
+            ctx=ctx,
             raw_score=2.5,  # mock
             final_score=2.5 * (1.0 + confidence * 0.1),  # mock
         )
 
         # Имитация результата
         quality_monitor.record_result(
-            signal_id=f"demo_{symbol}_{int(time.time())}"
+            signal_id=f"demo_{symbol}_{int(time.time())}",
             pnl_r=0.8  # прибыль
         )
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Unit-тесты контракта fill_event (A3).
 
 Покрывают:
@@ -9,7 +10,6 @@
   pytest python-worker/tests/test_fill_event_contract.py -v
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import time
@@ -35,7 +35,7 @@ def _base_fill(**overrides: Any) -> Dict[str, Any]:
         "qty": 0.10,
         "fee_bps": 2.5,
         "venue": "binance",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "side": "LONG",
     }
     base.update(overrides)

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Unit tests for MLScoringGate — ML Scorer V2 runtime inference.
 
@@ -9,7 +10,6 @@ Tests:
   - shadow mode returns rule-based result with ml_shadow_* parts
   - score returns None when model unavailable
 """
-from __future__ import annotations
 
 import math
 import os

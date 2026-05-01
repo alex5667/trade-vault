@@ -43,7 +43,7 @@ def _make_proposal_fields(
         "sl": 64000.0,
         "tp_levels": [65000.0, 65500.0],
         "qty": 1.0,
-    }
+    },
     if extra:
         payload.update(extra)
     return {"payload": json.dumps(payload)}
@@ -63,7 +63,7 @@ def _make_confirm_fields(
         "score": score,
         "ts_ms": ts_ms or get_ny_time_millis(),
         "reason": "delta_z_confirmed",
-    }
+    },
     return {"payload": json.dumps(payload)}
 
 

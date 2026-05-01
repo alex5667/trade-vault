@@ -265,7 +265,7 @@ class ExecutionBootstrapSupervisor:
 
         Freshness anchors (highest non-zero wins):
           last_event_ms, last_ingest_ms, last_keepalive_ms,
-          ws_connected_ms, listen_key_started_ms
+          ws_connected_ms, listen_key_started_ms,
 
         Bootstrap grace allows a briefly-connected WS to be considered
         ready even before the first event arrives, provided:

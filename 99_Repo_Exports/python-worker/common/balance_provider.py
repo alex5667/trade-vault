@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 BalanceProvider — динамический источник баланса счёта для сайзинга позиций.
 
@@ -14,7 +15,6 @@ ENV:
   ACCOUNT_DEPOSIT_USD       статичный fallback в USDT                      (default: 1000)
   ACCOUNT_SNAPSHOT_KEY      Redis-ключ snapshot                             (default: account:snapshot:binance_usdtm)
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

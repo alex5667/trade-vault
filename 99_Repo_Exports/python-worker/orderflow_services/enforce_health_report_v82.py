@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P82: Unified health report for enforce-bucket automation.
 
 Writes a single JSON file suitable for dashboards and SRE on-call.
@@ -21,7 +22,6 @@ ENV:
   ENFORCE_REDIS_STREAM, ENFORCE_DB_VIEW_NAME, ENFORCE_DB_VIEW_TS_COL (see gates module)
 """
 
-from __future__ import annotations
 
 import json
 import os

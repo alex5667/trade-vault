@@ -85,31 +85,31 @@ def from_dict(payload: Dict[str, Any]) -> Optional[DefiLlamaContextSnapshot]:
         if not symbol:
             return None
         return DefiLlamaContextSnapshot(
-            schema_version=int(payload.get("schema_version") or SCHEMA_VERSION)
-            symbol=symbol
-            chain=_s(payload.get("chain"))
-            ts_ms=int(payload.get("ts_ms") or 0)
+            schema_version=int(payload.get("schema_version") or SCHEMA_VERSION),
+            symbol=symbol,
+            chain=_s(payload.get("chain")),
+            ts_ms=int(payload.get("ts_ms") or 0),
 
-            stablecoin_mcap_total=_f(payload.get("stablecoin_mcap_total"))
-            stablecoin_mcap_delta_1d=_f(payload.get("stablecoin_mcap_delta_1d"))
-            stablecoin_mcap_delta_7d=_f(payload.get("stablecoin_mcap_delta_7d"))
-            stablecoin_risk_regime=_s(payload.get("stablecoin_risk_regime")) or "unknown"
+            stablecoin_mcap_total=_f(payload.get("stablecoin_mcap_total")),
+            stablecoin_mcap_delta_1d=_f(payload.get("stablecoin_mcap_delta_1d")),
+            stablecoin_mcap_delta_7d=_f(payload.get("stablecoin_mcap_delta_7d")),
+            stablecoin_risk_regime=_s(payload.get("stablecoin_risk_regime")) or "unknown",
 
-            chain_tvl_usd=_f(payload.get("chain_tvl_usd"))
-            chain_tvl_delta_1d_pct=_f(payload.get("chain_tvl_delta_1d_pct"))
+            chain_tvl_usd=_f(payload.get("chain_tvl_usd")),
+            chain_tvl_delta_1d_pct=_f(payload.get("chain_tvl_delta_1d_pct")),
 
-            dex_volume_24h_usd=_f(payload.get("dex_volume_24h_usd"))
-            dex_volume_delta_1d_pct=_f(payload.get("dex_volume_delta_1d_pct"))
-            dex_volume_spike_z=_f(payload.get("dex_volume_spike_z"))
+            dex_volume_24h_usd=_f(payload.get("dex_volume_24h_usd")),
+            dex_volume_delta_1d_pct=_f(payload.get("dex_volume_delta_1d_pct")),
+            dex_volume_spike_z=_f(payload.get("dex_volume_spike_z")),
 
-            fees_24h_usd=_f(payload.get("fees_24h_usd"))
-            revenue_24h_usd=_f(payload.get("revenue_24h_usd"))
-            fees_revenue_momentum=_f(payload.get("fees_revenue_momentum"))
+            fees_24h_usd=_f(payload.get("fees_24h_usd")),
+            revenue_24h_usd=_f(payload.get("revenue_24h_usd")),
+            fees_revenue_momentum=_f(payload.get("fees_revenue_momentum")),
 
-            defillama_perps_oi_usd=_f(payload.get("defillama_perps_oi_usd"))
-            defillama_perps_oi_delta_1d_pct=_f(payload.get("defillama_perps_oi_delta_1d_pct"))
+            defillama_perps_oi_usd=_f(payload.get("defillama_perps_oi_usd")),
+            defillama_perps_oi_delta_1d_pct=_f(payload.get("defillama_perps_oi_delta_1d_pct")),
 
-            quality_status=_s(payload.get("quality_status")) or "UNKNOWN"
+            quality_status=_s(payload.get("quality_status")) or "UNKNOWN",
         )
     except Exception:
         return None

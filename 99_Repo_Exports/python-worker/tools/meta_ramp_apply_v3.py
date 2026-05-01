@@ -377,7 +377,7 @@ def main():
             _write_dyn_cfg(dyn, {
                 "meta_enforce_share": 0.0,
                 "meta_model_mode": "SHADOW",
-                "meta_ramp_last_decision": decision
+                "meta_ramp_last_decision": decision,
             })
         print(json.dumps(decision, ensure_ascii=False))
         return

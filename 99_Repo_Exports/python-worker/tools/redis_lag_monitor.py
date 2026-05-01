@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 redis_lag_monitor.py — мониторинг Consumer Lag по всем Redis Streams тиков.
 
@@ -24,7 +25,6 @@ redis_lag_monitor.py — мониторинг Consumer Lag по всем Redis S
   --warn-idle 5000   # порог старого PEL-сообщения, мс (по умолчанию: 5000)
   --once             # запустить один раз и выйти (удобно для cron/alert)
 """
-from __future__ import annotations
 
 import argparse
 import os

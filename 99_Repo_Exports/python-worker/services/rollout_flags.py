@@ -47,32 +47,32 @@ class RolloutFlags:
         overrides quickly during incidents.
         """
         return cls(
-            exec_algo_canonical_v2=_b("EXEC_ALGO_CANONICAL_V2", True)
-            exec_reconcile_enable=_b("EXEC_RECONCILE_ENABLE", True)
-            exec_user_stream_enable=_b("EXEC_USER_STREAM_ENABLE", True)
-            exec_maker_tp_enable=_b("EXEC_MAKER_TP_ENABLE", True)
-            exec_journal_sql_enable=_b("EXEC_JOURNAL_SQL_ENABLE", True)
-            trade_dq_hard_veto_enable=_b("TRADE_DQ_HARD_VETO_ENABLE", True)
-            trade_risk_engine_v2_enable=_b("TRADE_RISK_ENGINE_V2_ENABLE", _b("RISK_ENGINE_V2_ENABLE", True))
-            strategy_shadow_only=_b("STRATEGY_SHADOW_ONLY", False)
-            exec_force_safety_first=_b("EXEC_FORCE_SAFETY_FIRST", False)
-            exec_degraded_mode_force_safety_first=_b("EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST", True)
-            exec_degraded_mode_disable_maker=_b("EXEC_DEGRADED_MODE_DISABLE_MAKER", True)
+            exec_algo_canonical_v2=_b("EXEC_ALGO_CANONICAL_V2", True),
+            exec_reconcile_enable=_b("EXEC_RECONCILE_ENABLE", True),
+            exec_user_stream_enable=_b("EXEC_USER_STREAM_ENABLE", True),
+            exec_maker_tp_enable=_b("EXEC_MAKER_TP_ENABLE", True),
+            exec_journal_sql_enable=_b("EXEC_JOURNAL_SQL_ENABLE", True),
+            trade_dq_hard_veto_enable=_b("TRADE_DQ_HARD_VETO_ENABLE", True),
+            trade_risk_engine_v2_enable=_b("TRADE_RISK_ENGINE_V2_ENABLE", _b("RISK_ENGINE_V2_ENABLE", True)),
+            strategy_shadow_only=_b("STRATEGY_SHADOW_ONLY", False),
+            exec_force_safety_first=_b("EXEC_FORCE_SAFETY_FIRST", False),
+            exec_degraded_mode_force_safety_first=_b("EXEC_DEGRADED_MODE_FORCE_SAFETY_FIRST", True),
+            exec_degraded_mode_disable_maker=_b("EXEC_DEGRADED_MODE_DISABLE_MAKER", True),
         )
 
     def as_dict(self) -> Dict[str, Any]:
         return {
-            "exec_algo_canonical_v2": self.exec_algo_canonical_v2
-            "exec_reconcile_enable": self.exec_reconcile_enable
-            "exec_user_stream_enable": self.exec_user_stream_enable
-            "exec_maker_tp_enable": self.exec_maker_tp_enable
-            "exec_journal_sql_enable": self.exec_journal_sql_enable
-            "trade_dq_hard_veto_enable": self.trade_dq_hard_veto_enable
-            "trade_risk_engine_v2_enable": self.trade_risk_engine_v2_enable
-            "strategy_shadow_only": self.strategy_shadow_only
-            "exec_force_safety_first": self.exec_force_safety_first
-            "exec_degraded_mode_force_safety_first": self.exec_degraded_mode_force_safety_first
-            "exec_degraded_mode_disable_maker": self.exec_degraded_mode_disable_maker
+            "exec_algo_canonical_v2": self.exec_algo_canonical_v2,
+            "exec_reconcile_enable": self.exec_reconcile_enable,
+            "exec_user_stream_enable": self.exec_user_stream_enable,
+            "exec_maker_tp_enable": self.exec_maker_tp_enable,
+            "exec_journal_sql_enable": self.exec_journal_sql_enable,
+            "trade_dq_hard_veto_enable": self.trade_dq_hard_veto_enable,
+            "trade_risk_engine_v2_enable": self.trade_risk_engine_v2_enable,
+            "strategy_shadow_only": self.strategy_shadow_only,
+            "exec_force_safety_first": self.exec_force_safety_first,
+            "exec_degraded_mode_force_safety_first": self.exec_degraded_mode_force_safety_first,
+            "exec_degraded_mode_disable_maker": self.exec_degraded_mode_disable_maker,
         }
 
     def maker_allowed(self, *, infra_degraded: bool = False) -> bool:

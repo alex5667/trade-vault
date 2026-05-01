@@ -45,7 +45,7 @@ _EMIT_CANDIDATES = os.getenv("ATR_HORIZON_EMIT_CANDIDATES", "1") == "1"
 _PROFILE_REDIS_LOOKUP = os.getenv("ATR_HORIZON_PROFILE_REDIS_LOOKUP", "1") == "1"
 _PROFILE_STALE_MAX_MS = int(
     os.getenv("ATR_HORIZON_PROFILE_STALE_MAX_MS", str(7 * 86_400_000)) or (7 * 86_400_000)
-)
+),
 _REDIS_URL_FOR_PROFILE = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 _R_PROFILE_SYNC: Any = None  # set lazily
 
@@ -443,13 +443,13 @@ def build_phase0_horizon_profile(
         kind=kind,
         regime=regime,
         now_ms=now_ms,
-    )
+    ),
     if calibrated and isinstance(calibrated, dict):
         # Overlay mandatory contract fields so consumers can rely on them.
         calibrated["contract_ver"] = _CONTRACT_VER
         calibrated["phase_mode"] = (
             _PHASE_MODE if _PHASE_MODE in {"off", "shadow", "canary", "enforce"} else "off"
-        )
+        ),
         return calibrated
 
     # Static bootstrap fallback (Phase 0 / no history yet)
@@ -469,7 +469,7 @@ def build_phase0_horizon_profile(
             "regime": str(regime or "unknown"),
             "ts_ms": int(now_ms),
         },
-    )
+    ),
     return asdict(hp)
 
 
@@ -495,7 +495,7 @@ def build_phase0_atr_profile(
         atr_pct=atr_pct,
         vol_ratio_fast_slow=1.0,
         vol_ratio_z=0.0,
-    )
+    ),
     return asdict(ap)
 
 
@@ -520,7 +520,7 @@ def build_runtime_atr_profile(
                 hold_target_ms=hold_target_ms,
                 alpha_half_life_ms=alpha_half_life_ms,
                 now_ms=now_ms,
-            )
+            ),
         except Exception:
             pass
     # Last-ditch fallback: classic legacy scalar
@@ -529,7 +529,7 @@ def build_runtime_atr_profile(
         or _ensure_dict(signal.get("indicators")).get("atr")
         or 0.0,
         0.0,
-    )
+    ),
     atr_pct = float(atr_value / price) if price > 0.0 else 0.0
     ap = ATRProfileV1(
         mode="legacy",
@@ -545,7 +545,7 @@ def build_runtime_atr_profile(
         atr_pct=atr_pct,
         vol_ratio_fast_slow=1.0,
         vol_ratio_z=0.0,
-    )
+    ),
     return asdict(ap)
 
 
@@ -573,7 +573,7 @@ def attach_phase0_contract(signal: Dict[str, Any], *, symbol: str, source: str) 
     now_ms = _safe_int(
         signal.get("ts_ms") or signal.get("tick_ts") or int(time.time() * 1000),
         int(time.time() * 1000),
-    )
+    ),
     indicators = _ensure_dict(signal.get("indicators"))
     price = _safe_float(
         signal.get("entry_price")
@@ -583,7 +583,7 @@ def attach_phase0_contract(signal: Dict[str, Any], *, symbol: str, source: str) 
         or indicators.get("mid_px")
         or 0.0,
         0.0,
-    )
+    ),
     regime = str(
         meta.get("regime")
         or indicators.get("regime")
@@ -603,7 +603,7 @@ def attach_phase0_contract(signal: Dict[str, Any], *, symbol: str, source: str) 
                 signal=signal,
                 symbol=str(symbol or signal.get("symbol") or "").upper(),
                 now_ms=now_ms,
-            )
+            ),
         except Exception:
             pass
 
@@ -736,7 +736,7 @@ POSITION_HORIZON_SCALAR_KEYS: tuple = (
     "atr_pct",
     "vol_ratio_fast_slow",
     "vol_ratio_z",
-)
+),
 
 
 def extract_position_horizon_scalars(obj: Any) -> Dict[str, Any]:

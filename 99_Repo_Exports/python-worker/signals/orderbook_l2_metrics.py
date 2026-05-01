@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Order Book L2 Metrics - Optimized Vectorized Implementation.
 
@@ -10,7 +11,6 @@ Order Book L2 Metrics - Optimized Vectorized Implementation.
 - Wall detection
 - Vectorized operations using numpy for performance
 """
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple

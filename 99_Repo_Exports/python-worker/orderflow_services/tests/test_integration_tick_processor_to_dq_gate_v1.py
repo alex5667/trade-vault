@@ -41,7 +41,7 @@ def load_module_from_candidates(repo: Path, candidates: list[str], module_name: 
         str(repo / "reference" / "tick_flow_full"),
         str(repo / "reference" / "137"),
         str(repo / "reference"),
-    ]
+    ],
     for wp in reversed(worker_paths):
         if wp not in sys.path:
             sys.path.insert(0, wp)
@@ -72,7 +72,7 @@ def _load_tick_processor():
         "reference/tick_flow_full/services/orderflow/components/tick_processor.py",
         "reference/services/orderflow/components/tick_processor.py",
         "reference/137/services/orderflow/components/tick_processor.py",
-    ]
+    ],
     return load_module_from_candidates(repo, candidates, module_name="tick_processor")
 
 
@@ -84,7 +84,7 @@ def _load_book_processor():
         "reference/tick_flow_full/services/orderflow/components/book_processor.py",
         "reference/services/orderflow/components/book_processor.py",
         "reference/137/services/orderflow/components/book_processor.py",
-    ]
+    ],
     return load_module_from_candidates(repo, candidates, module_name="book_processor")
 
 
@@ -97,7 +97,7 @@ def _load_dq_gate():
         "reference/tick_flow_full/core/dq_gate_v1.py",
         "reference/core/dq_gate_v1.py",
         "reference/137/core/dq_gate_v1.py",
-    ]
+    ],
     return load_module_from_candidates(repo, candidates, module_name="dq_gate_v1")
 
 

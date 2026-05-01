@@ -1,4 +1,5 @@
 # python-worker/core/meta_model_registry.py
+from __future__ import annotations
 """
 Champion / Challenger model registry with shadow-first promotion guard.
 
@@ -28,7 +29,6 @@ ENV variables:
   META_MODEL_AUTO_PROMOTE              bool,  default 0
   META_MODEL_SHADOW_ENFORCE_CHALLENGER bool,  default 1
 """
-from __future__ import annotations
 
 import json
 import logging
@@ -64,12 +64,12 @@ _SHADOW_PREDICTIONS_TOTAL = _try_labeled_counter(
     "meta_model_shadow_predictions_total",
     "Meta-model shadow predictions recorded by slot",
     ["slot"],
-)
+),
 _PROMOTION_TOTAL = _try_labeled_counter(
     "meta_model_promotions_total",
     "Meta-model champion/challenger promotion attempts",
     ["result"],
-)
+),
 
 # ---------------------------------------------------------------------------
 # Online Brier-score tracker (thread-safe)
@@ -146,7 +146,7 @@ class PromotionPolicy:
             brier_delta_min=_float("META_MODEL_PROMOTE_BRIER_DELTA", 0.005),
             auto_promote=_bool("META_MODEL_AUTO_PROMOTE", False),
             shadow_enforce_challenger=_bool("META_MODEL_SHADOW_ENFORCE_CHALLENGER", True),
-        )
+        ),
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ class MetaModelRegistry:
             champion_path=os.getenv("META_MODEL_PATH", ""),
             challenger_path=os.getenv("META_MODEL_CHALLENGER_PATH", ""),
             policy=PromotionPolicy.from_env(),
-        )
+        ),
 
     # ------------------------------------------------------------------
     # Shadow-first enforcement
@@ -281,7 +281,7 @@ class MetaModelRegistry:
                 False,
                 f"insufficient_shadow_samples:{n_ch}<{self.policy.min_shadow_samples}",
                 stats,
-            )
+            ),
 
         b_ch = ch_snap["brier"]
         b_champ = champ_snap["brier"]
@@ -299,7 +299,7 @@ class MetaModelRegistry:
                 False,
                 f"challenger_not_better_enough:delta={delta:.5f}<{self.policy.brier_delta_min}",
                 stats,
-            )
+            ),
 
         return True, "criteria_passed", stats
 
@@ -340,7 +340,7 @@ class MetaModelRegistry:
         logger.warning(
             "🏆 [ModelRegistry] PROMOTED challenger → champion | %s → %s | stats=%s",
             new_champion, old_champion, stats,
-        )
+        ),
         return True, "promoted", {**stats, "new_champion": new_champion, "old_champion": old_champion}
 
     def maybe_auto_promote(self) -> Tuple[bool, str, Dict[str, Any]]:

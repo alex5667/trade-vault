@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """export_position_closed_ndjson_v1.py
 
 Phase2 helper: export POSITION_CLOSED events from Postgres/Timescale into NDJSON.
@@ -22,7 +23,6 @@ Env fallback for DSN:
   - TRADES_DB_DSN | DATABASE_URL | PG_DSN
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -89,11 +89,11 @@ def main() -> None:
 
     q = f"""
         SELECT
-            ts_ms
-            sid
-            symbol
-            event_type
-            meta_json::text as meta_json
+            ts_ms,
+            sid,
+            symbol,
+            event_type,
+            meta_json::text as meta_json,
             payload_json::text as payload_json
         FROM {table}
         WHERE ts_ms >= %s AND ts_ms < %s
@@ -136,12 +136,12 @@ def main() -> None:
                     n += 1
 
     print(json.dumps({
-        "table": table
-        "start_ts_ms": int(args.start_ts_ms)
-        "end_ts_ms": int(args.end_ts_ms)
-        "symbol": sym
-        "rows": n
-        "out": str(args.out)
+        "table": table,
+        "start_ts_ms": int(args.start_ts_ms),
+        "end_ts_ms": int(args.end_ts_ms),
+        "symbol": sym,
+        "rows": n,
+        "out": str(args.out),
     }, ensure_ascii=False))
 
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """dq_threshold_eval_harness_p112.py
 
 Goal
@@ -34,7 +35,6 @@ Usage (ndjson)
     --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json
 """
 
-from __future__ import annotations
 
 import argparse
 import gzip
@@ -162,14 +162,14 @@ class Hist:
 
     def as_dict(self) -> Dict[str, Any]:
         return {
-            "n": int(self.n)
-            "min": float(self.min_seen) if self.min_seen is not None else None
-            "max": float(self.max_seen) if self.max_seen is not None else None
-            "mean": float(self.mean())
-            "p50": float(self.q(0.50))
-            "p90": float(self.q(0.90))
-            "p95": float(self.q(0.95))
-            "p99": float(self.q(0.99))
+            "n": int(self.n),
+            "min": float(self.min_seen) if self.min_seen is not None else None,
+            "max": float(self.max_seen) if self.max_seen is not None else None,
+            "mean": float(self.mean()),
+            "p50": float(self.q(0.50)),
+            "p90": float(self.q(0.90)),
+            "p95": float(self.q(0.95)),
+            "p99": float(self.q(0.99)),
         }
 
 
@@ -202,10 +202,10 @@ def _iter_payloads_from_ndjson(path: str, max_records: int = 0) -> Iterator[Dict
 
 
 def _iter_payloads_from_archive(
-    archive_dir: str
-    start_ts_ms: int
-    end_ts_ms: int
-    max_records: int = 0
+    archive_dir: str,
+    start_ts_ms: int,
+    end_ts_ms: int,
+    max_records: int = 0,
 ) -> Iterator[Dict[str, Any]]:
     try:
         from ml_analysis.tools.replay_inputs_reader_v1 import ReplayInputsReader  # type: ignore
@@ -235,9 +235,9 @@ def _suggest_thresholds_from_p99(p99: float, default_soft: float, default_hard: 
     hard = max(default_hard, p99 * 1.2)
     extreme = max(default_extreme, p99 * 1.5)
     return {
-        "soft": float(round(soft))
-        "hard": float(round(hard))
-        "extreme": float(round(extreme))
+        "soft": float(round(soft)),
+        "hard": float(round(hard)),
+        "extreme": float(round(extreme)),
     }
 
 
@@ -347,10 +347,10 @@ def main() -> None:
         if not args.start_ts_ms or not args.end_ts_ms:
             raise SystemExit("--start-ts-ms and --end-ts-ms are required with --archive-dir")
         it = _iter_payloads_from_archive(
-            archive_dir=str(args.archive_dir)
-            start_ts_ms=int(args.start_ts_ms)
-            end_ts_ms=int(args.end_ts_ms)
-            max_records=int(args.max_records)
+            archive_dir=str(args.archive_dir),
+            start_ts_ms=int(args.start_ts_ms),
+            end_ts_ms=int(args.end_ts_ms),
+            max_records=int(args.max_records),
         )
 
     n_scanned = 0
@@ -398,86 +398,86 @@ def main() -> None:
             global_agg.tick_seq.add(float(tick_seq))
 
         if isinstance(book_seq, (int, float)):
-            agg.book_seq.add(float(book_seq))
-            by_hour[h].book_seq.add(float(book_seq))
-            global_agg.book_seq.add(float(book_seq))
+            agg.book_seq.add(float(book_seq)),
+            by_hour[h].book_seq.add(float(book_seq)),
+            global_agg.book_seq.add(float(book_seq)),
 
     # suggestions (heuristic)
     # SAFE defaults from dq_gate_v1 (floors)
-    SAFE_GAP = (5000.0, 8000.0, 12000.0)
-    STRICT_GAP = (3000.0, 4500.0, 9000.0)
-    SAFE_TICK_SEQ = (0.125, 0.25)
-    STRICT_TICK_SEQ = (0.05, 0.15)
-    SAFE_BOOK_SEQ = (0.125, 0.25)
-    STRICT_BOOK_SEQ = (0.03, 0.10)
+    SAFE_GAP = (5000.0, 8000.0, 12000.0),
+    STRICT_GAP = (3000.0, 4500.0, 9000.0),
+    SAFE_TICK_SEQ = (0.125, 0.25),
+    STRICT_TICK_SEQ = (0.05, 0.15),
+    SAFE_BOOK_SEQ = (0.125, 0.25),
+    STRICT_BOOK_SEQ = (0.03, 0.10),
 
-    g_gap_p99 = float(global_agg.gap.q(0.99))
-    g_tick_p99 = float(global_agg.tick_seq.q(0.99))
-    g_book_p99 = float(global_agg.book_seq.q(0.99))
+    g_gap_p99 = float(global_agg.gap.q(0.99)),
+    g_tick_p99 = float(global_agg.tick_seq.q(0.99)),
+    g_book_p99 = float(global_agg.book_seq.q(0.99)),
 
     suggested = {
         "safe": {
-            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["soft"]
-            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["hard"]
-            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["extreme"]
-            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_TICK_SEQ[0], g_tick_p99))
-            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(SAFE_TICK_SEQ[1], g_tick_p99 * 1.2))
-            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_BOOK_SEQ[0], g_book_p99))
-            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(SAFE_BOOK_SEQ[1], g_book_p99 * 1.2))
-        }
+            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["soft"],
+            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["hard"],
+            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *SAFE_GAP)["extreme"],
+            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_TICK_SEQ[0], g_tick_p99)),
+            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(SAFE_TICK_SEQ[1], g_tick_p99 * 1.2)),
+            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(SAFE_BOOK_SEQ[0], g_book_p99)),
+            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(SAFE_BOOK_SEQ[1], g_book_p99 * 1.2)),
+        },
         "strict": {
-            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["soft"]
-            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["hard"]
-            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["extreme"]
-            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_TICK_SEQ[0], g_tick_p99))
-            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(STRICT_TICK_SEQ[1], g_tick_p99 * 1.2))
-            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_BOOK_SEQ[0], g_book_p99))
-            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(STRICT_BOOK_SEQ[1], g_book_p99 * 1.2))
+            "DQ_TICK_GAP_P95_MS_SOFT": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["soft"],
+            "DQ_TICK_GAP_P95_MS_HARD": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["hard"],
+            "DQ_TICK_GAP_P95_MS_EXTREME": _suggest_thresholds_from_p99(g_gap_p99, *STRICT_GAP)["extreme"],
+            "DQ_TICK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_TICK_SEQ[0], g_tick_p99)),
+            "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(STRICT_TICK_SEQ[1], g_tick_p99 * 1.2)),
+            "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_BOOK_SEQ[0], g_book_p99)),
+            "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(STRICT_BOOK_SEQ[1], g_book_p99 * 1.2)),
         }
     }
 
     report: Dict[str, Any] = {
         "params": {
-            "inputs": str(args.inputs or "")
-            "archive_dir": str(args.archive_dir or "")
-            "start_ts_ms": int(args.start_ts_ms or 0)
-            "end_ts_ms": int(args.end_ts_ms or 0)
-            "symbol": sym_filter
-            "max_records": int(args.max_records or 0)
-            "min_gap_samples": int(min_gap_samples)
-            "gap_hist": {"max_ms": float(gap_cfg.max_v), "step_ms": float(gap_cfg.step)}
-            "ema_hist": {"step": float(ema_cfg.step)}
-        }
-        "scanned": int(n_scanned)
+            "inputs": str(args.inputs or ""),
+            "archive_dir": str(args.archive_dir or ""),
+            "start_ts_ms": int(args.start_ts_ms or 0),
+            "end_ts_ms": int(args.end_ts_ms or 0),
+            "symbol": sym_filter,
+            "max_records": int(args.max_records or 0),
+            "min_gap_samples": int(min_gap_samples),
+            "gap_hist": {"max_ms": float(gap_cfg.max_v), "step_ms": float(gap_cfg.step)},
+            "ema_hist": {"step": float(ema_cfg.step)},
+        },
+        "scanned": int(n_scanned),
         "global": {
-            "gap": global_agg.gap.as_dict()
-            "tick_missing_seq_ema": global_agg.tick_seq.as_dict()
-            "book_missing_seq_ema": global_agg.book_seq.as_dict()
-            "n_rows": int(global_agg.n_rows)
-            "n_with_gap_samples": int(global_agg.n_with_gap_samples)
-        }
-        "by_symbol": {}
-        "by_hour_utc": {}
-        "suggested": suggested
+            "gap": global_agg.gap.as_dict(),
+            "tick_missing_seq_ema": global_agg.tick_seq.as_dict(),
+            "book_missing_seq_ema": global_agg.book_seq.as_dict(),
+            "n_rows": int(global_agg.n_rows),
+            "n_with_gap_samples": int(global_agg.n_with_gap_samples),
+        },
+        "by_symbol": {},
+        "by_hour_utc": {},
+        "suggested": suggested,
     }
 
     for sym, agg in sorted(by_symbol.items()):
         report["by_symbol"][sym] = {
-            "gap": agg.gap.as_dict()
-            "tick_missing_seq_ema": agg.tick_seq.as_dict()
-            "book_missing_seq_ema": agg.book_seq.as_dict()
-            "n_rows": int(agg.n_rows)
-            "n_with_gap_samples": int(agg.n_with_gap_samples)
+            "gap": agg.gap.as_dict(),
+            "tick_missing_seq_ema": agg.tick_seq.as_dict(),
+            "book_missing_seq_ema": agg.book_seq.as_dict(),
+            "n_rows": int(agg.n_rows),
+            "n_with_gap_samples": int(agg.n_with_gap_samples),
         }
 
     for h in range(24):
         agg = by_hour[h]
         report["by_hour_utc"][str(h)] = {
-            "gap": agg.gap.as_dict()
-            "tick_missing_seq_ema": agg.tick_seq.as_dict()
-            "book_missing_seq_ema": agg.book_seq.as_dict()
-            "n_rows": int(agg.n_rows)
-            "n_with_gap_samples": int(agg.n_with_gap_samples)
+            "gap": agg.gap.as_dict(),
+            "tick_missing_seq_ema": agg.tick_seq.as_dict(),
+            "book_missing_seq_ema": agg.book_seq.as_dict(),
+            "n_rows": int(agg.n_rows),
+            "n_with_gap_samples": int(agg.n_with_gap_samples),
         }
 
     out = json.dumps(report, ensure_ascii=False, indent=2)

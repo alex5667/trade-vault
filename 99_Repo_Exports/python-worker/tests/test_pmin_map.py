@@ -1,5 +1,5 @@
-"""Tests for p_min map parsing and merging."""
 from __future__ import annotations
+"""Tests for p_min map parsing and merging."""
 
 from core.share_map import parse_map, dump_map, merge_updates
 

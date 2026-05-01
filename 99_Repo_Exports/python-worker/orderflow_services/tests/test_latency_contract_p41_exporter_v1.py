@@ -1,8 +1,8 @@
+from __future__ import annotations
 """Tests for P4.1 additions to latency_contract_exporter_v1:
   - _parse_key roundtrips for NestJS stage names
   - P4.1 alerts YAML is valid
 """
-from __future__ import annotations
 
 import os
 import sys

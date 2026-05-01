@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 meta_cov_outcome_auto_apply_v1.py
 
@@ -51,7 +52,6 @@ ENV
   META_COV_MIN_HOLD_SEC (default 1800)               # fast skip if changed recently
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

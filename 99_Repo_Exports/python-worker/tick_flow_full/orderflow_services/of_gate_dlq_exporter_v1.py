@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """of_gate_dlq_exporter_v1.py
 
 Prometheus exporter for Redis DLQ streams related to OF-gate metrics.
@@ -42,7 +43,6 @@ Notes
 - DLQ oldest age is more useful than newest age for backlog health.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

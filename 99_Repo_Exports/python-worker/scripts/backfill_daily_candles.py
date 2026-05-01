@@ -61,12 +61,12 @@ async def backfill_symbol(pm, redis, symbol: str):
         logger.debug(f"Saved {symbol} {date_str} to PG")
         
         latest_hlc = {
-            "date": date_str
-            "high": h
-            "low": l
-            "close": c
+            "date": date_str,
+            "high": h,
+            "low": l,
+            "close": c,
             # optional but good for consistency
-            "open": o
+            "open": o,
             "volume": v
         }
 
@@ -102,11 +102,11 @@ async def backfill_symbol(pm, redis, symbol: str):
         if k_date < today_str:
             # This is the latest COMPLETED candle (yesterday or earlier)
             found_yesterday = {
-                "date": k_date
-                "high": float(k[2])
-                "low": float(k[3])
-                "close": float(k[4])
-                "open": float(k[1])
+                "date": k_date,
+                "high": float(k[2]),
+                "low": float(k[3]),
+                "close": float(k[4]),
+                "open": float(k[1]),
                 "volume": float(k[5])
             }
             break
@@ -128,7 +128,7 @@ async def main():
     redis = get_redis()
     
     # Try to load keys from env or default
-    symbols_env = os.getenv("SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,SUIUSDT,APTUSDT,ARBUSDT")
+    symbols_env = os.getenv("SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,SUIUSDT,APTUSDT,")
     symbols = [s.strip() for s in symbols_env.split(",") if s.strip()]
     
     logger.info(f"Backfilling daily candles for: {symbols}")

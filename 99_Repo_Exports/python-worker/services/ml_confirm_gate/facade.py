@@ -26,15 +26,15 @@ def _make_sid(symbol: str, ts_ms: int) -> str:
 
 class MLConfirmGate:
     def __init__(
-        self
-        *
-        r: redis.Redis = None
-        mode: str = "OFF"
-        fail_policy: str = "OPEN"
-        champion_key: str = "cfg:ml_confirm:champion"
-        challenger_key: str = "cfg:ml_confirm:challenger"
-        champion_kinds: Optional[List[str]] = None
-        ab_variant: str = ""
+        self,
+        *,
+        r: redis.Redis = None,
+        mode: str = "OFF",
+        fail_policy: str = "OPEN",
+        champion_key: str = "cfg:ml_confirm:champion",
+        challenger_key: str = "cfg:ml_confirm:challenger",
+        champion_kinds: Optional[List[str]] = None,
+        ab_variant: str = "",
     ):
         self.r = r
         self.champion_key = champion_key
@@ -81,7 +81,7 @@ class MLConfirmGate:
                 r_client = redis.Redis.from_url(redis_dsn)
         return cls(
             r=r_client, 
-            mode=os.getenv("ML_CONFIRM_MODE", "OFF").upper()
+            mode=os.getenv("ML_CONFIRM_MODE", "OFF").upper(),
             fail_policy=os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN").upper()
         )
 
@@ -117,26 +117,26 @@ class MLConfirmGate:
         return self.mode
 
     def check(
-        self
-        *
-        symbol: str
-        ts_ms: int
-        direction: str
-        scenario: str
-        indicators: Dict[str, Any]
-        rule_score: float = 0.0
-        rule_have: int = 0
-        rule_need: int = 0
-        cancel_spike_veto: int = 0
-        ok_rule: int = 0
+        self,
+        *,
+        symbol: str,
+        ts_ms: int,
+        direction: str,
+        scenario: str,
+        indicators: Dict[str, Any],
+        rule_score: float = 0.0,
+        rule_have: int = 0,
+        rule_need: int = 0,
+        cancel_spike_veto: int = 0,
+        ok_rule: int = 0,
     ) -> MLConfirmDecision:
         
         self._refresh_cache_if_needed()
 
         dec = MLConfirmDecision(
-            mode=self.mode
-            kind="none"
-            allow=True
+            mode=self.mode,
+            kind="none",
+            allow=True,
             status="MISSING_CFG"
         )
         if self.mode == "OFF":
@@ -167,17 +167,17 @@ class MLConfirmGate:
         sid = _make_sid(symbol, ts_ms)
         
         input_dto = MLConfirmInput(
-            sid=sid
-            symbol=symbol
-            ts_ms=ts_ms
-            direction=direction
-            scenario=scenario
-            indicators=indicators
-            rule_score=rule_score
-            rule_have=rule_have
-            rule_need=rule_need
-            ok_rule=ok_rule
-            cancel_spike_veto=cancel_spike_veto
+            sid=sid,
+            symbol=symbol,
+            ts_ms=ts_ms,
+            direction=direction,
+            scenario=scenario,
+            indicators=indicators,
+            rule_score=rule_score,
+            rule_have=rule_have,
+            rule_need=rule_need,
+            ok_rule=ok_rule,
+            cancel_spike_veto=cancel_spike_veto,
         )
 
         try:
@@ -211,10 +211,10 @@ class MLConfirmGate:
 
         if self.r:
             emit_metrics(
-                self.r, dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario
-                rule_score=rule_score, rule_have=rule_have, rule_need=rule_need
-                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid
-                indicators=indicators, metrics_stream=self._cfg.get("metrics_stream", "metrics:ml_gate")
+                self.r, dec, symbol=symbol, ts_ms=ts_ms, direction=direction, scenario=scenario,
+                rule_score=rule_score, rule_have=rule_have, rule_need=rule_need,
+                cancel_spike_veto=cancel_spike_veto, ok_rule=ok_rule, sid=sid,
+                indicators=indicators, metrics_stream=self._cfg.get("metrics_stream", "metrics:ml_gate"),
                 metrics_enable=True, metrics_sample=1.0
             )
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 test_oof_split_no_leakage.py
 
@@ -8,7 +9,6 @@ test_oof_split_no_leakage.py
   - каждый fold имеет корректные границы
 """
 
-from __future__ import annotations
 
 import sys
 from pathlib import Path

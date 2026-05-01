@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for tick_flow_full.core.feature_registry.
 
 Запуск:
@@ -10,7 +11,6 @@
         ml_analysis/tests/test_feature_registry.py -v
 """
 
-from __future__ import annotations
 
 import sys
 from pathlib import Path

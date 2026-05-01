@@ -5,7 +5,7 @@ from __future__ import annotations
 A separate gate from DataQualityGate:
 - DataQualityGate focuses on time (epoch ms, lag, out-of-order) and upstream
   quarantine semantics.
-- BookSanityGate focuses on market microstructure sanity (crossed BBO, NaNs
+- BookSanityGate focuses on market microstructure sanity (crossed BBO, NaNs,
   negative depth) and tick-to-book symptoms.
 
 Policy:
@@ -37,10 +37,10 @@ def _profile() -> str:
 
 class BookSanityGate:
     def __init__(
-        self
-        *
-        enabled: bool
-        mode: str
+        self,
+        *,
+        enabled: bool,
+        mode: str,
     ) -> None:
         self.enabled = bool(enabled)
         self.mode = str(mode or "auto").strip().lower()
@@ -87,12 +87,12 @@ class BookSanityGate:
 
         if mode != "veto":
             return BookSanityDecision(
-                apply=True
-                veto=False
-                gate="BookSanityGate"
-                reason_code="BOOK_SANITY_FLAGS"
-                flags=flags
-                notes=f"mode={mode}"
+                apply=True,
+                veto=False,
+                gate="BookSanityGate",
+                reason_code="BOOK_SANITY_FLAGS",
+                flags=flags,
+                notes=f"mode={mode}",
             )
 
         if do_veto:
@@ -106,19 +106,19 @@ class BookSanityGate:
                 reason = "VETO_BOOK_NEG_QTY"
 
             return BookSanityDecision(
-                apply=True
-                veto=True
-                gate="BookSanityGate"
-                reason_code=str(reason)
-                flags=flags
-                notes=f"symbol={symbol}"
+                apply=True,
+                veto=True,
+                gate="BookSanityGate",
+                reason_code=str(reason),
+                flags=flags,
+                notes=f"symbol={symbol}",
             )
 
         return BookSanityDecision(
-            apply=True
-            veto=False
-            gate="BookSanityGate"
-            reason_code="BOOK_SANITY_FLAGS"
-            flags=flags
-            notes=f"mode={mode}"
+            apply=True,
+            veto=False,
+            gate="BookSanityGate",
+            reason_code="BOOK_SANITY_FLAGS",
+            flags=flags,
+            notes=f"mode={mode}",
         )

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Phase 2.1 — Unit tests for ATRCandidateProvider.
 
@@ -5,7 +6,6 @@ Run:
     cd python-worker
     PYTHONPATH=. pytest -q services/tests/test_atr_candidate_provider_v1.py
 """
-from __future__ import annotations
 
 import pytest
 from services.atr_candidate_provider import ATRCandidateProvider
@@ -19,11 +19,11 @@ def _make_provider(**kwargs) -> ATRCandidateProvider:
     p = ATRCandidateProvider(redis_url="redis://localhost:6379/0")
     p.redis_enable = False  # isolate from live Redis
     for k, v in kwargs.items():
-        setattr(p, k, v)
-    return p
+        setattr(p, k, v),
+    return p,
 
 
-NOW = 2_000_000  # arbitrary epoch ms
+NOW = 2_000_000  # arbitrary epoch ms,
 
 
 # ---------------------------------------------------------------------------
@@ -32,17 +32,17 @@ NOW = 2_000_000  # arbitrary epoch ms
 
 class TestSourcePriority:
     def test_indicators_beats_payload(self):
-        """indicators atr_1m must win over meta atr_1m (source='indicators')."""
-        p = _make_provider()
+        """indicators atr_1m must win over meta atr_1m (source='indicators').""",
+        p = _make_provider(),
         signal = {
-            "symbol": "BTCUSDT"
+            "symbol": "BTCUSDT",
             "indicators": {
-                "atr_1m": 200.0
-                "atr_ts_ms_1m": NOW - 500
-            }
+                "atr_1m": 200.0,
+                "atr_ts_ms_1m": NOW - 500,
+            },
             "meta": {
-                "atr_1m": 150.0
-                "atr_ts_ms_1m": NOW - 100
+                "atr_1m": 150.0,
+                "atr_ts_ms_1m": NOW - 100,
             }
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
@@ -56,10 +56,10 @@ class TestSourcePriority:
         """Fallback to signal[meta] when indicators has no ATR for the TF."""
         p = _make_provider()
         signal = {
-            "symbol": "ETHUSDT"
+            "symbol": "ETHUSDT",
             "meta": {
-                "atr_5m": 300.0
-                "atr_ts_ms_5m": NOW - 1000
+                "atr_5m": 300.0,
+                "atr_ts_ms_5m": NOW - 1000,
             }
         }
         out = p.collect(signal=signal, symbol="ETHUSDT", now_ms=NOW)
@@ -73,9 +73,9 @@ class TestSourcePriority:
         """Keys directly on signal dict (not under indicators/meta) count as payload."""
         p = _make_provider()
         signal = {
-            "symbol": "SOLUSDT"
-            "atr_3m": 12.5
-            "atr_ts_ms_3m": NOW - 2000
+            "symbol": "SOLUSDT",
+            "atr_3m": 12.5,
+            "atr_ts_ms_3m": NOW - 2000,
         }
         out = p.collect(signal=signal, symbol="SOLUSDT", now_ms=NOW)
         assert 180000 in out
@@ -92,9 +92,9 @@ class TestFreshnessFilter:
         """Candidates older than max_age_ms must be filtered out."""
         p = _make_provider(max_age_ms=10_000)  # 10s budget
         signal = {
-            "symbol": "BTCUSDT"
+            "symbol": "BTCUSDT",
             "indicators": {
-                "atr_1m": 250.0
+                "atr_1m": 250.0,
                 "atr_ts_ms_1m": NOW - 20_000,  # 20s old → stale
             }
         }
@@ -105,8 +105,8 @@ class TestFreshnessFilter:
         """When ts_ms is absent, age_ms = 0 (ts assumed = now_ms). Must pass freshness."""
         p = _make_provider(max_age_ms=300_000)
         signal = {
-            "symbol": "BTCUSDT"
-            "indicators": {"atr_1m": 200.0}
+            "symbol": "BTCUSDT",
+            "indicators": {"atr_1m": 200.0},
             # no atr_ts_ms_1m
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
@@ -123,14 +123,14 @@ class TestMultiTF:
         """Provider should return all TFs present in indicators."""
         p = _make_provider()
         signal = {
-            "symbol": "BTCUSDT"
+            "symbol": "BTCUSDT",
             "indicators": {
-                "atr_1m": 200.0
-                "atr_ts_ms_1m": NOW - 100
-                "atr_5m": 350.0
-                "atr_ts_ms_5m": NOW - 200
-                "atr_15m": 500.0
-                "atr_ts_ms_15m": NOW - 300
+                "atr_1m": 200.0,
+                "atr_ts_ms_1m": NOW - 100,
+                "atr_5m": 350.0,
+                "atr_ts_ms_5m": NOW - 200,
+                "atr_15m": 500.0,
+                "atr_ts_ms_15m": NOW - 300,
             }
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
@@ -144,10 +144,10 @@ class TestMultiTF:
         """TFs not in ATR_HORIZON_ALLOWED_TFS_MS must be ignored."""
         p = _make_provider(allowed_tfs=[60000])  # only 1m
         signal = {
-            "symbol": "BTCUSDT"
+            "symbol": "BTCUSDT",
             "indicators": {
-                "atr_1m": 200.0
-                "atr_5m": 350.0
+                "atr_1m": 200.0,
+                "atr_5m": 350.0,
             }
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
@@ -161,33 +161,31 @@ class TestMultiTF:
 
 class TestKeyAliases:
     @pytest.mark.parametrize("key,tf_ms", [
-        ("atr_1m", 60000)
-        ("atr_tf_1m", 60000)
-        ("atr_60000", 60000)
-        ("atr_5m", 300000)
-        ("atr_15m", 900000)
-    ])
+        ("atr_1m", 60000),
+        ("atr_tf_1m", 60000),
+        ("atr_60000", 60000),
+        ("atr_5m", 300000),
+        ("atr_15m", 900000)])
     def test_value_key_aliases(self, key: str, tf_ms: int):
         p = _make_provider()
         signal = {
-            "symbol": "BTCUSDT"
-            "indicators": {key: 111.0}
+            "symbol": "BTCUSDT",
+            "indicators": {key: 111.0},
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
         assert tf_ms in out
         assert out[tf_ms]["value"] == 111.0
 
     @pytest.mark.parametrize("ts_key,val_key,tf_ms", [
-        ("atr_ts_ms_1m", "atr_1m", 60000)
-        ("atr_tf_ts_ms_1m", "atr_1m", 60000)
-        ("atr_ts_ms_60000", "atr_60000", 60000)
-    ])
+        ("atr_ts_ms_1m", "atr_1m", 60000),
+        ("atr_tf_ts_ms_1m", "atr_1m", 60000),
+        ("atr_ts_ms_60000", "atr_60000", 60000)])
     def test_ts_key_aliases(self, ts_key: str, val_key: str, tf_ms: int):
         p = _make_provider()
         ts = NOW - 5000
         signal = {
-            "symbol": "BTCUSDT"
-            "indicators": {val_key: 200.0, ts_key: ts}
+            "symbol": "BTCUSDT",
+            "indicators": {val_key: 200.0, ts_key: ts},
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
         assert tf_ms in out
@@ -202,8 +200,8 @@ class TestEdgeCases:
     def test_zero_value_ignored(self):
         p = _make_provider()
         signal = {
-            "symbol": "BTCUSDT"
-            "indicators": {"atr_1m": 0.0}
+            "symbol": "BTCUSDT",
+            "indicators": {"atr_1m": 0.0},
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
         assert 60000 not in out
@@ -211,8 +209,8 @@ class TestEdgeCases:
     def test_negative_value_ignored(self):
         p = _make_provider()
         signal = {
-            "symbol": "BTCUSDT"
-            "indicators": {"atr_1m": -50.0}
+            "symbol": "BTCUSDT",
+            "indicators": {"atr_1m": -50.0},
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
         assert 60000 not in out
@@ -232,8 +230,8 @@ class TestEdgeCases:
         """Symbol should be normalised to uppercase for Redis keys."""
         p = _make_provider()
         signal = {
-            "symbol": "btcusdt"
-            "indicators": {"atr_1m": 200.0}
+            "symbol": "btcusdt",
+            "indicators": {"atr_1m": 200.0},
         }
         out = p.collect(signal=signal, symbol="btcusdt", now_ms=NOW)
         assert 60000 in out
@@ -241,11 +239,11 @@ class TestEdgeCases:
     def test_output_is_sorted_by_tf_ms(self):
         p = _make_provider()
         signal = {
-            "symbol": "BTCUSDT"
+            "symbol": "BTCUSDT",
             "indicators": {
-                "atr_15m": 500.0
-                "atr_1m": 200.0
-                "atr_5m": 350.0
+                "atr_15m": 500.0,
+                "atr_1m": 200.0,
+                "atr_5m": 350.0,
             }
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
@@ -265,8 +263,8 @@ class TestRedisMock:
         p.redis_enable = True
 
         payload_1m = _json.dumps({
-            "v": 1, "symbol": "BTCUSDT", "tf": "1m"
-            "atr": 270.0, "ts_ms": NOW - 3000
+            "v": 1, "symbol": "BTCUSDT", "tf": "1m",
+            "atr": 270.0, "ts_ms": NOW - 3000,
         })
 
         class FakeRedis:
@@ -301,8 +299,8 @@ class TestRedisMock:
         monkeypatch.setattr(p, "_r", BrokenRedis())
 
         signal = {
-            "symbol": "BTCUSDT"
-            "indicators": {"atr_1m": 200.0}
+            "symbol": "BTCUSDT",
+            "indicators": {"atr_1m": 200.0},
         }
         out = p.collect(signal=signal, symbol="BTCUSDT", now_ms=NOW)
         # indicators source must still work

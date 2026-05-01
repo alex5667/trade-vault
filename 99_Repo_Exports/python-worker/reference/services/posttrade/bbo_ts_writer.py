@@ -164,15 +164,15 @@ class PgWriter:
             for r in rows:
                 params.append(
                     {
-                        "ts_ms": int(r["ts_ms"])
-                        "sym": str(r["sym"])
-                        "venue": str(r["venue"])
-                        "bid": float(r["bid"])
-                        "ask": float(r["ask"])
-                        "mid": float(r["mid"])
-                        "producer": str(r.get("producer") or "")
-                        "schema_version": int(r.get("schema_version") or 1)
-                        "stream_id": str(r.get("stream_id") or "")
+                        "ts_ms": int(r["ts_ms"]),
+                        "sym": str(r["sym"]),
+                        "venue": str(r["venue"]),
+                        "bid": float(r["bid"]),
+                        "ask": float(r["ask"]),
+                        "mid": float(r["mid"]),
+                        "producer": str(r.get("producer") or ""),
+                        "schema_version": int(r.get("schema_version") or 1),
+                        "stream_id": str(r.get("stream_id") or ""),
                     }
                 )
             cur.executemany(sql, params)
@@ -199,16 +199,16 @@ class Cfg:
     def from_env() -> "Cfg":
         host = socket.gethostname()
         return Cfg(
-            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0")
-            stream=_env("BBO_TS_STREAM", "events:bbo_ts")
-            group=_env("BBO_TS_CG", "bbo_ts_writer")
-            consumer=_env("BBO_TS_CONSUMER", f"{host}:{os.getpid()}")
-            block_ms=_env_int("BBO_TS_BLOCK_MS", "5000")
-            count=_env_int("BBO_TS_COUNT", "256")
-            dlq_stream=_env("BBO_TS_DLQ_STREAM", "events:bbo_ts:dlq")
-            dlq_maxlen=_env_int("BBO_TS_DLQ_MAXLEN", "200000")
-            batch_size=_env_int("BBO_TS_WRITER_BATCH_SIZE", "500")
-            metrics_port=_env_int("BBO_TS_WRITER_METRICS_PORT", "9826")
+            redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
+            stream=_env("BBO_TS_STREAM", "events:bbo_ts"),
+            group=_env("BBO_TS_CG", "bbo_ts_writer"),
+            consumer=_env("BBO_TS_CONSUMER", f"{host}:{os.getpid()}"),
+            block_ms=_env_int("BBO_TS_BLOCK_MS", "5000"),
+            count=_env_int("BBO_TS_COUNT", "256"),
+            dlq_stream=_env("BBO_TS_DLQ_STREAM", "events:bbo_ts:dlq"),
+            dlq_maxlen=_env_int("BBO_TS_DLQ_MAXLEN", "200000"),
+            batch_size=_env_int("BBO_TS_WRITER_BATCH_SIZE", "500"),
+            metrics_port=_env_int("BBO_TS_WRITER_METRICS_PORT", "9826"),
         )
 
 
@@ -247,11 +247,11 @@ async def main() -> None:
     while True:
         try:
             res = await r.xreadgroup(
-                groupname=cfg.group
-                consumername=cfg.consumer
-                streams={cfg.stream: ">"}
-                count=cfg.count
-                block=cfg.block_ms
+                groupname=cfg.group,
+                consumername=cfg.consumer,
+                streams={cfg.stream: ">"},
+                count=cfg.count,
+                block=cfg.block_ms,
             )
             if not res:
                 # pending gauge (best-effort)
@@ -276,14 +276,14 @@ async def main() -> None:
                         if metrics.get("dlq_total") is not None:
                             metrics["dlq_total"].inc()
                         await publish_dlq(
-                            r
-                            dlq_stream=cfg.dlq_stream
-                            reason=reason
-                            error="invalid_bbo_payload"
-                            stream=cfg.stream
-                            entry_id=mid_s
-                            payload=payload
-                            maxlen=cfg.dlq_maxlen
+                            r,
+                            dlq_stream=cfg.dlq_stream,
+                            reason=reason,
+                            error="invalid_bbo_payload",
+                            stream=cfg.stream,
+                            entry_id=mid_s,
+                            payload=payload,
+                            maxlen=cfg.dlq_maxlen,
                         )
                         # ACK poison pill to avoid blocking the group.
                         await r.xack(cfg.stream, cfg.group, mid)
@@ -296,15 +296,15 @@ async def main() -> None:
 
                     rows.append(
                         {
-                            "ts_ms": ts_ms
-                            "sym": str(payload.get("symbol") or "").upper()
-                            "venue": str(payload.get("venue") or "binance").lower()
-                            "bid": float(payload.get("bid"))
-                            "ask": float(payload.get("ask"))
-                            "mid": float(payload.get("mid"))
-                            "producer": str(payload.get("producer") or "")
-                            "schema_version": int(payload.get("schema_version") or 1)
-                            "stream_id": mid_s
+                            "ts_ms": ts_ms,
+                            "sym": str(payload.get("symbol") or "").upper(),
+                            "venue": str(payload.get("venue") or "binance").lower(),
+                            "bid": float(payload.get("bid")),
+                            "ask": float(payload.get("ask")),
+                            "mid": float(payload.get("mid")),
+                            "producer": str(payload.get("producer") or ""),
+                            "schema_version": int(payload.get("schema_version") or 1),
+                            "stream_id": mid_s,
                         }
                     )
                     ack_ids.append(mid_s)

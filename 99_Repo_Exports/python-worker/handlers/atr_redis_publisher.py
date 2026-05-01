@@ -1,8 +1,8 @@
 # atr_redis_publisher.py
+from __future__ import annotations
 """
 ATR Redis Publisher - publishes ATR values to Redis with hash schema and legacy compatibility.
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 from typing import Any, Optional

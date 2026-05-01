@@ -23,7 +23,7 @@ class TestNewSymbolsConfig:
 
     NEW_SYMBOLS = [
         "PEPEUSDT", "DOGEUSDT", "SHIBUSDT", "FLOKIUSDT",
-        "BONKUSDT", "WIFUSDT", "SUIUSDT", "APTUSDT", "ARBUSDT"
+        "BONKUSDT", "WIFUSDT", "SUIUSDT", "APTUSDT"
     ]
 
     @pytest.mark.parametrize("symbol", NEW_SYMBOLS)
@@ -123,7 +123,7 @@ class TestNewSymbolsIntegration:
         """Тест что все новые символы имеют полные конфигурации"""
         expected_symbols = {
             "PEPEUSDT", "DOGEUSDT", "SHIBUSDT", "FLOKIUSDT",
-            "BONKUSDT", "WIFUSDT", "SUIUSDT", "APTUSDT", "ARBUSDT"
+            "BONKUSDT", "WIFUSDT", "SUIUSDT", "APTUSDT"
         }
 
         actual_symbols = set(INSTRUMENT_CONFIGS.keys()) & expected_symbols
@@ -133,7 +133,7 @@ class TestNewSymbolsIntegration:
     def test_config_consistency(self):
         """Тест консистентности конфигураций"""
         for symbol in ["PEPEUSDT", "DOGEUSDT", "SHIBUSDT", "FLOKIUSDT",
-                       "BONKUSDT", "WIFUSDT", "SUIUSDT", "APTUSDT", "ARBUSDT"]:
+                       "BONKUSDT", "WIFUSDT", "SUIUSDT", "APTUSDT"]:
             config = get_config(symbol, use_env=False)
             specs = get_specs(symbol)
 

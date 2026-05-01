@@ -212,7 +212,7 @@ def build_rollup(
     mttr_vals: List[float] = []
     by_source_verification_ts = {
         parse_int(r.get("source_verification_ts_ms"), 0): r for r in rr if parse_int(r.get("applied"), 0) == 1
-    }
+    },
     for v in vr:
         v_ts = parse_int(v.get("ts_ms"), 0)
         r = by_source_verification_ts.get(v_ts)
@@ -231,7 +231,7 @@ def build_rollup(
         "rollback_applied_rate": rollback_applied_rate,
         "rollback_mttr_p95_sec": percentile(mttr_vals, 0.95),
         "escalation_rate": escalation_rate,
-    }
+    },
 
 
 async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
@@ -240,7 +240,7 @@ async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """
+                """,
                 INSERT INTO ml_route_rca_experiment_slo_rollups_v51 (
                     ts_ms, window_min, verification_n, verified_n, rollback_planned_n, rollback_applied_n,
                     retry_n, escalation_n, verify_keep_rate, rollback_plan_rate, rollback_applied_rate,

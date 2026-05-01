@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: Calibrator Redis Errors Isolation (Before Canary 1.5)
 
 Tests that calibrator modes fail safe and do not crash on Redis connection errors,
 Timeouts, or malformed data.
 """
-from __future__ import annotations
 
 import json
 import pytest

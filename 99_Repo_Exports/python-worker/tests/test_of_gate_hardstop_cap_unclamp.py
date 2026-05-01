@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for of_gate_hardstop_cap_unclamp.py
 
 Tests staged auto-unclamp functionality:
@@ -7,7 +8,6 @@ Tests staged auto-unclamp functionality:
 - Rollback compatibility
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -224,7 +224,7 @@ class TestRelaxBuildsTargets:
             "meta_enforce_share_range": 0.15,
             "meta_enforce_share_news": 0.00,
             "meta_enforce_share_other": 0.00,
-        }
+        },
         
         restores = []
         for a in audit:

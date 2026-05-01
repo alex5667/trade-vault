@@ -39,25 +39,25 @@ _REF = _ROOT / "reference" / "tick_flow_full" / "core" / "of_confirm_engine.py"
 
 # Stable indicator keys that meta_feat_v9 reads at train-time and serve-time.
 _STABLE_KEYS = (
-    "liqmap_gate_shadow_veto"
-    "liqmap_gate_veto"
-    "liqmap_gate_reason"
-    "liqmap_gate_risk_bps"
-    "liqmap_gate_reward_bps"
-    "liqmap_gate_rr"
-    "liqmap_gate_adverse_peak_usd"
-    "liqmap_gate_favorable_peak_usd"
+    "liqmap_gate_shadow_veto",
+    "liqmap_gate_veto",
+    "liqmap_gate_reason",
+    "liqmap_gate_risk_bps",
+    "liqmap_gate_reward_bps",
+    "liqmap_gate_rr",
+    "liqmap_gate_adverse_peak_usd",
+    "liqmap_gate_favorable_peak_usd",
     # B3: back-compat alias used by decision_record_v1 + mode/window for analytics
-    "liqmap_gate_veto_reason"
-    "liqmap_gate_mode"
-    "liqmap_gate_window"
+    "liqmap_gate_veto_reason",
+    "liqmap_gate_mode",
+    "liqmap_gate_window",
 )
 
 
 def test_of_confirm_engine_sot_has_liqmap_gate_wiring_markers():
     """SoT: python-worker/core/of_confirm_engine.py must have liqmap gate wiring.
 
-    Ensures the SoT engine imports and calls evaluate_liqmap_gate_v1
+    Ensures the SoT engine imports and calls evaluate_liqmap_gate_v1,
     exports all stable keys, and enforces hard-veto in enforce mode.
     """
     src = _SOT

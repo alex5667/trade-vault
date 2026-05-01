@@ -155,8 +155,8 @@ def test_guard_repair_worker_processes_multiple_keys():
     class BothFlatClient:
         def get_position_risk(self):
             return [
-                {"symbol": "SOLUSDT", "positionAmt": "0"}
-                {"symbol": "ADAUSDT", "positionAmt": "0"}
+                {"symbol": "SOLUSDT", "positionAmt": "0"},
+                {"symbol": "ADAUSDT", "positionAmt": "0"},
             ]
         def get_open_orders(self, symbol=None): return []
         def get_open_algo_orders(self, symbol=None): return []

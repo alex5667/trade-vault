@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 ml_confirm_stream_sre_monitor.py
 
@@ -12,7 +13,6 @@ Requires:
 
 Cooldown stored in Redis key: sre:ml_confirm_stream:last_alert_ts_ms
 """
-from __future__ import annotations
 
 import argparse
 import json

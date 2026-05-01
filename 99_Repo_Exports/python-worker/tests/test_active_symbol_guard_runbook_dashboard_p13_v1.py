@@ -1,3 +1,4 @@
+from __future__ import annotations
 """P13: Tests for ActiveSymbolGuardRunbookExecutor dashboard features:
 - runbook_dashboard
 - active_holds  
@@ -5,7 +6,6 @@
 - audit_history (filtered)
 - linked_tickets
 """
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import json

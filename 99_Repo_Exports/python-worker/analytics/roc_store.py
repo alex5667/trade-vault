@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 ROC Store - Хранение ROC кривых и метрик в Redis.
 
@@ -13,7 +14,6 @@ ROC Store - Хранение ROC кривых и метрик в Redis.
 - Визуализация ROC кривых
 """
 
-from __future__ import annotations
 import os
 import json
 import time
@@ -55,10 +55,10 @@ class ROCStore:
         self.stream = os.getenv("ROC_METRICS_STREAM", "metrics:roc")
 
     def save(
-        self
-        strategy: str
-        symbol: str
-        points: List[Dict[str, Any]]
+        self,
+        strategy: str,
+        symbol: str,
+        points: List[Dict[str, Any]],
         auc: float
     ) -> Dict[str, Any]:
         """
@@ -78,13 +78,13 @@ class ROCStore:
 
             ts_now = time.time()
             payload = {
-                "points": points
-                "auc": round(float(auc), 4)
-                "ts": ts_now
-                "strategy": strategy
-                "symbol": symbol
+                "points": points,
+                "auc": round(float(auc), 4),
+                "ts": ts_now,
+                "strategy": strategy,
+                "symbol": symbol,
                 "num_points": len(points)
-            }
+            },
 
             # Сохраняем в key
             self.r.set(key, json.dumps(payload))
@@ -92,15 +92,15 @@ class ROCStore:
             # Публикуем summary в stream для мониторинга
             if points:
                 self.r.xadd(
-                    self.stream
+                    self.stream,
                     {
-                        "symbol": symbol
-                        "strategy": strategy
-                        "auc": payload["auc"]
-                        "n": len(points)
+                        "symbol": symbol,
+                        "strategy": strategy,
+                        "auc": payload["auc"],
+                        "n": len(points),
                         "ts": ts_now
-                    }
-                    maxlen=2000
+                    },
+                    maxlen=2000,
                     approximate=True
                 )
 
@@ -155,7 +155,7 @@ class ROCStore:
             events = []
             for msg_id, data in messages:
                 events.append({
-                    "id": msg_id
+                    "id": msg_id,
                     **data
                 })
 

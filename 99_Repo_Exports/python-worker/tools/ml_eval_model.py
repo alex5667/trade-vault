@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Evaluate a trained ML confirm model on a dataset via time split.
 
 Step 5: validation like industry (time split).
 """
 
-from __future__ import annotations
 
 import argparse
 import json

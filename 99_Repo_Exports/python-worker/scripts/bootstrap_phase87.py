@@ -17,54 +17,54 @@ def bootstrap():
     queries = [
         """
         CREATE TABLE IF NOT EXISTS atr_graph_consistency_gate_checks (
-            check_id text PRIMARY KEY
-            change_id text NOT NULL
-            scope_value text NOT NULL
-            risk_level text NOT NULL
-            graph_score double precision NOT NULL
-            decision text NOT NULL
-            blockers_json jsonb NOT NULL
-            warnings_json jsonb NOT NULL
-            summary_json jsonb NOT NULL
-            created_at timestamptz NOT NULL DEFAULT now()
+            check_id text PRIMARY KEY,
+            change_id text NOT NULL,
+            scope_value text NOT NULL,
+            risk_level text NOT NULL,
+            graph_score double precision NOT NULL,
+            decision text NOT NULL,
+            blockers_json jsonb NOT NULL,
+            warnings_json jsonb NOT NULL,
+            summary_json jsonb NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
         );
         """
         """
         CREATE TABLE IF NOT EXISTS atr_graph_consistency_drifts (
-            drift_id text PRIMARY KEY
-            change_id text
-            scope_value text NOT NULL
-            drift_family text NOT NULL
-            drift_kind text NOT NULL
-            severity text NOT NULL
-            status text NOT NULL
-            reason_code text NOT NULL
-            drift_json jsonb NOT NULL
-            created_at timestamptz NOT NULL DEFAULT now()
+            drift_id text PRIMARY KEY,
+            change_id text,
+            scope_value text NOT NULL,
+            drift_family text NOT NULL,
+            drift_kind text NOT NULL,
+            severity text NOT NULL,
+            status text NOT NULL,
+            reason_code text NOT NULL,
+            drift_json jsonb NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
             resolved_at timestamptz
         );
         """
         """
         CREATE TABLE IF NOT EXISTS atr_graph_consistency_waivers (
-            waiver_id text PRIMARY KEY
-            drift_id text NOT NULL
-            approver text NOT NULL
-            reason_code text NOT NULL
-            ttl_sec integer NOT NULL
-            not_after timestamptz NOT NULL
-            waiver_json jsonb NOT NULL
-            created_at timestamptz NOT NULL DEFAULT now()
+            waiver_id text PRIMARY KEY,
+            drift_id text NOT NULL,
+            approver text NOT NULL,
+            reason_code text NOT NULL,
+            ttl_sec integer NOT NULL,
+            not_after timestamptz NOT NULL,
+            waiver_json jsonb NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now(),
             expired_at timestamptz
         );
         """
         """
         CREATE OR REPLACE VIEW v_governance_graph_consistency_gate_board AS
         SELECT
-            change_id
-            scope_value
-            risk_level
-            graph_score
-            decision
+            change_id,
+            scope_value,
+            risk_level,
+            graph_score,
+            decision,
             created_at
         FROM atr_graph_consistency_gate_checks
         ORDER BY created_at DESC;
@@ -72,12 +72,12 @@ def bootstrap():
         """
         CREATE OR REPLACE VIEW v_governance_graph_consistency_drift_board AS
         SELECT
-            change_id
-            scope_value
-            drift_family
-            drift_kind
-            severity
-            status
+            change_id,
+            scope_value,
+            drift_family,
+            drift_kind,
+            severity,
+            status,
             created_at
         FROM atr_graph_consistency_drifts
         WHERE status = 'open'
@@ -86,7 +86,7 @@ def bootstrap():
                 WHEN 'critical' THEN 1
                 WHEN 'error' THEN 2
                 ELSE 3
-            END
+            END,
             created_at DESC;
         """
     ]

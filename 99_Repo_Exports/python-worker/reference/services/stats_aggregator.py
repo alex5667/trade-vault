@@ -75,11 +75,11 @@ def _extract_timebucket_pnls(trade_closed: Dict[str, Any], buckets_ms: Tuple[int
     return out
 
 def _estimate_bps_from_pnl(
-    pnl: float
-    *
-    entry_price: Optional[float]
-    qty: Optional[float]
-    notional: Optional[float]
+    pnl: float,
+    *,
+    entry_price: Optional[float],
+    qty: Optional[float],
+    notional: Optional[float],
 ) -> Optional[float]:
     """
     Convert PnL (quote currency) into bps using notional ~= |qty|*entry_price.
@@ -96,9 +96,9 @@ def _estimate_bps_from_pnl(
     return float(bps)
 
 def extract_timebucket_bps(
-    trade_closed: Dict[str, Any]
-    *
-    buckets_ms: Tuple[int, ...]
+    trade_closed: Dict[str, Any],
+    *,
+    buckets_ms: Tuple[int, ...],
 ) -> Dict[int, Tuple[Optional[float], Optional[float]]]:
     """
     Convert per-bucket pnl snapshots into per-bucket (mfe_bps, mae_bps).
@@ -128,15 +128,15 @@ def extract_timebucket_bps(
     return out
 
 def write_timebucket_buffers(
-    redis_client: Any
-    *
-    kind: str
-    symbol: str
-    tf: str
-    regime: str
-    duration_ms: int
-    buckets_ms: Tuple[int, ...]
-    bps_by_bucket: Dict[int, Tuple[Optional[float], Optional[float]]]
+    redis_client: Any,
+    *,
+    kind: str,
+    symbol: str,
+    tf: str,
+    regime: str,
+    duration_ms: int,
+    buckets_ms: Tuple[int, ...],
+    bps_by_bucket: Dict[int, Tuple[Optional[float], Optional[float]]],
 ) -> None:
     """
     Persist time-bucket buffers and survival counters.
@@ -231,7 +231,7 @@ def _parse_json_dict_strfloat(v: Any) -> Dict[int, float]:
                 kk = int(k)
                 xx = float(x)
                 # NOTE:
-                #   MAE PnL is often negative for LONG (drawdown)
+                #   MAE PnL is often negative for LONG (drawdown),
                 #   and positive magnitude for some specs.
                 #   We store raw PnL (can be negative) and later convert to bps via abs().
                 if math.isfinite(xx) and abs(xx) > 0:
@@ -259,7 +259,7 @@ def _parse_json_dict_strfloat(v: Any) -> Dict[int, float]:
                     kk = int(k)
                     xx = float(x)
                     # NOTE:
-                    #   MAE PnL is often negative for LONG (drawdown)
+                    #   MAE PnL is often negative for LONG (drawdown),
                     #   and positive magnitude for some specs.
                     #   We store raw PnL (can be negative) and later convert to bps via abs().
                     if math.isfinite(xx) and abs(xx) > 0:
@@ -315,13 +315,13 @@ def _pnl_to_bps(pnl: float, *, entry_price: Optional[float], qty: Optional[float
 
 
 def _write_timebucket_buffers(
-    redis_client: Any
-    *
-    strategy: str
-    symbol: str
-    tf: str
-    regime_key: str
-    trade_closed: Dict[str, Any]
+    redis_client: Any,
+    *,
+    strategy: str,
+    symbol: str,
+    tf: str,
+    regime_key: str,
+    trade_closed: Dict[str, Any],
 ) -> None:
     """
     Writer for time-bucket empirical buffers (MFE@T / MAE@T) and survival counters.
@@ -510,21 +510,21 @@ def extract_empirical_triplet(trade_closed: Dict[str, Any]) -> Dict[str, Any]:
 
     # Otherwise attempt to convert mfe_pnl/mae_pnl to bps.
     entry_price = _first_positive_float(
-        trade_closed.get("entry_price")
-        trade_closed.get("entry")
-        trade_closed.get("avg_entry")
-        trade_closed.get("open_price")
+        trade_closed.get("entry_price"),
+        trade_closed.get("entry"),
+        trade_closed.get("avg_entry"),
+        trade_closed.get("open_price"),
     )
     qty = _first_nonzero_float(
-        trade_closed.get("qty")
-        trade_closed.get("size")
-        trade_closed.get("position_qty")
-        trade_closed.get("base_qty")
+        trade_closed.get("qty"),
+        trade_closed.get("size"),
+        trade_closed.get("position_qty"),
+        trade_closed.get("base_qty"),
     )
     notional = _first_positive_float(
-        trade_closed.get("notional")
-        trade_closed.get("position_notional")
-        trade_closed.get("entry_notional")
+        trade_closed.get("notional"),
+        trade_closed.get("position_notional"),
+        trade_closed.get("entry_notional"),
     )
 
     tp1_hit = _boolish(trade_closed.get("tp1_hit"))
@@ -547,7 +547,7 @@ def extract_empirical_triplet(trade_closed: Dict[str, Any]) -> Dict[str, Any]:
             val_pnl = _safe_float(trade_closed.get("mae_pnl") or 0.0)
         
         # MAE PnL is usually negative, we want BPS to be positive distance
-        # _estimate_bps_from_pnl uses abs(pnl) inside, so sign doesn't matter much
+        # _estimate_bps_from_pnl uses abs(pnl) inside, so sign doesn't matter much,
         # but let's be consistent.
         mae_bps = _estimate_bps_from_pnl(val_pnl, entry_price=entry_price, qty=qty, notional=notional)
 
@@ -573,10 +573,10 @@ def extract_empirical_triplet(trade_closed: Dict[str, Any]) -> Dict[str, Any]:
     return {
         # IMPORTANT: entry regime, not exit regime
         # (otherwise your online calibration learns "wrong buckets" when regime flips mid-trade)
-        "regime": _pick_entry_regime(trade_closed)
-        "mfe_bps": float(mfe_bps) if mfe_bps is not None else None
-        "mae_bps": float(mae_bps) if mae_bps is not None else None
-        "ttd_tp1_ms": int(ttd_tp1_ms) if ttd_tp1_ms > 0 else 0
+        "regime": _pick_entry_regime(trade_closed),
+        "mfe_bps": float(mfe_bps) if mfe_bps is not None else None,
+        "mae_bps": float(mae_bps) if mae_bps is not None else None,
+        "ttd_tp1_ms": int(ttd_tp1_ms) if ttd_tp1_ms > 0 else 0,
     }
 
 
@@ -786,24 +786,24 @@ if buf_enabled == 1 then
 end
 
   if include_source == 1 then
-    redis.call('HSET', key
-      'last_update', now_ms
-      'last_trade_id', last_trade_id
-      'last_close_reason', last_close_reason
-      'last_pnl', last_pnl
-      'strategy', strategy
-      'symbol', symbol
+    redis.call('HSET', key,
+      'last_update', now_ms,
+      'last_trade_id', last_trade_id,
+      'last_close_reason', last_close_reason,
+      'last_pnl', last_pnl,
+      'strategy', strategy,
+      'symbol', symbol,
       'tf', tf
       'source', source
     )
   else
-    redis.call('HSET', key
-      'last_update', now_ms
-      'last_trade_id', last_trade_id
-      'last_close_reason', last_close_reason
-      'last_pnl', last_pnl
-      'strategy', strategy
-      'symbol', symbol
+    redis.call('HSET', key,
+      'last_update', now_ms,
+      'last_trade_id', last_trade_id,
+      'last_close_reason', last_close_reason,
+      'last_pnl', last_pnl,
+      'strategy', strategy,
+      'symbol', symbol,
       'tf', tf
     )
   end
@@ -936,62 +936,62 @@ class StatsAggregator:
             script = StatsAggregator._get_script(redis_client)
 
             keys = [
-                dedupe_key
-                stats_key
-                stats_src_key
-                "stats:strategies"
-                f"stats:symbols:{strategy}"
-                f"stats:tfs:{strategy}:{symbol}"
-                f"stats:sources:{strategy}:{symbol}:{tf}"
+                dedupe_key,
+                stats_key,
+                stats_src_key,
+                "stats:strategies",
+                f"stats:symbols:{strategy}",
+                f"stats:tfs:{strategy}:{symbol}",
+                f"stats:sources:{strategy}:{symbol}:{tf}",
                 # Buffers for quantiles (used by EmpiricalLevels provider)
-                buf_mfe_key, buf_mae_key, buf_ttd_key
+                buf_mfe_key, buf_mae_key, buf_ttd_key,
             ]
 
             args = [
-                str(STATS_DEDUPE_TTL_SEC)
-                str(win)
-                str(loss)
-                str(be)
-                str(pnl_net)
-                str(pnl_gross)
-                str(fees)
-                str(pnl_pct)
-                str(gross_profit_inc)
-                str(gross_loss_inc)
-                str(tp1_hit)
-                str(tp2_hit)
-                str(tp3_hit)
-                str(tp_then_sl1)
-                str(tp_then_sl2)
-                str(tp_then_sl3)
-                str(trailing_stop)
-                str(trailing_started)
-                str(r_multiple)
-                str(float(duration_ms))
-                str(mfe_pnl)
-                str(mae_pnl)
-                str(giveback)
-                str(missed_profit)
-                str(missed_profit_trades_inc)
-                str(float(trailing_moves))
-                str(now_ms)
-                last_trade_id
-                close_bucket
-                f"{pnl_net:.8f}"
-                strategy
-                symbol
-                tf
-                source
+                str(STATS_DEDUPE_TTL_SEC),
+                str(win),
+                str(loss),
+                str(be),
+                str(pnl_net),
+                str(pnl_gross),
+                str(fees),
+                str(pnl_pct),
+                str(gross_profit_inc),
+                str(gross_loss_inc),
+                str(tp1_hit),
+                str(tp2_hit),
+                str(tp3_hit),
+                str(tp_then_sl1),
+                str(tp_then_sl2),
+                str(tp_then_sl3),
+                str(trailing_stop),
+                str(trailing_started),
+                str(r_multiple),
+                str(float(duration_ms)),
+                str(mfe_pnl),
+                str(mae_pnl),
+                str(giveback),
+                str(missed_profit),
+                str(missed_profit_trades_inc),
+                str(float(trailing_moves)),
+                str(now_ms),
+                last_trade_id,
+                close_bucket,
+                f"{pnl_net:.8f}",
+                strategy,
+                symbol,
+                tf,
+                source,
 
                 # --- Tail ARGV: empirical buffers control & values ---
                 # Keep these at the end and read from Lua via ARGV[#ARGV-k] to avoid index fragility.
-                str(regime_key)
-                "1" if EMP_LEVELS_BUF_ENABLED else "0"
-                str(int(max(10, EMP_LEVELS_BUF_MAX)))
-                str(int(max(0, EMP_LEVELS_BUF_TTL_SEC)))
-                str(emp.get("mfe_bps") if emp.get("mfe_bps") is not None else "")
-                str(emp.get("mae_bps") if emp.get("mae_bps") is not None else "")
-                str(int(emp.get("ttd_tp1_ms") or 0))
+                str(regime_key),
+                "1" if EMP_LEVELS_BUF_ENABLED else "0",
+                str(int(max(10, EMP_LEVELS_BUF_MAX))),
+                str(int(max(0, EMP_LEVELS_BUF_TTL_SEC))),
+                str(emp.get("mfe_bps") if emp.get("mfe_bps") is not None else ""),
+                str(emp.get("mae_bps") if emp.get("mae_bps") is not None else ""),
+                str(int(emp.get("ttd_tp1_ms") or 0)),
             ]
 
             applied = script(keys=keys, args=args)
@@ -1056,15 +1056,15 @@ class StatsAggregator:
 
                         ts_exit = int(float(trade_closed.get("exit_ts_ms") or 0))
                         update_slippage_ema(
-                            redis_client
-                            cfg=cfg_slip
-                            symbol=sym
-                            venue=ven
-                            tf=tfv
-                            kind=knd
-                            ts_ms=ts_exit
-                            realized_slippage_bps=slip_bps
-                            realized_spread_bps=spr_bps
+                            redis_client,
+                            cfg=cfg_slip,
+                            symbol=sym,
+                            venue=ven,
+                            tf=tfv,
+                            kind=knd,
+                            ts_ms=ts_exit,
+                            realized_slippage_bps=slip_bps,
+                            realized_spread_bps=spr_bps,
                         )
             except Exception:
                 pass
@@ -1089,11 +1089,11 @@ class StatsAggregator:
                 if ecfg.enabled:
                     now_ms2 = get_ny_time_millis()
                     update_exec_cost_ema_from_closed(
-                        redis_client
-                        cfg=ecfg
-                        pos=pos if isinstance(pos, dict) else {}
-                        trade_closed=trade_closed if isinstance(trade_closed, dict) else {}
-                        now_ms=now_ms2
+                        redis_client,
+                        cfg=ecfg,
+                        pos=pos if isinstance(pos, dict) else {},
+                        trade_closed=trade_closed if isinstance(trade_closed, dict) else {},
+                        now_ms=now_ms2,
                     )
             except Exception:
                 pass
@@ -1155,15 +1155,15 @@ class StatsAggregator:
 
                     now_ms2 = get_ny_time_millis()
                     update_spread_ema(
-                        redis_client
-                        cfg=sp_cfg
-                        symbol=str(symbol)
-                        venue=str(venue)
-                        session=str(sess)
-                        tf=str(tf2)
-                        kind=str(knd or "na")
-                        now_ms=now_ms2
-                        realized_spread_bps=trade_closed.get("realized_spread_bps") or trade_closed.get("realized_spread") or 0.0
+                        redis_client,
+                        cfg=sp_cfg,
+                        symbol=str(symbol),
+                        venue=str(venue),
+                        session=str(sess),
+                        tf=str(tf2),
+                        kind=str(knd or "na"),
+                        now_ms=now_ms2,
+                        realized_spread_bps=trade_closed.get("realized_spread_bps") or trade_closed.get("realized_spread") or 0.0,
                     )
             except Exception:
                 pass
@@ -1187,10 +1187,10 @@ class StatsAggregator:
             # ------------------------------------------------------------------
             try:
                 from services.reliability_calibrator import (
-                    ReliabilityCalConfig
-                    update_reliability_curve
-                    extract_dims_for_calibration
-                    outcome_hit_from_closed
+                    ReliabilityCalConfig,
+                    update_reliability_curve,
+                    extract_dims_for_calibration,
+                    outcome_hit_from_closed,
                 )
 
                 # Avoid env parsing on each aggregation tick: cache config on self.
@@ -1200,20 +1200,20 @@ class StatsAggregator:
                     setattr(self, "_rel_cal_cfg", rcfg)
                 if rcfg.enabled:
                     symbol2, kind2, regime2, tf2, conf_pct2, ts2 = extract_dims_for_calibration(
-                        pos=pos if isinstance(pos, dict) else {}
-                        closed=trade_closed if isinstance(trade_closed, dict) else {}
+                        pos=pos if isinstance(pos, dict) else {},
+                        closed=trade_closed if isinstance(trade_closed, dict) else {},
                     )
                     hit2 = outcome_hit_from_closed(cfg=rcfg, closed=trade_closed if isinstance(trade_closed, dict) else {})
                     update_reliability_curve(
-                        redis_client
-                        cfg=rcfg
-                        symbol=symbol2
-                        kind=kind2
-                        regime=regime2
-                        tf=tf2
-                        conf_pct=float(conf_pct2)
-                        hit=int(hit2)
-                        ts_ms=int(ts2)
+                        redis_client,
+                        cfg=rcfg,
+                        symbol=symbol2,
+                        kind=kind2,
+                        regime=regime2,
+                        tf=tf2,
+                        conf_pct=float(conf_pct2),
+                        hit=int(hit2),
+                        ts_ms=int(ts2),
                     )
             except Exception:
                 pass
@@ -1226,7 +1226,7 @@ class StatsAggregator:
             #   - tp1_hits += 1 if tp1_hit==1
             #   - ema_tp1 updated with alpha
             #
-            # Implemented via a separate small Lua (services/ev_tp1_stats.py)
+            # Implemented via a separate small Lua (services/ev_tp1_stats.py),
             # WITHOUT touching the main stats Lua.
             #
             # Fail-open: any error here must not break aggregation.
@@ -1245,14 +1245,14 @@ class StatsAggregator:
                     tp1_hit = 1 if bool(trade_closed.get("tp1_hit")) else 0
                     now_ms0 = get_ny_time_millis()
                     update_tp1_hit_ema(
-                        redis_client
-                        cfg=ev_cfg
+                        redis_client,
+                        cfg=ev_cfg,
                         kind=strategy,   # NOTE: in your pipeline strategy==kind
-                        symbol=symbol
-                        tf=tf
-                        regime=rg
-                        tp1_hit=tp1_hit
-                        now_ms=now_ms0
+                        symbol=symbol,
+                        tf=tf,
+                        regime=rg,
+                        tp1_hit=tp1_hit,
+                        now_ms=now_ms0,
                     )
             except Exception:
                 pass
@@ -1278,12 +1278,12 @@ class StatsAggregator:
                 )
                 regime_key = canon_regime(rg) if EMP_LEVELS_USE_REGIME_DIM else "na"
                 _write_timebucket_buffers(
-                    redis_client
-                    strategy=strategy
-                    symbol=symbol
-                    tf=tf
-                    regime_key=regime_key
-                    trade_closed=trade_closed
+                    redis_client,
+                    strategy=strategy,
+                    symbol=symbol,
+                    tf=tf,
+                    regime_key=regime_key,
+                    trade_closed=trade_closed,
                 )
             except Exception:
                 pass
@@ -1351,16 +1351,16 @@ class StatsAggregator:
 
                     if slip_bps > 0:
                         update_slippage_ema(
-                            redis_client
-                            cfg=cfg_s
-                            symbol=str(sym)
-                            venue=str(venue)
-                            session=str(sess)
-                            tf=str(tf_key)
-                            kind=str(kind_key) if kind_key is not None else None
-                            now_ms=now_ms
-                            realized_slippage_bps=float(slip_bps)
-                            realized_spread_bps=float(spr_bps)
+                            redis_client,
+                            cfg=cfg_s,
+                            symbol=str(sym),
+                            venue=str(venue),
+                            session=str(sess),
+                            tf=str(tf_key),
+                            kind=str(kind_key) if kind_key is not None else None,
+                            now_ms=now_ms,
+                            realized_slippage_bps=float(slip_bps),
+                            realized_spread_bps=float(spr_bps),
                         )
             except Exception:
                 pass
@@ -1396,17 +1396,17 @@ class StatsAggregator:
                     )
                     now_ms2 = get_ny_time_millis()
                     update_giveback_ema(
-                        redis_client
-                        cfg=gb_cfg
+                        redis_client,
+                        cfg=gb_cfg,
                         kind=strategy,          # strategy == kind in your pipeline
-                        symbol=symbol
-                        tf=tf
-                        regime=rg
-                        now_ms=now_ms2
-                        giveback_pnl=_safe_float(trade_closed.get("giveback") or 0.0)
-                        entry_price=_safe_float(trade_closed.get("entry_price") or 0.0)
-                        qty=_safe_float(trade_closed.get("lot") or trade_closed.get("qty") or 0.0)
-                        notional=_safe_float(trade_closed.get("notional_usd") or trade_closed.get("notional") or 0.0)
+                        symbol=symbol,
+                        tf=tf,
+                        regime=rg,
+                        now_ms=now_ms2,
+                        giveback_pnl=_safe_float(trade_closed.get("giveback") or 0.0),
+                        entry_price=_safe_float(trade_closed.get("entry_price") or 0.0),
+                        qty=_safe_float(trade_closed.get("lot") or trade_closed.get("qty") or 0.0),
+                        notional=_safe_float(trade_closed.get("notional_usd") or trade_closed.get("notional") or 0.0),
                     )
             except Exception:
                 pass
@@ -1446,15 +1446,15 @@ class StatsAggregator:
 
                     trailing_stop_flag = 1 if close_bucket == "TRAILING_STOP" else 0
                     update_trail_giveback_ema(
-                        redis_client
-                        cfg=cfg2
-                        kind=strategy
-                        symbol=symbol
-                        tf=tf
-                        regime=regime_key
-                        giveback_r=float(giveback_r)
-                        trailing_stop=int(trailing_stop_flag)
-                        now_ms=int(now_ms)
+                        redis_client,
+                        cfg=cfg2,
+                        kind=strategy,
+                        symbol=symbol,
+                        tf=tf,
+                        regime=regime_key,
+                        giveback_r=float(giveback_r),
+                        trailing_stop=int(trailing_stop_flag),
+                        now_ms=int(now_ms),
                     )
             except Exception:
                 pass
@@ -1482,12 +1482,12 @@ class StatsAggregator:
                     rg = None
                 regime_key = canon_regime(rg) if EMP_LEVELS_USE_REGIME_DIM else "na"
                 _write_timebucket_buffers(
-                    redis_client
-                    strategy=strategy
-                    symbol=symbol
-                    tf=tf
-                    regime_key=regime_key
-                    trade_closed=trade_closed
+                    redis_client,
+                    strategy=strategy,
+                    symbol=symbol,
+                    tf=tf,
+                    regime_key=regime_key,
+                    trade_closed=trade_closed,
                 )
             except Exception:
                 pass
@@ -1521,13 +1521,13 @@ class StatsAggregator:
 
                     # Atomic updater (Lua) with safe fallbacks.
                     update_tp1_hit_ema(
-                        redis_client
-                        cfg=ev_cfg
-                        kind=str(kind)
-                        symbol=str(symbol)
-                        tf=str(tf)
-                        regime=str(regime)
-                        tp1_hit=int(tp1_hit)
+                        redis_client,
+                        cfg=ev_cfg,
+                        kind=str(kind),
+                        symbol=str(symbol),
+                        tf=str(tf),
+                        regime=str(regime),
+                        tp1_hit=int(tp1_hit),
                     )
             except Exception:
                 pass
@@ -1557,10 +1557,10 @@ class StatsAggregator:
             # ------------------------------------------------------------------
             try:
                 from services.execution_cost_ema import (
-                    ExecCostEmaConfig
-                    session_from_ts_ms
-                    build_exec_cost_ema_key
-                    update_exec_cost_ema
+                    ExecCostEmaConfig,
+                    session_from_ts_ms,
+                    build_exec_cost_ema_key,
+                    update_exec_cost_ema,
                 )
                 cfg_ec = ExecCostEmaConfig.from_env()
                 if cfg_ec.enabled:
@@ -1648,10 +1648,10 @@ def _post_applied_hooks(redis_client: Any, pos: Dict[str, Any], trade_closed: Di
         cfg = RelCalConfig.from_env()
         if cfg.enabled:
             update_reliability_curves(
-                redis_client
-                cfg=cfg
-                pos=pos if isinstance(pos, dict) else {}
-                trade_closed=trade_closed if isinstance(trade_closed, dict) else {}
+                redis_client,
+                cfg=cfg,
+                pos=pos if isinstance(pos, dict) else {},
+                trade_closed=trade_closed if isinstance(trade_closed, dict) else {},
             )
     except Exception:
         pass

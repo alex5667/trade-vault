@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """eval_dq_thresholds_from_decision_records_v1.py
 
 Estimate reasonable SAFE/STRICT thresholds for DQ indicators from offline archives.
@@ -36,7 +37,6 @@ Usage:
     --by-hour
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

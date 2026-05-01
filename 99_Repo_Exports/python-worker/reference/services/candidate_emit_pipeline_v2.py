@@ -21,9 +21,9 @@ from common.payload_policy import enforce_and_validate_payload
 from common.json_contract import enforce_payload_budgets, maybe_assert_json_safe
 from common.contracts.tradeable_contracts import assert_tradeable_dict, assert_outbox_sidecar_meta
 from services.outbox.envelope_builder import (
-    build_trace_sidecar_meta
-    build_entry_policy_diag_event
-    emit_entry_policy_diag_best_effort
+    build_trace_sidecar_meta,
+    build_entry_policy_diag_event,
+    emit_entry_policy_diag_best_effort,
 )
 from handlers.base_orderflow_handler import ensure_levels
 from signals.level_enricher import attach_trade_levels_to_ctx
@@ -53,8 +53,8 @@ def _cfg_hash(cfg: Dict[str, Any]) -> str:
         return "cfg:err"
 
 def ensure_trade_levels_once(
-    *, ctx: Any, symbol: str, side: str, kind: str, cfg: Optional[Dict[str, Any]]
-    regime: Any = None, empirical: Any = None, logger: Any = None
+    *, ctx: Any, symbol: str, side: str, kind: str, cfg: Optional[Dict[str, Any]],
+    regime: Any = None, empirical: Any = None, logger: Any = None,
 ) -> None:
     """
     Железно: attach_trade_levels_to_ctx(...) вызывается один раз на key.
@@ -83,11 +83,11 @@ def ensure_trade_levels_once(
         if redis_client is None:
             redis_client = getattr(logger, "redis", None)  # optional; usually None
         cfgd_eff = maybe_apply_slq_to_risk_cfg(
-            redis=redis_client
-            ctx=ctx
-            symbol=str(symbol)
-            side=side
-            cfg=cfgd
+            redis=redis_client,
+            ctx=ctx,
+            symbol=str(symbol),
+            side=side,
+            cfg=cfgd,
         )
         if isinstance(cfgd_eff, dict) and cfgd_eff:
             cfgd = cfgd_eff
@@ -106,15 +106,15 @@ def ensure_trade_levels_once(
 
     try:
         attach_trade_levels_to_ctx(
-            ctx
-            side=str(side)
-            symbol=str(symbol)
-            cfg=cfgd
-            kind=str(kind or "")
-            regime=regime
-            empirical=empirical
-            overwrite=False
-            logger=logger
+            ctx,
+            side=str(side),
+            symbol=str(symbol),
+            cfg=cfgd,
+            kind=str(kind or ""),
+            regime=regime,
+            empirical=empirical,
+            overwrite=False,
+            logger=logger,
         )
     except Exception:
         # fail-open: не ломаем пайплайн
@@ -216,10 +216,10 @@ def _cfg_hash(cfg: Dict[str, Any]) -> str:
     try:
         safe = to_json_safe(cfg or {})  # гарантирует json-совместимые типы
         s = json.dumps(
-            safe
-            ensure_ascii=False
+            safe,
+            ensure_ascii=False,
             sort_keys=True,              # критично для детерминизма
-            separators=(",", ":")
+            separators=(",", ":"),
         )
         return hashlib.sha1(s.encode("utf-8", "ignore")).hexdigest()
     except Exception:
@@ -307,15 +307,15 @@ class CandidateExtractor:
             side_int = _parse_side_int(side_val)
             out.append(
                 CandidateFrame(
-                    handler=handler
-                    ctx=ctx
-                    cand=cand
-                    kind_str=kind_str
-                    kind_key=kind_key
-                    side_int=side_int
-                    ctx_symbol=_safe_str(ctx_symbol or getattr(handler, "symbol", "") or "")
-                    ctx_ts=ctx_ts
-                    ctx_price=ctx_price
+                    handler=handler,
+                    ctx=ctx,
+                    cand=cand,
+                    kind_str=kind_str,
+                    kind_key=kind_key,
+                    side_int=side_int,
+                    ctx_symbol=_safe_str(ctx_symbol or getattr(handler, "symbol", "") or ""),
+                    ctx_ts=ctx_ts,
+                    ctx_price=ctx_price,
                 )
             )
         return out
@@ -369,13 +369,13 @@ class ContextEnricher:
         try:
             if trace_enabled():
                 trace_gate(
-                    f.ctx
-                    stage="gates"
-                    name="ensure_levels"
-                    passed=bool(ok)
-                    veto=not bool(ok)
-                    reason_code=str(rc or ("OK" if ok else "VETO"))
-                    duration_ms=float(sp.ms())
+                    f.ctx,
+                    stage="gates",
+                    name="ensure_levels",
+                    passed=bool(ok),
+                    veto=not bool(ok),
+                    reason_code=str(rc or ("OK" if ok else "VETO")),
+                    duration_ms=float(sp.ms()),
                 )
         except Exception:
             pass
@@ -405,14 +405,14 @@ class GateRunner:
             pass
 
     def _emit_entry_policy_diag_best_effort(
-        self
-        f: "CandidateFrame"
-        *
-        stage: str
-        name: str
-        reason_code: str
-        metrics: Optional[Dict[str, Any]] = None
-        extra: Optional[Dict[str, Any]] = None
+        self,
+        f: "CandidateFrame",
+        *,
+        stage: str,
+        name: str,
+        reason_code: str,
+        metrics: Optional[Dict[str, Any]] = None,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Diagnostics-only outbox (4.2).
@@ -435,15 +435,15 @@ class GateRunner:
             if not trace_id:
                 trace_id = sid
             ev = build_entry_policy_diag_event(
-                sid=sid or trace_id
-                trace_id=trace_id or (sid or "")
-                kind=str(getattr(f, "kind_key", "") or getattr(f, "kind_str", "") or "")
-                symbol=str(getattr(f, "ctx_symbol", "") or "")
-                stage=str(stage or "")
-                name=str(name or "")
-                reason_code=str(reason_code or "")
-                metrics=metrics or {}
-                extra=extra or {}
+                sid=sid or trace_id,
+                trace_id=trace_id or (sid or ""),
+                kind=str(getattr(f, "kind_key", "") or getattr(f, "kind_str", "") or ""),
+                symbol=str(getattr(f, "ctx_symbol", "") or ""),
+                stage=str(stage or ""),
+                name=str(name or ""),
+                reason_code=str(reason_code or ""),
+                metrics=metrics or {},
+                extra=extra or {},
             )
             emit_entry_policy_diag_best_effort(r, ev, stream=stream)
         except Exception:
@@ -528,12 +528,12 @@ class GateRunner:
         else:
             try:
                 attach_trade_levels_to_ctx(
-                    f.ctx
-                    side=side
-                    symbol=symbol
-                    cfg=dict(cfg)
-                    kind=kind
-                    overwrite=False
+                    f.ctx,
+                    side=side,
+                    symbol=symbol,
+                    cfg=dict(cfg),
+                    kind=kind,
+                    overwrite=False,
                 )
             except Exception:
                 pass
@@ -596,11 +596,11 @@ class GateRunner:
             except Exception:
                 level_price = None
             return conf.validate(
-                kind=f.kind_key or f.kind_str
-                ctx=f.ctx
-                l2=getattr(f.handler, "_last_l2_snapshot", None)
-                l3=getattr(f.ctx, "l3", None)
-                level_price=level_price
+                kind=f.kind_key or f.kind_str,
+                ctx=f.ctx,
+                l2=getattr(f.handler, "_last_l2_snapshot", None),
+                l3=getattr(f.ctx, "l3", None),
+                level_price=level_price,
             )
         except Exception:
             return None
@@ -664,13 +664,13 @@ class GateRunner:
             try:
                 if trace_enabled():
                     trace_gate(
-                        f.ctx
-                        stage="gates"
-                        name="consistency_gate"
-                        passed=bool(ok)
-                        veto=bool(apply and veto)
-                        reason_code=str(rc or ("OK" if ok else "VETO"))
-                        duration_ms=float(sp.ms())
+                        f.ctx,
+                        stage="gates",
+                        name="consistency_gate",
+                        passed=bool(ok),
+                        veto=bool(apply and veto),
+                        reason_code=str(rc or ("OK" if ok else "VETO")),
+                        duration_ms=float(sp.ms()),
                     )
             except Exception:
                 pass
@@ -694,13 +694,13 @@ class GateRunner:
                 try:
                     if trace_enabled():
                         trace_gate(
-                            f.ctx
-                            stage="gates"
-                            name="edge_cost_gate"
-                            passed=bool(ok)
-                            veto=not bool(ok)
-                            reason_code=str(rc or ("OK" if ok else "VETO"))
-                            duration_ms=float(sp.ms())
+                            f.ctx,
+                            stage="gates",
+                            name="edge_cost_gate",
+                            passed=bool(ok),
+                            veto=not bool(ok),
+                            reason_code=str(rc or ("OK" if ok else "VETO")),
+                            duration_ms=float(sp.ms()),
                         )
                 except Exception:
                     pass
@@ -792,15 +792,15 @@ class PayloadBuilder:
     """
 
     def build(
-        self
-        f: CandidateFrame
-        *
-        raw_score: float
-        conf_factor01: float
-        final_score: float
-        confidence_pct: float
-        parts: Dict[str, Any]
-        res: Any
+        self,
+        f: CandidateFrame,
+        *,
+        raw_score: float,
+        conf_factor01: float,
+        final_score: float,
+        confidence_pct: float,
+        parts: Dict[str, Any],
+        res: Any,
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[Dict[str, Any]]]:
         """
         JSON-SAFE BY CONSTRUCTION:
@@ -832,16 +832,16 @@ class PayloadBuilder:
         sid = str(getattr(f.cand, "signal_id", "") or "").strip()
 
         payload_base: Dict[str, Any] = {
-            "kind": str(getattr(f.cand, "kind", "") or "")
-            "side": side_payload
-            "symbol": str(f.ctx_symbol or "")
-            "ts": int(float(getattr(f, "ctx_ts", 0) or 0))
-            "price": float(getattr(f, "ctx_price", 0.0) or 0.0)
-            "raw_score": float(raw_score)
-            "final_score": float(final_score)
-            "confidence": float(confidence_pct)
-            "conf_factor": float(conf_factor01)
-            "reasons": reasons
+            "kind": str(getattr(f.cand, "kind", "") or ""),
+            "side": side_payload,
+            "symbol": str(f.ctx_symbol or ""),
+            "ts": int(float(getattr(f, "ctx_ts", 0) or 0)),
+            "price": float(getattr(f, "ctx_price", 0.0) or 0.0),
+            "raw_score": float(raw_score),
+            "final_score": float(final_score),
+            "confidence": float(confidence_pct),
+            "conf_factor": float(conf_factor01),
+            "reasons": reasons,
         }
 
         if not sid:
@@ -857,7 +857,7 @@ class PayloadBuilder:
         payload: Dict[str, Any] = {
             "sid": sid,              # back-compat
             "signal_id": sid,        # canonical
-            **payload_base
+            **payload_base,
         }
 
         # decision axis (optional)
@@ -972,24 +972,24 @@ class PayloadBuilder:
                 expiry_bars = int(getattr(f.ctx, "expiry_bars", 3) or 3)
 
                 mt5_payload = {
-                    "signal_id": sid
-                    "symbol": str(f.ctx_symbol)
-                    "side": side_payload
-                    "ts_signal": datetime.now(timezone.utc).isoformat()
-                    "price_at_signal": payload_base["price"]
-                    "entry_zone_low": entry_low
-                    "entry_zone_high": entry_high
-                    "stop_price": stop_price
-                    "tp_levels": tp_levels
-                    "partials": partials
-                    "risk_usd": risk_usd
-                    "position_size": pos_size
-                    "expiry_bars": expiry_bars
-                    "created_at": datetime.now(timezone.utc).isoformat()
+                    "signal_id": sid,
+                    "symbol": str(f.ctx_symbol),
+                    "side": side_payload,
+                    "ts_signal": datetime.now(timezone.utc).isoformat(),
+                    "price_at_signal": payload_base["price"],
+                    "entry_zone_low": entry_low,
+                    "entry_zone_high": entry_high,
+                    "stop_price": stop_price,
+                    "tp_levels": tp_levels,
+                    "partials": partials,
+                    "risk_usd": risk_usd,
+                    "position_size": pos_size,
+                    "expiry_bars": expiry_bars,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                     "meta": {
-                        "kind": payload_base["kind"]
-                        "confidence": payload_base["confidence"]
-                        "reasons": payload_base["reasons"]
+                        "kind": payload_base["kind"],
+                        "confidence": payload_base["confidence"],
+                        "reasons": payload_base["reasons"],
                     }
                 }
         except Exception:
@@ -1013,10 +1013,10 @@ class PayloadBuilder:
         # ------------------------------------------------------------------
         try:
             payload, payload_meta = enforce_and_validate_payload(
-                payload=payload
-                payload_meta=payload_meta
-                logger=getattr(f.handler, "logger", None)
-                where="PayloadBuilder.build"
+                payload=payload,
+                payload_meta=payload_meta,
+                logger=getattr(f.handler, "logger", None),
+                where="PayloadBuilder.build",
             )
         except Exception:
             # fail-open: do not block publishing
@@ -1038,10 +1038,10 @@ class PayloadBuilder:
             meta_max = 32768
 
         payload, payload_meta = enforce_payload_budgets(
-            payload
-            payload_meta
-            payload_max_bytes=payload_max
-            meta_max_bytes=meta_max
+            payload,
+            payload_meta,
+            payload_max_bytes=payload_max,
+            meta_max_bytes=meta_max,
         )
         # optional: assert strict json contract in runtime when debugging incidents
         maybe_assert_json_safe(payload, payload_meta)
@@ -1096,12 +1096,12 @@ class OutboxWriter:
     """Stage 6: emit into outbox via handler._emitter.emit (dedup on)."""
 
     def emit(
-        self
-        f: CandidateFrame
-        payload: Dict[str, Any]
-        *
-        meta_extra: Optional[Dict[str, Any]] = None
-        mt5_payload: Optional[Dict[str, Any]] = None
+        self,
+        f: CandidateFrame,
+        payload: Dict[str, Any],
+        *,
+        meta_extra: Optional[Dict[str, Any]] = None,
+        mt5_payload: Optional[Dict[str, Any]] = None,
     ) -> bool:
         em = getattr(f.handler, "_emitter", None)
         fn = getattr(em, "emit", None) if em is not None else None
@@ -1203,12 +1203,12 @@ class CandidateEmitPipelineV2:
 
             if redis_client:
                 self.news_enricher = NewsEnricherShadow(
-                    redis=redis_client
-                    refresh_news_ms=int(os.getenv("NEWS_SHADOW_REFRESH_NEWS_MS", "250"))
-                    refresh_calendar_ms=int(os.getenv("NEWS_SHADOW_REFRESH_CAL_MS", "1000"))
-                    active_symbol_ttl_ms=int(os.getenv("NEWS_SHADOW_SYMBOL_TTL_MS", "30000"))
-                    max_symbols=int(os.getenv("NEWS_SHADOW_MAX_SYMBOLS", "256"))
-                    max_age_ms=int(os.getenv("NEWS_ENRICHER_MAX_AGE_MS", "300000"))
+                    redis=redis_client,
+                    refresh_news_ms=int(os.getenv("NEWS_SHADOW_REFRESH_NEWS_MS", "250")),
+                    refresh_calendar_ms=int(os.getenv("NEWS_SHADOW_REFRESH_CAL_MS", "1000")),
+                    active_symbol_ttl_ms=int(os.getenv("NEWS_SHADOW_SYMBOL_TTL_MS", "30000")),
+                    max_symbols=int(os.getenv("NEWS_SHADOW_MAX_SYMBOLS", "256")),
+                    max_age_ms=int(os.getenv("NEWS_ENRICHER_MAX_AGE_MS", "300000")),
                 )
                 self.news_enricher.start()
                 # store reference for cleanup if needed
@@ -1275,36 +1275,36 @@ class CandidateEmitPipelineV2:
             fn = getattr(f.handler, "_ensure_trade_levels_once", None)
             if callable(fn):
                 fn(
-                    ctx=f.ctx
-                    side=str(f.side_int)
-                    symbol=str(f.ctx_symbol)
-                    kind=str(f.kind_key or f.kind_str)
-                    cfg=dict(risk_cfg or {})
-                    overwrite=False
+                    ctx=f.ctx,
+                    side=str(f.side_int),
+                    symbol=str(f.ctx_symbol),
+                    kind=str(f.kind_key or f.kind_str),
+                    cfg=dict(risk_cfg or {}),
+                    overwrite=False,
                 )
             else:
                 # fallback direct call (still once)
                 attach_trade_levels_to_ctx(
-                    f.ctx
-                    side=str(f.side_int)
-                    symbol=str(f.ctx_symbol)
-                    cfg=dict(risk_cfg or {})
-                    kind=str(f.kind_key or f.kind_str)
-                    overwrite=False
+                    f.ctx,
+                    side=str(f.side_int),
+                    symbol=str(f.ctx_symbol),
+                    cfg=dict(risk_cfg or {}),
+                    kind=str(f.kind_key or f.kind_str),
+                    overwrite=False,
                 )
         except Exception:
             pass
 
         try:
             trace_gate(
-                f.ctx
-                stage="levels"
-                name="trade_levels_attached"
-                passed=True
-                veto=False
-                reason_code="OK"
-                duration_ms=0.0
-                metrics={"key": str(key)}
+                f.ctx,
+                stage="levels",
+                name="trade_levels_attached",
+                passed=True,
+                veto=False,
+                reason_code="OK",
+                duration_ms=0.0,
+                metrics={"key": str(key)},
             )
         except Exception:
             pass
@@ -1343,14 +1343,14 @@ class CandidateEmitPipelineV2:
 
 
     def _emit_policy_diag_best_effort(
-        self
-        f: CandidateFrame
-        *
-        stage: str
-        name: str
-        reason_code: str
-        metrics: Optional[Dict[str, Any]] = None
-        extra: Optional[Dict[str, Any]] = None
+        self,
+        f: CandidateFrame,
+        *,
+        stage: str,
+        name: str,
+        reason_code: str,
+        metrics: Optional[Dict[str, Any]] = None,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Diagnostics-only outbox.
 
@@ -1393,15 +1393,15 @@ class CandidateEmitPipelineV2:
             symbol = str(getattr(f, "ctx_symbol", "") or "").strip()
 
             ev = build_entry_policy_diag_event(
-                sid=sid or trace_id
-                trace_id=trace_id or sid
-                kind=kind
-                symbol=symbol
-                stage=str(stage or "")
-                name=str(name or "")
-                reason_code=str(reason_code or "")
-                metrics=metrics or {}
-                extra=extra or {}
+                sid=sid or trace_id,
+                trace_id=trace_id or sid,
+                kind=kind,
+                symbol=symbol,
+                stage=str(stage or ""),
+                name=str(name or ""),
+                reason_code=str(reason_code or ""),
+                metrics=metrics or {},
+                extra=extra or {},
             )
             emit_entry_policy_diag_best_effort(r, ev, stream=stream)
         except Exception:
@@ -1416,10 +1416,10 @@ class CandidateEmitPipelineV2:
             return None
         try:
             d = g.evaluate(
-                ctx=f.ctx
-                symbol=str(f.ctx_symbol)
-                kind=str(f.kind_key or f.kind_str)
-                side=str(getattr(f.ctx, "side", None) or ("LONG" if f.side_int == 1 else "SHORT"))
+                ctx=f.ctx,
+                symbol=str(f.ctx_symbol),
+                kind=str(f.kind_key or f.kind_str),
+                side=str(getattr(f.ctx, "side", None) or ("LONG" if f.side_int == 1 else "SHORT")),
             )
         except Exception:
             d = None
@@ -1444,7 +1444,7 @@ class CandidateEmitPipelineV2:
         f.memo["levels_ensured"] = True
 
     def _attach_trade_levels_once(self, f: CandidateFrame, risk_cfg: Any) -> None:
-        # attach_trade_levels_to_ctx already has overwrite=False + early-return if entry/tp1 exist
+        # attach_trade_levels_to_ctx already has overwrite=False + early-return if entry/tp1 exist,
         # but we still cache to avoid repeated resolve/compute attempts when inputs are missing.
         if f.memo.get("trade_levels_attached") is True:
             return
@@ -1454,15 +1454,15 @@ class CandidateEmitPipelineV2:
             kind = str(f.kind_key or f.kind_str or "")
             side_payload = str(getattr(f.ctx, "side", None) or ("LONG" if int(f.side_int) == 1 else "SHORT"))
             attach_trade_levels_to_ctx(
-                f.ctx
-                side=side_payload
-                symbol=str(f.ctx_symbol)
-                cfg=cfg
-                kind=kind
-                regime=rg
-                empirical=getattr(f.handler, "_empirical_levels", None)
-                overwrite=False
-                logger=getattr(f.handler, "logger", None)
+                f.ctx,
+                side=side_payload,
+                symbol=str(f.ctx_symbol),
+                cfg=cfg,
+                kind=kind,
+                regime=rg,
+                empirical=getattr(f.handler, "_empirical_levels", None),
+                overwrite=False,
+                logger=getattr(f.handler, "logger", None),
             )
         except Exception:
             pass
@@ -1511,13 +1511,13 @@ class CandidateEmitPipelineV2:
                 self.enricher.ensure_invariants(f)
             try:
                 trace_gate(
-                    f.ctx
-                    stage="invariants"
-                    name="ensure_invariants"
-                    passed=True
-                    veto=False
-                    reason_code="OK"
-                    duration_ms=float(sp.ms())
+                    f.ctx,
+                    stage="invariants",
+                    name="ensure_invariants",
+                    passed=True,
+                    veto=False,
+                    reason_code="OK",
+                    duration_ms=float(sp.ms()),
                 )
             except Exception:
                 pass
@@ -1537,14 +1537,14 @@ class CandidateEmitPipelineV2:
             ok, rc = self.gates.regime(f)
             try:
                 trace_gate(
-                    f.ctx
-                    stage="gates"
-                    name="regime_gate"
-                    passed=bool(ok)
-                    veto=not bool(ok)
-                    reason_code=str(rc or "OK")
-                    duration_ms=float(sp_g1.ms())
-                    metrics={"kind": kind_s, "symbol": sym}
+                    f.ctx,
+                    stage="gates",
+                    name="regime_gate",
+                    passed=bool(ok),
+                    veto=not bool(ok),
+                    reason_code=str(rc or "OK"),
+                    duration_ms=float(sp_g1.ms()),
+                    metrics={"kind": kind_s, "symbol": sym},
                 )
             except Exception:
                 pass
@@ -1560,11 +1560,11 @@ class CandidateEmitPipelineV2:
 
                 try:
                     self._emit_policy_diag_best_effort(
-                        f
-                        stage="gates"
-                        name="regime_gate"
-                        reason_code=str(rc or "VETO_REGIME")
-                        metrics={"kind": kind_s, "symbol": sym}
+                        f,
+                        stage="gates",
+                        name="regime_gate",
+                        reason_code=str(rc or "VETO_REGIME"),
+                        metrics={"kind": kind_s, "symbol": sym},
                     )
                 except Exception:
                     pass
@@ -1576,13 +1576,13 @@ class CandidateEmitPipelineV2:
             if res is None:
                 try:
                     trace_gate(
-                        f.ctx
-                        stage="gates"
-                        name="confirmations"
-                        passed=False
-                        veto=True
-                        reason_code="VETO_CONFIRMATIONS_NONE"
-                        duration_ms=float(sp_g2.ms())
+                        f.ctx,
+                        stage="gates",
+                        name="confirmations",
+                        passed=False,
+                        veto=True,
+                        reason_code="VETO_CONFIRMATIONS_NONE",
+                        duration_ms=float(sp_g2.ms()),
                     )
                 except Exception:
                     pass
@@ -1594,11 +1594,11 @@ class CandidateEmitPipelineV2:
 
                 try:
                     self._emit_policy_diag_best_effort(
-                        f
-                        stage="gates"
-                        name="confirmations"
-                        reason_code="VETO_CONFIRMATIONS_NONE"
-                        metrics={"kind": kind_s, "symbol": sym}
+                        f,
+                        stage="gates",
+                        name="confirmations",
+                        reason_code="VETO_CONFIRMATIONS_NONE",
+                        metrics={"kind": kind_s, "symbol": sym},
                     )
                 except Exception:
                     pass
@@ -1608,13 +1608,13 @@ class CandidateEmitPipelineV2:
                 self.obs.veto_metric(f, veto_rc)
                 try:
                     trace_gate(
-                        f.ctx
-                        stage="gates"
-                        name="confirmations"
-                        passed=False
-                        veto=True
-                        reason_code=veto_rc
-                        duration_ms=float(sp_g2.ms())
+                        f.ctx,
+                        stage="gates",
+                        name="confirmations",
+                        passed=False,
+                        veto=True,
+                        reason_code=veto_rc,
+                        duration_ms=float(sp_g2.ms()),
                     )
                 except Exception:
                     pass
@@ -1626,11 +1626,11 @@ class CandidateEmitPipelineV2:
 
                 try:
                     self._emit_policy_diag_best_effort(
-                        f
-                        stage="gates"
-                        name="confirmations"
-                        reason_code=str(veto_rc or "VETO_UNKNOWN")
-                        metrics={"kind": kind_s, "symbol": sym}
+                        f,
+                        stage="gates",
+                        name="confirmations",
+                        reason_code=str(veto_rc or "VETO_UNKNOWN"),
+                        metrics={"kind": kind_s, "symbol": sym},
                     )
                 except Exception:
                     pass
@@ -1638,13 +1638,13 @@ class CandidateEmitPipelineV2:
             else:
                 try:
                     trace_gate(
-                        f.ctx
-                        stage="gates"
-                        name="confirmations"
-                        passed=True
-                        veto=False
-                        reason_code="OK"
-                        duration_ms=float(sp_g2.ms())
+                        f.ctx,
+                        stage="gates",
+                        name="confirmations",
+                        passed=True,
+                        veto=False,
+                        reason_code="OK",
+                        duration_ms=float(sp_g2.ms()),
                     )
                 except Exception:
                     pass
@@ -1658,14 +1658,14 @@ class CandidateEmitPipelineV2:
             raw_score, conf_factor01, final_score, confidence_pct, parts = self.scoring.compute(f, res)
             try:
                 trace_gate(
-                    f.ctx
-                    stage="score"
-                    name="score_model"
-                    passed=True
-                    veto=False
-                    reason_code="OK"
-                    duration_ms=float(sp_score.ms())
-                    metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)}
+                    f.ctx,
+                    stage="score",
+                    name="score_model",
+                    passed=True,
+                    veto=False,
+                    reason_code="OK",
+                    duration_ms=float(sp_score.ms()),
+                    metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)},
                 )
             except Exception:
                 pass
@@ -1679,22 +1679,22 @@ class CandidateEmitPipelineV2:
             # Stage 4.5: cheap confidence gates (isolated)
             sp_conf = Span()
             ok, rc = self.conf_gates.check(
-                f
-                confidence_pct=float(confidence_pct)
-                conf_factor01=float(conf_factor01)
-                rt=self._rt.runtime
+                f,
+                confidence_pct=float(confidence_pct),
+                conf_factor01=float(conf_factor01),
+                rt=self._rt.runtime,
             )
             # ВАЖНО: trace только 1 раз (раньше было 2 раза и с неправильным sp.ms)
             try:
                 trace_gate(
-                    f.ctx
-                    stage="gates"
-                    name="confidence_gate"
-                    passed=bool(ok)
-                    veto=not bool(ok)
-                    reason_code=str(rc or ("OK" if ok else "VETO_CONF"))
-                    duration_ms=float(sp_conf.ms())
-                    metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)}
+                    f.ctx,
+                    stage="gates",
+                    name="confidence_gate",
+                    passed=bool(ok),
+                    veto=not bool(ok),
+                    reason_code=str(rc or ("OK" if ok else "VETO_CONF")),
+                    duration_ms=float(sp_conf.ms()),
+                    metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)},
                 )
             except Exception:
                 pass
@@ -1710,11 +1710,11 @@ class CandidateEmitPipelineV2:
                 # diagnostics-only outbox (never tradeable)
                 try:
                     self._emit_policy_diag_best_effort(
-                        f
-                        stage="gates"
-                        name="confidence_gate"
-                        reason_code=str(rc or "VETO_CONF")
-                        metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)}
+                        f,
+                        stage="gates",
+                        name="confidence_gate",
+                        reason_code=str(rc or "VETO_CONF"),
+                        metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)},
                     )
                 except Exception:
                     pass
@@ -1761,13 +1761,13 @@ class CandidateEmitPipelineV2:
 
             # Stage 5: payload
             payload, payload_meta, mt5_payload = self.builder.build(
-                f
-                raw_score=raw_score
-                conf_factor01=conf_factor01
-                final_score=final_score
-                confidence_pct=confidence_pct
-                parts=parts
-                res=res
+                f,
+                raw_score=raw_score,
+                conf_factor01=conf_factor01,
+                final_score=final_score,
+                confidence_pct=confidence_pct,
+                parts=parts,
+                res=res,
             )
 
             # Stage 6: outbox
@@ -1796,12 +1796,12 @@ class CandidateEmitPipelineV2:
                             from common.decision_trace import build_trace_summary
                             summ = build_trace_summary(tr)
                             logger.info(dumps1({
-                                "event": "trace_summary"
-                                "where": "candidate_emit"
-                                "sent": bool(sent)
-                                "trace_id": tid
-                                "sid": str(payload.get("signal_id") or "")
-                                "trace_summary": summ
+                                "event": "trace_summary",
+                                "where": "candidate_emit",
+                                "sent": bool(sent),
+                                "trace_id": tid,
+                                "sid": str(payload.get("signal_id") or ""),
+                                "trace_summary": summ,
                             }))
                 except Exception:
                     pass
@@ -1815,12 +1815,12 @@ class ConfidenceGateRunner:
     Mirrors logic from the legacy mega-method, but in a testable unit.
     """
     def check(
-        self
-        f: CandidateFrame
-        *
-        confidence_pct: float
-        conf_factor01: float
-        rt: Optional[RuntimeSnapshot] = None
+        self,
+        f: CandidateFrame,
+        *,
+        confidence_pct: float,
+        conf_factor01: float,
+        rt: Optional[RuntimeSnapshot] = None,
     ) -> Tuple[bool, str]:
         sym_u = _safe_str(f.ctx_symbol).strip().upper()
         # ------------------------------------------------------------------

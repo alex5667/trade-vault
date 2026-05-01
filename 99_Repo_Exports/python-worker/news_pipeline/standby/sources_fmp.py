@@ -14,14 +14,14 @@ def _get_json(url: str, *, timeout: float = 10.0, user_agent: str = "trade-stand
     return json.loads(raw)
 
 def fetch_fmp_stock_news(
-    *
-    base_url: str
-    path: str
-    api_key: str
-    tickers: Iterable[str]
-    limit: int = 50
-    timeout: float = 10.0
-    user_agent: str = "trade-standby/1.0"
+    *,
+    base_url: str,
+    path: str,
+    api_key: str,
+    tickers: Iterable[str],
+    limit: int = 50,
+    timeout: float = 10.0,
+    user_agent: str = "trade-standby/1.0",
 ) -> List[Dict[str, Any]]:
     """
     FMP stock_news rows (пример из вашего Go):
@@ -67,15 +67,15 @@ def fetch_fmp_stock_news(
                 continue
 
             out.append({
-                "published_ts_ms": pub_ms
-                "ingested_ts_ms": now_ms
-                "source": "fmp"
-                "title": title
-                "url": link
-                "summary": str(r.get("text") or "")[:4000]
-                "symbols": [t]
-                "importance": 0.0
-                "payload": r
+                "published_ts_ms": pub_ms,
+                "ingested_ts_ms": now_ms,
+                "source": "fmp",
+                "title": title,
+                "url": link,
+                "summary": str(r.get("text") or "")[:4000],
+                "symbols": [t],
+                "importance": 0.0,
+                "payload": r,
                 "provider_id": pub,  # важно для UID
             })
 

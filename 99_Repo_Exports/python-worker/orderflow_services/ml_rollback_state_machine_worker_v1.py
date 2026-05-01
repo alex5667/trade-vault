@@ -72,7 +72,7 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
     conn = await asyncpg.connect(database_url)
     try:
         await conn.execute(
-            """
+            """,
             INSERT INTO llm_rollback_state_history (
                 recommendation_id, ts_ms, prev_state, event, next_state, reason_codes_json
             ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
@@ -85,7 +85,7 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
             json.dumps(payload.get("reason_codes", [])),
         )
         await conn.execute(
-            """
+            """,
             UPDATE llm_recommendations
                SET rollback_state = $2
              WHERE recommendation_id = $1
@@ -141,7 +141,7 @@ async def _transition(
         "next_state": tr.next_state,
         "reason_codes": reason_codes,
         "ts_ms": ts_ms,
-    }
+    },
 
     await r.hset(
         skey,

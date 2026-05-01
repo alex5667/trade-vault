@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for signal_quality_gating/tools/of_gate_sre_monitor.py
 
 Tests cover: pctl, compute_stats, build_alerts.
@@ -7,7 +8,6 @@ Uses importlib.util to load the file directly to avoid package naming conflicts
 with python-worker/tools/.
 """
 
-from __future__ import annotations
 
 import importlib.util
 import os

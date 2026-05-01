@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 P66: Policy mode exporter
 
@@ -18,7 +19,6 @@ Design:
   - Separate from the KPI worker for independent fault isolation
 """
 
-from __future__ import annotations
 
 import os
 import time

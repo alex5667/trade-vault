@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Валидатор для cfg:ml_confirm:champion (JSON контракт).
 
@@ -12,7 +13,6 @@
   - На запись (promo callbacks): валидировать строго перед записью в Redis и на диск
 """
 
-from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field

@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for tick_flow_full.services.prom_rules_bundle_smoke_runner_v1 (P104 mirror).
 
 Mirrors the services/ test suite but imports from tick_flow_full.*
 and validates the tick_flow_full manifest.
 """
-from __future__ import annotations
 
 import json
 
@@ -11,10 +11,10 @@ import pytest
 
 import tick_flow_full.services.prom_rules_bundle_smoke_runner_v1 as runner_mod
 from tick_flow_full.services.prom_rules_bundle_smoke_runner_v1 import (
-    _block_keys
-    _clear_block_if_owned
-    _set_block
-    main
+    _block_keys,
+    _clear_block_if_owned,
+    _set_block,
+    main,
 )
 
 
@@ -103,8 +103,8 @@ def test_clear_block_respects_owner(monkeypatch):
     reason = "prom_rules_bundle_smoke"
     meta = {"owner": "other"}
     store = {
-        f"{prefix}:{reason}": "1"
-        f"{prefix}:{reason}:meta": json.dumps(meta)
+        f"{prefix}:{reason}": "1",
+        f"{prefix}:{reason}:meta": json.dumps(meta),
     }
     fake_redis, store = _make_redis(store)
     monkeypatch.setattr(runner_mod, "_connect_redis", lambda: fake_redis)

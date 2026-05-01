@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ML feature schema v5 (OrderFlow).
 
 This schema is a strict superset of MLFeatureSchemaV4OF.
@@ -12,7 +13,6 @@ Design constraints:
   - backward compatibility: v4_of unchanged
 """
 
-from __future__ import annotations
 
 import hashlib
 import json

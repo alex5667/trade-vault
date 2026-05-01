@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 P3-#21: Chaos / fault-injection tests for services/signal_outbox_dispatcher.py
 
@@ -12,7 +13,6 @@ Covers Redis failure modes that must not crash or silently lose data:
   8. Schema version mismatch                      → DLQ sent, xack called, not retried
 """
 
-from __future__ import annotations
 
 import sys
 import json
@@ -31,19 +31,19 @@ from collections import defaultdict
 # ── Minimal stubs ─────────────────────────────────────────────────────────────
 
 def _make_fields(sid: str = "SID-001", schema_version: str = "1") -> Dict[str, str]:
-    """Build a minimal outbox stream fields dict (data=JSON envelope)."""
+    """Build a minimal outbox stream fields dict (data=JSON envelope).""",
     envelope = {
-        "sid": sid
-        "schema_version": schema_version
+        "sid": sid,
+        "schema_version": schema_version,
         "targets": {
-            "notify": {"text": "hello"}
-            "signal_stream_payload": {"symbol": "BTCUSDT", "side": "LONG"}
-        }
+            "notify": {"text": "hello"},
+            "signal_stream_payload": {"symbol": "BTCUSDT", "side": "LONG"},
+        },
         "meta": {
-            "signal_stream": "stream:signals:live"
-            "audit_stream": "stream:signals:audit"
-        }
-        "symbol": "BTCUSDT"
+            "signal_stream": "stream:signals:live",
+            "audit_stream": "stream:signals:audit",
+        },
+        "symbol": "BTCUSDT",
     }
     return {"data": json.dumps(envelope)}
 
@@ -193,13 +193,13 @@ class _FakeStreamHelper:
 def _make_dispatcher(redis_override=None, dual_redis=None):
     """Build a SignalDispatcher fully mocked, no network calls."""
     with (
-        patch("services.signal_outbox_dispatcher.get_redis", return_value=redis_override or _FakeRedis())
-        patch("services.signal_outbox_dispatcher.get_dual_signals_redis", return_value=dual_redis or _FakeRedis())
-        patch("services.signal_outbox_dispatcher.SyncRedisStreamHelper")
-        patch("services.signal_outbox_dispatcher.OutboxRetryQueue") as _rq_cls
-        patch("services.signal_outbox_dispatcher.DeliveryAtomic") as _da_cls
-        patch("services.signal_outbox_dispatcher.SidLease") as _lease_cls
-        patch("services.signal_outbox_dispatcher.NotifyGate") as _ng_cls
+        patch("services.signal_outbox_dispatcher.get_redis", return_value=redis_override or _FakeRedis()),
+        patch("services.signal_outbox_dispatcher.get_dual_signals_redis", return_value=dual_redis or _FakeRedis()),
+        patch("services.signal_outbox_dispatcher.SyncRedisStreamHelper"),
+        patch("services.signal_outbox_dispatcher.OutboxRetryQueue") as _rq_cls,
+        patch("services.signal_outbox_dispatcher.DeliveryAtomic") as _da_cls,
+        patch("services.signal_outbox_dispatcher.SidLease") as _lease_cls,
+        patch("services.signal_outbox_dispatcher.NotifyGate") as _ng_cls,
     ):
         # Retry queue stub
         rq = MagicMock()
@@ -511,7 +511,7 @@ class TestSchemaMismatch:
     def test_wrong_schema_version_sends_to_dlq(self):
         """Envelope with unsupported schema_version → DLQ xadd + direct xack, no retry.
 
-        Note: schema mismatch calls self.redis.xack() directly (not helper.ack)
+        Note: schema mismatch calls self.redis.xack() directly (not helper.ack),
         so we assert against fake_redis.xack_calls.
         """
         fake_redis = _FakeRedis()

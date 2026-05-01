@@ -68,8 +68,8 @@ if HAS_EVENTS_LOGGER:
 
 # FastAPI app
 app = FastAPI(
-    title="MT5 Event Executor"
-    version="1.0.0"
+    title="MT5 Event Executor",
+    version="1.0.0",
     description="Receives and classifies trading events from MT5 EA"
 )
 
@@ -122,17 +122,17 @@ def load_trade_state(sid: str) -> Dict[str, Any]:
     if not r.exists(key):
         # Создаём новый state
         return {
-            "sid": sid
-            "tp1_hit": False
-            "tp2_hit": False
-            "tp3_hit": False
-            "sl_hit": False
-            "opened_at": None
-            "closed_at": None
-            "last_event_ts": None
-            "pnl_realized": 0.0
-            "events": []
-            "volume_opened": 0.0
+            "sid": sid,
+            "tp1_hit": False,
+            "tp2_hit": False,
+            "tp3_hit": False,
+            "sl_hit": False,
+            "opened_at": None,
+            "closed_at": None,
+            "last_event_ts": None,
+            "pnl_realized": 0.0,
+            "events": [],
+            "volume_opened": 0.0,
             "volume_closed": 0.0
         }
     
@@ -198,7 +198,7 @@ def classify_fill(event: MT5Event, signal: Optional[Dict[str, Any]]) -> Dict[str
         Dict с event_type и reason
     """
     result = {
-        "event_type": "UNKNOWN"
+        "event_type": "UNKNOWN",
         "reason": "not_classified"
     }
     
@@ -272,7 +272,7 @@ def receive_mt5_event(event: MT5Event):
         raise HTTPException(400, "comment (sid) is required")
     
     log.info(
-        "📥 MT5 event: sid=%s symbol=%s price=%.2f profit=%.2f"
+        "📥 MT5 event: sid=%s symbol=%s price=%.2f profit=%.2f",
         sid, event.symbol, event.price, event.profit
     )
     
@@ -285,7 +285,7 @@ def receive_mt5_event(event: MT5Event):
     reason = classified.get("reason", "")
     
     log.info(
-        "🎯 Classified as: %s (reason: %s)"
+        "🎯 Classified as: %s (reason: %s)",
         event_type, reason
     )
     
@@ -297,14 +297,14 @@ def receive_mt5_event(event: MT5Event):
     
     # 5. Обновляем state
     state_event = {
-        "ts": now_ms
-        "event_type": event_type
-        "price": event.price
-        "profit": event.profit
-        "deal": event.deal
-        "position": event.position
-        "volume": event.volume or 0.0
-        "reason": reason
+        "ts": now_ms,
+        "event_type": event_type,
+        "price": event.price,
+        "profit": event.profit,
+        "deal": event.deal,
+        "position": event.position,
+        "volume": event.volume or 0.0,
+        "reason": reason,
     }
     
     state["events"].append(state_event)
@@ -325,12 +325,12 @@ def receive_mt5_event(event: MT5Event):
         # Логируем через TradeEventsLogger
         if events_logger:
             events_logger.log_tp1_hit(
-                sid=sid
-                symbol=event.symbol
-                price=event.price
-                position_id=str(event.position)
-                lot=event.volume
-                source="mt5"
+                sid=sid,
+                symbol=event.symbol,
+                price=event.price,
+                position_id=str(event.position),
+                lot=event.volume,
+                source="mt5",
             )
     
     elif event_type == "TP2_HIT":
@@ -341,12 +341,12 @@ def receive_mt5_event(event: MT5Event):
         
         if events_logger:
             events_logger.log_tp2_hit(
-                sid=sid
-                symbol=event.symbol
-                price=event.price
-                position_id=str(event.position)
-                lot=event.volume
-                source="mt5"
+                sid=sid,
+                symbol=event.symbol,
+                price=event.price,
+                position_id=str(event.position),
+                lot=event.volume,
+                source="mt5",
             )
     
     elif event_type == "TP3_HIT":
@@ -357,12 +357,12 @@ def receive_mt5_event(event: MT5Event):
         
         if events_logger:
             events_logger.log_tp3_hit(
-                sid=sid
-                symbol=event.symbol
-                price=event.price
-                position_id=str(event.position)
-                lot=event.volume
-                source="mt5"
+                sid=sid,
+                symbol=event.symbol,
+                price=event.price,
+                position_id=str(event.position),
+                lot=event.volume,
+                source="mt5",
             )
     
     elif event_type == "SL_HIT":
@@ -379,12 +379,12 @@ def receive_mt5_event(event: MT5Event):
         
         if events_logger:
             events_logger.log_sl_hit(
-                sid=sid
-                symbol=event.symbol
-                price=event.price
-                position_id=str(event.position)
-                lot=event.volume
-                source="mt5"
+                sid=sid,
+                symbol=event.symbol,
+                price=event.price,
+                position_id=str(event.position),
+                lot=event.volume,
+                source="mt5",
                 reason=sl_reason
             )
     
@@ -453,39 +453,39 @@ def receive_mt5_event(event: MT5Event):
             ).upper()
             # For MT5 we map deal id as order_id (unique per fill), position id remains position_id.
             events_logger.log_position_closed(
-                sid=sid
-                symbol=event.symbol
-                close_price=float(event.price)
-                pnl=float(event.profit)
-                position_id=str(event.position)
-                lot=float(event.volume or 0.0)
-                source="mt5"
-                close_reason=close_reason
+                sid=sid,
+                symbol=event.symbol,
+                close_price=float(event.price),
+                pnl=float(event.profit),
+                position_id=str(event.position),
+                lot=float(event.volume or 0.0),
+                source="mt5",
+                close_reason=close_reason,
                 # A3 time contract: use exchange close timestamp as ts
-                ts_ms=close_ts_ms
-                exit_ts_ms=close_ts_ms
+                ts_ms=close_ts_ms,
+                exit_ts_ms=close_ts_ms,
                 # A3 join-critical exec fields
                 order_id=str(event.deal),  # deal id is unique per fill in MT5
-                side=side_norm
-                venue="mt5"
-                qty=float(event.volume or 0.0)
+                side=side_norm,
+                venue="mt5",
+                qty=float(event.volume or 0.0),
                 fee_bps=0.0,  # MT5 does not report fees separately
                 # Legacy AB/regime fields go via metadata (backward compat via **legacy_kwargs)
-                ab_arm=ab_arm
-                ab_group=ab_group
-                ab_key=ab_key
-                regime=regime
-                zone_id=zone_id
+                ab_arm=ab_arm,
+                ab_group=ab_group,
+                ab_key=ab_key,
+                regime=regime,
+                zone_id=zone_id,
                 payload={
-                    "risk_usd": float(risk_usd)
-                    "r_mult": float(r_mult)
-                    "exit_ts_ms": int(close_ts_ms)
-                    "ts_fill_ms": int(close_ts_ms)
-                    "order_id": str(event.deal)
-                    "qty": float(event.volume or 0.0)
-                    "side": side_norm
-                    "venue": "mt5"
-                    "fee_bps": 0.0
+                    "risk_usd": float(risk_usd),
+                    "r_mult": float(r_mult),
+                    "exit_ts_ms": int(close_ts_ms),
+                    "ts_fill_ms": int(close_ts_ms),
+                    "order_id": str(event.deal),
+                    "qty": float(event.volume or 0.0),
+                    "side": side_norm,
+                    "venue": "mt5",
+                    "fee_bps": 0.0,
                 }
             )
     
@@ -494,34 +494,34 @@ def receive_mt5_event(event: MT5Event):
     
     # 7. Публикуем в stream для trade_back
     stream_event = {
-        "sid": sid
-        "symbol": event.symbol
-        "event_type": event_type
-        "price": event.price
-        "profit": event.profit
-        "deal": event.deal
-        "position": event.position
-        "ts": now_ms
-        "reason": reason
+        "sid": sid,
+        "symbol": event.symbol,
+        "event_type": event_type,
+        "price": event.price,
+        "profit": event.profit,
+        "deal": event.deal,
+        "position": event.position,
+        "ts": now_ms,
+        "reason": reason,
         "state": state  # Полное состояние для анализа
     }
     append_event_to_stream(stream_event)
     
     log.info(
-        "✅ Event processed: %s for %s (pnl_total=%.2f)"
+        "✅ Event processed: %s for %s (pnl_total=%.2f)",
         event_type, sid, state["pnl_realized"]
     )
     
     return {
-        "ok": True
-        "sid": sid
-        "event_type": event_type
-        "reason": reason
+        "ok": True,
+        "sid": sid,
+        "event_type": event_type,
+        "reason": reason,
         "state": {
-            "tp1_hit": state["tp1_hit"]
-            "tp2_hit": state["tp2_hit"]
-            "tp3_hit": state["tp3_hit"]
-            "sl_hit": state["sl_hit"]
+            "tp1_hit": state["tp1_hit"],
+            "tp2_hit": state["tp2_hit"],
+            "tp3_hit": state["tp3_hit"],
+            "sl_hit": state["sl_hit"],
             "pnl_realized": state["pnl_realized"]
         }
     }
@@ -537,9 +537,9 @@ def health_check():
         redis_ok = False
     
     return {
-        "status": "healthy" if redis_ok else "unhealthy"
-        "redis": "connected" if redis_ok else "disconnected"
-        "events_logger": HAS_EVENTS_LOGGER
+        "status": "healthy" if redis_ok else "unhealthy",
+        "redis": "connected" if redis_ok else "disconnected",
+        "events_logger": HAS_EVENTS_LOGGER,
         "timestamp": get_ny_time_millis()
     }
 
@@ -555,8 +555,8 @@ def get_stats():
         trade_states = len(r.keys(f"{TRADE_STATE_PREFIX}*"))
         
         return {
-            "events_in_stream": stream_len
-            "trade_states": trade_states
+            "events_in_stream": stream_len,
+            "trade_states": trade_states,
             "events_logger_stats": events_logger.get_stats() if events_logger else {}
         }
     except Exception as e:
@@ -608,9 +608,9 @@ if __name__ == "__main__":
     log.info("=" * 80)
     
     uvicorn.run(
-        app
-        host=host
-        port=port
+        app,
+        host=host,
+        port=port,
         log_level="info"
     )
 

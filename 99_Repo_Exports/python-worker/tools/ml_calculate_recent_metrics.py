@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Calculates recent ML metrics (Precision@TopK, ECE, Expectancy) for the last N hours.
 Used by nightly_meta_enforce_ramp_bundle.py to gate ramp-up.
@@ -7,7 +8,6 @@ Usage:
     stats = ml_calculate_recent_metrics.calculate(window_hours=24)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

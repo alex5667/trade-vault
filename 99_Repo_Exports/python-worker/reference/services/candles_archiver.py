@@ -37,8 +37,8 @@ BLOCK_MS = 2000
 
 # Logging setup
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("candles_archiver")
@@ -73,38 +73,38 @@ def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
             # JSON format
             raw = json.loads(json_data)
             return {
-                'symbol': raw.get('s') or raw.get('symbol') or d.get('symbol') or d.get('s')
-                'timeframe': raw.get('tf') or raw.get('timeframe') or raw.get('i') or d.get('tf') or d.get('timeframe') or d.get('i')
-                'open_time': datetime.fromtimestamp(int(raw.get('k_t') or raw.get('t') or raw.get('open_time') or raw.get('openTime')) / 1000.0, timezone.utc)
-                'close_time': datetime.fromtimestamp(int(raw.get('k_Tw') or raw.get('T') or raw.get('close_time') or raw.get('closeTime')) / 1000.0, timezone.utc)
-                'open': float(raw.get('o') or raw.get('open'))
-                'high': float(raw.get('h') or raw.get('high'))
-                'low': float(raw.get('l') or raw.get('low'))
-                'close': float(raw.get('c') or raw.get('close'))
-                'volume': float(raw.get('v') or raw.get('volume'))
-                'quote_volume': float(raw.get('q') or raw.get('quote_volume') or raw.get('quoteVolume'))
-                'trades': int(raw.get('n') or raw.get('trades'))
-                'taker_buy_base': float(raw.get('V') or raw.get('taker_buy_base') or raw.get('takerBuyVolume'))
-                'taker_buy_quote': float(raw.get('Q') or raw.get('taker_buy_quote') or raw.get('takerBuyQuoteVolume'))
+                'symbol': raw.get('s') or raw.get('symbol') or d.get('symbol') or d.get('s'),
+                'timeframe': raw.get('tf') or raw.get('timeframe') or raw.get('i') or d.get('tf') or d.get('timeframe') or d.get('i'),
+                'open_time': datetime.fromtimestamp(int(raw.get('k_t') or raw.get('t') or raw.get('open_time') or raw.get('openTime')) / 1000.0, timezone.utc),
+                'close_time': datetime.fromtimestamp(int(raw.get('k_Tw') or raw.get('T') or raw.get('close_time') or raw.get('closeTime')) / 1000.0, timezone.utc),
+                'open': float(raw.get('o') or raw.get('open')),
+                'high': float(raw.get('h') or raw.get('high')),
+                'low': float(raw.get('l') or raw.get('low')),
+                'close': float(raw.get('c') or raw.get('close')),
+                'volume': float(raw.get('v') or raw.get('volume')),
+                'quote_volume': float(raw.get('q') or raw.get('quote_volume') or raw.get('quoteVolume')),
+                'trades': int(raw.get('n') or raw.get('trades')),
+                'taker_buy_base': float(raw.get('V') or raw.get('taker_buy_base') or raw.get('takerBuyVolume')),
+                'taker_buy_quote': float(raw.get('Q') or raw.get('taker_buy_quote') or raw.get('takerBuyQuoteVolume')),
             }
         else:
             # Fields format (go-worker standard)
              # Expected keys: s, i, t, T, o, h, l, c, v, q, n, V, Q
              # Or full names
             return {
-                'symbol': d.get('s') or d.get('symbol')
-                'timeframe': d.get('i') or d.get('tf') or d.get('timeframe')
-                'open_time': datetime.fromtimestamp(int(d.get('t') or d.get('open_time')) / 1000.0, timezone.utc)
-                'close_time': datetime.fromtimestamp(int(d.get('T') or d.get('close_time')) / 1000.0, timezone.utc)
-                'open': float(d.get('o') or d.get('open'))
-                'high': float(d.get('h') or d.get('high'))
-                'low': float(d.get('l') or d.get('low'))
-                'close': float(d.get('c') or d.get('close'))
-                'volume': float(d.get('v') or d.get('volume'))
-                'quote_volume': float(d.get('q') or d.get('quote_volume'))
-                'trades': int(d.get('n') or d.get('trades'))
-                'taker_buy_base': float(d.get('V') or d.get('taker_buy_base'))
-                'taker_buy_quote': float(d.get('Q') or d.get('taker_buy_quote'))
+                'symbol': d.get('s') or d.get('symbol'),
+                'timeframe': d.get('i') or d.get('tf') or d.get('timeframe'),
+                'open_time': datetime.fromtimestamp(int(d.get('t') or d.get('open_time')) / 1000.0, timezone.utc),
+                'close_time': datetime.fromtimestamp(int(d.get('T') or d.get('close_time')) / 1000.0, timezone.utc),
+                'open': float(d.get('o') or d.get('open')),
+                'high': float(d.get('h') or d.get('high')),
+                'low': float(d.get('l') or d.get('low')),
+                'close': float(d.get('c') or d.get('close')),
+                'volume': float(d.get('v') or d.get('volume')),
+                'quote_volume': float(d.get('q') or d.get('quote_volume')),
+                'trades': int(d.get('n') or d.get('trades')),
+                'taker_buy_base': float(d.get('V') or d.get('taker_buy_base')),
+                'taker_buy_quote': float(d.get('Q') or d.get('taker_buy_quote')),
             }
             
     except Exception as e:
@@ -142,9 +142,9 @@ def main():
         try:
             # Read batch from Redis
             messages = r.xreadgroup(
-                ARCHIVE_GROUP, ARCHIVE_CONSUMER
-                {CANDLES_STREAM: '>'}
-                count=BATCH_SIZE
+                ARCHIVE_GROUP, ARCHIVE_CONSUMER,
+                {CANDLES_STREAM: '>'},
+                count=BATCH_SIZE,
                 block=BLOCK_MS
             )
             
@@ -161,18 +161,18 @@ def main():
                     candle = parse_candle(data)
                     if candle:
                         batch_data.append((
-                            candle['symbol']
-                            candle['timeframe']
-                            candle['open_time']
-                            candle['close_time']
-                            candle['open']
-                            candle['high']
-                            candle['low']
-                            candle['close']
-                            candle['volume']
-                            candle['quote_volume']
-                            candle['trades']
-                            candle['taker_buy_base']
+                            candle['symbol'],
+                            candle['timeframe'],
+                            candle['open_time'],
+                            candle['close_time'],
+                            candle['open'],
+                            candle['high'],
+                            candle['low'],
+                            candle['close'],
+                            candle['volume'],
+                            candle['quote_volume'],
+                            candle['trades'],
+                            candle['taker_buy_base'],
                             candle['taker_buy_quote']
                         ))
                     msg_ids.append(msg_id)
@@ -190,9 +190,9 @@ def main():
                 with pg.cursor() as cur:
                     execute_batch(cur, """
                         INSERT INTO candles_archive (
-                            symbol, timeframe, open_time, close_time
-                            open, high, low, close
-                            volume, quote_volume, trades
+                            symbol, timeframe, open_time, close_time,
+                            open, high, low, close,
+                            volume, quote_volume, trades,
                             taker_buy_base, taker_buy_quote
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (symbol, timeframe, open_time) DO NOTHING
@@ -201,8 +201,8 @@ def main():
                     # Update metadata
                     cur.execute("""
                         UPDATE archive_metadata 
-                        SET last_archived_id = %s
-                            last_archived_at = NOW()
+                        SET last_archived_id = %s,
+                            last_archived_at = NOW(),
                             records_archived = records_archived + %s
                         WHERE stream_name = %s
                     """, (last_id, len(batch_data), CANDLES_STREAM))

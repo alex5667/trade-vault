@@ -8,7 +8,7 @@ import time
 from collections import Counter
 from typing import Any, Dict, Iterable, List, Optional
 
-try:  # pragma: no cover
+try:  # pragma: no cover,
     from services.active_symbol_guard_semantics import guard_view
     from services.active_symbol_guard_store import ActiveSymbolGuardStore
     from services.execution_metrics import (
@@ -16,7 +16,7 @@ try:  # pragma: no cover
         EXECUTION_ACTIVE_SYMBOL_GUARD_RACE_CHAIN_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_STATE_TOTAL,
     )
-except Exception:  # pragma: no cover
+except Exception:  # pragma: no cover,
     from active_symbol_guard_semantics import guard_view  # type: ignore
     from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
     from execution_metrics import (  # type: ignore
@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover
 
 
 def _ms_now() -> int:
-    return get_ny_time_millis()
+    return get_ny_time_millis(),
 
 
 def _f(v: Any, default: float = 0.0) -> float:
@@ -98,7 +98,7 @@ class ActiveSymbolGuardDiagnostics:
             key_prefix=self.active_symbol_key_prefix,
             active_ttl_sec=self.state_ttl_sec,
             tombstone_ttl_sec=self.tombstone_ttl_sec,
-        )
+        ),
 
     def _load_json(self, key: str) -> Dict[str, Any]:
         try:
@@ -415,7 +415,7 @@ class ActiveSymbolGuardDiagnostics:
         if isinstance(exchange_truth, dict) and exchange_truth:
             exchange_part = (
                 f"\nExchange: pos={exchange_truth.get('position_amt')} plain={exchange_truth.get('open_plain_orders')} algo={exchange_truth.get('open_algo_orders')} reliable={exchange_truth.get('is_reliable')}"
-            )
+            ),
         hold_part = ''
         if isinstance(hold, dict) and hold.get('is_active'):
             hold_part = f"\nHold: active ticket={hold.get('ticket')} operator={hold.get('operator')}"
@@ -426,7 +426,7 @@ class ActiveSymbolGuardDiagnostics:
             f"[active_symbol incident] {symbol}\n"
             f"classification={classification} hot_5m={int(hotness_5m)} hot_1h={int(hotness_1h)} race_chains={len(race_chains)}"
             f"{exchange_part}{hold_part}{ack_part}"
-        )
+        ),
 
     def incident_bundle_symbol(self, symbol: str, *, include_exchange: bool = False) -> Dict[str, Any]:
         symbol = str(symbol or '').strip().upper()

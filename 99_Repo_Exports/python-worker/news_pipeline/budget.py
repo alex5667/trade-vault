@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 news_pipeline/budget.py — Reserve-based USD budget enforcement via Redis Lua.
 
@@ -6,7 +7,6 @@ This prevents LLM calls that would bust the daily USD cap.
 
 Used by: analyzer_worker.py (reasoner).
 """
-from __future__ import annotations
 
 import time
 from dataclasses import dataclass
@@ -45,10 +45,10 @@ class BudgetResult:
 
 
 async def reserve_usd(
-    r: Any
-    *
-    daily_limit_usd: float
-    reserve_usd: float
+    r: Any,
+    *,
+    daily_limit_usd: float,
+    reserve_usd: float,
 ) -> BudgetResult:
     """Atomically reserve `reserve_usd` USD against today's budget.
 
@@ -70,11 +70,11 @@ async def reserve_usd(
     key = f"news:budget:usd:{today}"
 
     result = await r.eval(
-        _LUA_RESERVE_USD
+        _LUA_RESERVE_USD,
         1,          # number of KEYS
         key,        # KEYS[1]
-        str(reserve_usd)
-        str(daily_limit_usd)
+        str(reserve_usd),
+        str(daily_limit_usd),
     )
     # result: [ok_int, used_str]
     ok = int(result[0]) == 1

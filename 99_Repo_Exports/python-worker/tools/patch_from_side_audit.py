@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Batch patch generator/applicator for side->sign conversions based on audit output.
 
@@ -15,7 +16,6 @@ Design goals:
 - Conservative: only fixes lines that still match expected patterns.
 - No external dependencies.
 """
-from __future__ import annotations
 
 import argparse
 import difflib

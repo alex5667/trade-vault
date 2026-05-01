@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 apply_meta_enforce_cov_suggestion.py
 
@@ -31,7 +32,6 @@ ENV
   NOTIFY_TELEGRAM_STREAM (default notify:telegram)  # optional
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

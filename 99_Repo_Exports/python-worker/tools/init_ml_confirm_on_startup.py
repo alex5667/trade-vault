@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Автоматическая инициализация ML Confirm конфигурации при старте сервиса.
 
@@ -6,7 +7,6 @@
 Создает конфигурацию, если она отсутствует и модель найдена.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

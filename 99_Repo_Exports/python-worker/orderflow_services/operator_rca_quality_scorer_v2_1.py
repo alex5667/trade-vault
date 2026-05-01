@@ -137,7 +137,7 @@ def score_output(payload: Dict[str, Any]) -> Tuple[float, List[str], Dict[str, f
         "propose_threshold_canary",
         "open_incident",
         "draft_postmortem",
-    }
+    },
     allowed_n = 0
     for rec in recs[:10]:
         if isinstance(rec, dict) and str(rec.get("action", "")) in allowed_actions:
@@ -165,7 +165,7 @@ async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: List
     if conn is None:
         return
     await conn.execute(
-        """
+        """,
         INSERT INTO llm_incident_rca_quality (
             recommendation_id, ts_ms, output_hash, quality_score, quality_reasons_json,
             parts_json, prompt_version, policy_version
@@ -186,7 +186,7 @@ async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: List
         item.policy_version or None,
     )
     await conn.execute(
-        """
+        """,
         UPDATE llm_incident_rca_results
         SET quality_score = $2
         WHERE recommendation_id = $1

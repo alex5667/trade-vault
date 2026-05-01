@@ -76,7 +76,7 @@ def aggregate_windows(r: Any, *, now_ms: int, hourly_prefix: str, daily_prefix: 
         "24h": (hourly_prefix, _hour_buckets(now_ms, 24)),
         "7d": (daily_prefix, _day_buckets(now_ms, 7)),
         "30d": (daily_prefix, _day_buckets(now_ms, 30)),
-    }
+    },
     for window, (prefix, buckets) in window_specs.items():
         for row in _read_bucket_hashes(r, prefix, buckets):
             for field, raw_value in (row or {}).items():

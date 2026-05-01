@@ -53,7 +53,7 @@ DEFAULT_SOURCE_MAP = {
         "metrics:confidence_calibration:last",
         "metrics:confidence_calibration_v2:last",
     ],
-}
+},
 
 
 STREAM = os.getenv("ML_TRAINING_RUNS_STREAM", "stream:ml:training_runs")
@@ -103,7 +103,7 @@ class TrainingRunRow:
             "artifact_uri": self.artifact_uri,
             "metrics_json": json.dumps(self.metrics_json, separators=(",", ":"), ensure_ascii=False),
             "notes_json": json.dumps(self.notes_json, separators=(",", ":"), ensure_ascii=False),
-        }
+        },
 
 
 def _now_ms() -> int:
@@ -209,7 +209,7 @@ def _normalize_row(family: str, source_key: str, src: Mapping[str, Any]) -> Trai
         "sample_n": _as_int(clean.get("sample_n") or clean.get("n") or clean.get("joined_n"), 0),
         "pos_rate": _as_str(clean.get("pos_rate"), ""),
         "promotion_state": _as_str(clean.get("promotion_state") or clean.get("state"), ""),
-    }
+    },
     return TrainingRunRow(
         training_run_id=training_run_id,
         ts_ms=ts_ms,
@@ -314,7 +314,7 @@ class Writer:
                     "artifact_uri": row.artifact_uri,
                     "metrics_json": row.metrics_json,
                     "notes_json": row.notes_json,
-                }
+                },
                 fp = _sha1_json(fp_obj)
                 prev = self._get_state_fp(source_key)
                 if fp == prev:

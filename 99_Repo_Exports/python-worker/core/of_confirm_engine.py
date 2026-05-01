@@ -3129,7 +3129,7 @@ class OFConfirmEngine:
                         META_FEAT_V7_NAME: dict(name=META_FEAT_V7_NAME, version=META_FEAT_V7_VERSION, hash=META_FEAT_V7_HASH, builder=build_meta_features_v7),
                         META_FEAT_V8_NAME: dict(name=META_FEAT_V8_NAME, version=META_FEAT_V8_VERSION, hash=META_FEAT_V8_HASH, builder=build_meta_features_v8),
                         META_FEAT_V9_NAME: dict(name=META_FEAT_V9_NAME, version=META_FEAT_V9_VERSION, hash=META_FEAT_V9_HASH, builder=build_meta_features_v9),
-                        META_FEAT_V10_NAME: dict(name=META_FEAT_V10_NAME, version=META_FEAT_V10_VERSION, hash=META_FEAT_V10_HASH, builder=build_meta_features_v10),
+                        META_FEAT_V10_NAME: dict(name=META_FEAT_V10_NAME, version=META_FEAT_V10_VERSION, hash=META_FEAT_V10_HASH, builder=build_meta_features_v10)
                     }
 
                     schema_cfg = SCHEMAS.get(model_schema_name)

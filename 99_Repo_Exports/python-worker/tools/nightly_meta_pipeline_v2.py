@@ -1,11 +1,11 @@
 # python-worker/tools/nightly_meta_pipeline_v2.py
+from __future__ import annotations
 """
 Unified nightly pipeline (v2): train -> quality report (regime-aware) -> auto-ramp (regime-aware).
 
 This script is opt-in: use it by switching your timer/compose entrypoint from nightly_meta_pipeline_v1.py.
 Defaults keep backward compatibility: schema defaults to meta_feat_v3 and auto-apply is off.
 """
-from __future__ import annotations
 
 import argparse
 import os

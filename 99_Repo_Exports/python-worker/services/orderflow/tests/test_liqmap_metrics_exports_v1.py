@@ -18,10 +18,10 @@ def test_sot_metrics_export_liqmap_symbols_and_label_contract() -> None:
     from services.orderflow import metrics as sot
 
     required = [
-        "liqmap_snapshot_age_ms_gauge"
-        "liqmap_snapshot_parse_errors_total"
-        "liqmap_gate_shadow_hit_total"
-        "liqmap_gate_veto_total"
+        "liqmap_snapshot_age_ms_gauge",
+        "liqmap_snapshot_parse_errors_total",
+        "liqmap_gate_shadow_hit_total",
+        "liqmap_gate_veto_total",
     ]
 
     for k in required:

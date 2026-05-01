@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Train ML confirm model (Logistic Regression + Platt scaling).
 
 Input: dataset NDJSON produced by ml_build_dataset_from_ndjson.py
@@ -11,7 +12,6 @@ Validation: time split (train first, test last).
 Metrics: PR-AUC, logloss, Brier, ECE (approx).
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import argparse

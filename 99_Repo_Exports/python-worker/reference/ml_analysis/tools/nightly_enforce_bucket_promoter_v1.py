@@ -18,8 +18,8 @@ except Exception:  # pragma: no cover
 
 
 logging.basicConfig(
-    level=logging.INFO
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("nightly_enforce_bucket_promoter")
 
@@ -189,17 +189,17 @@ class PromotionDecision:
 
 
 def decide_next_allowlist(
-    *
-    current_allow: str
-    health_by_bucket: Dict[str, BucketHealth]
-    promote_order: List[str]
-    default_bucket: str
-    min_db_n: int
-    max_p95: float
-    max_p99: float
+    *,
+    current_allow: str,
+    health_by_bucket: Dict[str, BucketHealth],
+    promote_order: List[str],
+    default_bucket: str,
+    min_db_n: int,
+    max_p95: float,
+    max_p99: float,
     max_edge_neg_share: float,  # P89: guardrail — block promote if edge_neg_share too high
-    min_eligible_n: int
-    min_ok_soft_rate: float
+    min_eligible_n: int,
+    min_ok_soft_rate: float,
 ) -> PromotionDecision:
     cur = _parse_allowlist(current_allow)
     if not cur:
@@ -243,11 +243,11 @@ def decide_next_allowlist(
 # ------------------------ DB + Redis aggregation ------------------------
 
 async def _fetch_db_health(
-    conn: Any
-    *
-    lookback_h: int
-    mv: str
-    view: str
+    conn: Any,
+    *,
+    lookback_h: int,
+    mv: str,
+    view: str,
 ) -> Dict[str, Dict[str, BucketHealth]]:
     """Returns sym -> bucket -> health (DB-side residuals and edge-neg share).
 
@@ -267,11 +267,11 @@ async def _fetch_db_health(
     try:
         q = f"""
         SELECT
-          sym
-          exec_regime_bucket
-          sum(n)::bigint as n
-          max(resid_p95_bps) as p95_resid
-          max(resid_p99_bps) as p99_resid
+          sym,
+          exec_regime_bucket,
+          sum(n)::bigint as n,
+          max(resid_p95_bps) as p95_resid,
+          max(resid_p99_bps) as p99_resid,
           max(edge_neg_share) as edge_neg_share
         FROM {mv}
         WHERE t >= now() - interval '{int(lookback_h)} hours'
@@ -285,13 +285,13 @@ async def _fetch_db_health(
                 continue
             b = _norm_bucket(r.get("exec_regime_bucket") or "NORMAL")
             out.setdefault(sym, {})[b] = BucketHealth(
-                bucket=b
-                db_n=_i(r.get("n"), 0)
-                resid_p95=_f(r.get("p95_resid"), 0.0)
-                resid_p99=_f(r.get("p99_resid"), 0.0)
-                edge_neg_share=_f(r.get("edge_neg_share"), 0.0)
-                eligible_n=0
-                ok_soft_rate=0.0
+                bucket=b,
+                db_n=_i(r.get("n"), 0),
+                resid_p95=_f(r.get("p95_resid"), 0.0),
+                resid_p99=_f(r.get("p99_resid"), 0.0),
+                edge_neg_share=_f(r.get("edge_neg_share"), 0.0),
+                eligible_n=0,
+                ok_soft_rate=0.0,
             )
         return out
     except Exception as e:
@@ -300,11 +300,11 @@ async def _fetch_db_health(
     # Slow path: compute percentiles on raw view (fallback when MV unavailable)
     q2 = f"""
     SELECT
-      sym
-      exec_regime_bucket
-      count(*) as n
-      percentile_cont(0.95) within group (order by slippage_residual_bps) as p95_resid
-      percentile_cont(0.99) within group (order by slippage_residual_bps) as p99_resid
+      sym,
+      exec_regime_bucket,
+      count(*) as n,
+      percentile_cont(0.95) within group (order by slippage_residual_bps) as p95_resid,
+      percentile_cont(0.99) within group (order by slippage_residual_bps) as p99_resid,
       avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
     FROM {view}
     WHERE ts >= now() - interval '{int(lookback_h)} hours'
@@ -318,23 +318,23 @@ async def _fetch_db_health(
             continue
         b = _norm_bucket(r.get("exec_regime_bucket") or "NORMAL")
         out.setdefault(sym, {})[b] = BucketHealth(
-            bucket=b
-            db_n=_i(r.get("n"), 0)
-            resid_p95=_f(r.get("p95_resid"), 0.0)
-            resid_p99=_f(r.get("p99_resid"), 0.0)
-            edge_neg_share=_f(r.get("edge_neg_share"), 0.0)
-            eligible_n=0
-            ok_soft_rate=0.0
+            bucket=b,
+            db_n=_i(r.get("n"), 0),
+            resid_p95=_f(r.get("p95_resid"), 0.0),
+            resid_p99=_f(r.get("p99_resid"), 0.0),
+            edge_neg_share=_f(r.get("edge_neg_share"), 0.0),
+            eligible_n=0,
+            ok_soft_rate=0.0,
         )
     return out
 
 
 async def _scan_gate_metrics(
-    r: Any
-    *
-    stream: str
-    start_ms: int
-    max_scan: int
+    r: Any,
+    *,
+    stream: str,
+    start_ms: int,
+    max_scan: int,
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     last_id = "+"
@@ -394,13 +394,13 @@ def _merge_gate_health(db: Dict[str, Dict[str, BucketHealth]], gate_rows: List[D
             n = int(a["n"])
             ok_soft_rate = float((a["ok"] + a["ok_soft"]) / n) if n > 0 else 0.0
             out[sym][b] = BucketHealth(
-                bucket=b
-                db_n=h.db_n
-                resid_p95=h.resid_p95
-                resid_p99=h.resid_p99
+                bucket=b,
+                db_n=h.db_n,
+                resid_p95=h.resid_p95,
+                resid_p99=h.resid_p99,
                 edge_neg_share=h.edge_neg_share,  # P89: carry forward from DB
-                eligible_n=n
-                ok_soft_rate=ok_soft_rate
+                eligible_n=n,
+                ok_soft_rate=ok_soft_rate,
             )
 
     # Add symbols/buckets that exist only in gate stream (rare; keep them too)
@@ -487,12 +487,12 @@ async def run() -> bool:
 
     # P89: MV and raw view names (configurable, sanitized to prevent SQL injection)
     stats_mv = _safe_ident(
-        str(os.getenv("PROMOTE_STATS_MV", "mv_exec_slippage_eval_1h_stats") or "mv_exec_slippage_eval_1h_stats")
-        "mv_exec_slippage_eval_1h_stats"
+        str(os.getenv("PROMOTE_STATS_MV", "mv_exec_slippage_eval_1h_stats") or "mv_exec_slippage_eval_1h_stats"),
+        "mv_exec_slippage_eval_1h_stats",
     )
     stats_view = _safe_ident(
-        str(os.getenv("PROMOTE_STATS_VIEW", "v_exec_slippage_eval") or "v_exec_slippage_eval")
-        "v_exec_slippage_eval"
+        str(os.getenv("PROMOTE_STATS_VIEW", "v_exec_slippage_eval") or "v_exec_slippage_eval"),
+        "v_exec_slippage_eval",
     )
 
     # Path to write a cheap status JSON (cheap exporter path instead of Redis queries)
@@ -589,28 +589,28 @@ async def run() -> bool:
                 pass
 
         dec_slip = decide_next_allowlist(
-            current_allow=cur_slip
-            health_by_bucket=hmap
-            promote_order=promote_order
-            default_bucket=default_bucket
-            min_db_n=min_db_n
-            max_p95=max_p95
-            max_p99=max_p99
+            current_allow=cur_slip,
+            health_by_bucket=hmap,
+            promote_order=promote_order,
+            default_bucket=default_bucket,
+            min_db_n=min_db_n,
+            max_p95=max_p95,
+            max_p99=max_p99,
             max_edge_neg_share=max_edge_neg_share,  # P89
-            min_eligible_n=min_gate_n
-            min_ok_soft_rate=min_ok_soft
+            min_eligible_n=min_gate_n,
+            min_ok_soft_rate=min_ok_soft,
         )
         dec_taker = decide_next_allowlist(
-            current_allow=cur_taker
-            health_by_bucket=hmap
-            promote_order=promote_order
-            default_bucket=default_bucket
-            min_db_n=min_db_n
-            max_p95=max_p95
-            max_p99=max_p99
+            current_allow=cur_taker,
+            health_by_bucket=hmap,
+            promote_order=promote_order,
+            default_bucket=default_bucket,
+            min_db_n=min_db_n,
+            max_p95=max_p95,
+            max_p99=max_p99,
             max_edge_neg_share=max_edge_neg_share,  # P89
-            min_eligible_n=min_gate_n
-            min_ok_soft_rate=min_ok_soft
+            min_eligible_n=min_gate_n,
+            min_ok_soft_rate=min_ok_soft,
         )
 
         if (dec_slip.ok or dec_taker.ok) or sym == cand_syms[-1]:
@@ -628,38 +628,38 @@ async def run() -> bool:
     dec_taker = chosen_dec_taker
 
     report = {
-        "ts_ms": _now_ms()
-        "lookback_h": lookback_h
-        "apply": apply
-        "scope": scope
-        "target_sym": (target_sym or "GLOBAL")
-        "apply_blocked_by_gap": bool(apply_blocked_by_gap)
-        "min_apply_gap_sec": int(min_apply_gap_sec)
+        "ts_ms": _now_ms(),
+        "lookback_h": lookback_h,
+        "apply": apply,
+        "scope": scope,
+        "target_sym": (target_sym or "GLOBAL"),
+        "apply_blocked_by_gap": bool(apply_blocked_by_gap),
+        "min_apply_gap_sec": int(min_apply_gap_sec),
         "current": {
-            "slippage_decomp_enforce_buckets": cur_slip
+            "slippage_decomp_enforce_buckets": cur_slip,
             "taker_flow_gate_enforce_buckets": cur_taker
-        }
+        },
         "proposed": {
-            "slippage_decomp_enforce_buckets": dec_slip.new_allowlist
+            "slippage_decomp_enforce_buckets": dec_slip.new_allowlist,
             "taker_flow_gate_enforce_buckets": dec_taker.new_allowlist
-        }
+        },
         "decisions": {
-            "slippage": {"ok": dec_slip.ok, "added": dec_slip.added_bucket, "reasons": dec_slip.reasons}
+            "slippage": {"ok": dec_slip.ok, "added": dec_slip.added_bucket, "reasons": dec_slip.reasons},
             "taker": {"ok": dec_taker.ok, "added": dec_taker.added_bucket, "reasons": dec_taker.reasons}
-        }
-        "bucket_health": {
+        },
+#         "bucket_health": {
             b: {
-                "db_n": h.db_n
-                "resid_p95": h.resid_p95
-                "resid_p99": h.resid_p99
+                "db_n": h.db_n,
+                "resid_p95": h.resid_p95,
+                "resid_p99": h.resid_p99,
                 "edge_neg_share": h.edge_neg_share,  # P89: exposed for exporter gauge + ops visibility
-                "gate_n": h.eligible_n
-                "ok_soft_rate": h.ok_soft_rate
+                "gate_n": h.eligible_n,
+                "ok_soft_rate": h.ok_soft_rate,
             }
-            for b, h in sorted(global_by_bucket.items())
+#             for b, h in sorted(global_by_bucket.items())
         }
-        "notes": "Promotion adds at most one bucket per run. Uses DB residual + edge_neg_share + gate ok_soft_rate guardrails. P89: MV-first strategy for DB queries."
-    }
+#         "notes": "Promotion adds at most one bucket per run. Uses DB residual + edge_neg_share + gate ok_soft_rate guardrails. P89: MV-first strategy for DB queries.",
+#     }
 
     # 4) Write proposal keys (TTL 3d)
     # Also write status file (cheap exporter path — avoids heavy Redis queries per scrape)
@@ -743,12 +743,12 @@ async def run() -> bool:
                 try:
                     for ch in applied_changes:
                         fields = {
-                            "type": "apply"
-                            "ts_ms": now_ms
-                            "sym": (target_sym or "GLOBAL")
-                            "component": ch.get("component")
-                            "old": ch.get("old")
-                            "new": ch.get("new")
+                            "type": "apply",
+                            "ts_ms": now_ms,
+                            "sym": (target_sym or "GLOBAL"),
+                            "component": ch.get("component"),
+                            "old": ch.get("old"),
+                            "new": ch.get("new"),
                             "added_bucket": ch.get("added_bucket")
                         }
                         await _xadd_event(r, stream="telemetry:enforce_bucket_promoter:events", fields=fields)
@@ -768,8 +768,8 @@ async def run() -> bool:
         except Exception as e:
             logger.error("Failed to apply cfg keys / write state: %s", e)
 
-    logger.info("done: slip_ok=%s add=%s new=%s | taker_ok=%s add=%s new=%s"
-                dec_slip.ok, dec_slip.added_bucket, dec_slip.new_allowlist
+    logger.info("done: slip_ok=%s add=%s new=%s | taker_ok=%s add=%s new=%s",
+                dec_slip.ok, dec_slip.added_bucket, dec_slip.new_allowlist,
                 dec_taker.ok, dec_taker.added_bucket, dec_taker.new_allowlist)
 
     await conn.close()

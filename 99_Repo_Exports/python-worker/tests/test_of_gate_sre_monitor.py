@@ -1,5 +1,5 @@
-"""Tests for of_gate_sre_monitor.py (NoData vs 0% semantics)"""
 from __future__ import annotations
+"""Tests for of_gate_sre_monitor.py (NoData vs 0% semantics)"""
 
 import pytest
 from tools.of_gate_sre_monitor import compute_stats, build_alerts, pctl, _f, _i

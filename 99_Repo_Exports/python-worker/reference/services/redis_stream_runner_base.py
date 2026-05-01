@@ -30,15 +30,15 @@ class RedisStreamRunner:
     """
 
     def __init__(
-        self
-        r: redis.Redis
-        group: str
-        consumer: Optional[str] = None
-        block_ms: int = 2000
-        read_count: int = 50
-        autoclaim_min_idle_ms: int = 45000
-        autoclaim_count: int = 100
-        dlq_prefix: str = "dlq"
+        self,
+        r: redis.Redis,
+        group: str,
+        consumer: Optional[str] = None,
+        block_ms: int = 2000,
+        read_count: int = 50,
+        autoclaim_min_idle_ms: int = 45000,
+        autoclaim_count: int = 100,
+        dlq_prefix: str = "dlq",
     ):
         self.r = r
         self.group = group
@@ -69,24 +69,24 @@ class RedisStreamRunner:
         """
         try:
             res = self.r.xautoclaim(
-                name=stream
-                groupname=self.group
-                consumername=self.consumer
-                min_idle_time=self.autoclaim_min_idle_ms
-                start_id=start_id
-                count=self.autoclaim_count
+                name=stream,
+                groupname=self.group,
+                consumername=self.consumer,
+                min_idle_time=self.autoclaim_min_idle_ms,
+                start_id=start_id,
+                count=self.autoclaim_count,
             )
         except Exception:
             # fallback if xautoclaim missing in older redis-py
             res = self.r.execute_command(
-                "XAUTOCLAIM"
-                stream
-                self.group
-                self.consumer
-                self.autoclaim_min_idle_ms
-                start_id
-                "COUNT"
-                self.autoclaim_count
+                "XAUTOCLAIM",
+                stream,
+                self.group,
+                self.consumer,
+                self.autoclaim_min_idle_ms,
+                start_id,
+                "COUNT",
+                self.autoclaim_count,
             )
 
         next_id = res[0]
@@ -117,11 +117,11 @@ class RedisStreamRunner:
 
         streams_map = {s: ">" for s in streams}
         res = self.r.xreadgroup(
-            groupname=self.group
-            consumername=self.consumer
-            streams=streams_map
-            count=self.read_count
-            block=self.block_ms
+            groupname=self.group,
+            consumername=self.consumer,
+            streams=streams_map,
+            count=self.read_count,
+            block=self.block_ms,
         )
         out: List[StreamMsg] = []
         for stream_name, items in res:
@@ -136,13 +136,13 @@ class RedisStreamRunner:
         key = f"{self.dlq_prefix}:{stream}"
         now_ms = get_ny_time_millis()
         payload = {
-            "ts": str(now_ms)
-            "reason": reason
-            "src_stream": msg.stream
-            "src_id": msg.msg_id
-            "fields": str(msg.fields)
-            "consumer": self.consumer
-            "group": self.group
+            "ts": str(now_ms),
+            "reason": reason,
+            "src_stream": msg.stream,
+            "src_id": msg.msg_id,
+            "fields": str(msg.fields),
+            "consumer": self.consumer,
+            "group": self.group,
         }
         # DLQ тоже тримим
         self.r.xadd(key, payload, maxlen=100000, approximate=True)

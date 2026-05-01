@@ -135,7 +135,7 @@ def report_revoked_today() -> str:
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """
+                """,
                 SELECT symbol, scenario, regime, risk_horizon_bucket, reason_code, created_at
                 FROM atr_promotion_policy_audit
                 WHERE created_at::date = current_date

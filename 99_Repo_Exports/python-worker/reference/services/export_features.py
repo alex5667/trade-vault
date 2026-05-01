@@ -79,10 +79,10 @@ def parse_time(s: str) -> int:
 
 
 def xranges(
-    r: redis.Redis
-    stream: str
-    start: str
-    end: str
+    r: redis.Redis,
+    stream: str,
+    start: str,
+    end: str,
     count: int = 1000
 ):
     """
@@ -115,8 +115,8 @@ def xranges(
 
 
 def load_ticks(
-    r: redis.Redis
-    start_ms: int
+    r: redis.Redis,
+    start_ms: int,
     end_ms: int
 ) -> List[Dict]:
     """
@@ -148,8 +148,8 @@ def load_ticks(
 
 
 def load_books(
-    r: redis.Redis
-    start_ms: int
+    r: redis.Redis,
+    start_ms: int,
     end_ms: int
 ) -> Dict[int, Dict]:
     """
@@ -182,8 +182,8 @@ def load_books(
 
 
 def find_nearest_book(
-    books_map: Dict[int, Dict]
-    ts: int
+    books_map: Dict[int, Dict],
+    ts: int,
     max_age_ms: int = 1000
 ) -> Optional[Dict]:
     """
@@ -210,10 +210,10 @@ def find_nearest_book(
 
 
 def extract_features(
-    ticks: List[Dict]
-    books_map: Dict[int, Dict]
-    delta_window: int = 120
-    use_gpu: bool = False
+    ticks: List[Dict],
+    books_map: Dict[int, Dict],
+    delta_window: int = 120,
+    use_gpu: bool = False,
 ):
     """
     Extract features from ticks and books with optional GPU acceleration.
@@ -342,8 +342,8 @@ def extract_features(
 def main():
     """Main entry point."""
     ap = argparse.ArgumentParser(
-        description="Export XAUUSD features from Redis Streams to Parquet/CSV"
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Export XAUUSD features from Redis Streams to Parquet/CSV",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Export last 2 hours
@@ -361,16 +361,16 @@ Examples:
     ap.add_argument("--end", required=True, help="End time (ms epoch or ISO)")
     ap.add_argument("--out", required=True, help="Output file (.parquet or .csv)")
     ap.add_argument(
-        "--delta-window"
-        type=int
-        default=120
-        help="Delta rolling window size (default: 120)"
+        "--delta-window",
+        type=int,
+        default=120,
+        help="Delta rolling window size (default: 120)",
     )
     ap.add_argument(
-        "--use-gpu"
-        action="store_true"
-        default=False
-        help="Enable GPU acceleration for DataFrame output (cuDF + cuIO)."
+        "--use-gpu",
+        action="store_true",
+        default=False,
+        help="Enable GPU acceleration for DataFrame output (cuDF + cuIO).",
     )
     args = ap.parse_args()
     

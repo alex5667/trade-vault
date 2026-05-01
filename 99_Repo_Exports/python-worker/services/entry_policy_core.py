@@ -147,13 +147,13 @@ def dedup_ok(now_ms: int, *, symbol: str, zone_id: str, side: str, cfg: EntryPol
 
 
 def evaluate_entry_policy(
-    *
-    now_ms: int
-    cand: Dict[str, Any]
-    snap: Dict[str, Any]
-    bundle: Dict[str, Any]
-    cfg: EntryPolicyCfg
-    dedup_state: Dict[str, int]
+    *,
+    now_ms: int,
+    cand: Dict[str, Any],
+    snap: Dict[str, Any],
+    bundle: Dict[str, Any],
+    cfg: EntryPolicyCfg,
+    dedup_state: Dict[str, int],
 ) -> EntryPolicyDecision:
     """
     Pure decision engine for EntryPolicyService and replay/golden.

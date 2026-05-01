@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Tests for gpu/gpu_ring_buffer.py — GPURingBuffer.
 
@@ -7,7 +8,6 @@ Covers:
   - Ring-wrap semantics (correct sliding window after overflow)
   - Latency smoke test (1000 push+compute_stats < 500ms even on CPU)
 """
-from __future__ import annotations
 
 import math
 import time

@@ -225,17 +225,17 @@ class CalibrationRepository:
                 maxlen = int(cfg.get("calib_audit_stream_maxlen", 200000))
 
                 th = runtime.eff_calib.thresholds(
-                    regime=rg
-                    default_eff_th=float(cfg.get("abs_lvl_eff_quote_th", 0.0020))
-                    default_min_qd=float(cfg.get("abs_lvl_min_quote_delta", 0.0))
+                    regime=rg,
+                    default_eff_th=float(cfg.get("abs_lvl_eff_quote_th", 0.0020)),
+                    default_min_qd=float(cfg.get("abs_lvl_min_quote_delta", 0.0)),
                 )
                 ev = runtime.eff_calib.audit_event(
-                    symbol=sym
-                    regime=rg
-                    ts_ms=int(ts_ms)
-                    eff_quote_th=float(th.eff_quote_th)
-                    min_quote_delta=float(th.min_quote_delta)
-                    src=str(th.src)
+                    symbol=sym,
+                    regime=rg,
+                    ts_ms=int(ts_ms),
+                    eff_quote_th=float(th.eff_quote_th),
+                    min_quote_delta=float(th.min_quote_delta),
+                    src=str(th.src),
                 )
 
                 last_key = f"{prefix}:last_hash:{sym}:{rg}"
@@ -243,10 +243,10 @@ class CalibrationRepository:
                 if str(prev or "") != str(ev.get("state_hash", "")):
                     await self.r.set(last_key, str(ev.get("state_hash", "")), ex=ttl_sec)
                     await self.r.xadd(
-                        audit_stream
-                        fields={"payload": json.dumps(ev, ensure_ascii=False)}
-                        maxlen=maxlen
-                        approximate=True
+                        audit_stream,
+                        fields={"payload": json.dumps(ev, ensure_ascii=False)},
+                        maxlen=maxlen,
+                        approximate=True,
                     )
         except Exception as exc:
             log_silent_error(exc, "persist_failure", sym, "calib_repo:save_effq:audit_stream")

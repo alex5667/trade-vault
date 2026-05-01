@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Assert latency and throughput budgets from benchmark results.
 
 Enforces performance SLAs:
@@ -8,7 +9,6 @@ Usage:
   python -m tools.assert_latency_budget --bench-json /path/to/bench.json --p99-us-max 3000 --throughput-min 2000
 """
 
-from __future__ import annotations
 
 import argparse
 import json

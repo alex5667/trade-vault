@@ -20,9 +20,9 @@ def main():
   • Samples: <code>27297</code>"""
     
     fields = {
-        "type": "report"
-        "text": text
-        "parse_mode": "HTML"
+        "type": "report",
+        "text": text,
+        "parse_mode": "HTML",
         "source": "ml_scorer_v3"
     }
     r.xadd("notify:telegram", fields, maxlen=50000)

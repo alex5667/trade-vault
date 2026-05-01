@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Fail-open stage metrics.
 
 Several hot-path services emit simple counters/histograms for monitoring.
@@ -6,7 +7,6 @@ Instrumentation MUST NEVER break trading/dispatch paths.
 This module centralizes best-effort metric emission.
 """
 
-from __future__ import annotations
 
 from typing import Any, Optional
 

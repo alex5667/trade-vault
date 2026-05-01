@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Disaster SLO Analytics — Phase 3.8 (Disaster Layer).
 
 Extends Phase 3.7 SRE exporter with disaster-specific SLOs:
@@ -17,7 +18,6 @@ ENV:
   ATR_POLICY_DISASTER_SLO_INTERVAL_SEC  default 30
   REDIS_URL
 """
-from __future__ import annotations
 
 import logging
 import os

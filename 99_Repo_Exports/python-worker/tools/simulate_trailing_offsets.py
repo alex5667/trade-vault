@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Симуляция различных TRAILING_TP1_OFFSET_ATR для калибровки.
 
@@ -13,7 +14,6 @@
     python simulate_trailing_offsets.py --dsn "postgresql://..." --source CryptoOrderFlow --symbol ETHUSDT --limit 200
 """
 
-from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass

@@ -16,7 +16,7 @@ class SymbolSnapshot:
     - computed/updated on bar_close (1s microbar) + some fields from last events
     """
 
-    symbol: str = ""
+    symbol=""
     ts_ms: int = 0
 
     # Trend / structure (proxy BOS)

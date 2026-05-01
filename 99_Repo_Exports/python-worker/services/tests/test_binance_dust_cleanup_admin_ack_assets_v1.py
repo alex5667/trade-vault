@@ -40,21 +40,21 @@ def test_http_exposes_ack_routes():
 def test_ack_module_imports_cleanly():
     """Verify binance_dust_cleanup_admin_ack can be imported without errors."""
     from services.binance_dust_cleanup_admin_ack import (  # noqa: F401
-        ack_reminder
-        renew_reminder_ack
-        revoke_reminder_ack
-        should_suppress_reminder
-        ack_dashboard
-        dashboard_with_unacked
+        ack_reminder,
+        renew_reminder_ack,
+        revoke_reminder_ack,
+        should_suppress_reminder,
+        ack_dashboard,
+        dashboard_with_unacked,
     )
 
 
 def test_execution_metrics_has_ack_metrics():
     """Verify P14 metrics are present in execution_metrics module."""
     from services.execution_metrics import (  # noqa: F401
-        EXECUTION_DUST_ADMIN_ACK_ACTION_TOTAL
-        EXECUTION_DUST_ADMIN_ACK_STATE_TOTAL
-        EXECUTION_DUST_ADMIN_ACK_TTL_SEC
-        EXECUTION_DUST_ADMIN_UNACKED_ITEMS_TOTAL
-        EXECUTION_DUST_ADMIN_ACK_RENEW_REMINDER_TOTAL
+        EXECUTION_DUST_ADMIN_ACK_ACTION_TOTAL,
+        EXECUTION_DUST_ADMIN_ACK_STATE_TOTAL,
+        EXECUTION_DUST_ADMIN_ACK_TTL_SEC,
+        EXECUTION_DUST_ADMIN_UNACKED_ITEMS_TOTAL,
+        EXECUTION_DUST_ADMIN_ACK_RENEW_REMINDER_TOTAL,
     )

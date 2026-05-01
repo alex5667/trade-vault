@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 tests/news_pipeline/test_p6_repair_evidence_unit.py
 
@@ -11,7 +12,6 @@ Tests:
 Design: all async‑compatible, no real Redis/LLM needed.
 Dependencies: pydantic (already installed in python-worker venv).
 """
-from __future__ import annotations
 
 import json
 import uuid

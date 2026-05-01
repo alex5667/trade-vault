@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Универсальный сервис ордерфлоу для крипто‑фьючерсов Binance USDT-M.
 
@@ -11,7 +12,6 @@
 Сервис асинхронный, построен на redis.asyncio.
 """
 
-from __future__ import annotations
 
 import json
 import os

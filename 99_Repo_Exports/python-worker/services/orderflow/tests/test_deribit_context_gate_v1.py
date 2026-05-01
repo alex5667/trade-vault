@@ -3,20 +3,20 @@ Tests for deribit_context_gate.py — DeribitContextDecision evaluation.
 """
 import pytest
 from services.orderflow.deribit_context_gate import (
-    DeribitContextDecision
-    evaluate_deribit_context
+    DeribitContextDecision,
+    evaluate_deribit_context,
 )
 
 
 def _eval(**kwargs):
     defaults = dict(
-        profile="monitor"
-        side="BUY"
-        vol_regime="normal"
-        iv_z=0.0
-        funding_8h=0.0001
-        basis_bps=5.0
-        tighten_cap_bps=6.0
+        profile="monitor",
+        side="BUY",
+        vol_regime="normal",
+        iv_z=0.0,
+        funding_8h=0.0001,
+        basis_bps=5.0,
+        tighten_cap_bps=6.0,
     )
     defaults.update(kwargs)
     return evaluate_deribit_context(**defaults)
@@ -44,13 +44,13 @@ def test_deribit_never_hard_veto_hard_profile():
 
 def test_deribit_vol_stress_reduces_risk_no_veto():
     dec = evaluate_deribit_context(
-        profile="strict"
-        side="BUY"
-        vol_regime="vol_stress"
-        iv_z=3.5
-        funding_8h=0.0002
-        basis_bps=5.0
-        tighten_cap_bps=6.0
+        profile="strict",
+        side="BUY",
+        vol_regime="vol_stress",
+        iv_z=3.5,
+        funding_8h=0.0002,
+        basis_bps=5.0,
+        tighten_cap_bps=6.0,
     )
     assert dec.veto is False
     assert dec.risk_multiplier == pytest.approx(0.60)

@@ -13,13 +13,13 @@ class TestOrderFlowHandlerFactory:
     """Тесты для OrderFlowHandlerFactory"""
     
     def test_create_xauusd_handler(self):
-        """Тест создания обработчика для XAUUSD"""
-        handler = OrderFlowHandlerFactory.create("XAUUSD")
+        """Тест создания обработчика для """
+        handler = OrderFlowHandlerFactory.create("")
         
         assert isinstance(handler, BaseOrderFlowHandler)
         assert isinstance(handler, XAUUSDOrderFlowHandlerV2)
-        assert handler.symbol == "XAUUSD"
-        assert handler.config.symbol == "XAUUSD"
+        assert handler.symbol == ""
+        assert handler.config.symbol == ""
     
     def test_create_btcusd_handler(self):
         """Тест создания обработчика для BTCUSD"""
@@ -58,8 +58,8 @@ class TestOrderFlowHandlerFactory:
         assert handler.symbol == "CUSTOMUSDT"
     
     def test_is_supported_xauusd(self):
-        """Тест проверки поддержки XAUUSD"""
-        assert OrderFlowHandlerFactory.is_supported("XAUUSD") is True
+        """Тест проверки поддержки """
+        assert OrderFlowHandlerFactory.is_supported("") is True
     
     def test_is_supported_btcusd(self):
         """Тест проверки поддержки BTCUSD"""
@@ -79,7 +79,7 @@ class TestOrderFlowHandlerFactory:
         
         assert isinstance(symbols, list)
         assert len(symbols) > 0
-        assert "XAUUSD" in symbols
+        assert "" in symbols
         assert "BTCUSD" in symbols
         assert "ETHUSD" in symbols
     
@@ -96,7 +96,7 @@ class TestOrderFlowHandlerFactory:
         assert len(instruments["CRYPTO"]) > 0
         
         # Проверяем конкретные символы
-        assert "XAUUSD" in instruments["FOREX"]
+        assert "" in instruments["FOREX"]
         assert "BTCUSD" in instruments["CRYPTO"]
     
     def test_register_custom_handler(self):
@@ -135,11 +135,11 @@ class TestCreateHandlerHelper:
     """Тесты для вспомогательной функции create_handler"""
     
     def test_create_handler_xauusd(self):
-        """Тест вспомогательной функции для XAUUSD"""
-        handler = create_handler("XAUUSD")
+        """Тест вспомогательной функции для """
+        handler = create_handler("")
         
         assert isinstance(handler, XAUUSDOrderFlowHandlerV2)
-        assert handler.symbol == "XAUUSD"
+        assert handler.symbol == ""
     
     def test_create_handler_btcusd(self):
         """Тест вспомогательной функции для BTCUSD"""
@@ -154,7 +154,7 @@ class TestInstrumentTypeDetection:
     
     def test_detect_forex_xau(self):
         """Тест определения FOREX (золото)"""
-        instrument_type = OrderFlowHandlerFactory._get_instrument_type("XAUUSD")
+        instrument_type = OrderFlowHandlerFactory._get_instrument_type("")
         assert instrument_type == "FOREX"
     
     def test_detect_forex_xag(self):

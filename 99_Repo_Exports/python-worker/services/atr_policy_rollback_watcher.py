@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ATR Policy Rollback Watcher — Phase 3.8 (Disaster Layer).
 
 When verifier signals a bad active policy this watcher performs bounded rollback:
@@ -12,7 +13,6 @@ ENV:
   ATR_POLICY_ROLLBACK_ADVISORY_ONLY     default 0
   REDIS_URL
 """
-from __future__ import annotations
 
 import json
 import logging
@@ -106,7 +106,7 @@ def rollback_to_last_good(
 
     Returns:
       rollback_ok: bool
-      reason_code: str
+      reason_code: str,
       advisory_only: bool
     """
     if not _enable():

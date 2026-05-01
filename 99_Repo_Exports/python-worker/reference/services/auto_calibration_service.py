@@ -13,7 +13,7 @@ import psycopg2.extras
 import redis
 
 from tools.trailing_tp1_calibration import (
-    calibrate_trailing_offset
+    calibrate_trailing_offset,
 )
 from common.log import setup_logger
 
@@ -58,10 +58,10 @@ def _parse_bool(name: str, default: bool = False) -> bool:
 
 class AutoCalibrationService:
     def __init__(
-        self
-        dsn: str
-        redis_url: str
-        symbols: List[SymbolConfig]
+        self,
+        dsn: str,
+        redis_url: str,
+        symbols: List[SymbolConfig],
     ) -> None:
         self._dsn = dsn
         self._redis = redis.Redis.from_url(redis_url, decode_responses=True)
@@ -83,16 +83,16 @@ class AutoCalibrationService:
         # connect_timeout protects runner from hanging forever
         # application_name helps tracing in pg_stat_activity
         return psycopg2.connect(
-            self._dsn
-            connect_timeout=_parse_int("AUTO_CALIB_PG_CONNECT_TIMEOUT_SEC", 5)
-            application_name="auto_calibration_service"
+            self._dsn,
+            connect_timeout=_parse_int("AUTO_CALIB_PG_CONNECT_TIMEOUT_SEC", 5),
+            application_name="auto_calibration_service",
         )
 
     def _load_trade_counters(
-        self
-        conn
-        cfg: SymbolConfig
-        last_max_trade_id: int
+        self,
+        conn,
+        cfg: SymbolConfig,
+        last_max_trade_id: int,
     ) -> Tuple[int, int, int]:
         """
         Возвращает (max_id, total_cnt, new_cnt) по сделкам с tp1_hit=TRUE.
@@ -100,8 +100,8 @@ class AutoCalibrationService:
         """
         sql = """
         SELECT
-            max(id) AS max_id
-            count(*) AS total_cnt
+            max(id) AS max_id,
+            count(*) AS total_cnt,
             sum(CASE WHEN id > %(last_id)s THEN 1 ELSE 0 END) AS new_cnt
         FROM trades_closed
         WHERE source = %(source)s
@@ -110,11 +110,11 @@ class AutoCalibrationService:
         """
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(
-                sql
+                sql,
                 {
-                    "source": cfg.source
-                    "symbol": cfg.symbol
-                    "last_id": last_max_trade_id
+                    "source": cfg.source,
+                    "symbol": cfg.symbol,
+                    "last_id": last_max_trade_id,
                 }
             )
             row = cur.fetchone()
@@ -127,9 +127,9 @@ class AutoCalibrationService:
     # ----- Обновление symbol_spec -----
 
     def _update_symbol_spec_trailing_offset(
-        self
-        symbol: str
-        offset_mult: float
+        self,
+        symbol: str,
+        offset_mult: float,
     ) -> None:
         """
         Обновляет trailing_tp1_offset_atr в symbol_spec.
@@ -173,9 +173,9 @@ class AutoCalibrationService:
         last_max_trade_id = int(state.get("last_max_trade_id", 0))
 
         max_id, total_cnt, new_cnt = self._load_trade_counters(
-            conn=conn
-            cfg=cfg
-            last_max_trade_id=last_max_trade_id
+            conn=conn,
+            cfg=cfg,
+            last_max_trade_id=last_max_trade_id,
         )
 
         if total_cnt < cfg.min_total_trades:
@@ -199,12 +199,12 @@ class AutoCalibrationService:
         )
 
         best_stats, all_stats = calibrate_trailing_offset(
-            conn=conn
-            source=cfg.source
-            symbol=cfg.symbol
-            offset_mult_list=cfg.offsets
-            limit=cfg.limit_trades
-            use_mfe_exit=cfg.use_mfe_exit
+            conn=conn,
+            source=cfg.source,
+            symbol=cfg.symbol,
+            offset_mult_list=cfg.offsets,
+            limit=cfg.limit_trades,
+            use_mfe_exit=cfg.use_mfe_exit,
         )
 
         if best_stats is None:
@@ -236,17 +236,17 @@ class AutoCalibrationService:
 
         # пишем в symbol_spec
         self._update_symbol_spec_trailing_offset(
-            symbol=cfg.symbol
-            offset_mult=best_stats.offset_mult
+            symbol=cfg.symbol,
+            offset_mult=best_stats.offset_mult,
         )
 
         # сохраняем состояние
         new_state = {
-            "last_max_trade_id": max_id
-            "last_run_ts": datetime.now(timezone.utc).isoformat()
-            "last_offset_mult": float(best_stats.offset_mult)
-            "total_cnt": total_cnt
-            "new_cnt": new_cnt
+            "last_max_trade_id": max_id,
+            "last_run_ts": datetime.now(timezone.utc).isoformat(),
+            "last_offset_mult": float(best_stats.offset_mult),
+            "total_cnt": total_cnt,
+            "new_cnt": new_cnt,
         }
         self._redis.set(state_key, json.dumps(new_state))
 
@@ -259,41 +259,41 @@ class AutoCalibrationService:
             for cfg in self._symbols:
                 self._calibrate_symbol(conn, cfg)
         finally:
-            conn.close()
+            conn.close(),
 
     def on_trade_closed(self, symbol: str, source: str) -> None:
-        """
-        Called when a trade is closed. Currently a no-op stub.
-        In the future, this could trigger incremental calibration.
-        """
+        """,
+        Called when a trade is closed. Currently a no-op stub.,
+        In the future, this could trigger incremental calibration.,
+        """,
         pass
 
 
 # ----- Пример настройки и запуска -----
 
 def _build_default_symbols() -> List[SymbolConfig]:
-    """
-    Пример: ETH и BTC с разными диапазонами offset_mult.
-    Подправь под свои символы.
-    """
+    """,
+    Пример: ETH и BTC с разными диапазонами offset_mult.,
+    Подправь под свои символы.,
+    """,
     return [
         SymbolConfig(
-            source="CryptoOrderFlow"
-            symbol="ETHUSDT"
-            offsets=[0.3, 0.4, 0.5, 0.6, 0.7]
-            limit_trades=300
-            min_total_trades=150
-            min_new_trades=30
-            use_mfe_exit=False
-        )
+            source="CryptoOrderFlow",
+            symbol="ETHUSDT",
+            offsets=[0.3, 0.4, 0.5, 0.6, 0.7],
+            limit_trades=300,
+            min_total_trades=150,
+            min_new_trades=30,
+            use_mfe_exit=False,
+        ),
         SymbolConfig(
-            source="CryptoOrderFlow"
-            symbol="BTCUSDT"
-            offsets=[0.5, 0.6, 0.8, 1.0]
-            limit_trades=300
-            min_total_trades=150
-            min_new_trades=30
-            use_mfe_exit=False
+            source="CryptoOrderFlow",
+            symbol="BTCUSDT",
+            offsets=[0.5, 0.6, 0.8, 1.0],
+            limit_trades=300,
+            min_total_trades=150,
+            min_new_trades=30,
+            use_mfe_exit=False,
         )
     ]
 

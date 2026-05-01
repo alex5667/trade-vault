@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Helpers to control Prometheus label cardinality and emission rate.
 
 Why:
@@ -10,7 +11,6 @@ ENV (recommended):
   TICK_QUALITY_EMA_UPDATE_MIN_MS=250        # emit EMA gauges at most every N ms per label
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Set

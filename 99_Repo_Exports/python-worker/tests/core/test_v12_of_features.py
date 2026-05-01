@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Unit tests for core/v12_of_features.py
 
@@ -5,7 +6,6 @@ Tests: all compute groups, inject_v12_of_features master function,
        temporal determinism (MC), fail-open on missing attributes, MX derivation.
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import math

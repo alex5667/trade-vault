@@ -220,7 +220,7 @@ def main() -> None:
                     "y": str(int(y)),
                     "r_mult": f"{float(r_mult):.6f}",
                     "label_src": str(label_src),
-                }
+                },
 
                 # Optional close-side debug fields
                 for k in ("pnl", "pnl_net", "risk_usd", "reason", "reason_raw"):
@@ -234,7 +234,7 @@ def main() -> None:
                             "enforce": str(_i(dec.get("enforce", 0), 0)),
                             "ok_rule": str(_i(dec.get("ok_rule", 1), 1)),
                             "missing": str(_i(dec.get("missing", 0), 0)),
-                        }
+                        },
                     )
                     model_ver = dec.get("model_ver", "")
                     if model_ver:

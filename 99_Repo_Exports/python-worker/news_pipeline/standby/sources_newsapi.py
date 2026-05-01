@@ -8,25 +8,25 @@ import urllib.request
 from typing import Dict, Any, List
 
 def fetch_newsapi_everything(
-    *
-    base_url: str
-    path: str
-    api_key: str
-    q: str
-    language: str = "en"
-    page_size: int = 50
-    timeout: float = 10.0
-    user_agent: str = "trade-standby/1.0"
+    *,
+    base_url: str,
+    path: str,
+    api_key: str,
+    q: str,
+    language: str = "en",
+    page_size: int = 50,
+    timeout: float = 10.0,
+    user_agent: str = "trade-standby/1.0",
 ) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     now_ms = get_ny_time_millis()
 
     qs = urllib.parse.urlencode({
-        "q": q
-        "language": language
-        "pageSize": str(page_size)
-        "apiKey": api_key
-        "sortBy": "publishedAt"
+        "q": q,
+        "language": language,
+        "pageSize": str(page_size),
+        "apiKey": api_key,
+        "sortBy": "publishedAt",
     })
     url = f"{base_url.rstrip('/')}{path}?{qs}"
 
@@ -55,15 +55,15 @@ def fetch_newsapi_everything(
             continue
 
         out.append({
-            "published_ts_ms": pub_ms
-            "ingested_ts_ms": now_ms
-            "source": "newsapi"
-            "title": title
-            "url": link
+            "published_ts_ms": pub_ms,
+            "ingested_ts_ms": now_ms,
+            "source": "newsapi",
+            "title": title,
+            "url": link,
             "summary": "",  # как у вас в Go: не раздуваем
-            "symbols": []
-            "importance": 0.0
-            "payload": a
+            "symbols": [],
+            "importance": 0.0,
+            "payload": a,
             "provider_id": published_at,  # важно для UID (как у вас в Go)
         })
 

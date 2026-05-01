@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Staged auto-unclamp v4: selective per-symbol RELAX/REMOVE, dual-window outcome (2h + 24h), AUTO/PROPOSE modes.
 
 This is the next level above v3: selective unclamp per symbol based on per-symbol outcome stats.
@@ -42,7 +43,6 @@ Environment Variables:
   - Config: CFG_HASH_PREFIX
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os

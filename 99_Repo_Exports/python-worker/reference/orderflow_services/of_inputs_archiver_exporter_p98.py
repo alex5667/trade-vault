@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Prometheus exporter for OFInputs DLQ/quarantine DB archiver status (P98).
 
 Reads Redis hashes written by of_inputs_dlq_archive_to_db_p98.py:
@@ -22,7 +23,6 @@ ENV:
   OF_INPUTS_QUARANTINE_DB_ARCHIVE_METRICS_KEY (default metrics:of_inputs_quarantine_db_archive)
 """
 
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -38,29 +38,29 @@ except Exception:  # pragma: no cover
 
 
 GAUGE_LAST_RUN_TS_MS = Gauge(
-    "of_inputs_archiver_last_run_ts_ms"
-    "Timestamp of last archiver run in milliseconds since epoch"
-    ["kind"]
+    "of_inputs_archiver_last_run_ts_ms",
+    "Timestamp of last archiver run in milliseconds since epoch",
+    ["kind"],
 )
 GAUGE_STALENESS_SEC = Gauge(
-    "of_inputs_archiver_staleness_sec"
-    "Seconds elapsed since last archiver run"
-    ["kind"]
+    "of_inputs_archiver_staleness_sec",
+    "Seconds elapsed since last archiver run",
+    ["kind"],
 )
 GAUGE_LAST_STREAM_TS_MS = Gauge(
-    "of_inputs_archiver_last_stream_ts_ms"
-    "Timestamp extracted from last processed stream ID (ms)"
-    ["kind"]
+    "of_inputs_archiver_last_stream_ts_ms",
+    "Timestamp extracted from last processed stream ID (ms)",
+    ["kind"],
 )
 GAUGE_INSERTED_TOTAL = Gauge(
-    "of_inputs_archiver_inserted_total"
-    "Cumulative rows inserted (monotonic-ish gauge from Redis hash)"
-    ["kind"]
+    "of_inputs_archiver_inserted_total",
+    "Cumulative rows inserted (monotonic-ish gauge from Redis hash)",
+    ["kind"],
 )
 GAUGE_ERROR_TOTAL = Gauge(
-    "of_inputs_archiver_error_total"
-    "Cumulative error count (monotonic-ish gauge from Redis hash)"
-    ["kind"]
+    "of_inputs_archiver_error_total",
+    "Cumulative error count (monotonic-ish gauge from Redis hash)",
+    ["kind"],
 )
 
 

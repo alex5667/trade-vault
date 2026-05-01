@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 Тесты для tools/golden_replay_of_confirm_from_redis.py.
 
 Проверяет детерминированный контроль OF golden replay с уведомлениями.
 """
 
-from __future__ import annotations
 
 import json
 import os

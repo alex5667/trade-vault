@@ -58,17 +58,17 @@ except Exception:  # pragma: no cover
 
 
 _TIER1_PATTERNS: Tuple[str, ...] = (
-    "ofi_norm"
-    "dw_obi"
-    "depth_slope_*"
-    "spread_bps"
-    "liq_resiliency_*"
-    "tca_*"
-    "funding_*"
-    "basis_bps"
-    "open_interest"
-    "delta_oi_*"
-    "oi_notional_usd"
+    "ofi_norm",
+    "dw_obi",
+    "depth_slope_*",
+    "spread_bps",
+    "liq_resiliency_*",
+    "tca_*",
+    "funding_*",
+    "basis_bps",
+    "open_interest",
+    "delta_oi_*",
+    "oi_notional_usd",
 )
 
 
@@ -253,20 +253,20 @@ def _load_feature_vectors(path: str, selected_features: Sequence[str], patterns:
 
 
 def _score_feature(
-    feature: str
-    ref_vals: Sequence[float | None]
-    cur_vals: Sequence[float | None]
-    *
-    psi_warn: float
-    psi_crit: float
-    ks_warn: float
-    ks_crit: float
-    ks_pvalue_max: float
-    missing_delta_warn: float
-    zero_delta_warn: float
-    clip_delta_warn: float
-    min_samples: int
-    protect_patterns: Sequence[str]
+    feature: str,
+    ref_vals: Sequence[float | None],
+    cur_vals: Sequence[float | None],
+    *,
+    psi_warn: float,
+    psi_crit: float,
+    ks_warn: float,
+    ks_crit: float,
+    ks_pvalue_max: float,
+    missing_delta_warn: float,
+    zero_delta_warn: float,
+    clip_delta_warn: float,
+    min_samples: int,
+    protect_patterns: Sequence[str],
 ) -> FeatureDriftRow:
     psi_res = psi_report(ref_vals, cur_vals)
     ks_res = ks_report(ref_vals, cur_vals)
@@ -307,46 +307,46 @@ def _score_feature(
     denylist_suggested = 1 if (crit == 1 and shadow_disable == 1 and not protected) else 0
 
     return FeatureDriftRow(
-        feature=str(feature)
-        n_ref=int(psi_res.n_ref)
-        n_cur=int(psi_res.n_cur)
-        psi=float(psi_res.psi)
-        ks_stat=float(ks_res.ks_stat)
-        ks_pvalue=float(ks_res.ks_pvalue)
-        missing_rate_delta=float(psi_res.missing_rate_delta)
-        zero_rate_delta=float(psi_res.zero_rate_delta)
-        clip_rate_delta=float(psi_res.clip_rate_delta)
-        missing_rate_ref=float(psi_res.missing_rate_ref)
-        missing_rate_cur=float(psi_res.missing_rate_cur)
-        zero_rate_ref=float(psi_res.zero_rate_ref)
-        zero_rate_cur=float(psi_res.zero_rate_cur)
-        clip_rate_ref=float(psi_res.clip_rate_ref)
-        clip_rate_cur=float(psi_res.clip_rate_cur)
-        flag_warn=int(warn)
-        flag_crit=int(crit)
-        denylist_suggested=int(denylist_suggested)
-        shadow_disable_suggested=int(shadow_disable)
-        reasons=sorted(set(reasons))
+        feature=str(feature),
+        n_ref=int(psi_res.n_ref),
+        n_cur=int(psi_res.n_cur),
+        psi=float(psi_res.psi),
+        ks_stat=float(ks_res.ks_stat),
+        ks_pvalue=float(ks_res.ks_pvalue),
+        missing_rate_delta=float(psi_res.missing_rate_delta),
+        zero_rate_delta=float(psi_res.zero_rate_delta),
+        clip_rate_delta=float(psi_res.clip_rate_delta),
+        missing_rate_ref=float(psi_res.missing_rate_ref),
+        missing_rate_cur=float(psi_res.missing_rate_cur),
+        zero_rate_ref=float(psi_res.zero_rate_ref),
+        zero_rate_cur=float(psi_res.zero_rate_cur),
+        clip_rate_ref=float(psi_res.clip_rate_ref),
+        clip_rate_cur=float(psi_res.clip_rate_cur),
+        flag_warn=int(warn),
+        flag_crit=int(crit),
+        denylist_suggested=int(denylist_suggested),
+        shadow_disable_suggested=int(shadow_disable),
+        reasons=sorted(set(reasons)),
     )
 
 
 def build_feature_drift_report(
-    *
-    reference_path: str
-    current_path: str
-    features_csv: str = ""
-    tier1_only: int = 1
-    extra_patterns_csv: str = ""
-    protect_patterns_csv: str = ""
-    psi_warn: float = 0.10
-    psi_crit: float = 0.25
-    ks_warn: float = 0.12
-    ks_crit: float = 0.20
-    ks_pvalue_max: float = 0.05
-    missing_delta_warn: float = 0.05
-    zero_delta_warn: float = 0.10
-    clip_delta_warn: float = 0.05
-    min_samples: int = 64
+    *,
+    reference_path: str,
+    current_path: str,
+    features_csv: str = "",
+    tier1_only: int = 1,
+    extra_patterns_csv: str = "",
+    protect_patterns_csv: str = "",
+    psi_warn: float = 0.10,
+    psi_crit: float = 0.25,
+    ks_warn: float = 0.12,
+    ks_crit: float = 0.20,
+    ks_pvalue_max: float = 0.05,
+    missing_delta_warn: float = 0.05,
+    zero_delta_warn: float = 0.10,
+    clip_delta_warn: float = 0.05,
+    min_samples: int = 64,
 ) -> Dict[str, Any]:
     selected_features = [s.strip() for s in str(features_csv or "").split(",") if s.strip()]
     patterns = list(_TIER1_PATTERNS if int(tier1_only) == 1 else ())
@@ -367,19 +367,19 @@ def build_feature_drift_report(
     rows: List[FeatureDriftRow] = []
     for f in features:
         row = _score_feature(
-            f
-            ref_vectors.get(f, [])
-            cur_vectors.get(f, [])
-            psi_warn=float(psi_warn)
-            psi_crit=float(psi_crit)
-            ks_warn=float(ks_warn)
-            ks_crit=float(ks_crit)
-            ks_pvalue_max=float(ks_pvalue_max)
-            missing_delta_warn=float(missing_delta_warn)
-            zero_delta_warn=float(zero_delta_warn)
-            clip_delta_warn=float(clip_delta_warn)
-            min_samples=int(min_samples)
-            protect_patterns=protect_patterns
+            f,
+            ref_vectors.get(f, []),
+            cur_vectors.get(f, []),
+            psi_warn=float(psi_warn),
+            psi_crit=float(psi_crit),
+            ks_warn=float(ks_warn),
+            ks_crit=float(ks_crit),
+            ks_pvalue_max=float(ks_pvalue_max),
+            missing_delta_warn=float(missing_delta_warn),
+            zero_delta_warn=float(zero_delta_warn),
+            clip_delta_warn=float(clip_delta_warn),
+            min_samples=int(min_samples),
+            protect_patterns=protect_patterns,
         )
         rows.append(row)
 
@@ -398,27 +398,27 @@ def build_feature_drift_report(
         status = "warn"
 
     summary = FeatureDriftSummary(
-        status=status
-        features_total=int(len(features))
-        features_evaluated=int(len(rows))
-        warn_n=int(warn_n)
-        crit_n=int(crit_n)
-        denylist_suggest_n=int(deny_n)
-        shadow_disable_suggest_n=int(shadow_n)
-        worst_feature=str(worst.feature if worst else "")
-        worst_psi=float(worst.psi if worst else 0.0)
-        worst_ks_stat=float(worst.ks_stat if worst else 0.0)
+        status=status,
+        features_total=int(len(features)),
+        features_evaluated=int(len(rows)),
+        warn_n=int(warn_n),
+        crit_n=int(crit_n),
+        denylist_suggest_n=int(deny_n),
+        shadow_disable_suggest_n=int(shadow_n),
+        worst_feature=str(worst.feature if worst else ""),
+        worst_psi=float(worst.psi if worst else 0.0),
+        worst_ks_stat=float(worst.ks_stat if worst else 0.0),
     )
 
     return {
-        "tool": "feature_drift_report_v1"
-        "ts_ms": _now_ms()
-        "reference_path": str(reference_path)
-        "current_path": str(current_path)
-        "patterns": list(patterns)
-        "summary": asdict(summary)
-        "features": [asdict(r) for r in rows]
-        "top_features": [asdict(r) for r in rows[: min(20, len(rows))]]
+        "tool": "feature_drift_report_v1",
+        "ts_ms": _now_ms(),
+        "reference_path": str(reference_path),
+        "current_path": str(current_path),
+        "patterns": list(patterns),
+        "summary": asdict(summary),
+        "features": [asdict(r) for r in rows],
+        "top_features": [asdict(r) for r in rows[: min(20, len(rows))]],
     }
 
 
@@ -456,20 +456,20 @@ def _write_metrics_hash(redis_url: str, metrics_key: str, report_json: str, rep:
         r = redis.Redis.from_url(redis_url, decode_responses=True)
         s = dict(rep.get("summary") or {})
         mapping = {
-            "status": str(s.get("status", ""))
-            "updated_ts_ms": int(rep.get("ts_ms", 0) or 0)
-            "features_total": int(s.get("features_total", 0) or 0)
-            "features_evaluated": int(s.get("features_evaluated", 0) or 0)
-            "warn_n": int(s.get("warn_n", 0) or 0)
-            "crit_n": int(s.get("crit_n", 0) or 0)
-            "denylist_suggest_n": int(s.get("denylist_suggest_n", 0) or 0)
-            "shadow_disable_suggest_n": int(s.get("shadow_disable_suggest_n", 0) or 0)
-            "worst_feature": str(s.get("worst_feature", ""))
-            "worst_psi": float(s.get("worst_psi", 0.0) or 0.0)
-            "worst_ks_stat": float(s.get("worst_ks_stat", 0.0) or 0.0)
-            "report_json": str(report_json)
-            "reference_path": str(rep.get("reference_path", ""))
-            "current_path": str(rep.get("current_path", ""))
+            "status": str(s.get("status", "")),
+            "updated_ts_ms": int(rep.get("ts_ms", 0) or 0),
+            "features_total": int(s.get("features_total", 0) or 0),
+            "features_evaluated": int(s.get("features_evaluated", 0) or 0),
+            "warn_n": int(s.get("warn_n", 0) or 0),
+            "crit_n": int(s.get("crit_n", 0) or 0),
+            "denylist_suggest_n": int(s.get("denylist_suggest_n", 0) or 0),
+            "shadow_disable_suggest_n": int(s.get("shadow_disable_suggest_n", 0) or 0),
+            "worst_feature": str(s.get("worst_feature", "")),
+            "worst_psi": float(s.get("worst_psi", 0.0) or 0.0),
+            "worst_ks_stat": float(s.get("worst_ks_stat", 0.0) or 0.0),
+            "report_json": str(report_json),
+            "reference_path": str(rep.get("reference_path", "")),
+            "current_path": str(rep.get("current_path", "")),
         }
         r.hset(metrics_key, mapping={str(k): str(v) for k, v in mapping.items()})
     except Exception:
@@ -508,21 +508,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         rep = build_feature_drift_report(
-            reference_path=str(args.reference_path)
-            current_path=str(args.current_path)
-            features_csv=str(args.features_csv)
-            tier1_only=int(args.tier1_only)
-            extra_patterns_csv=str(args.extra_patterns_csv)
-            protect_patterns_csv=str(args.protect_patterns_csv)
-            psi_warn=float(args.psi_warn)
-            psi_crit=float(args.psi_crit)
-            ks_warn=float(args.ks_warn)
-            ks_crit=float(args.ks_crit)
-            ks_pvalue_max=float(args.ks_pvalue_max)
-            missing_delta_warn=float(args.missing_delta_warn)
-            zero_delta_warn=float(args.zero_delta_warn)
-            clip_delta_warn=float(args.clip_delta_warn)
-            min_samples=int(args.min_samples)
+            reference_path=str(args.reference_path),
+            current_path=str(args.current_path),
+            features_csv=str(args.features_csv),
+            tier1_only=int(args.tier1_only),
+            extra_patterns_csv=str(args.extra_patterns_csv),
+            protect_patterns_csv=str(args.protect_patterns_csv),
+            psi_warn=float(args.psi_warn),
+            psi_crit=float(args.psi_crit),
+            ks_warn=float(args.ks_warn),
+            ks_crit=float(args.ks_crit),
+            ks_pvalue_max=float(args.ks_pvalue_max),
+            missing_delta_warn=float(args.missing_delta_warn),
+            zero_delta_warn=float(args.zero_delta_warn),
+            clip_delta_warn=float(args.clip_delta_warn),
+            min_samples=int(args.min_samples),
         )
         _write_json(str(args.out_json), rep)
         out_csv = str(args.out_csv or "").strip() or (str(args.out_json) + ".csv")
@@ -531,12 +531,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     except Exception as e:
         err = {
-            "tool": "feature_drift_report_v1"
-            "ts_ms": _now_ms()
-            "status": "error"
-            "error": str(e)
-            "reference_path": str(args.reference_path)
-            "current_path": str(args.current_path)
+            "tool": "feature_drift_report_v1",
+            "ts_ms": _now_ms(),
+            "status": "error",
+            "error": str(e),
+            "reference_path": str(args.reference_path),
+            "current_path": str(args.current_path),
         }
         try:
             _write_json(str(args.out_json), err)

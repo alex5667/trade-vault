@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 Regression: PositionLeg policy — pure-math invariants (merge-blocker).
 
@@ -12,7 +13,6 @@ Tests:
 Run:
     cd python-worker && python -m pytest tests/test_position_leg_policy_math.py -v
 """
-from __future__ import annotations
 
 import math
 import pytest

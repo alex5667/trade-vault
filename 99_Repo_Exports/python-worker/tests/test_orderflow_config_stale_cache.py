@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Regression tests for OrderFlowConfigLoader.build_symbol_config fallback paths.
 
 Primary fix: when the pipeline preload has been failing (`_last_preload_ts`
@@ -7,7 +8,6 @@ hgetalls saturate the hot-path Redis pool and trigger the cascading
 "Таймаут загрузки config:orderflow:*" storm we observed.
 """
 
-from __future__ import annotations
 
 import asyncio
 import time

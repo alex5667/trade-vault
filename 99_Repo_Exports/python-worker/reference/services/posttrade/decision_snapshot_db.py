@@ -1,3 +1,4 @@
+from __future__ import annotations
 """DB adapters for decision_snapshot table: SQLite (tests/dev) and Postgres/Timescale (prod).
 
 We intentionally keep the interface tiny and explicit:
@@ -15,7 +16,6 @@ Dependencies:
 - Tests use SQLite via stdlib `sqlite3`.
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -78,44 +78,44 @@ class SQLiteDecisionSnapshotDB:
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS decision_snapshot (
-              ts_decision_ms INTEGER NOT NULL
-              sid TEXT NOT NULL
-              symbol TEXT NOT NULL
-              venue TEXT NOT NULL
-              session TEXT NOT NULL
-              tf TEXT NOT NULL
-              kind TEXT NOT NULL
-              side TEXT NOT NULL
-              direction TEXT NOT NULL
+              ts_decision_ms INTEGER NOT NULL,
+              sid TEXT NOT NULL,
+              symbol TEXT NOT NULL,
+              venue TEXT NOT NULL,
+              session TEXT NOT NULL,
+              tf TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              side TEXT NOT NULL,
+              direction TEXT NOT NULL,
 
-              decision_bid REAL
-              decision_ask REAL
-              decision_mid REAL
-              decision_spread_bps REAL
+              decision_bid REAL,
+              decision_ask REAL,
+              decision_mid REAL,
+              decision_spread_bps REAL,
 
-              decision_depth_bid_5 REAL
-              decision_depth_ask_5 REAL
-              decision_depth_bid_20 REAL
-              decision_depth_ask_20 REAL
+              decision_depth_bid_5 REAL,
+              decision_depth_ask_5 REAL,
+              decision_depth_bid_20 REAL,
+              decision_depth_ask_20 REAL,
 
-              decision_book_slope_bid REAL
-              decision_book_slope_ask REAL
-              decision_dws_bps REAL
+              decision_book_slope_bid REAL,
+              decision_book_slope_ask REAL,
+              decision_dws_bps REAL,
 
-              decision_ofi_norm REAL
-              decision_expected_slippage_bps REAL
-              decision_exec_risk_norm REAL
+              decision_ofi_norm REAL,
+              decision_expected_slippage_bps REAL,
+              decision_exec_risk_norm REAL,
 
-              decision_price REAL
+              decision_price REAL,
 
-              tca_ready INTEGER NOT NULL DEFAULT 0
-              book_sanity_flags TEXT NOT NULL DEFAULT '[]'
+              tca_ready INTEGER NOT NULL DEFAULT 0,
+              book_sanity_flags TEXT NOT NULL DEFAULT '[]',
 
-              schema_version INTEGER NOT NULL DEFAULT 1
-              producer TEXT NOT NULL DEFAULT ''
-              ts_insert_ms INTEGER NOT NULL DEFAULT 0
+              schema_version INTEGER NOT NULL DEFAULT 1,
+              producer TEXT NOT NULL DEFAULT '',
+              ts_insert_ms INTEGER NOT NULL DEFAULT 0,
 
-              extra TEXT
+              extra TEXT,
 
               UNIQUE (sid, ts_decision_ms)
             );
@@ -130,54 +130,54 @@ class SQLiteDecisionSnapshotDB:
         sql = (
             """
             INSERT INTO decision_snapshot (
-              ts_decision_ms, sid, symbol, venue, session, tf, kind, side, direction
-              decision_bid, decision_ask, decision_mid, decision_spread_bps
-              decision_depth_bid_5, decision_depth_ask_5, decision_depth_bid_20, decision_depth_ask_20
-              decision_book_slope_bid, decision_book_slope_ask, decision_dws_bps
-              decision_ofi_norm, decision_expected_slippage_bps, decision_exec_risk_norm
-              decision_price
-              tca_ready, book_sanity_flags
-              schema_version, producer, ts_insert_ms
+              ts_decision_ms, sid, symbol, venue, session, tf, kind, side, direction,
+              decision_bid, decision_ask, decision_mid, decision_spread_bps,
+              decision_depth_bid_5, decision_depth_ask_5, decision_depth_bid_20, decision_depth_ask_20,
+              decision_book_slope_bid, decision_book_slope_ask, decision_dws_bps,
+              decision_ofi_norm, decision_expected_slippage_bps, decision_exec_risk_norm,
+              decision_price,
+              tca_ready, book_sanity_flags,
+              schema_version, producer, ts_insert_ms,
               extra
             ) VALUES (
-              :ts_decision_ms, :sid, :symbol, :venue, :session, :tf, :kind, :side, :direction
-              :decision_bid, :decision_ask, :decision_mid, :decision_spread_bps
-              :decision_depth_bid_5, :decision_depth_ask_5, :decision_depth_bid_20, :decision_depth_ask_20
-              :decision_book_slope_bid, :decision_book_slope_ask, :decision_dws_bps
-              :decision_ofi_norm, :decision_expected_slippage_bps, :decision_exec_risk_norm
-              :decision_price
-              :tca_ready, :book_sanity_flags
-              :schema_version, :producer, :ts_insert_ms
+              :ts_decision_ms, :sid, :symbol, :venue, :session, :tf, :kind, :side, :direction,
+              :decision_bid, :decision_ask, :decision_mid, :decision_spread_bps,
+              :decision_depth_bid_5, :decision_depth_ask_5, :decision_depth_bid_20, :decision_depth_ask_20,
+              :decision_book_slope_bid, :decision_book_slope_ask, :decision_dws_bps,
+              :decision_ofi_norm, :decision_expected_slippage_bps, :decision_exec_risk_norm,
+              :decision_price,
+              :tca_ready, :book_sanity_flags,
+              :schema_version, :producer, :ts_insert_ms,
               :extra
             )
             ON CONFLICT(sid, ts_decision_ms) DO UPDATE SET
-              symbol=excluded.symbol
-              venue=excluded.venue
-              session=excluded.session
-              tf=excluded.tf
-              kind=excluded.kind
-              side=excluded.side
-              direction=excluded.direction
-              decision_bid=excluded.decision_bid
-              decision_ask=excluded.decision_ask
-              decision_mid=excluded.decision_mid
-              decision_spread_bps=excluded.decision_spread_bps
-              decision_depth_bid_5=excluded.decision_depth_bid_5
-              decision_depth_ask_5=excluded.decision_depth_ask_5
-              decision_depth_bid_20=excluded.decision_depth_bid_20
-              decision_depth_ask_20=excluded.decision_depth_ask_20
-              decision_book_slope_bid=excluded.decision_book_slope_bid
-              decision_book_slope_ask=excluded.decision_book_slope_ask
-              decision_dws_bps=excluded.decision_dws_bps
-              decision_ofi_norm=excluded.decision_ofi_norm
-              decision_expected_slippage_bps=excluded.decision_expected_slippage_bps
-              decision_exec_risk_norm=excluded.decision_exec_risk_norm
-              decision_price=excluded.decision_price
-              tca_ready=excluded.tca_ready
-              book_sanity_flags=excluded.book_sanity_flags
-              schema_version=excluded.schema_version
-              producer=excluded.producer
-              ts_insert_ms=excluded.ts_insert_ms
+              symbol=excluded.symbol,
+              venue=excluded.venue,
+              session=excluded.session,
+              tf=excluded.tf,
+              kind=excluded.kind,
+              side=excluded.side,
+              direction=excluded.direction,
+              decision_bid=excluded.decision_bid,
+              decision_ask=excluded.decision_ask,
+              decision_mid=excluded.decision_mid,
+              decision_spread_bps=excluded.decision_spread_bps,
+              decision_depth_bid_5=excluded.decision_depth_bid_5,
+              decision_depth_ask_5=excluded.decision_depth_ask_5,
+              decision_depth_bid_20=excluded.decision_depth_bid_20,
+              decision_depth_ask_20=excluded.decision_depth_ask_20,
+              decision_book_slope_bid=excluded.decision_book_slope_bid,
+              decision_book_slope_ask=excluded.decision_book_slope_ask,
+              decision_dws_bps=excluded.decision_dws_bps,
+              decision_ofi_norm=excluded.decision_ofi_norm,
+              decision_expected_slippage_bps=excluded.decision_expected_slippage_bps,
+              decision_exec_risk_norm=excluded.decision_exec_risk_norm,
+              decision_price=excluded.decision_price,
+              tca_ready=excluded.tca_ready,
+              book_sanity_flags=excluded.book_sanity_flags,
+              schema_version=excluded.schema_version,
+              producer=excluded.producer,
+              ts_insert_ms=excluded.ts_insert_ms,
               extra=excluded.extra;
             """
         )
@@ -227,44 +227,44 @@ class PostgresDecisionSnapshotDB:
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS decision_snapshot (
-                  ts_decision_ms BIGINT NOT NULL
-                  sid TEXT NOT NULL
-                  symbol TEXT NOT NULL
-                  venue TEXT NOT NULL DEFAULT 'binance'
-                  session TEXT NOT NULL DEFAULT ''
-                  tf TEXT NOT NULL DEFAULT ''
-                  kind TEXT NOT NULL DEFAULT ''
-                  side TEXT NOT NULL DEFAULT ''
-                  direction TEXT NOT NULL DEFAULT ''
+                  ts_decision_ms BIGINT NOT NULL,
+                  sid TEXT NOT NULL,
+                  symbol TEXT NOT NULL,
+                  venue TEXT NOT NULL DEFAULT 'binance',
+                  session TEXT NOT NULL DEFAULT '',
+                  tf TEXT NOT NULL DEFAULT '',
+                  kind TEXT NOT NULL DEFAULT '',
+                  side TEXT NOT NULL DEFAULT '',
+                  direction TEXT NOT NULL DEFAULT '',
 
-                  decision_bid DOUBLE PRECISION NULL
-                  decision_ask DOUBLE PRECISION NULL
-                  decision_mid DOUBLE PRECISION NULL
-                  decision_spread_bps DOUBLE PRECISION NULL
+                  decision_bid DOUBLE PRECISION NULL,
+                  decision_ask DOUBLE PRECISION NULL,
+                  decision_mid DOUBLE PRECISION NULL,
+                  decision_spread_bps DOUBLE PRECISION NULL,
 
-                  decision_depth_bid_5 DOUBLE PRECISION NULL
-                  decision_depth_ask_5 DOUBLE PRECISION NULL
-                  decision_depth_bid_20 DOUBLE PRECISION NULL
-                  decision_depth_ask_20 DOUBLE PRECISION NULL
+                  decision_depth_bid_5 DOUBLE PRECISION NULL,
+                  decision_depth_ask_5 DOUBLE PRECISION NULL,
+                  decision_depth_bid_20 DOUBLE PRECISION NULL,
+                  decision_depth_ask_20 DOUBLE PRECISION NULL,
 
-                  decision_book_slope_bid DOUBLE PRECISION NULL
-                  decision_book_slope_ask DOUBLE PRECISION NULL
-                  decision_dws_bps DOUBLE PRECISION NULL
+                  decision_book_slope_bid DOUBLE PRECISION NULL,
+                  decision_book_slope_ask DOUBLE PRECISION NULL,
+                  decision_dws_bps DOUBLE PRECISION NULL,
 
-                  decision_ofi_norm DOUBLE PRECISION NULL
-                  decision_expected_slippage_bps DOUBLE PRECISION NULL
-                  decision_exec_risk_norm DOUBLE PRECISION NULL
+                  decision_ofi_norm DOUBLE PRECISION NULL,
+                  decision_expected_slippage_bps DOUBLE PRECISION NULL,
+                  decision_exec_risk_norm DOUBLE PRECISION NULL,
 
-                  decision_price DOUBLE PRECISION NULL
+                  decision_price DOUBLE PRECISION NULL,
 
-                  tca_ready BOOLEAN NOT NULL DEFAULT FALSE
-                  book_sanity_flags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]
+                  tca_ready BOOLEAN NOT NULL DEFAULT FALSE,
+                  book_sanity_flags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
 
-                  schema_version INTEGER NOT NULL DEFAULT 1
-                  producer TEXT NOT NULL DEFAULT ''
-                  ts_insert_ms BIGINT NOT NULL DEFAULT 0
+                  schema_version INTEGER NOT NULL DEFAULT 1,
+                  producer TEXT NOT NULL DEFAULT '',
+                  ts_insert_ms BIGINT NOT NULL DEFAULT 0,
 
-                  extra JSONB NULL
+                  extra JSONB NULL,
 
                   UNIQUE (sid, ts_decision_ms)
                 );
@@ -283,54 +283,54 @@ class PostgresDecisionSnapshotDB:
             sql = (
                 """
                 INSERT INTO decision_snapshot (
-                  ts_decision_ms, sid, symbol, venue, session, tf, kind, side, direction
-                  decision_bid, decision_ask, decision_mid, decision_spread_bps
-                  decision_depth_bid_5, decision_depth_ask_5, decision_depth_bid_20, decision_depth_ask_20
-                  decision_book_slope_bid, decision_book_slope_ask, decision_dws_bps
-                  decision_ofi_norm, decision_expected_slippage_bps, decision_exec_risk_norm
-                  decision_price
-                  tca_ready, book_sanity_flags
-                  schema_version, producer, ts_insert_ms
+                  ts_decision_ms, sid, symbol, venue, session, tf, kind, side, direction,
+                  decision_bid, decision_ask, decision_mid, decision_spread_bps,
+                  decision_depth_bid_5, decision_depth_ask_5, decision_depth_bid_20, decision_depth_ask_20,
+                  decision_book_slope_bid, decision_book_slope_ask, decision_dws_bps,
+                  decision_ofi_norm, decision_expected_slippage_bps, decision_exec_risk_norm,
+                  decision_price,
+                  tca_ready, book_sanity_flags,
+                  schema_version, producer, ts_insert_ms,
                   extra
                 ) VALUES (
-                  %(ts_decision_ms)s, %(sid)s, %(symbol)s, %(venue)s, %(session)s, %(tf)s, %(kind)s, %(side)s, %(direction)s
-                  %(decision_bid)s, %(decision_ask)s, %(decision_mid)s, %(decision_spread_bps)s
-                  %(decision_depth_bid_5)s, %(decision_depth_ask_5)s, %(decision_depth_bid_20)s, %(decision_depth_ask_20)s
-                  %(decision_book_slope_bid)s, %(decision_book_slope_ask)s, %(decision_dws_bps)s
-                  %(decision_ofi_norm)s, %(decision_expected_slippage_bps)s, %(decision_exec_risk_norm)s
-                  %(decision_price)s
-                  %(tca_ready)s, %(book_sanity_flags)s
-                  %(schema_version)s, %(producer)s, %(ts_insert_ms)s
+                  %(ts_decision_ms)s, %(sid)s, %(symbol)s, %(venue)s, %(session)s, %(tf)s, %(kind)s, %(side)s, %(direction)s,
+                  %(decision_bid)s, %(decision_ask)s, %(decision_mid)s, %(decision_spread_bps)s,
+                  %(decision_depth_bid_5)s, %(decision_depth_ask_5)s, %(decision_depth_bid_20)s, %(decision_depth_ask_20)s,
+                  %(decision_book_slope_bid)s, %(decision_book_slope_ask)s, %(decision_dws_bps)s,
+                  %(decision_ofi_norm)s, %(decision_expected_slippage_bps)s, %(decision_exec_risk_norm)s,
+                  %(decision_price)s,
+                  %(tca_ready)s, %(book_sanity_flags)s,
+                  %(schema_version)s, %(producer)s, %(ts_insert_ms)s,
                   %(extra)s
                 )
                 ON CONFLICT (sid, ts_decision_ms) DO UPDATE SET
-                  symbol=excluded.symbol
-                  venue=excluded.venue
-                  session=excluded.session
-                  tf=excluded.tf
-                  kind=excluded.kind
-                  side=excluded.side
-                  direction=excluded.direction
-                  decision_bid=excluded.decision_bid
-                  decision_ask=excluded.decision_ask
-                  decision_mid=excluded.decision_mid
-                  decision_spread_bps=excluded.decision_spread_bps
-                  decision_depth_bid_5=excluded.decision_depth_bid_5
-                  decision_depth_ask_5=excluded.decision_depth_ask_5
-                  decision_depth_bid_20=excluded.decision_depth_bid_20
-                  decision_depth_ask_20=excluded.decision_depth_ask_20
-                  decision_book_slope_bid=excluded.decision_book_slope_bid
-                  decision_book_slope_ask=excluded.decision_book_slope_ask
-                  decision_dws_bps=excluded.decision_dws_bps
-                  decision_ofi_norm=excluded.decision_ofi_norm
-                  decision_expected_slippage_bps=excluded.decision_expected_slippage_bps
-                  decision_exec_risk_norm=excluded.decision_exec_risk_norm
-                  decision_price=excluded.decision_price
-                  tca_ready=excluded.tca_ready
-                  book_sanity_flags=excluded.book_sanity_flags
-                  schema_version=excluded.schema_version
-                  producer=excluded.producer
-                  ts_insert_ms=excluded.ts_insert_ms
+                  symbol=excluded.symbol,
+                  venue=excluded.venue,
+                  session=excluded.session,
+                  tf=excluded.tf,
+                  kind=excluded.kind,
+                  side=excluded.side,
+                  direction=excluded.direction,
+                  decision_bid=excluded.decision_bid,
+                  decision_ask=excluded.decision_ask,
+                  decision_mid=excluded.decision_mid,
+                  decision_spread_bps=excluded.decision_spread_bps,
+                  decision_depth_bid_5=excluded.decision_depth_bid_5,
+                  decision_depth_ask_5=excluded.decision_depth_ask_5,
+                  decision_depth_bid_20=excluded.decision_depth_bid_20,
+                  decision_depth_ask_20=excluded.decision_depth_ask_20,
+                  decision_book_slope_bid=excluded.decision_book_slope_bid,
+                  decision_book_slope_ask=excluded.decision_book_slope_ask,
+                  decision_dws_bps=excluded.decision_dws_bps,
+                  decision_ofi_norm=excluded.decision_ofi_norm,
+                  decision_expected_slippage_bps=excluded.decision_expected_slippage_bps,
+                  decision_exec_risk_norm=excluded.decision_exec_risk_norm,
+                  decision_price=excluded.decision_price,
+                  tca_ready=excluded.tca_ready,
+                  book_sanity_flags=excluded.book_sanity_flags,
+                  schema_version=excluded.schema_version,
+                  producer=excluded.producer,
+                  ts_insert_ms=excluded.ts_insert_ms,
                   extra=excluded.extra;
                 """
             )

@@ -26,7 +26,7 @@ def example_1_standalone_tracker():
     
     # Конфигурация
     config = {
-        "symbols": ["XAUUSD"],
+        "symbols": [],
         "strategies": ["orderflow"],
         "monitor": {
             "default_lot": 1.0,
@@ -94,7 +94,7 @@ def example_2_manual_components():
     # Обработка тестового сигнала
     test_signal = {
         "strategy": "orderflow",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "tf": "tick",
         "direction": "LONG",
         "price": 2650.50,
@@ -111,7 +111,7 @@ def example_2_manual_components():
     
     # Тик 1: движение к TP1
     tick_1 = {
-        "symbol": "XAUUSD",
+        "symbol": "",
         "last": 2651.70,  # TP1 = 2650.50 + 1.2 = 2651.70
         "bid": 2651.68,
         "ask": 2651.72
@@ -121,7 +121,7 @@ def example_2_manual_components():
     
     # Тик 2: движение к TP2
     tick_2 = {
-        "symbol": "XAUUSD",
+        "symbol": "",
         "last": 2652.90,  # TP2 = 2650.50 + 2.4 = 2652.90
         "bid": 2652.88,
         "ask": 2652.92
@@ -135,7 +135,7 @@ def example_2_manual_components():
     redis_client = get_redis()
     
     from services.stats_aggregator import StatsAggregator
-    stats = StatsAggregator.get_stats(redis_client, "orderflow", "XAUUSD", "tick")
+    stats = StatsAggregator.get_stats(redis_client, "orderflow", "tick")
     if stats:
         print(f"   Сделок: {stats.get('total_trades', 0)}")
         print(f"   WinRate: {stats.get('winrate', 0)}%")
@@ -143,7 +143,7 @@ def example_2_manual_components():
     
     # Получение отчёта
     print("\n📋 Получение отчёта...")
-    report = reporting.get_strategy_report("orderflow", "XAUUSD", "tick")
+    report = reporting.get_strategy_report("orderflow", "tick")
     print(json.dumps(report, indent=2))
 
 
@@ -181,8 +181,8 @@ def example_3_statistics_and_reports():
         print(f"      Avg P/L: {summary.get('avg_pnl', 0):+.2f}")
     
     # Детальная статистика по конкретной комбинации
-    print("\n📊 Детальная статистика (orderflow/XAUUSD/tick):")
-    stats = StatsAggregator.get_stats(redis_client, "orderflow", "XAUUSD", "tick")
+    print("\n📊 Детальная статистика (orderflow//tick):")
+    stats = StatsAggregator.get_stats(redis_client, "orderflow", "tick")
     if stats:
         print(f"   Всего сделок: {stats['total_trades']}")
         print(f"   Выигрышей: {stats['wins']}")
@@ -200,7 +200,7 @@ def example_3_statistics_and_reports():
     
     # Получение последних сделок
     print("\n📜 Последние 10 сделок:")
-    trades = reporting.get_recent_trades("orderflow", "XAUUSD", "tick", limit=10)
+    trades = reporting.get_recent_trades("orderflow", "tick", limit=10)
     for i, trade in enumerate(trades, 1):
         print(f"\n   Сделка {i}:")
         print(f"      ID: {trade.get('id', 'N/A')}")
@@ -249,7 +249,7 @@ def example_4_telegram_notifications():
     print("\n📤 Отправка уведомления о сделке...")
     test_trade = {
         "strategy": "orderflow",
-        "symbol": "XAUUSD",
+        "symbol": "",
         "tf": "tick",
         "direction": "LONG",
         "result": "win",
@@ -286,7 +286,7 @@ def example_5_export_data():
     output_file = "/tmp/trades_orderflow_xauusd.json"
     success = reporting.export_trades_to_json(
         "orderflow", 
-        "XAUUSD", 
+        
         "tick", 
         output_file
     )
@@ -313,7 +313,7 @@ def example_6_real_time_monitoring():
     print("=" * 60)
     
     config = {
-        "symbols": ["XAUUSD"],
+        "symbols": [],
         "strategies": ["orderflow"]
     }
     

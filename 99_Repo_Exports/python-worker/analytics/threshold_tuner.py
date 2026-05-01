@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Threshold Tuner - Автоматический подбор порога для confidence/score.
 
@@ -14,7 +15,6 @@ Threshold Tuner - Автоматический подбор порога для 
 - Автоматическая калибровка
 """
 
-from __future__ import annotations
 import os
 import json
 import time
@@ -60,8 +60,8 @@ class ThresholdTuner:
     #   calculate_precision_recall(tp, fp, fn)            → (precision, recall, f1)
 
     def _extract_scores_labels(
-        self
-        signals: List[Signal]
+        self,
+        signals: List[Signal],
         order_by_signal: Dict[str, Order]
     ) -> List[Tuple[float, int]]:
         """Извлечение пар (score, label) из сигналов и ордеров"""
@@ -88,12 +88,12 @@ class ThresholdTuner:
         return pairs
 
     def tune_and_publish(
-        self
-        *
-        strategy: str
-        symbol: str
-        signals: List[Signal]
-        orders: List[Order]
+        self,
+        *,
+        strategy: str,
+        symbol: str,
+        signals: List[Signal],
+        orders: List[Order],
         emit_telegram: bool = True
     ) -> Optional[Dict[str, Any]]:
         """
@@ -146,12 +146,12 @@ class ThresholdTuner:
                 youden_j = tpr - fpr
 
                 points_payload.append({
-                    "thr": round(thr, 4)
-                    "tpr": round(tpr, 4)
-                    "fpr": round(fpr, 4)
-                    "prec": round(_prec, 4)
-                    "rec": round(rec, 4)
-                    "f1": round(f1, 4)
+                    "thr": round(thr, 4),
+                    "tpr": round(tpr, 4),
+                    "fpr": round(fpr, 4),
+                    "prec": round(_prec, 4),
+                    "rec": round(rec, 4),
+                    "f1": round(f1, 4),
                     "support": tp + fp + tn + fn
                 })
 
@@ -169,16 +169,16 @@ class ThresholdTuner:
             chosen_thr = float(best_by_j[1])
 
             payload = {
-                "thr": chosen_thr
-                "auc": round(roc.auc, 4)
-                "youdenJ": round(best_by_j[0], 4)
-                "f1_at_thr": round(best_by_j[4], 4)
-                "tpr": round(best_by_j[2], 4)
-                "fpr": round(best_by_j[3], 4)
-                "tuned_at": time.time()
-                "support": len(pairs)
+                "thr": chosen_thr,
+                "auc": round(roc.auc, 4),
+                "youdenJ": round(best_by_j[0], 4),
+                "f1_at_thr": round(best_by_j[4], 4),
+                "tpr": round(best_by_j[2], 4),
+                "fpr": round(best_by_j[3], 4),
+                "tuned_at": time.time(),
+                "support": len(pairs),
                 "rule": "youdenJ"
-            }
+            },
 
             # Публикуем порог для aggregated hub
             key = f"hub:threshold:{strategy}:{symbol}"
@@ -191,13 +191,13 @@ class ThresholdTuner:
 
             # Уведомляем aggregated hub о перезагрузке
             self.r.xadd(
-                self.ctrl_stream
+                self.ctrl_stream,
                 {
-                    "action": "reload"
-                    "scope": f"{strategy}:{symbol}"
+                    "action": "reload",
+                    "scope": f"{strategy}:{symbol}",
                     "ts": time.time()
-                }
-                maxlen=50000
+                },
+                maxlen=50000,
                 approximate=True
             )
 
@@ -217,12 +217,12 @@ class ThresholdTuner:
                 )
 
                 self.r.xadd(
-                    self.notify_stream
+                    self.notify_stream,
                     {
-                        "text": msg
+                        "text": msg,
                         "parse_mode": "HTML"
-                    }
-                    maxlen=50000
+                    },
+                    maxlen=50000,
                     approximate=True
                 )
 

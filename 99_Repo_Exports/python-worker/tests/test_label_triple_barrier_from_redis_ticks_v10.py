@@ -72,7 +72,7 @@ def test_label_sl_hit_short() -> None:
 
 
 def test_label_no_ticks() -> None:
-    inp: Dict[str, Any] = {"symbol": "XAUUSD", "ts_ms": 1000, "direction": "LONG", "indicators": {"stop_bps": 20.0}}
+    inp: Dict[str, Any] = {"symbol": "BTCUSDT", "ts_ms": 1000, "direction": "LONG", "indicators": {"stop_bps": 20.0}}
     out = label_one(inp, [], h_ms=1000, tp_k_atr=1.0, sl_k_atr=1.0, fallback_tp_bps=30.0, fallback_sl_bps=30.0)
     assert out["tb_label"] == "NO_TICKS"
     assert out["tb_y_edge"] == 0

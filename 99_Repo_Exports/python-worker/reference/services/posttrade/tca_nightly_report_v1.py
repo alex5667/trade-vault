@@ -109,19 +109,19 @@ def _i(x: Any, default: int = 0) -> int:
 def _fetch_rollups(cur, *, table: str, lookback_h: int, min_rows: int) -> List[Dict[str, Any]]:
     q = f"""
       select
-        sym
-        venue
-        session
-        tf
-        kind
-        side
-        count(*)::bigint as n
-        percentile_cont(0.50) within group (order by is_bps) as is_p50_bps
-        percentile_cont(0.95) within group (order by is_bps) as is_p95_bps
-        percentile_cont(0.99) within group (order by is_bps) as is_p99_bps
-        percentile_cont(0.95) within group (order by eff_spread_bps) as eff_spread_p95_bps
-        percentile_cont(0.50) within group (order by realized_spread_1s_bps) as realized_spread_1s_p50_bps
-        percentile_cont(0.95) within group (order by perm_impact_1s_bps) as perm_impact_1s_p95_bps
+        sym,
+        venue,
+        session,
+        tf,
+        kind,
+        side,
+        count(*)::bigint as n,
+        percentile_cont(0.50) within group (order by is_bps) as is_p50_bps,
+        percentile_cont(0.95) within group (order by is_bps) as is_p95_bps,
+        percentile_cont(0.99) within group (order by is_bps) as is_p99_bps,
+        percentile_cont(0.95) within group (order by eff_spread_bps) as eff_spread_p95_bps,
+        percentile_cont(0.50) within group (order by realized_spread_1s_bps) as realized_spread_1s_p50_bps,
+        percentile_cont(0.95) within group (order by perm_impact_1s_bps) as perm_impact_1s_p95_bps,
         avg(case when realized_spread_1s_bps < 0 then 1 else 0 end) as realized_spread_1s_neg_share
       from {table}
       where ts > now() - (%s * interval '1 hour')
@@ -132,33 +132,32 @@ def _fetch_rollups(cur, *, table: str, lookback_h: int, min_rows: int) -> List[D
     rows = []
     for row in cur.fetchall() or []:
         rows.append({
-            'sym': str(row[0] or '').upper()
-            'venue': str(row[1] or '').lower()
-            'session': str(row[2] or 'na')
-            'tf': str(row[3] or 'na')
-            'kind': str(row[4] or 'na')
-            'side': str(row[5] or 'na').upper()
-            'n': _i(row[6], 0)
-            'is_p50_bps': _f(row[7], 0.0)
-            'is_p95_bps': _f(row[8], 0.0)
-            'is_p99_bps': _f(row[9], 0.0)
-            'eff_spread_p95_bps': _f(row[10], 0.0)
-            'realized_spread_1s_p50_bps': _f(row[11], 0.0)
-            'perm_impact_1s_p95_bps': _f(row[12], 0.0)
-            'realized_spread_1s_neg_share': _f(row[13], 0.0)
+            'sym': str(row[0] or '').upper(),
+            'venue': str(row[1] or '').lower(),
+            'session': str(row[2] or 'na'),
+            'tf': str(row[3] or 'na'),
+            'kind': str(row[4] or 'na'),
+            'side': str(row[5] or 'na').upper(),
+            'n': _i(row[6], 0),
+            'is_p50_bps': _f(row[7], 0.0),
+            'is_p95_bps': _f(row[8], 0.0),
+            'is_p99_bps': _f(row[9], 0.0),
+            'eff_spread_p95_bps': _f(row[10], 0.0),
+            'realized_spread_1s_p50_bps': _f(row[11], 0.0),
+            'perm_impact_1s_p95_bps': _f(row[12], 0.0),
+            'realized_spread_1s_neg_share': _f(row[13], 0.0),
         })
     return rows
 
 
 def _row_key(row: Dict[str, Any]) -> str:
     return ':'.join([
-        str(row.get('sym') or '')
-        str(row.get('venue') or '')
-        str(row.get('session') or '')
-        str(row.get('tf') or '')
-        str(row.get('kind') or '')
-        str(row.get('side') or '')
-    ])
+        str(row.get('sym') or ''),
+        str(row.get('venue') or ''),
+        str(row.get('session') or ''),
+        str(row.get('tf') or ''),
+        str(row.get('kind') or ''),
+        str(row.get('side') or '')])
 
 
 def _top_rows(rows: Sequence[Dict[str, Any]], *, field: str, reverse: bool, top_n: int) -> List[Dict[str, Any]]:
@@ -166,15 +165,15 @@ def _top_rows(rows: Sequence[Dict[str, Any]], *, field: str, reverse: bool, top_
     out: List[Dict[str, Any]] = []
     for row in ranked[: max(1, int(top_n))]:
         out.append({
-            'key': _row_key(row)
-            'value': _f(row.get(field), 0.0)
-            'n': _i(row.get('n'), 0)
-            'sym': str(row.get('sym') or '')
-            'venue': str(row.get('venue') or '')
-            'session': str(row.get('session') or '')
-            'tf': str(row.get('tf') or '')
-            'kind': str(row.get('kind') or '')
-            'side': str(row.get('side') or '')
+            'key': _row_key(row),
+            'value': _f(row.get(field), 0.0),
+            'n': _i(row.get('n'), 0),
+            'sym': str(row.get('sym') or ''),
+            'venue': str(row.get('venue') or ''),
+            'session': str(row.get('session') or ''),
+            'tf': str(row.get('tf') or ''),
+            'kind': str(row.get('kind') or ''),
+            'side': str(row.get('side') or ''),
         })
     return out
 
@@ -185,43 +184,43 @@ def build_report(*, rows_24h: Sequence[Dict[str, Any]], rows_7d: Sequence[Dict[s
 
     max_is = _f(thresholds.get('max_is_p95_bps'), 0.0)
     max_imp = _f(thresholds.get('max_perm_impact_p95_bps'), 0.0)
-    min_rs = _f(thresholds.get('min_realized_spread_p50_bps'), -999.0)
-    max_eff = _f(thresholds.get('max_eff_spread_p95_bps'), 0.0)
+    min_rs = _f(thresholds.get('min_realized_spread_p50_bps'), -999.0),
+    max_eff = _f(thresholds.get('max_eff_spread_p95_bps'), 0.0),
 
     def _breach_counts(rows: Sequence[Dict[str, Any]]) -> Dict[str, int]:
         return {
-            'is_p95': int(sum(1 for r in rows if _f(r.get('is_p95_bps'), 0.0) >= max_is)) if max_is > 0 else 0
-            'perm_impact_p95': int(sum(1 for r in rows if _f(r.get('perm_impact_1s_p95_bps'), 0.0) >= max_imp)) if max_imp > 0 else 0
-            'realized_spread_p50': int(sum(1 for r in rows if _f(r.get('realized_spread_1s_p50_bps'), 0.0) <= min_rs))
-            'eff_spread_p95': int(sum(1 for r in rows if _f(r.get('eff_spread_p95_bps'), 0.0) >= max_eff)) if max_eff > 0 else 0
-        }
+            'is_p95': int(sum(1 for r in rows if _f(r.get('is_p95_bps'), 0.0) >= max_is)) if max_is > 0 else 0,
+            'perm_impact_p95': int(sum(1 for r in rows if _f(r.get('perm_impact_1s_p95_bps'), 0.0) >= max_imp)) if max_imp > 0 else 0,
+            'realized_spread_p50': int(sum(1 for r in rows if _f(r.get('realized_spread_1s_p50_bps'), 0.0) <= min_rs)),
+            'eff_spread_p95': int(sum(1 for r in rows if _f(r.get('eff_spread_p95_bps'), 0.0) >= max_eff)) if max_eff > 0 else 0,
+        },
 
-    b24 = _breach_counts(rows_24h)
-    b7 = _breach_counts(rows_7d)
+    b24 = _breach_counts(rows_24h),
+    b7 = _breach_counts(rows_7d),
 
     report = {
-        'schema_name': 'tca_nightly_report'
-        'schema_version': 1
-        'thresholds': dict(thresholds)
+        'schema_name': 'tca_nightly_report',
+        'schema_version': 1,
+        'thresholds': dict(thresholds),
         'summary': {
-            'rows_24h_total': _total_rows(rows_24h)
-            'rows_7d_total': _total_rows(rows_7d)
-            'groups_24h': int(len(rows_24h))
-            'groups_7d': int(len(rows_7d))
-            'breach_groups_24h': b24
+            'rows_24h_total': _total_rows(rows_24h),
+            'rows_7d_total': _total_rows(rows_7d),
+            'groups_24h': int(len(rows_24h)),
+            'groups_7d': int(len(rows_7d)),
+            'breach_groups_24h': b24,
             'breach_groups_7d': b7
-        }
+        },
         'top_offenders_24h': {
-            'is_p95_bps': _top_rows(rows_24h, field='is_p95_bps', reverse=True, top_n=top_n)
-            'perm_impact_1s_p95_bps': _top_rows(rows_24h, field='perm_impact_1s_p95_bps', reverse=True, top_n=top_n)
-            'eff_spread_p95_bps': _top_rows(rows_24h, field='eff_spread_p95_bps', reverse=True, top_n=top_n)
-            'adverse_realized_spread_1s_p50_bps': _top_rows(rows_24h, field='realized_spread_1s_p50_bps', reverse=False, top_n=top_n)
-        }
+            'is_p95_bps': _top_rows(rows_24h, field='is_p95_bps', reverse=True, top_n=top_n),
+            'perm_impact_1s_p95_bps': _top_rows(rows_24h, field='perm_impact_1s_p95_bps', reverse=True, top_n=top_n),
+            'eff_spread_p95_bps': _top_rows(rows_24h, field='eff_spread_p95_bps', reverse=True, top_n=top_n),
+            'adverse_realized_spread_1s_p50_bps': _top_rows(rows_24h, field='realized_spread_1s_p50_bps', reverse=False, top_n=top_n),
+        },
         'top_offenders_7d': {
-            'is_p95_bps': _top_rows(rows_7d, field='is_p95_bps', reverse=True, top_n=top_n)
-            'perm_impact_1s_p95_bps': _top_rows(rows_7d, field='perm_impact_1s_p95_bps', reverse=True, top_n=top_n)
-            'eff_spread_p95_bps': _top_rows(rows_7d, field='eff_spread_p95_bps', reverse=True, top_n=top_n)
-            'adverse_realized_spread_1s_p50_bps': _top_rows(rows_7d, field='realized_spread_1s_p50_bps', reverse=False, top_n=top_n)
+            'is_p95_bps': _top_rows(rows_7d, field='is_p95_bps', reverse=True, top_n=top_n),
+            'perm_impact_1s_p95_bps': _top_rows(rows_7d, field='perm_impact_1s_p95_bps', reverse=True, top_n=top_n),
+            'eff_spread_p95_bps': _top_rows(rows_7d, field='eff_spread_p95_bps', reverse=True, top_n=top_n),
+            'adverse_realized_spread_1s_p50_bps': _top_rows(rows_7d, field='realized_spread_1s_p50_bps', reverse=False, top_n=top_n),
         }
     }
     return report
@@ -238,23 +237,23 @@ def build_summary_state(*, report: Dict[str, Any], now_ms: int, dur_ms: int, ok:
         return _f(rows[0].get('value'), 0.0)
 
     return {
-        'schema_name': 'tca_nightly_report_state'
-        'schema_version': '1'
-        'updated_ts_ms': str(int(now_ms))
-        'dur_ms': str(int(dur_ms))
-        'ok': '1' if ok else '0'
-        'rows_24h_total': str(_i(s.get('rows_24h_total'), 0))
-        'rows_7d_total': str(_i(s.get('rows_7d_total'), 0))
-        'groups_24h': str(_i(s.get('groups_24h'), 0))
-        'groups_7d': str(_i(s.get('groups_7d'), 0))
-        'breach_is_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('is_p95')), 0))
-        'breach_perm_impact_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('perm_impact_p95')), 0))
-        'breach_realized_spread_p50_24h': str(_i(((s.get('breach_groups_24h') or {}).get('realized_spread_p50')), 0))
-        'breach_eff_spread_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('eff_spread_p95')), 0))
-        'worst_is_p95_bps_24h': f"{_top_value('is_p95_bps'):.6f}"
-        'worst_perm_impact_p95_bps_24h': f"{_top_value('perm_impact_1s_p95_bps'):.6f}"
-        'worst_realized_spread_p50_bps_24h': f"{_top_value('adverse_realized_spread_1s_p50_bps'):.6f}"
-        'worst_eff_spread_p95_bps_24h': f"{_top_value('eff_spread_p95_bps'):.6f}"
+        'schema_name': 'tca_nightly_report_state',
+        'schema_version': '1',
+        'updated_ts_ms': str(int(now_ms)),
+        'dur_ms': str(int(dur_ms)),
+        'ok': '1' if ok else '0',
+        'rows_24h_total': str(_i(s.get('rows_24h_total'), 0)),
+        'rows_7d_total': str(_i(s.get('rows_7d_total'), 0)),
+        'groups_24h': str(_i(s.get('groups_24h'), 0)),
+        'groups_7d': str(_i(s.get('groups_7d'), 0)),
+        'breach_is_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('is_p95')), 0)),
+        'breach_perm_impact_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('perm_impact_p95')), 0)),
+        'breach_realized_spread_p50_24h': str(_i(((s.get('breach_groups_24h') or {}).get('realized_spread_p50')), 0)),
+        'breach_eff_spread_p95_24h': str(_i(((s.get('breach_groups_24h') or {}).get('eff_spread_p95')), 0)),
+        'worst_is_p95_bps_24h': f"{_top_value('is_p95_bps'):.6f}",
+        'worst_perm_impact_p95_bps_24h': f"{_top_value('perm_impact_1s_p95_bps'):.6f}",
+        'worst_realized_spread_p50_bps_24h': f"{_top_value('adverse_realized_spread_1s_p50_bps'):.6f}",
+        'worst_eff_spread_p95_bps_24h': f"{_top_value('eff_spread_p95_bps'):.6f}",
     }
 
 
@@ -291,20 +290,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rows_24h = _fetch_rollups(cur, table=args.table, lookback_h=int(args.lookback_24h), min_rows=int(args.min_rows))
         rows_7d = _fetch_rollups(cur, table=args.table, lookback_h=int(args.lookback_7d), min_rows=int(args.min_rows))
         thresholds = {
-            'max_is_p95_bps': _env_float('TCA_REPORT_MAX_IS_P95_BPS', '12.0')
-            'max_perm_impact_p95_bps': _env_float('TCA_REPORT_MAX_PERM_IMPACT_P95_BPS', '8.0')
-            'min_realized_spread_p50_bps': _env_float('TCA_REPORT_MIN_REALIZED_SPREAD_P50_BPS', '-1.0')
-            'max_eff_spread_p95_bps': _env_float('TCA_REPORT_MAX_EFF_SPREAD_P95_BPS', '6.0')
+            'max_is_p95_bps': _env_float('TCA_REPORT_MAX_IS_P95_BPS', '12.0'),
+            'max_perm_impact_p95_bps': _env_float('TCA_REPORT_MAX_PERM_IMPACT_P95_BPS', '8.0'),
+            'min_realized_spread_p50_bps': _env_float('TCA_REPORT_MIN_REALIZED_SPREAD_P50_BPS', '-1.0'),
+            'max_eff_spread_p95_bps': _env_float('TCA_REPORT_MAX_EFF_SPREAD_P95_BPS', '6.0'),
         }
         report = build_report(rows_24h=rows_24h, rows_7d=rows_7d, thresholds=thresholds, top_n=int(args.top_n))
         now_ms = _now_ms()
         dur_ms = max(0, now_ms - t0)
         status = {
-            'ts_ms': now_ms
-            'ok': True
-            'dur_ms': dur_ms
-            'rows_24h_total': int((report.get('summary') or {}).get('rows_24h_total', 0))
-            'groups_24h': int((report.get('summary') or {}).get('groups_24h', 0))
+            'ts_ms': now_ms,
+            'ok': True,
+            'dur_ms': dur_ms,
+            'rows_24h_total': int((report.get('summary') or {}).get('rows_24h_total', 0)),
+            'groups_24h': int((report.get('summary') or {}).get('groups_24h', 0)),
         }
         _write_json_atomic(args.report_path, report)
         _write_json_atomic(args.status_path, status)

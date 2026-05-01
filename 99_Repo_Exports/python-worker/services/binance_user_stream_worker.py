@@ -41,18 +41,18 @@ except Exception:  # pragma: no cover
 
 try:
     from services.execution_metrics import (
-        LISTENKEY_REFRESH_TOTAL
-        USER_STREAM_CONNECTED
-        USER_STREAM_LAST_EVENT_AGE_MS
-        USER_STREAM_RECONNECT_TOTAL
+        LISTENKEY_REFRESH_TOTAL,
+        USER_STREAM_CONNECTED,
+        USER_STREAM_LAST_EVENT_AGE_MS,
+        USER_STREAM_RECONNECT_TOTAL,
     )
 except Exception:  # pragma: no cover
     try:
         from execution_metrics import (
-            LISTENKEY_REFRESH_TOTAL
-            USER_STREAM_CONNECTED
-            USER_STREAM_LAST_EVENT_AGE_MS
-            USER_STREAM_RECONNECT_TOTAL
+            LISTENKEY_REFRESH_TOTAL,
+            USER_STREAM_CONNECTED,
+            USER_STREAM_LAST_EVENT_AGE_MS,
+            USER_STREAM_RECONNECT_TOTAL,
         )
     except Exception:  # pragma: no cover
         LISTENKEY_REFRESH_TOTAL = USER_STREAM_CONNECTED = USER_STREAM_LAST_EVENT_AGE_MS = USER_STREAM_RECONNECT_TOTAL = None  # type: ignore
@@ -82,17 +82,17 @@ class NormalizedUserStreamEvent:
 
     def to_redis_fields(self) -> Dict[str, str]:
         return {
-            "event_type": str(self.event_type)
-            "event_time_ms": str(self.event_time_ms)
-            "symbol": str(self.symbol)
-            "side": str(self.side)
-            "status": str(self.status)
-            "execution_type": str(self.execution_type)
-            "order_id": "" if self.order_id is None else str(self.order_id)
-            "client_order_id": self.client_order_id or ""
-            "algo_id": "" if self.algo_id is None else str(self.algo_id)
-            "client_algo_id": self.client_algo_id or ""
-            "raw_json": json.dumps(self.raw, ensure_ascii=False, default=str)
+            "event_type": str(self.event_type),
+            "event_time_ms": str(self.event_time_ms),
+            "symbol": str(self.symbol),
+            "side": str(self.side),
+            "status": str(self.status),
+            "execution_type": str(self.execution_type),
+            "order_id": "" if self.order_id is None else str(self.order_id),
+            "client_order_id": self.client_order_id or "",
+            "algo_id": "" if self.algo_id is None else str(self.algo_id),
+            "client_algo_id": self.client_algo_id or "",
+            "raw_json": json.dumps(self.raw, ensure_ascii=False, default=str),
         }
 
 
@@ -151,32 +151,32 @@ class BinanceUserStreamWorker:
         if e == "ORDER_TRADE_UPDATE":
             order = payload.get("o") or {}
             return NormalizedUserStreamEvent(
-                event_type=e
-                event_time_ms=event_time_ms
-                symbol=str(order.get("s") or "")
-                side=str(order.get("S") or "")
-                status=str(order.get("X") or "")
-                execution_type=str(order.get("x") or "")
-                order_id=int(order.get("i")) if order.get("i") not in (None, "") else None
-                client_order_id=str(order.get("c") or "") or None
-                algo_id=None
-                client_algo_id=None
-                raw=payload
+                event_type=e,
+                event_time_ms=event_time_ms,
+                symbol=str(order.get("s") or ""),
+                side=str(order.get("S") or ""),
+                status=str(order.get("X") or ""),
+                execution_type=str(order.get("x") or ""),
+                order_id=int(order.get("i")) if order.get("i") not in (None, "") else None,
+                client_order_id=str(order.get("c") or "") or None,
+                algo_id=None,
+                client_algo_id=None,
+                raw=payload,
             )
         if e == "ALGO_UPDATE":
             algo = payload.get("ao") or payload.get("a") or payload.get("o") or {}
             return NormalizedUserStreamEvent(
-                event_type=e
-                event_time_ms=event_time_ms
-                symbol=str(algo.get("s") or payload.get("s") or "")
-                side=str(algo.get("S") or "")
-                status=str(algo.get("X") or algo.get("x") or "")
-                execution_type=str(algo.get("x") or payload.get("x") or "")
-                order_id=None
-                client_order_id=None
-                algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None
-                client_algo_id=str(algo.get("clientAlgoId") or "") or None
-                raw=payload
+                event_type=e,
+                event_time_ms=event_time_ms,
+                symbol=str(algo.get("s") or payload.get("s") or ""),
+                side=str(algo.get("S") or ""),
+                status=str(algo.get("X") or algo.get("x") or ""),
+                execution_type=str(algo.get("x") or payload.get("x") or ""),
+                order_id=None,
+                client_order_id=None,
+                algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None,
+                client_algo_id=str(algo.get("clientAlgoId") or "") or None,
+                raw=payload,
             )
         return None
 
@@ -204,17 +204,17 @@ class BinanceUserStreamWorker:
                     if sid:
                         order_data = event.raw.get("o") or {}
                         exec_fields = {
-                            "event_type": "EXCHANGE_FILL" if str(event.event_type).upper() == "ORDER_TRADE_UPDATE" else "EXCHANGE_ORDER_UPDATE"
-                            "sid": sid
-                            "symbol": str(event.symbol)
-                            "action": "reconcile"
-                            "status": str(event.status)
-                            "filled_qty": str(order_data.get("z") or "0")
-                            "avg_price": str(order_data.get("ap") or "0")
-                            "client_order_id": str(event.client_order_id)
-                            "binance_order_id": str(event.order_id) if event.order_id else ""
-                            "ts_event_ms": str(event.event_time_ms)
-                            "ts_ms": str(_ms_now())
+                            "event_type": "EXCHANGE_FILL" if str(event.event_type).upper() == "ORDER_TRADE_UPDATE" else "EXCHANGE_ORDER_UPDATE",
+                            "sid": sid,
+                            "symbol": str(event.symbol),
+                            "action": "reconcile",
+                            "status": str(event.status),
+                            "filled_qty": str(order_data.get("z") or "0"),
+                            "avg_price": str(order_data.get("ap") or "0"),
+                            "client_order_id": str(event.client_order_id),
+                            "binance_order_id": str(event.order_id) if event.order_id else "",
+                            "ts_event_ms": str(event.event_time_ms),
+                            "ts_ms": str(_ms_now()),
                             "mono_ms": str(_mono_ms())
                         }
                         self.r.xadd(exec_stream, exec_fields, maxlen=50000)
@@ -227,15 +227,15 @@ class BinanceUserStreamWorker:
                     sid = self.r.get(f"orders:cid_to_sid:{event.client_algo_id}")
                     if sid:
                         exec_fields = {
-                            "event_type": "EXCHANGE_ALGO_UPDATE"
-                            "sid": sid
-                            "symbol": str(event.symbol)
-                            "action": "reconcile"
-                            "status": str(event.status)
-                            "client_algo_id": str(event.client_algo_id)
-                            "binance_order_id": str(event.algo_id) if event.algo_id else ""
-                            "ts_event_ms": str(event.event_time_ms)
-                            "ts_ms": str(_ms_now())
+                            "event_type": "EXCHANGE_ALGO_UPDATE",
+                            "sid": sid,
+                            "symbol": str(event.symbol),
+                            "action": "reconcile",
+                            "status": str(event.status),
+                            "client_algo_id": str(event.client_algo_id),
+                            "binance_order_id": str(event.algo_id) if event.algo_id else "",
+                            "ts_event_ms": str(event.event_time_ms),
+                            "ts_ms": str(_ms_now()),
                             "mono_ms": str(_mono_ms())
                         }
                         self.r.xadd(exec_stream, exec_fields, maxlen=50000)
@@ -243,11 +243,11 @@ class BinanceUserStreamWorker:
                     pass
             # Update richer status contract required by ExecutionBootstrapSupervisor
             self._write_status(
-                status='stream_live'
-                connected=True
-                listen_key=self.listen_key or ''
-                last_event_ms=int(event.event_time_ms)
-                last_ingest_ms=_ms_now()
+                status='stream_live',
+                connected=True,
+                listen_key=self.listen_key or '',
+                last_event_ms=int(event.event_time_ms),
+                last_ingest_ms=_ms_now(),
             )
             return True
         except Exception:
@@ -267,11 +267,11 @@ class BinanceUserStreamWorker:
                 raise RuntimeError("empty listenKey")
             # Write rich status immediately so supervisor can see listen_key is live
             self._write_status(
-                status='listen_key_started'
-                connected=False
-                listen_key=self.listen_key
-                listen_key_started_ms=_ms_now()
-                last_keepalive_ms=_ms_now()
+                status='listen_key_started',
+                connected=False,
+                listen_key=self.listen_key,
+                listen_key_started_ms=_ms_now(),
+                last_keepalive_ms=_ms_now(),
             )
             try:
                 if LISTENKEY_REFRESH_TOTAL is not None:
@@ -298,9 +298,9 @@ class BinanceUserStreamWorker:
             self.client.keepalive_user_stream(self.listen_key)
             # Refresh keepalive timestamp so supervisor sees continued liveness
             self._write_status(
-                status='listen_key_keepalive'
-                listen_key=self.listen_key
-                last_keepalive_ms=_ms_now()
+                status='listen_key_keepalive',
+                listen_key=self.listen_key,
+                last_keepalive_ms=_ms_now(),
             )
             if LISTENKEY_REFRESH_TOTAL is not None:
                 LISTENKEY_REFRESH_TOTAL.labels(op="keepalive", result="ok").inc()
@@ -350,10 +350,10 @@ class BinanceUserStreamWorker:
         try:
             # Import websocket exceptions if available
             _transient_exc = (
-                OSError
-                ConnectionError
-                websocket.WebSocketConnectionClosedException
-                websocket.WebSocketException
+                OSError,
+                ConnectionError,
+                websocket.WebSocketConnectionClosedException,
+                websocket.WebSocketException,
             )
             _timeout_exc = (websocket.WebSocketTimeoutException,)
         except AttributeError:
@@ -371,10 +371,10 @@ class BinanceUserStreamWorker:
                 last_keepalive = time.time()
                 # Announce ws_connected so supervisor can allow bootstrap grace window
                 self._write_status(
-                    status='ws_connected'
-                    connected=True
-                    listen_key=listen_key
-                    ws_connected_ms=_ms_now()
+                    status='ws_connected',
+                    connected=True,
+                    listen_key=listen_key,
+                    ws_connected_ms=_ms_now(),
                 )
                 while True:
                     if time.time() - last_keepalive >= self.keepalive_interval_sec:
@@ -389,10 +389,10 @@ class BinanceUserStreamWorker:
                     except _transient_exc as exc:
                         # Disconnect — break inner loop to reconnect, do not crash
                         self._write_status(
-                            status='reconnecting'
-                            connected=False
-                            listen_key=listen_key
-                            ws_disconnected_ms=_ms_now()
+                            status='reconnecting',
+                            connected=False,
+                            listen_key=listen_key,
+                            ws_disconnected_ms=_ms_now(),
                         )
                         try:
                             if USER_STREAM_RECONNECT_TOTAL is not None:
@@ -408,10 +408,10 @@ class BinanceUserStreamWorker:
             except _transient_exc:
                 # Connection failed entirely — back off before retrying
                 self._write_status(
-                    status='reconnecting'
-                    connected=False
-                    listen_key=listen_key
-                    ws_disconnected_ms=_ms_now()
+                    status='reconnecting',
+                    connected=False,
+                    listen_key=listen_key,
+                    ws_disconnected_ms=_ms_now(),
                 )
             finally:
                 try:

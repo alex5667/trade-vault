@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Tick Gate Metrics Aggregator (Step 22)
 
@@ -25,7 +26,6 @@ Usage (systemd):
   See python-worker/infra/ops/STEP22.md
 """
 
-from __future__ import annotations
 
 import argparse
 import json
