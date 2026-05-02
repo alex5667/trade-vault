@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Low-frequency collector for normalized derivatives context.
 
 Responsibilities
@@ -11,8 +10,7 @@ Responsibilities
 
 This service is *not* on the hot tick path.
 It is safe to run every 15–60 seconds.
-"""
-
+""",
 import asyncio
 import json
 import logging

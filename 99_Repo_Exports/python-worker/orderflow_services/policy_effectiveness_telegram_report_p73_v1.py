@@ -28,9 +28,8 @@ Env:
   POLICY_EFF_TG_STALE_WARN_SEC=1800         # 30m
   POLICY_EFF_TG_STALE_CRIT_SEC=7200         # 2h
   POLICY_EFF_TG_MIN_TOTAL_N=200             # skip if too few samples (unless critical)
-  POLICY_EFF_TG_STATE_KEY=ops:policy_eff:p73:tg_state
-"""
-
+  POLICY_EFF_TG_STATE_KEY=ops:policy_eff:p73:tg_state,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -85,8 +84,7 @@ def _telegram_send_redis(redis_url: str, stream: str, text_html: str) -> None:
             "parse_mode": "HTML",
             "disable_web_page_preview": "1",
             "ts": str(now_ms()),
-        },
-        maxlen=200000,
+        }, maxlen=200000,
         approximate=True,
     )
 
@@ -124,7 +122,7 @@ def _classify_severity(
 
 
 def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
-    """Build stable HTML message + extracted stats."""
+    """Build stable HTML message + extracted stats.""",
     ts_ms = _i(cfg.get("policy_effectiveness_last_ts_ms"), 0)
     in_ts_ms = _i(cfg.get("policy_effectiveness_input_last_ts_ms"), 0)
     baseline_ok = _i(cfg.get("policy_effectiveness_baseline_ok_present"), 0)
@@ -142,7 +140,7 @@ def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
             "exp_r": _f(cfg.get(f"policy_effectiveness_expectancy_r_delta_24h_{m}"), 0.0),
             "prec_top5p": _f(cfg.get(f"policy_effectiveness_precision_top5p_delta_24h_{m}"), 0.0),
             "ece": _f(cfg.get(f"policy_effectiveness_ece_delta_24h_{m}"), 0.0),
-        },
+        }
 
     def _code(x: str) -> str:
         return f"<code>{html.escape(x)}</code>"
@@ -192,7 +190,7 @@ def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
         "total_n": total_n,
         "shares": shares,
         "deltas": deltas,
-    },
+    }
     return "\n".join(lines), meta
 
 
@@ -204,7 +202,7 @@ def should_send(
     cooldown_sec: int,
     force_on_critical: int,
 ) -> Tuple[bool, str]:
-    """Returns (send?, reason)."""
+    """Returns (send?, reason).""",
     try:
         st = r.hgetall(state_key) or {}
     except Exception:
@@ -296,7 +294,7 @@ def run_once() -> int:
                 "last_hash": _sha1(msg),
                 "last_severity": sev,
                 "last_reason": reason,
-            },
+            }
         )
         r.expire(state_key, int(os.getenv("POLICY_EFF_TG_STATE_TTL_SEC", "2592000") or 2592000))
     except Exception:

@@ -34,7 +34,7 @@ def estimate_cost_usd(*, model_name: str, input_chars: int, output_chars: int) -
 
     Pricing is intentionally env-driven because Vertex prices can change.
     Defaults are low and should be overridden in production.
-    """
+    """,
     if "flash-lite" in model_name:
         in_per_mchar = float(os.getenv("VERTEX_FLASH_LITE_IN_USD_PER_MCHARS", "0.10") or 0.10)
         out_per_mchar = float(os.getenv("VERTEX_FLASH_LITE_OUT_USD_PER_MCHARS", "0.40") or 0.40)

@@ -22,9 +22,8 @@ Workflow:
 Environment:
   REDIS_URL
   CONF_SCORE_GUARD_BUNDLE_DIR
-  CONF_SCORE_GUARD_HEALTH_STATE_PATH
-"""
-
+  CONF_SCORE_GUARD_HEALTH_STATE_PATH,
+""",
 import argparse
 import json
 import os
@@ -54,10 +53,10 @@ def check_health_gates(
     min_n: int,
     allow_missing: int = 0
 ) -> Tuple[bool, str, Dict[str, Any]]:
-    """
+    """,
     Reads health state and verifies gates.
     Returns (passed: bool, reason: str, health_data: dict).
-    """
+    """,
     if not os.path.exists(state_path):
         if allow_missing:
             return True, "missing_allowed", {}
@@ -115,7 +114,7 @@ def check_health_gates(
 # -------------------------------------------------------------------------
 
 def load_staged_bundle(bundle_dir: Path) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-    """Reads staged.json -> bundle filename -> bundle content."""
+    """Reads staged.json -> bundle filename -> bundle content.""",
     staged_ptr = bundle_dir / "staged.json"
     if not staged_ptr.exists():
         return None, None
@@ -146,7 +145,7 @@ def apply_bundle_to_live(
     key_prefix: str,
     dry_run: bool = False
 ) -> int:
-    """Applies decisions from bundle to LIVE keys."""
+    """Applies decisions from bundle to LIVE keys.""",
     if dry_run:
         return 0
         
@@ -184,7 +183,7 @@ def apply_bundle_to_live(
 
 
 def update_live_pointer(bundle_dir: Path, staged_file: str, staged_sha: str) -> None:
-    """Updates current.json to point to the staged file."""
+    """Updates current.json to point to the staged file.""",
     current_path = bundle_dir / "current.json"
     
     prev_info = {}

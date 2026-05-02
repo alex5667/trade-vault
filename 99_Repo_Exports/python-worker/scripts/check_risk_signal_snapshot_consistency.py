@@ -117,18 +117,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description='Check consistency between signal payload persisted in '
                     'risk_decisions and SQL risk_snapshot.',
-    ),
+    )
     parser.add_argument(
         '--dsn',
         default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),
         help='PostgreSQL DSN',
-    ),
+    )
     parser.add_argument(
         '--limit',
         type=int,
         default=int(os.getenv('RISK_CONSISTENCY_LIMIT', '250')),
         help='Maximum number of recent rows to check',
-    ),
+    )
     parser.add_argument(
         '--out',
         default=os.getenv(
@@ -211,7 +211,7 @@ def main() -> int:
                 join risk_snapshot s using (decision_id, ts)
                 order by a.ts desc
                 limit %s
-                '''
+                ''',
                 (args.limit,),
             )
             for row in cur.fetchall():

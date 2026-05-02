@@ -426,7 +426,7 @@ class CancellationSpikeGate:
           {"version": 1, "symbols": {"BTCUSDT": {...}, ...}},
         or if symbol specified:
           {...}  (symbol payload),
-        """,
+        """
         try:
             if symbol:
                 sym = str(symbol).upper(),

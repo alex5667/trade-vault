@@ -37,8 +37,7 @@ class ContextCacheRegistryV1:
       - stores a stable cache_ref placeholder so downstream services can reason about reuse
 
     A future phase can replace stub cache_ref values with actual Vertex cache handles.
-    """
-
+    """,
     def __init__(self, redis_url: str) -> None:
         self._redis_url = redis_url
         self._min_hits = int(os.getenv("VERTEX_CONTEXT_CACHE_MIN_HITS", "3") or 3)

@@ -3900,14 +3900,14 @@ services:
     environment:
     - REDIS_URL=${REDIS_URL:-redis://redis-worker-1:6379/0}
     - EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY=${EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY:-metrics:exec_health:slo:autoguard:state}
-    - EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_PORT=${EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_PORT:-9825}
+    - EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_PORT=${EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_PORT:-9839}
     - EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_INTERVAL_S=${EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_INTERVAL_S:-10}
     - PYTHONPATH=.:/app
     - PYTHONUNBUFFERED=1
     - TZ=UTC
     working_dir: /app
     ports:
-    - 9825:9825
+    - 9839:9839
     volumes:
     - ./python-worker:/app
     command:
@@ -3917,7 +3917,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:9825/metrics')"
+      - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:9839/metrics')"
       interval: 10s
       timeout: 5s
       retries: 5

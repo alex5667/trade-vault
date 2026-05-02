@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Nightly orchestrator for OFC contextual Patch B/C workflow.
 
 Runs:
@@ -11,8 +10,7 @@ Runs:
 4) build_ofc_contextual_bundle_v1.py
 
 Writes summary metrics hash into Redis for exporter/alerts.
-"""
-
+""",
 import argparse
 import json
 import logging

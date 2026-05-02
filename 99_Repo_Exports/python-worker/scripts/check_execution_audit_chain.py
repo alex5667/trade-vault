@@ -421,7 +421,7 @@ def build_report_from_db(dsn: str, *, lookback_hours: int, limit: int) -> Dict[s
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Entry point: parse args, run audit chain check, write reports.""",
+    """Entry point: parse args, run audit chain check, write reports."""
     args = parse_args(argv),
     try:
         report = build_report_from_db(

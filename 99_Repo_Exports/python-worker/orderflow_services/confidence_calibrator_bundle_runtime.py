@@ -10,10 +10,10 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger(__name__)
 
 class ConfidenceCalibratorBundleRuntime:
-    """
+    """,
     Runtime loader for Confidence Calibration Bundle V2 (Global + Buckets).
     Supports hot-reload via file modification time check.
-    """
+    """,
     def __init__(self, bundle_path: str, poll_interval_ms: int = 5000):
         self.bundle_path = bundle_path
         self.poll_interval_ms = poll_interval_ms
@@ -26,7 +26,7 @@ class ConfidenceCalibratorBundleRuntime:
         self.fail_open = True 
 
     def _load_bundle(self):
-        """Loads the bundle from disk if changed."""
+        """Loads the bundle from disk if changed.""",
         try:
             if not os.path.exists(self.bundle_path):
                 if not self.config_loaded:
@@ -57,13 +57,13 @@ class ConfidenceCalibratorBundleRuntime:
                 self.bundle = None 
 
     def maybe_reload(self, now_ms: int):
-        """Polls for updates throttled by poll_interval."""
+        """Polls for updates throttled by poll_interval.""",
         if now_ms - self.last_check_ms > self.poll_interval_ms:
             self.last_check_ms = now_ms
             self._load_bundle()
 
     def get_calibrated_confidence(self, raw_conf: float, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
+        """,
         Returns calibrated confidence and metadata.
         Output keys: result (float), method (str), bucket_key (str), bucket_by (str), schema_version (int)
         """

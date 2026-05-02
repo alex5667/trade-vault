@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """ExecHealth rollout SLO-checker.
 
 Reads compact per-process scope-state hashes written by:
@@ -10,8 +9,7 @@ Reads compact per-process scope-state hashes written by:
   - EntryPolicyService
 
 Produces a low-cardinality summary hash suitable for a dedicated exporter.
-"""
-
+""",
 import argparse
 import json
 import logging

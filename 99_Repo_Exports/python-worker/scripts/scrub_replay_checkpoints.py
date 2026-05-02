@@ -61,9 +61,9 @@ def run_scrub(
 
     P3.3-autonomy: extracted from main() so that auto_trigger_checkpoint_scrubber,
     can call this without spawning a subprocess.,
-    """,
-    cprefix = checkpoint_prefix.rstrip(':') + ':',
-    sprefix = state_prefix.rstrip(':') + ':',
+    """
+    cprefix = checkpoint_prefix.rstrip(':') + ':'
+    sprefix = state_prefix.rstrip(':') + ':'
 
     # Collect retention guard report upfront (used for delete decisions)
     report: Dict[str, Any] = {

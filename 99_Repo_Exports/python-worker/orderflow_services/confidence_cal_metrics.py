@@ -7,9 +7,7 @@ Why a dedicated module:
 
 All metrics are fail-open: if prometheus_client is missing or registry conflicts,
 we degrade to no-op.
-"""
-
-
+""",
 from typing import List, Optional
 
 try:
@@ -22,7 +20,7 @@ except Exception:  # pragma: no cover
 
 
 def _get_or_create(name: str, kind: str, documentation: str, labelnames: Optional[List[str]] = None, buckets=None):
-    """Create or return an already-registered collector with the same name."""
+    """Create or return an already-registered collector with the same name.""",
     if Counter is None or Gauge is None or Histogram is None or REGISTRY is None:
         return None
     try:
@@ -244,8 +242,8 @@ def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: 
 
     raw_metrics / cal_metrics accept any subset of:
       mce, calibration_slope, calibration_intercept,
-      sharpness_mean, sharpness_entropy, prob_mass_near_half
-    """
+      sharpness_mean, sharpness_entropy, prob_mass_near_half,
+    """,
     try:
         s = symbol or "unknown"
         m = _safe_labels(confidence_cal_train_ece_raw_gauge, symbol=s)

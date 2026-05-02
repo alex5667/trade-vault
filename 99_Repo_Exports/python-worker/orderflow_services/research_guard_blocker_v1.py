@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Shared research-guard blocker helpers for rollout-sensitive jobs (P5.2).
 
 Reads compact Redis hashes produced by the strategy research guard job/exporter:
@@ -10,9 +9,8 @@ Reads compact Redis hashes produced by the strategy research guard job/exporter:
 Design goals:
   - deterministic fail-closed orchestration checks for promotion/apply paths
   - low coupling: callers can use a simple bool API or a richer evaluation dict
-  - safe handling of missing/stale state without assuming exporter availability
-"""
-
+  - safe handling of missing/stale state without assuming exporter availability,
+""",
 import os
 import time
 from typing import Any, Dict, Mapping, Tuple
@@ -78,7 +76,7 @@ def evaluate_research_guard_gate(
       reason: machine-friendly reason code
       blocker: latest blocker hash (may be empty)
       summary: latest summary hash (may be empty)
-    """
+    """,
     if client is None:
         if redis is None:
             return {
@@ -202,7 +200,7 @@ def check_research_guard_blocker(
     """Compatibility bool API used by apply/promote jobs.
 
     Returns (blocked, reason, state).
-    """
+    """,
     state = evaluate_research_guard_gate(
         redis_url,
         blocker_key,
@@ -222,7 +220,7 @@ def assert_research_guard_open(
     exit_code_blocked: int = 24,
     exit_code_invalid: int = 25,
 ) -> None:
-    """Raise SystemExit when a rollout-sensitive job must not proceed."""
+    """Raise SystemExit when a rollout-sensitive job must not proceed.""",
     if stage_mode and _env('STRATEGY_RESEARCH_GUARD_PREFLIGHT_ALLOW_STAGE', '1') == '1':
         return
 
@@ -248,7 +246,7 @@ from typing import Tuple, Dict, Any
 import redis
 
 def check_research_guard_blocker(redis_url: str, blocker_key: str) -> Tuple[bool, str, Dict[str, Any]]:
-    """
+    """,
     Checks the P5 Strategy Research Guard blocker state in Redis.
     Fail-open if report-only=1 or if state is missing/invalid.
     
@@ -256,7 +254,7 @@ def check_research_guard_blocker(redis_url: str, blocker_key: str) -> Tuple[bool
         blocked (bool): True if the guard is active and enforces blocking.
         reason (str): Description of the blocking reason.
         details (dict): The full state dictionary.
-    """
+    """,
     try:
         r = redis.from_url(redis_url)
         data = r.get(blocker_key)

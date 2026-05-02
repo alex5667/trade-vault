@@ -48,7 +48,7 @@ def _proposal_upsert_sql() -> str:
       approved = EXCLUDED.approved,
       proposal_json = EXCLUDED.proposal_json,
       updated_at_ms = EXCLUDED.updated_at_ms
-    """,
+    """
 
 
 def upsert_proposal(conn, proposal: Dict[str, Any]) -> None:
@@ -76,11 +76,11 @@ def upsert_proposal(conn, proposal: Dict[str, Any]) -> None:
 def insert_decision(conn, proposal_id: str, decision: Dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """,
+            """
             INSERT INTO atr_policy_decisions (
               proposal_id, action, actor, note, decision_json, ts_ms
             ) VALUES (%s,%s,%s,%s,%s::jsonb,%s)
-            """,
+            """
             (
                 proposal_id,
                 str(decision.get("action", "")),
@@ -95,13 +95,13 @@ def insert_decision(conn, proposal_id: str, decision: Dict[str, Any]) -> None:
 def update_proposal_status(conn, proposal_id: str, *, status: str, approved: bool, updated_at_ms: int) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """,
+            """
             UPDATE atr_policy_proposals
             SET status = %s,
                 approved = %s,
                 updated_at_ms = %s
             WHERE proposal_id = %s
-            """,
+            """
             (status, approved, updated_at_ms, proposal_id),
         )
 
@@ -123,7 +123,7 @@ def transition_snapshot(
 
     with conn.cursor() as cur:
         cur.execute(
-            """,
+            """
             UPDATE atr_policy_snapshots
             SET is_current = false,
                 effective_to_ms = %s
@@ -134,18 +134,18 @@ def transition_snapshot(
               AND regime = %s
               AND risk_horizon_bucket = %s
               AND is_current = true
-            """,
+            """
             (effective_from_ms, snapshot_kind, source, symbol, scenario, regime, bucket),
         )
 
         cur.execute(
-            """,
+            """
             INSERT INTO atr_policy_snapshots (
               snapshot_kind, source, symbol, scenario, regime, risk_horizon_bucket,
               policy_ver, stop_ttl_mode, trailing_mode, snapshot_json,
               is_current, effective_from_ms, applied_from_proposal_id
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,true,%s,%s)
-            """,
+            """
             (
                 snapshot_kind,
                 source,
@@ -174,12 +174,12 @@ def insert_recovery_event(
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            """,
+            """
             INSERT INTO atr_policy_recovery_events (
               event_type, source, symbol, scenario, regime, risk_horizon_bucket,
               status, reason_code, payload
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-            """,
+            """
             (
                 event_type,
                 str(policy_ref.get("source", "")),

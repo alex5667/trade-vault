@@ -21,9 +21,8 @@ ENV (DSN):
   TRADES_DB_DSN / ARCHIVER_PG_DSN / DATABASE_URL / PG_DSN
 ENV (notify):
   REDIS_URL (default redis://redis-worker-1:6379/0)
-  TELEGRAM_NOTIFY_STREAM / NOTIFY_TELEGRAM_STREAM
-"""
-
+  TELEGRAM_NOTIFY_STREAM / NOTIFY_TELEGRAM_STREAM,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -77,16 +76,16 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> List[Tup
     use_view = _has_view(conn, "public.v_of_inputs_dlq_events_reason_24h")
     with conn.cursor() as cur:
         if use_view and lookback_h == 24:
-            sql = """
+            sql = """,
             SELECT reason, n_events, last_ts
             FROM v_of_inputs_dlq_events_reason_24h
             WHERE (%s = 'all' OR kind = %s)
             ORDER BY n_events DESC
-            LIMIT %s
-            """
+            LIMIT %s,
+            """,
             cur.execute(sql, (kind, kind, top_n))
         else:
-            sql = """
+            sql = """,
             WITH parsed AS (
               SELECT
                 ts,
@@ -108,8 +107,8 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> List[Tup
             WHERE (%s = 'all' OR kind = %s)
             GROUP BY 1
             ORDER BY n_events DESC
-            LIMIT %s
-            """
+            LIMIT %s,
+            """,
             cur.execute(sql, (int(lookback_h), kind, kind, top_n))
         rows = cur.fetchall() or []
     out: List[Tuple[str, int, datetime]] = []
@@ -120,7 +119,7 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> List[Tup
 
 def _query_last_event(conn, kind: str) -> Optional[datetime]:
     with conn.cursor() as cur:
-        sql = """
+        sql = """,
         SELECT MAX(ts)
         FROM of_inputs_dlq_events
         WHERE (%s = 'all'
@@ -128,7 +127,7 @@ def _query_last_event(conn, kind: str) -> Optional[datetime]:
           OR (%s='quarantine' AND stream LIKE 'quarantine:%')
           OR (%s='other' AND stream NOT LIKE 'stream:dlq:%' AND stream NOT LIKE 'quarantine:%')
         )
-        """
+        """,
         cur.execute(sql, (kind, kind, kind, kind))
         row = cur.fetchone()
         if row and row[0]:
@@ -140,17 +139,17 @@ def _query_samples(conn, reason: str, kind: str, limit: int) -> List[Dict[str, A
     use_view = _has_view(conn, "public.v_of_inputs_dlq_events_parsed")
     with conn.cursor() as cur:
         if use_view:
-            sql = """
+            sql = """,
             SELECT ts, kind, reason, symbol, stream, dlq_id, err, dq_code, attempt_version, published_version, missing_fields
             FROM v_of_inputs_dlq_events_parsed
             WHERE reason = %s
               AND (%s='all' OR kind=%s)
             ORDER BY ts DESC
-            LIMIT %s
-            """
+            LIMIT %s,
+            """,
             cur.execute(sql, (reason, kind, kind, limit))
         else:
-            sql = """
+            sql = """,
             WITH parsed AS (
               SELECT
                 ts,
@@ -178,8 +177,8 @@ def _query_samples(conn, reason: str, kind: str, limit: int) -> List[Dict[str, A
             FROM parsed
             WHERE reason=%s AND (%s='all' OR kind=%s)
             ORDER BY ts DESC
-            LIMIT %s
-            """
+            LIMIT %s,
+            """,
             cur.execute(sql, (reason, kind, kind, limit))
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall() or []
@@ -211,8 +210,7 @@ def _notify(text: str, severity: str = "crit") -> None:
                 "source": "of_inputs_dlq_db_drilldown_p99",
                 "ts_ms": str(get_ny_time_millis()),
                 "severity": severity,
-            },
-            maxlen=10000,
+            }, maxlen=10000,
             approximate=True,
         )
     except Exception:

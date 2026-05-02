@@ -161,7 +161,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_low_quality_rate": parse_float(raw.get("max_low_quality_rate"), DEFAULT_MAX_LOW_QUALITY_RATE),
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
-    },
+    }
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -195,7 +195,7 @@ def rollup_feedback(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "avg_usefulness": 0.0,
             "accepted_rate": 0.0,
             "low_quality_rate": 0.0,
-        },
+        }
     q = [parse_float(r.get("quality_score"), 0.0) for r in recent]
     u = [parse_float(r.get("usefulness_score"), 0.0) for r in recent]
     a = [parse_int(r.get("accepted"), 0) for r in recent]
@@ -206,7 +206,7 @@ def rollup_feedback(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "avg_usefulness": round(sum(u) / n, 6),
         "accepted_rate": round(sum(a) / n, 6),
         "low_quality_rate": round(sum(low_q) / n, 6),
-    },
+    }
 
 
 def evaluate_governance(rollup: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -230,7 +230,8 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
         with conn.cursor() as cur:
             if feedback_row is not None:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_feedback (
                         request_id, bundle_id, ts_ms, quality_score, usefulness_score, accepted, reason_code, feedback_json
                     ) VALUES (
@@ -246,10 +247,11 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                         "accepted": parse_int(feedback_row.get("accepted"), 0),
                         "reason_code": feedback_row.get("reason_code", ""),
                         "feedback_json": json.dumps(feedback_row),
-                    },
+                    }
                 )
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_feedback_rollups (
                     ts_ms, window_min, n, avg_quality, avg_usefulness, accepted_rate, low_quality_rate, rollup_json
                 ) VALUES (
@@ -261,10 +263,11 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                     "window_min": WINDOW_MIN,
                     **rollup,
                     "rollup_json": json.dumps(rollup),
-                },
+                }
             )
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_governance_decisions (
                     ts_ms, decision, reason_code, target_bridge_mode, decision_json
                 ) VALUES (
@@ -277,7 +280,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                     "reason_code": decision["reason_code"],
                     "target_bridge_mode": decision["target_bridge_mode"],
                     "decision_json": json.dumps({"rollup": rollup, "decision": decision}),
-                },
+                }
             )
             conn.commit()
 
@@ -321,7 +324,7 @@ async def main() -> None:  # pragma: no cover
                                 "mode": "LOCAL_ONLY",
                                 "last_mode_switch_source": APP_NAME,
                                 "last_mode_switch_reason_code": decision["reason_code"],
-                            },
+                            }
                         )
 
                     await persist_if_configured(db_url, feedback, rollup, decision)
@@ -340,8 +343,7 @@ async def main() -> None:  # pragma: no cover
                             "target_bridge_mode": decision["target_bridge_mode"],
                             "rollup_json": stable_json(rollup),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.hset(
@@ -355,7 +357,7 @@ async def main() -> None:  # pragma: no cover
                             "low_quality_rate": str(rollup["low_quality_rate"]),
                             "n": str(rollup["n"]),
                             "ts_ms": str(now_ms()),
-                        },
+                        }
                     )
                     await r.xadd(
                         AUDIT_STREAM,
@@ -364,8 +366,7 @@ async def main() -> None:  # pragma: no cover
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     if AVG_QUALITY:
@@ -385,8 +386,7 @@ async def main() -> None:  # pragma: no cover
                             "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_GOVERNANCE_FAILED",
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(FEEDBACK_STREAM, GROUP, msg_id)

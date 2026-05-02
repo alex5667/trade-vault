@@ -16,9 +16,8 @@ Env:
 - OF_INPUTS_DLQ_STREAMS (default: "stream:dlq:of_inputs,quarantine:signals:of:inputs")
 
 Run:
-  python -m orderflow_services.of_inputs_dlq_exporter_v1
-"""
-
+  python -m orderflow_services.of_inputs_dlq_exporter_v1,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import asyncio

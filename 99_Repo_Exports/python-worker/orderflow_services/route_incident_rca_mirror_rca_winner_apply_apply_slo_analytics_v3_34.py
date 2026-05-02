@@ -187,7 +187,7 @@ def compute_rollup(decision_rows: List[Dict[str, Any]], journal_rows: List[Dict[
         "rollback_mttr_p95_sec": round(mttr_p95, 6),
         "rollback_mttr_samples": len(mttrs),
         "reason_codes": reason_codes,
-    },
+    }
 
 
 async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
@@ -196,7 +196,8 @@ async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_slo_rollups (
                     ts_ms, window_min, apply_requests, applied_n, verified_keep_n,
                     rollback_decisions_n, rollback_applied_n, apply_rate, verify_keep_rate,
@@ -211,7 +212,7 @@ async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
                     "ts_ms": now_ms(),
                     **rollup,
                     "reason_codes_json": json.dumps(rollup["reason_codes"]),
-                },
+                }
             )
             conn.commit()
 
@@ -242,8 +243,7 @@ async def main() -> None:  # pragma: no cover
                     "payload_json": stable_json(rollup),
                     "reason_codes_json": stable_json(rollup["reason_codes"]),
                     "ts_ms": str(now_ms()),
-                },
-                maxlen=MAXLEN,
+                }, maxlen=MAXLEN,
                 approximate=True,
             )
             await r.hset(
@@ -255,7 +255,7 @@ async def main() -> None:  # pragma: no cover
                     "rollback_mttr_samples": str(rollup["rollback_mttr_samples"]),
                     "reason_codes_json": stable_json(rollup["reason_codes"]),
                     "ts_ms": str(now_ms()),
-                },
+                }
             )
             if APPLY_RATE:
                 APPLY_RATE.set(rollup["apply_rate"])

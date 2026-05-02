@@ -50,7 +50,7 @@ DEFAULTS = {
         'min_events_7d': 0.0,
         'share_threshold_24h': 0.60,
         'delta_vs_7d': 0.15,
-    },
+    }
 }
 
 
@@ -288,7 +288,7 @@ def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, s
             'approved_ts_ms': approved_ts_ms,
             'deadline_ts_ms': deadline_ts_ms,
             'freshness_s': int(freshness_s),
-        },
+        }
     )
     return updated
 
@@ -347,7 +347,7 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
                     'expired_ts_ms': str(expired_ts_ms),
                     # P6.9: flag that renew acknowledgement is required before next suppress
                     'renew_ack_required': '1',
-                },
+                }
             )
         except Exception:
             pass
@@ -362,7 +362,7 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
                 'reason': str((raw or state).get('reason') or ''),
                 'expire_ts_ms': expire_ts_ms,
                 'expired_ts_ms': expired_ts_ms,
-            },
+            }
         )
         raw = {}
         state = _read_hash(client, state_key)
@@ -384,7 +384,7 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
                         'last_reminder_kind': 'expiry_warning',
                         # P6.9: flag that renew acknowledgement is required before next suppress
                         'renew_ack_required': '1',
-                    },
+                    }
                 )
             except Exception:
                 pass
@@ -399,7 +399,7 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
                     'reason': str((raw or state).get('reason') or ''),
                     'expire_ts_ms': expire_ts_ms,
                     'remaining_s': max(0.0, (expire_ts_ms - now_ms) / 1000.0),
-                },
+                }
             )
     state = _sweep_stale_dual_control_approval(client, purpose, family, state_key, state, now_ms) if state else state
     has_ticket = 1.0 if str((raw or state).get('ticket') or '').strip() else 0.0 if (raw or state) else 0.0

@@ -39,14 +39,14 @@ class WriterMetrics:
     last_batch_rows: Any
 
 
-_METRICS: Optional[WriterMetrics] = None,
-_METRICS_PORT: Optional[int] = None,
+_METRICS: Optional[WriterMetrics] = None
+_METRICS_PORT: Optional[int] = None
 
 
 def build_metrics() -> WriterMetrics:
     global _METRICS
     if _METRICS is not None:
-        return _METRICS,
+        return _METRICS
     try:
         from prometheus_client import Counter, Histogram, Gauge
 

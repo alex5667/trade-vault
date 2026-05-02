@@ -1,5 +1,5 @@
 from __future__ import annotations
-""",
+"""
 Phase 8.2 — Graph-backed release gate (atr_graph_backed_release_gate.py)
 
 Cutover modes (controlled via ATR_GRAPH_RELEASE_GATE_MODE env):
@@ -12,7 +12,7 @@ Enable flag:
 
 Bounded scopes for Phase 8.2:
     BTCUSDT, ETHUSDT  ×  stop_ttl layer  ×  canary_25 / live_100 targets
-""",
+"""
 
 import json
 import logging
@@ -68,13 +68,13 @@ def _is_bounded_scope(symbol: str | None, layer: str | None, stage: str | None) 
 # ─── Graph effective release state ────────────────────────────────────────────
 
 def build_graph_release_state(change_id: str) -> dict[str, Any] | None:
-    """,
+    """
     Load the graph-derived effective release snapshot for a given change_id.
     Returns None if graph doesn't have enough data (missing nodes).
 
     Uses v_control_plane_effective_release_state for resolved projection,
     plus supplementary checks (SEV-1 incidents, overdue actions, error budget).
-    """,
+    """
     try:
         with get_conn() as conn, conn.cursor(
             cursor_factory=__import__("psycopg2").extras.RealDictCursor
@@ -96,12 +96,12 @@ def build_graph_release_state(change_id: str) -> dict[str, Any] | None:
 
             # 2. Resolved graph projection (via view)
             cur.execute(
-                """,
+                """
                 SELECT *
                 FROM v_control_plane_effective_release_state
                 WHERE scope_value = %s
                 LIMIT 1
-                """,
+                """
                 (scope_val,),
             )
             proj = cur.fetchone()
@@ -126,22 +126,22 @@ def build_graph_release_state(change_id: str) -> dict[str, Any] | None:
             # 5. Supplementary: overdue corrective actions
             now_ms = int(time.time() * 1000)
             cur.execute(
-                """,
+                """
                 SELECT count(*) AS c FROM atr_corrective_actions
                 WHERE status NOT IN ('done', 'verified', 'dropped') AND due_at_ms < %s
-                """,
+                """
                 (now_ms,),
             )
             overdue_actions = cur.fetchone()["c"]
 
             # 6. Error budget
             cur.execute(
-                """,
+                """
                 SELECT budget_status
                 FROM atr_invariant_budget_states
                 WHERE scope_value IN (%s, %s, %s)
                   AND budget_status IN ('exhausted', 'warning')
-                """,
+                """
                 (symbol, layer, str(change.get("policy_ver", ""))),
             )
             budget_rows     = cur.fetchall()
@@ -181,12 +181,12 @@ def build_graph_release_state(change_id: str) -> dict[str, Any] | None:
 
             # 8. Unresolved critical invariant violations
             cur.execute(
-                """,
+                """
                 SELECT count(*) AS c
                 FROM atr_invariant_violations v
                 JOIN atr_invariants i ON v.invariant_id = i.invariant_id
                 WHERE v.status != 'resolved' AND i.enforcement_mode = 'release_block'
-                """,
+                """
             )
             unresolved_invs = cur.fetchone()["c"]
             if unresolved_invs > 0:
@@ -252,10 +252,10 @@ def compare_with_legacy(
     legacy_scorecard: dict[str, Any],
     graph_state: dict[str, Any],
 ) -> dict[str, Any]:
-    """,
+    """
     Compare legacy release scorecard vs graph-derived decision.
     Returns a drift summary dict (ready for DB insertion).
-    """,
+    """
     drifts: list[dict[str, Any]] = []
     scope_val = graph_state.get("scope_value", "unknown")
 
@@ -365,11 +365,11 @@ def _persist_equivalence_check(
     }
     with conn.cursor() as cur:
         cur.execute(
-            """,
+            """
             INSERT INTO atr_release_equivalence_checks
                 (check_id, change_id, scope_value, legacy_decision, graph_decision, status, summary_json)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
+            """
             (
                 check_id,
                 compare_result["change_id"],
@@ -394,11 +394,11 @@ def _persist_drifts(
         for d in drifts:
             drift_id = _gen_id("rdrift")
             cur.execute(
-                """,
+                """
                 INSERT INTO atr_release_drifts
                     (drift_id, change_id, scope_value, drift_kind, severity, status, reason_code, drift_json)
                 VALUES (%s, %s, %s, %s, %s, 'open', %s, %s)
-                """,
+                """
                 (
                     drift_id,
                     change_id,
@@ -417,7 +417,7 @@ def evaluate_release(
     change_id: str,
     legacy_scorecard: dict[str, Any],
 ) -> dict[str, Any]:
-    """,
+    """
     Phase 8.2 release gate evaluator.
     Always returns the effective decision dict plus comparison metadata.
 
@@ -429,7 +429,7 @@ def evaluate_release(
         graph_read_primary → compare, persist; return graph state to UI/auditor;
                               legacy enforces hard-deny only
         graph_enforced     → graph is truth; legacy ignored
-    """,
+    """
     if not _ENABLE:
         return {
             "decision":     legacy_scorecard.get("decision", "allow"),
@@ -525,7 +525,7 @@ def evaluate_release(
 # ─── Cutover readiness evaluator ─────────────────────────────────────────────
 
 def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
-    """,
+    """
     Evaluates cutover readiness for the release gate component.
     Status ladder:
         not_ready  →  shadow_healthy  →  ready_for_read  →  ready_for_enforce
@@ -540,7 +540,7 @@ def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
 
     Conditions for ready_for_enforce:
         - ready_for_read + 100% match last 14d
-    """,
+    """
     now = datetime.now(tz=timezone.utc)
     try:
         with get_conn() as conn, conn.cursor(
@@ -548,25 +548,25 @@ def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
         ) as cur:
             # Count critical drifts in last 7 days for bounded scopes
             cur.execute(
-                """,
+                """
                 SELECT count(*) AS c
                 FROM atr_release_drifts
                 WHERE severity = 'critical'
                   AND created_at > now() - interval '7 days'
                   AND status = 'open'
-                """,
+                """
             )
             critical_7d = cur.fetchone()["c"]
 
             # Total bounded checks in last 7 days
             cur.execute(
-                """,
+                """
                 SELECT
                     count(*) FILTER (WHERE status = 'passed') AS passed,
                     count(*)                                  AS total
                 FROM atr_release_equivalence_checks
                 WHERE created_at > now() - interval '7 days'
-                """,
+                """
             )
             row = cur.fetchone()
             total_checks  = row["total"]
@@ -575,13 +575,13 @@ def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
 
             # Missing replay edge critical drifts on live_100
             cur.execute(
-                """,
+                """
                 SELECT count(*) AS c
                 FROM atr_release_drifts
                 WHERE drift_kind = 'missing_replay_cert_edge'
                   AND severity = 'critical'
                   AND status = 'open'
-                """,
+                """
             )
             missing_replay = cur.fetchone()["c"]
 
@@ -596,24 +596,24 @@ def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
             if critical_7d == 0 and pct_match >= 100.0 and missing_replay == 0:
                 # Check for 14d window (ready_for_enforce)
                 cur.execute(
-                    """,
+                    """
                     SELECT count(*) AS c
                     FROM atr_release_drifts
                     WHERE severity = 'critical'
                       AND created_at > now() - interval '14 days'
                       AND status = 'open'
-                    """,
+                    """
                 )
                 critical_14d = cur.fetchone()["c"]
 
                 cur.execute(
-                    """,
+                    """
                     SELECT
                         count(*) FILTER (WHERE status = 'passed') AS passed,
                         count(*)                                  AS total
                     FROM atr_release_equivalence_checks
                     WHERE created_at > now() - interval '14 days'
-                    """,
+                    """
                 )
                 row14 = cur.fetchone()
                 pct_14d = (row14["passed"] / row14["total"] * 100) if row14["total"] > 0 else 0.0
@@ -621,11 +621,11 @@ def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
                 if critical_14d == 0 and pct_14d >= 100.0:
                     # Check if already at ready_for_read
                     cur.execute(
-                        """,
+                        """
                         SELECT status FROM atr_release_cutover_readiness
                         WHERE component = %s
                         ORDER BY created_at DESC LIMIT 1
-                        """,
+                        """
                         (component,),
                     )
                     prev = cur.fetchone()
@@ -643,11 +643,11 @@ def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
             readiness_id = _gen_id("rdy")
             with conn.cursor() as cur2:
                 cur2.execute(
-                    """,
+                    """
                     INSERT INTO atr_release_cutover_readiness
                         (readiness_id, component, status, summary_json)
                     VALUES (%s, %s, %s, %s)
-                    """,
+                    """
                     (readiness_id, component, new_status, json.dumps(summary)),
                 )
             conn.commit()

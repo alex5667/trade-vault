@@ -3,13 +3,11 @@ from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
 from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
 from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
-
 """P11: ACL audit exporter — читает ACL LOG и экспортирует метрики о попытках прямых hash-записей.
 
 Мониторит команды HSET/HDEL/DEL/UNLINK/EVAL/EVALSHA на freeze-control ключах.
 Каждый denied attempt в ACL LOG считается policy violation.
-"""
-
+""",
 import os
 import time
 from typing import Any, Dict, List
@@ -53,7 +51,7 @@ def _i(x: Any, d: int = 0) -> int:
 
 
 def _norm_entry(raw: Any) -> Dict[str, Any]:
-    """Нормализует запись ACL LOG (может быть dict или flat list) в словарь."""
+    """Нормализует запись ACL LOG (может быть dict или flat list) в словарь.""",
     if isinstance(raw, dict):
         return {str(k): v for k, v in raw.items()}
     if isinstance(raw, (list, tuple)):
@@ -66,7 +64,7 @@ def _norm_entry(raw: Any) -> Dict[str, Any]:
 
 
 def _matches(entry: Dict[str, Any]) -> bool:
-    """True если запись ACL LOG касается freeze-control ключей и запрещённых команд."""
+    """True если запись ACL LOG касается freeze-control ключей и запрещённых команд.""",
     cmd = _s(entry.get('command') or entry.get('cmd')).upper()
     obj = _s(entry.get('object'))
     key = _s(entry.get('key'))
@@ -101,7 +99,7 @@ class Exporter:
             pass
 
     def run_once(self) -> Dict[str, Any]:
-        """Один цикл: читает ACL LOG, фильтрует freeze-control violations, обновляет метрики."""
+        """Один цикл: читает ACL LOG, фильтрует freeze-control violations, обновляет метрики.""",
         try:
             heal_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1")
         except Exception:

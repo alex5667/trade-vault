@@ -181,7 +181,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_pending_total": parse_int(raw.get("max_pending_total"), DEFAULT_MAX_PENDING_TOTAL),
         "max_comparator_age_ms": parse_int(raw.get("max_comparator_age_ms"), DEFAULT_MAX_COMPARATOR_AGE_MS),
         "rollback_cooldown_sec": parse_int(raw.get("rollback_cooldown_sec"), DEFAULT_ROLLBACK_COOLDOWN_SEC),
-    },
+    }
 
 
 def shadow_mode_from_hash(raw: Dict[str, Any]) -> str:
@@ -234,7 +234,7 @@ def summarize_window(rows: List[Dict[str, Any]], window_min: int) -> Dict[str, A
         "match_rate": (match_n / total) if total else 0.0,
         "drift_rate": (drift_n / total) if total else 0.0,
         "mismatch_rate": (mismatch_n / total) if total else 0.0,
-    },
+    }
 
 
 def evaluate_verification(
@@ -269,7 +269,7 @@ def evaluate_verification(
         "target_mode": current_mode,
         "degraded": 1 if degraded else 0,
         "rollback_cooldown_active": 1 if rollback_cooldown_active else 0,
-    },
+    }
 
     if current_mode != "MIRROR":
         out["decision"] = "HOLD"
@@ -314,7 +314,8 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_verification_results (
                     ts_ms,
                     current_mode,
@@ -344,11 +345,12 @@ async def persist_if_configured(
                     "advisory_only": snapshot["advisory_only"],
                     "executor_mode": snapshot["executor_mode"],
                     "snapshot_json": json.dumps(snapshot),
-                },
+                }
             )
             if decision["decision"] == "ROLLBACK_TO_AUDIT":
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_route_incident_rca_mirror_rollback_journal (
                         ts_ms,
                         reason_code,
@@ -369,7 +371,7 @@ async def persist_if_configured(
                         "mode_before": decision["current_mode"],
                         "mode_after": decision["target_mode"],
                         "snapshot_json": json.dumps(snapshot),
-                    },
+                    }
                 )
             conn.commit()
 
@@ -424,7 +426,7 @@ async def main() -> None:  # pragma: no cover
                 "advisory_only": policy["advisory_only"],
                 "executor_mode": policy["executor_mode"],
                 "policy": policy,
-            },
+            }
 
             if (
                 decision["decision"] == "ROLLBACK_TO_AUDIT"
@@ -438,7 +440,7 @@ async def main() -> None:  # pragma: no cover
                         "last_mode_switch_ts_ms": str(now_ms()),
                         "last_mode_switch_reason_code": decision["reason_code"],
                         "last_mode_switch_source": APP_NAME,
-                    },
+                    }
                 )
                 await r.xadd(
                     ROLLBACK_JOURNAL_STREAM,
@@ -450,8 +452,7 @@ async def main() -> None:  # pragma: no cover
                         "mode_after": "AUDIT_ONLY",
                         "snapshot_json": stable_json(snapshot),
                         "ts_ms": str(now_ms()),
-                    },
-                    maxlen=MAXLEN,
+                    }, maxlen=MAXLEN,
                     approximate=True,
                 )
                 if ROLLBACKS:
@@ -467,15 +468,14 @@ async def main() -> None:  # pragma: no cover
                 "target_mode": decision["target_mode"],
                 "snapshot_json": stable_json(snapshot),
                 "ts_ms": str(now_ms()),
-            },
+            }
             await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
             await r.xadd(
                 AUDIT_STREAM,
                 {
                     "event_type": "ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_DECIDED",
                     **out,
-                },
-                maxlen=MAXLEN,
+                }, maxlen=MAXLEN,
                 approximate=True,
             )
             await r.hset(
@@ -491,7 +491,7 @@ async def main() -> None:  # pragma: no cover
                     "pending_total": str(pending_total),
                     "comparator_age_ms": str(comparator_age_ms),
                     "ts_ms": str(now_ms()),
-                },
+                }
             )
             if MATCH_RATE:
                 MATCH_RATE.set(window_stats["match_rate"])
@@ -511,8 +511,7 @@ async def main() -> None:  # pragma: no cover
                     "event_type": "ROUTE_INCIDENT_RCA_MIRROR_VERIFICATION_FAILED",
                     "error": str(exc),
                     "ts_ms": str(now_ms()),
-                },
-                maxlen=MAXLEN,
+                }, maxlen=MAXLEN,
                 approximate=True,
             )
         finally:

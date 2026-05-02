@@ -23,12 +23,10 @@ Return shape:
   {
     "blocked": bool,
     "severity": "soft"|"hard",
-    "reasons": ["..."]
+    "reasons": ["..."],
     "checks": { ... details ... }
-  }
-"""
-
-
+  },
+""",
 import os
 import time
 from dataclasses import dataclass
@@ -53,7 +51,7 @@ def _env_str(name: str, default: str) -> str:
 
 
 def check_status_file_staleness(path: str, max_age_sec: int) -> Dict[str, Any]:
-    """Checks mtime age of a local status/report file."""
+    """Checks mtime age of a local status/report file.""",
     out: Dict[str, Any] = {
         "ok": True,
         "path": path,
@@ -85,7 +83,7 @@ def check_status_file_staleness(path: str, max_age_sec: int) -> Dict[str, Any]:
 
 
 def _stream_last_entry(redis_client: Any, stream: str) -> Tuple[Optional[str], Optional[int]]:
-    """Returns (last_id, last_ts_ms) or (None, None)."""
+    """Returns (last_id, last_ts_ms) or (None, None).""",
     try:
         # XREVRANGE stream + - COUNT 1
         rows = redis_client.xrevrange(stream, "+", "-", count=1)
@@ -106,7 +104,7 @@ def check_redis_stream_staleness(
     min_events: int,
     scan: int,
 ) -> Dict[str, Any]:
-    """Checks staleness and basic liveness of a Redis stream."""
+    """Checks staleness and basic liveness of a Redis stream.""",
     out: Dict[str, Any] = {
         "ok": True,
         "stream": stream,
@@ -150,7 +148,7 @@ def check_db_view_staleness(
     max_age_sec: int,
     min_rows: int,
 ) -> Dict[str, Any]:
-    """Checks freshness of a DB view/MV by last timestamp and row count in recent window."""
+    """Checks freshness of a DB view/MV by last timestamp and row count in recent window.""",
     out: Dict[str, Any] = {
         "ok": True,
         "view": view,
@@ -207,7 +205,7 @@ def check_db_view_staleness(
 
 
 def should_block_apply(checks: Dict[str, Dict[str, Any]]) -> Tuple[bool, str, List[str]]:
-    """Decision policy: hard block on infra errors; soft block on 'not enough data' or staleness."""
+    """Decision policy: hard block on infra errors; soft block on 'not enough data' or staleness.""",
     reasons: List[str] = []
     hard = False
     for name, r in checks.items():
@@ -232,7 +230,7 @@ def run_staleness_gates(
     db_conn: Optional[Any] = None,
     status_files: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """Run all configured gates and return structured result."""
+    """Run all configured gates and return structured result.""",
     status_files = status_files or {}
 
     max_redis_age = _env_int("ENFORCE_MAX_REDIS_STREAM_AGE_SEC", 900)
@@ -274,7 +272,7 @@ def run_staleness_gates(
             "redis_stream": redis_stream,
             "db_view": db_view,
             "db_ts_col": db_ts_col,
-        },
+        }
     }
 
 

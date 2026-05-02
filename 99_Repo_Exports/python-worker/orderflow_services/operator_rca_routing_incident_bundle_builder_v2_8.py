@@ -211,14 +211,14 @@ def severity_from_reason_codes(reason_codes: Iterable[str]) -> str:
         "ROLLBACK_MTTR_SLO_BREACH",
         "ROLLBACK_SUCCESS_RATE_LOW",
         "ROUTING_POLICY_CORRUPTED",
-    },
+    }
     warning = {
         "USEFULNESS_DROP",
         "LOW_EXPOSURE",
         "ROLLBACK_VERIFY_INCONCLUSIVE",
         "ROUTE_CHANGE_RETRYING",
         "ROUTE_CHANGE_ESCALATED",
-    },
+    }
     if codes & critical:
         return "critical"
     if codes & warning:
@@ -266,7 +266,7 @@ def build_timeline(sections: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, 
                     "event_type": row.get("event_type") or row.get("status") or row.get("decision") or section_name,
                     "reason_code": row.get("reason_code") or row.get("verification_reason_code"),
                     "source": row.get("source") or row.get("provider") or section_name,
-                },
+                }
             )
     timeline.sort(key=lambda x: (safe_int(x.get("ts_ms"), 0), str(x.get("section", ""))))
     return timeline
@@ -331,7 +331,7 @@ async def fetch_sections(client: Any, route_change_id: str) -> Dict[str, List[Di
         "escalations": ESCALATION_STREAM,
         "slo_rollups": SLO_STREAM,
         "audit": AUDIT_STREAM,
-    },
+    }
     sections: Dict[str, List[Dict[str, Any]]] = {}
     for name, stream_key in source_map.items():
         rows = await xr_recent(client, stream_key, LOOKBACK)
@@ -371,7 +371,7 @@ def build_bundle(route_change_id: str, request_row: Dict[str, Any], sections: Di
         "retry_requests_n": len(sections.get("retry_requests", [])),
         "escalations_n": len(sections.get("escalations", [])),
         "slo_rollups_n": len(sections.get("slo_rollups", [])),
-    },
+    }
     bundle = {
         "schema_version": 1,
         "bundle_type": "operator_rca_routing_incident_bundle",
@@ -386,7 +386,7 @@ def build_bundle(route_change_id: str, request_row: Dict[str, Any], sections: Di
         "route_diff_json": summarize_route_diff(baseline, current),
         "timeline_json": timeline,
         "sections_json": sections,
-    },
+    }
     bundle["bundle_hash"] = hash_bundle(bundle)
     return bundle
 
@@ -404,7 +404,8 @@ async def persist_bundle_if_configured(db_url: str, bundle: Dict[str, Any]) -> B
         with psycopg.connect(db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_operator_rca_routing_incident_bundles (
                         bundle_id,
                         route_change_id,
@@ -430,7 +431,7 @@ async def persist_bundle_if_configured(db_url: str, bundle: Dict[str, Any]) -> B
                         bundle_hash = EXCLUDED.bundle_hash,
                         primary_reason_codes_json = EXCLUDED.primary_reason_codes_json,
                         summary_json = EXCLUDED.summary_json,
-                        bundle_json = EXCLUDED.bundle_json
+                        bundle_json = EXCLUDED.bundle_json,
                     """,
                     {
                         "bundle_id": bundle["bundle_hash"],
@@ -441,7 +442,7 @@ async def persist_bundle_if_configured(db_url: str, bundle: Dict[str, Any]) -> B
                         "primary_reason_codes_json": json.dumps(bundle["primary_reason_codes"]),
                         "summary_json": json.dumps(bundle["summary"]),
                         "bundle_json": json.dumps(bundle),
-                    },
+                    }
                 )
                 conn.commit()
         return BundlePersistResult(True)
@@ -469,7 +470,7 @@ async def process_one(client: Any, request_fields: Dict[str, Any], db_url: str) 
         "persisted": int(persist_result.persisted),
         "persist_error": persist_result.error or "",
         "ts_ms": now_ms(),
-    },
+    }
     await client.xadd(RESULTS_STREAM, payload, maxlen=MAXLEN, approximate=True)
     await client.hset(
         METRICS_LAST_HASH,
@@ -479,7 +480,7 @@ async def process_one(client: Any, request_fields: Dict[str, Any], db_url: str) 
             "severity": bundle["severity"],
             "timeline_events_n": len(bundle["timeline_json"]),
             "ts_ms": now_ms(),
-        },
+        }
     )
     await client.hset(
         f"{METRICS_PER_ID_PREFIX}{route_change_id}",
@@ -489,7 +490,7 @@ async def process_one(client: Any, request_fields: Dict[str, Any], db_url: str) 
             "primary_reason_codes_json": stable_json(bundle["primary_reason_codes"]),
             "summary_json": stable_json(bundle["summary"]),
             "ts_ms": now_ms(),
-        },
+        }
     )
     return bundle
 
@@ -540,8 +541,7 @@ async def main() -> None:  # pragma: no cover
                             "route_change_id": route_change_id_from_row(req) or "",
                             "error": str(exc),
                             "ts_ms": now_ms(),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(REQUESTS_STREAM, GROUP, msg_id)

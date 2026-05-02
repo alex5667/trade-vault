@@ -150,7 +150,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "handler_mode": mode,
         "allow_severities": {str(x).lower() for x in allow_severities},
         "max_bundle_bytes": parse_int(raw.get("max_bundle_bytes"), DEFAULT_MAX_BUNDLE_BYTES),
-    },
+    }
 
 
 def evaluate_request(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -284,8 +284,8 @@ def build_result_payload(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "rollback_reason_codes_n": len(rollback_reasons),
             "slo_reason_codes_n": len(slo_reasons),
             "escalation_events_n": parse_int(bundle.get("summary", {}).get("escalation_events_n"), 0) if isinstance(bundle.get("summary"), dict) else 0,
-        },
-    },
+        }
+    }
 
 
 def build_result_row(request: Dict[str, Any], bundle: Dict[str, Any], result_payload: Dict[str, Any], provider_mode: str) -> Dict[str, Any]:
@@ -298,7 +298,7 @@ def build_result_row(request: Dict[str, Any], bundle: Dict[str, Any], result_pay
         "provider_mode": provider_mode,
         "result_json": stable_json(result_payload),
         "ts_ms": str(now_ms()),
-    },
+    }
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -318,7 +318,8 @@ async def persist_if_configured(db_url: str, request: Dict[str, Any], bundle: Di
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_governance_vertex_rca_results (
                     request_id,
                     bundle_id,
@@ -348,7 +349,7 @@ async def persist_if_configured(db_url: str, request: Dict[str, Any], bundle: Di
                     "result_json": json.dumps(maybe_json(result_row["result_json"], {})),
                     "request_json": json.dumps(request),
                     "bundle_json": json.dumps(bundle),
-                },
+                }
             )
             conn.commit()
 
@@ -382,7 +383,7 @@ async def main() -> None:  # pragma: no cover
                             "bundle_id": request.get("bundle_id", ""),
                             "trigger_type": request.get("trigger_type", ""),
                             "trigger_severity": request.get("trigger_severity", ""),
-                        },
+                        }
                     policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
                     try:
                         exec_kill = await r.get('trade:exec_kill_switch')
@@ -409,7 +410,7 @@ async def main() -> None:  # pragma: no cover
                                 "provider_mode": provider_mode,
                                 "decision": decision["decision"],
                                 "ts_ms": str(now_ms()),
-                            },
+                            }
                         )
                     else:
                         await r.xadd(
@@ -420,8 +421,7 @@ async def main() -> None:  # pragma: no cover
                                 "reason_code": decision["reason_code"],
                                 "severity": decision["severity"] or "",
                                 "ts_ms": str(now_ms()),
-                            },
-                            maxlen=MAXLEN,
+                            }, maxlen=MAXLEN,
                             approximate=True,
                         )
 
@@ -436,8 +436,7 @@ async def main() -> None:  # pragma: no cover
                             "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_VERTEX_RCA_FAILED",
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(INPUT_STREAM, GROUP, msg_id)

@@ -227,7 +227,7 @@ def normalize_trigger(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
             "reason_code": str(row.get("reason_code") or "UNKNOWN"),
             "ts_ms": ts_ms,
             "row": row,
-        },
+        }
     if source == "verification":
         return {
             "trigger_type": "verification",
@@ -236,7 +236,7 @@ def normalize_trigger(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
             "reason_code": str(row.get("reason_code") or "UNKNOWN"),
             "ts_ms": ts_ms,
             "row": row,
-        },
+        }
     if source == "retry":
         return {
             "trigger_type": "retry",
@@ -245,7 +245,7 @@ def normalize_trigger(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
             "reason_code": str(row.get("reason_code") or "UNKNOWN"),
             "ts_ms": ts_ms,
             "row": row,
-        },
+        }
     summary = maybe_json(row.get("summary_json"), {})
     severity = str(row.get("severity") or (summary or {}).get("severity") or "info").lower()
     reason_codes = (summary or {}).get("reason_codes", []) if isinstance(summary, dict) else []
@@ -256,7 +256,7 @@ def normalize_trigger(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
         "reason_code": ",".join(reason_codes) if isinstance(reason_codes, list) else "UNKNOWN",
         "ts_ms": ts_ms,
         "row": row,
-    },
+    }
 
 
 def should_trigger_bundle(trigger: Dict[str, Any]) -> bool:
@@ -446,8 +446,8 @@ async def build_bundle(r: Any, trigger: Dict[str, Any]) -> Dict[str, Any]:
                 recent_escalation,
                 ["severity", "summary_json", "ts_ms"],
             ),
-        },
-    },
+        }
+    }
 
 
 async def persist_if_configured(db_url: str, bundle: Dict[str, Any]) -> None:
@@ -456,7 +456,8 @@ async def persist_if_configured(db_url: str, bundle: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_governance_incident_bundles (
                     bundle_id,
                     ts_ms,
@@ -483,7 +484,7 @@ async def persist_if_configured(db_url: str, bundle: Dict[str, Any]) -> None:
                     "trigger_severity": bundle["trigger_severity"],
                     "trigger_reason_code": bundle["trigger_reason_code"],
                     "bundle_json": json.dumps(bundle),
-                },
+                }
             )
             conn.commit()
 
@@ -506,8 +507,7 @@ async def process_trigger(r: Any, db_url: str, source: str, row: Dict[str, Any])
             "trigger_reason_code": bundle["trigger_reason_code"],
             "bundle_json": stable_json(bundle),
             "ts_ms": str(now_ms()),
-        },
-        maxlen=MAXLEN,
+        }, maxlen=MAXLEN,
         approximate=True,
     )
     await r.hset(
@@ -518,7 +518,7 @@ async def process_trigger(r: Any, db_url: str, source: str, row: Dict[str, Any])
             "trigger_severity": bundle["trigger_severity"],
             "trigger_reason_code": bundle["trigger_reason_code"],
             "ts_ms": str(now_ms()),
-        },
+        }
     )
     if BUNDLES:
         BUNDLES.labels(severity=bundle["trigger_severity"], trigger_type=bundle["trigger_type"]).inc()
@@ -579,8 +579,7 @@ async def main() -> None:  # pragma: no cover
                             "decision": decision,
                             "trigger_type": trigger_type,
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(stream_name, GROUP, msg_id)
@@ -595,8 +594,7 @@ async def main() -> None:  # pragma: no cover
                             "source": source,
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(stream_name, GROUP, msg_id)

@@ -90,7 +90,7 @@ def _insert_run(conn, run_id: str, mode: str) -> None:
             """
             INSERT INTO atr_policy_recovery_runs (run_id, mode, status, steps_json, summary_json)
             VALUES (%s, %s, 'started', '{}'::jsonb, '{}'::jsonb)
-            """,
+            """
             (run_id, mode),
         )
 
@@ -105,7 +105,7 @@ def _update_run(conn, run_id: str, *, status: str, steps: Dict[str, Any], summar
                 summary_json = %s::jsonb,
                 finished_at = CASE WHEN %s IN ('finished','failed') THEN now() ELSE finished_at END
             WHERE run_id = %s
-            """,
+            """
             (
                 status,
                 json.dumps(steps, ensure_ascii=False, sort_keys=True),
@@ -124,7 +124,7 @@ def _load_current_snapshots(conn, kind: str) -> List[Dict[str, Any]]:
             FROM atr_policy_snapshots
             WHERE snapshot_kind = %s
               AND is_current = true
-            """,
+            """
             (kind,),
         )
         return [dict(r["snapshot_json"]) for r in cur.fetchall()]

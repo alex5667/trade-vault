@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-"""
+""",
 Prometheus exporter for decision coverage KPIs (P66).
 
 Reads Redis hash `metrics:decision_coverage:state` (written by decision_coverage_kpi_worker_v1)
@@ -10,9 +10,7 @@ and exposes:
   - decision_regime_n_24h{regime} — counts per regime (ok|warn|block|unknown)
   - decision_regime_share_24h{regime} — regime share [0..1]
   - decision_last_age_seconds     — seconds since last decision (freshness probe)
-"""
-
-
+""",
 import os
 import time
 from dataclasses import dataclass
@@ -64,7 +62,7 @@ SHARE24 = Gauge("decision_regime_share_24h", "Regime share of rolling 24h decisi
 
 
 def _read_state(r, key: str) -> Dict[str, str]:
-    """Read state hash from Redis; return empty dict on any error."""
+    """Read state hash from Redis; return empty dict on any error.""",
     try:
         return r.hgetall(key) or {}
     except Exception:
@@ -72,7 +70,7 @@ def _read_state(r, key: str) -> Dict[str, str]:
 
 
 def _set_metrics(d: Dict[str, str]) -> None:
-    """Translate Redis state hash into Prometheus gauge values."""
+    """Translate Redis state hash into Prometheus gauge values.""",
     last_ts = _i(d.get("last_ts_ms"), 0)
     LAST_TS.set(float(last_ts))
 

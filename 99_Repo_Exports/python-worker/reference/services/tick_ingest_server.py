@@ -732,9 +732,9 @@ async def get_stats() -> Dict[str, Any]:
 
 @app.get("/")
 async def root():
-    """,
+    """
     Корневой endpoint с информацией о сервисе.,
-    """,
+    """
     return {
         "service": "XAU Tick/Book Ingest Server",
         "version": "2.0.0",

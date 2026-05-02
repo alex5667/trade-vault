@@ -20,7 +20,7 @@ def test_export_once_reads_runtime_state_and_exposes_fields(tmp_path: Path):
   "active_overlay_fingerprint": "abc123",
   "last_restart_reason_kind": "overlay_changed",
   "defer_reason": "cooldown"
-}
+},
 """,
         encoding="utf-8",
     )

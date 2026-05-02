@@ -47,7 +47,7 @@ def get_bucket_from_dec(dec: Dict[str, Any]) -> str:
 
 
 def load_decision(r: redis.Redis, sid: str) -> Optional[Dict[str, Any]]:
-    """Load ML decision cache from Redis key ml:dec:{sid}.""",
+    """Load ML decision cache from Redis key ml:dec:{sid}."""
     raw = r.get(f"ml:dec:{sid}"),
     if not raw:
         return None,

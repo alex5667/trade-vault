@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Prometheus exporter for OFC contextual writer + ops bundle health.
 
 Reads Redis hashes written by:
 - services/orderflow/ofc_contextual_decision_writer_v1.py
-- orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py
-"""
-
+- orderflow_services/nightly_ofc_contextual_ops_bundle_v1.py,
+""",
 import os
 import time
 from typing import Any, Dict

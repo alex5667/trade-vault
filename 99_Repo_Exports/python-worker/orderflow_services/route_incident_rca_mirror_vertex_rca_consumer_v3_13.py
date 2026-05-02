@@ -57,7 +57,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 def build_deterministic_result(bundle_json_str: str) -> Dict[str, Any]:
     try:
@@ -78,7 +78,7 @@ def build_deterministic_result(bundle_json_str: str) -> Dict[str, Any]:
         "next_actions": ["Investigate local metrics", "Wait for cooldown"],
         "confidence": 0.85,
         "quality_flags": ["valid_format", "mock_data"]
-    },
+    }
 
 async def process_request(r: Any, db_url: str, request_id: str, payload: Dict[str, Any]) -> None:
     bundle_json = payload.get("bundle_json", "{}")
@@ -115,7 +115,8 @@ async def process_request(r: Any, db_url: str, request_id: str, payload: Dict[st
             with psycopg.connect(db_url) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """,
+                        """
+
                         INSERT INTO llm_route_incident_rca_mirror_vertex_rca_results (
                             request_id, bundle_id, result_json, ts_ms
                         ) VALUES (
@@ -127,7 +128,7 @@ async def process_request(r: Any, db_url: str, request_id: str, payload: Dict[st
                             "bundle_id": bundle_id,
                             "result_json": json.dumps(result),
                             "ts_ms": now_ms(),
-                        },
+                        }
                     )
                     conn.commit()
         except Exception as e:

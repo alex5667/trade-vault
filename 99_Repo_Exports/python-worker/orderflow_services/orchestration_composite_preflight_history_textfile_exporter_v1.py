@@ -1,13 +1,11 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Textfile exporter for orchestration composite preflight rollup buckets.
 
 Reads incremental Redis hourly/daily bucket hashes produced by
 orchestration_composite_preflight_history_rollup_v1 and writes bounded
 Prometheus metrics for 24h / 7d / 30d windows.
-"""
-
+""",
 import os
 import time
 from pathlib import Path
@@ -76,7 +74,7 @@ def aggregate_windows(r: Any, *, now_ms: int, hourly_prefix: str, daily_prefix: 
         "24h": (hourly_prefix, _hour_buckets(now_ms, 24)),
         "7d": (daily_prefix, _day_buckets(now_ms, 7)),
         "30d": (daily_prefix, _day_buckets(now_ms, 30)),
-    },
+    }
     for window, (prefix, buckets) in window_specs.items():
         for row in _read_bucket_hashes(r, prefix, buckets):
             for field, raw_value in (row or {}).items():

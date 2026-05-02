@@ -291,7 +291,7 @@ async def _update_state(r: "redis.Redis", action_type: str, now_ms: int) -> None
                 "last_commit_ts_ms": str(now_ms),
                 "commits_last_hour": str(commits_last_hour),
                 "window_ts_ms": str(window_ts_ms),
-            },
+            }
         )
         await r.expire(key, 7200)
     except Exception:

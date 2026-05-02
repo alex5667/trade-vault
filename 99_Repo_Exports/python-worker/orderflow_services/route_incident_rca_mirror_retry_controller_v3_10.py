@@ -144,7 +144,8 @@ async def persist_if_configured(db_url: str, result: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_retry_results (
                     ts_ms, event_key, decision, reason_code, attempts, target_mode, result_json
                 ) VALUES (
@@ -159,7 +160,7 @@ async def persist_if_configured(db_url: str, result: Dict[str, Any]) -> None:
                     "attempts": result["attempts"],
                     "target_mode": result["target_mode"],
                     "result_json": json.dumps(result),
-                },
+                }
             )
             conn.commit()
 
@@ -208,7 +209,7 @@ async def main() -> None:  # pragma: no cover
                 "decision": "NOOP",
                 "reason_code": "NO_ACTION",
                 "ts_ms": str(now_ms()),
-            },
+            }
 
             if resolved == 1:
                 result["reason_code"] = "ALREADY_RESOLVED"
@@ -232,7 +233,7 @@ async def main() -> None:  # pragma: no cover
                         "last_mode_switch_ts_ms": str(now_ms()),
                         "last_mode_switch_reason_code": "MIRROR_RETRY_REAPPLY",
                         "last_mode_switch_source": APP_NAME,
-                    },
+                    }
                 )
                 attempts += 1
                 await r.hset(state_key, mapping={"attempts": str(attempts), "last_attempt_ts_ms": str(now_ms()), "resolved": "0"})
@@ -258,7 +259,7 @@ async def main() -> None:  # pragma: no cover
                     "attempts": str(result["attempts"]),
                     "target_mode": target_mode,
                     "ts_ms": str(now_ms()),
-                },
+                }
             )
             decision_label = result["decision"]
             if LAST_RUN_TS:

@@ -13,9 +13,8 @@ Block keys (defaults):
   ts_ms  = {prefix}:{reason}:ts_ms
 
 Default reasons (AUTO_APPLY_BLOCK_REASONS):
-  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke
-"""
-
+  tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -71,7 +70,7 @@ def get_block_state(
     Default: tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke
 
     P110: also checks OFInputs V3 global/symbol block-keys via single MGET (1 RTT).
-    """
+    """,
     rurl = redis_url or os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
     if not rurl:
         return (False, {"status": "no_redis_url"})
@@ -175,7 +174,7 @@ def assert_auto_apply_not_blocked(
     max_meta_age_ms: int = 15 * 60 * 1000,
     exit_code: int = 20,
 ) -> None:
-    """Exit the process if auto-apply is blocked by any guard."""
+    """Exit the process if auto-apply is blocked by any guard.""",
     blocked, meta = get_block_state(redis_url=redis_url, prefix=prefix, max_meta_age_ms=max_meta_age_ms)
     if not blocked:
         return

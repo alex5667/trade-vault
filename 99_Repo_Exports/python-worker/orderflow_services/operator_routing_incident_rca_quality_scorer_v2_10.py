@@ -127,7 +127,7 @@ def evaluate_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
         "quality_score": min(score, 1.0),
         "quality_reasons": reasons,
         "ts_ms": now_ms(),
-    },
+    }
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -144,7 +144,8 @@ async def persist_quality(db_url: str, output_hash: str, assessment: Dict[str, A
         with psycopg.connect(db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_operator_routing_incident_rca_quality (
                         output_hash,
                         quality_score,
@@ -156,25 +157,25 @@ async def persist_quality(db_url: str, output_hash: str, assessment: Dict[str, A
                         %(quality_reasons_json)s,
                         %(ts_ms)s
                     )
-                    ON CONFLICT(output_hash) DO NOTHING
+                    ON CONFLICT(output_hash) DO NOTHING,
                     """,
                     {
                         "output_hash": output_hash,
                         "quality_score": assessment["quality_score"],
                         "quality_reasons_json": stable_json(assessment["quality_reasons"]),
                         "ts_ms": assessment["ts_ms"],
-                    },
+                    }
                 )
                 cur.execute(
                     """,
                     UPDATE llm_operator_routing_incident_rca_results
                     SET quality_score = %(quality_score)s
-                    WHERE output_hash = %(output_hash)s
+                    WHERE output_hash = %(output_hash)s,
                     """,
                     {
                         "quality_score": assessment["quality_score"],
                         "output_hash": output_hash,
-                    },
+                    }
                 )
                 conn.commit()
     except Exception:

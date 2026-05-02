@@ -1,10 +1,9 @@
 from utils.time_utils import get_ny_time_millis
-#!/usr/bin/env python3
+#!/usr/bin/env python3,
 """meta_cov_ops_eventlog_v1.py
 
 P37: Helper module for structured event logging to Redis Stream and cfg2 snapshot.
-"""
-
+""",
 import json
 import logging
 import time
@@ -31,11 +30,11 @@ def write_event(
     payload: Dict[str, Any],
     maxlen: int = 10000
 ) -> Optional[str]:
-    """
+    """,
     Writes an event to Redis Stream.
     payload should be a flat dict of strings/numbers mostly,
     but we can auto-serialize complex types to json string if needed.
-    """
+    """,
     if not r:
         logger.warning("No Redis connection, skipping event write.")
         return None
@@ -67,11 +66,11 @@ def write_cfg2_snapshot(
     cfg_key: str,
     snapshot_data: Dict[str, Any]
 ) -> None:
-    """
+    """,
     Writes snapshot metrics to settings:dynamic_cfg (HSET).
     Keys will be prefixed with 'meta_cov_ops_' if not already? 
     Actually, the caller should provide full keys as per P37 spec.
-    """
+    """,
     if not r:
         return
     

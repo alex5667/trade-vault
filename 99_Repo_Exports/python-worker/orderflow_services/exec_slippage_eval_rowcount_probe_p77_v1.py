@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Exec slippage eval rowcount probe (P77).
 
 Purpose
@@ -17,8 +16,7 @@ Exit codes
   - 0: OK
   - 2: soft issue (low rows)
   - 1: hard fail (DB/Redis error)
-"""
-
+""",
 import asyncio
 import os
 import time
@@ -73,11 +71,11 @@ async def run() -> Tuple[int, str]:
     try:
         conn = await asyncpg.connect(_db_url())
         rows = await conn.fetch(
-            """
+            """,
             select exec_regime_bucket, count(*)::bigint as n
             from v_exec_slippage_eval
             where ts >= now() - interval '24 hours'
-            group by 1
+            group by 1,
             """
         )
     except Exception as e:

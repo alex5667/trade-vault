@@ -16,8 +16,7 @@ Exit codes:
   1 ERROR
 
 Designed for periodic execution (hourly) by `services/of_timers_worker.py`.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse

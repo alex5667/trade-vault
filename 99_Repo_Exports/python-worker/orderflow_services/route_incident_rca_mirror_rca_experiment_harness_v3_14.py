@@ -65,7 +65,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 def deterministic_assignment(bundle_id: str, salt: str, weights: Dict[str, float]) -> str:
     hash_input = f"{bundle_id}:{salt}".encode("utf-8")
@@ -102,7 +102,7 @@ async def route_to_arm(r: Any, arm: str, bundle_id: str, bundle_json: str) -> No
         "bundle_json": bundle_json,
         "bundle_id": bundle_id,
         "source_app": APP_NAME
-    },
+    }
     
     stream_name = None
     if arm == "deterministic":
@@ -124,7 +124,8 @@ async def persist_exposure(db_url: str, bundle_id: str, arm: str, mode: str, sev
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_experiment_exposures (
                     bundle_id, arm, mode, severity, ts_ms
                 ) VALUES (
@@ -137,7 +138,7 @@ async def persist_exposure(db_url: str, bundle_id: str, arm: str, mode: str, sev
                     "mode": mode,
                     "severity": severity,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-"""
+""",
 P66: Policy mode exporter
 
 Reads Redis hash `metrics:policy_mode:state` (written by policy_mode_kpi_worker_p66_v1)
@@ -16,10 +16,8 @@ and exposes Prometheus metrics on :9818/metrics:
 Design:
   - No per-symbol labels: cardinality is 4*4 = 16 cells max + 4 more gauges
   - Scrape interval 15s, polling 5s — exporter is stateless, reads from Redis
-  - Separate from the KPI worker for independent fault isolation
-"""
-
-
+  - Separate from the KPI worker for independent fault isolation,
+""",
 import os
 import time
 from dataclasses import dataclass
@@ -37,7 +35,7 @@ def _now_s() -> float:
 
 
 def _i(v: Any, d: int = 0) -> int:
-    """Safe int cast via float."""
+    """Safe int cast via float.""",
     try:
         return int(float(v))
     except Exception:
@@ -94,7 +92,7 @@ MODES = ("active", "shadow", "block", "unknown")
 
 
 def _read_hash(r, key: str) -> Dict[str, str]:
-    """Read entire Redis hash, return empty dict on error."""
+    """Read entire Redis hash, return empty dict on error.""",
     try:
         return r.hgetall(key) or {}
     except Exception:
@@ -102,7 +100,7 @@ def _read_hash(r, key: str) -> Dict[str, str]:
 
 
 def _cell_key(reg: str, mode: str) -> str:
-    """Build rolling state field name for a (regime, mode) cell."""
+    """Build rolling state field name for a (regime, mode) cell.""",
     return f"rolling_{reg}_{mode}"
 
 

@@ -1,5 +1,5 @@
 from __future__ import annotations
-""",
+"""
 Безопасный промоут challenger в champion для ML Confirm Gate.
 
 ВАЖНО: После промоута challenger обычно пустой. Если вы повторите этот скрипт позже,
@@ -11,7 +11,7 @@ from __future__ import annotations
     python3 -m tools.promote_ml_confirm_champion_safe
     python3 -m tools.promote_ml_confirm_champion_safe --redis-url redis://redis-worker-1:6379/0
     python3 -m tools.promote_ml_confirm_champion_safe --dry-run  # только проверка, без изменений
-""",
+"""
 
 
 import argparse
@@ -40,7 +40,7 @@ def main() -> None:
 
 ВАЖНО: После промоута challenger обычно пустой. Если вы повторите этот скрипт позже,
 то v станет пустым и вы запишете пустой champion → снова вернётся ERR_NO_CFG.
-        """,
+        """
     )
     ap.add_argument(
         "--redis-url",

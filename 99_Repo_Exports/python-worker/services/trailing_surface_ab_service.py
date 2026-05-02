@@ -49,7 +49,7 @@ def run_once() -> int:
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """,
+                """
                 WITH base AS (
                   SELECT
                     date_trunc('day', to_timestamp(t.exit_ts_ms / 1000.0))::date AS day,
@@ -78,13 +78,13 @@ def run_once() -> int:
                 SELECT * FROM base
                 WHERE n >= %s
                 ORDER BY day DESC, source, symbol, scenario, regime, risk_horizon_bucket, trailing_surface_applied
-                """,
+                """
                 (_window_days(), _min_group_n()),
             ),
             rows = cur.fetchall()
 
             cur.execute(
-                """,
+                """
                 CREATE TABLE IF NOT EXISTS horizon_trailing_surface_ab_daily (
                   day date NOT NULL,
                   source text NOT NULL,
@@ -106,7 +106,7 @@ def run_once() -> int:
                   updated_at_ms bigint NOT NULL,
                   PRIMARY KEY (day, source, symbol, scenario, regime, risk_horizon_bucket, trailing_surface_applied)
                 ),
-                """,
+                """
             ),
 
             upsert_sql = """
@@ -132,7 +132,7 @@ def run_once() -> int:
               avg_mae_pct = EXCLUDED.avg_mae_pct,
               avg_mfe_pnl = EXCLUDED.avg_mfe_pnl,
               updated_at_ms = EXCLUDED.updated_at_ms
-            """,
+            """
 
             now_ms = int(time.time() * 1000)
             for row in rows:
@@ -143,7 +143,7 @@ def run_once() -> int:
         # lightweight suggestion layer
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """,
+                """
                 WITH pair AS (
                   SELECT
                     source, symbol, scenario, regime, risk_horizon_bucket,
@@ -162,7 +162,7 @@ def run_once() -> int:
                 SELECT * FROM pair
                 WHERE coalesce(n_canary,0) >= %s
                   AND coalesce(n_control,0) >= %s
-                """,
+                """
                 (_window_days(), _min_group_n(), _min_group_n()),
             ),
             for row in cur.fetchall():

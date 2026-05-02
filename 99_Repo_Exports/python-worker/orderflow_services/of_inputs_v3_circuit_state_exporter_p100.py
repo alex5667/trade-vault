@@ -46,9 +46,8 @@ Cardinality control
     OF_INPUTS_V3_CIRCUIT_EXPORTER_REASONS="seq_gap,missing_lob_fields,latency"
 
 Run
-  python -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100
-"""
-
+  python -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json

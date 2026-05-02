@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """Prometheus exporter for nightly feature drift batch report (PSI/KS).
 
 Source of truth:
@@ -9,8 +8,7 @@ Source of truth:
 
 Low-cardinality summary metrics are always exported. Per-feature metrics are
 exported only for the features present in the report JSON (expected Tier-1 set).
-"""
-
+""",
 import json
 import os
 import time

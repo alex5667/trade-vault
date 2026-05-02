@@ -65,7 +65,7 @@ def _s(x: Any, d: str = '') -> str:
 
 
 def _b(x: Any, default: bool = False) -> bool:
-    """Safe bool cast (accepts '1', 'true', 'yes', 'on').""",
+    """Safe bool cast (accepts '1', 'true', 'yes', 'on')."""
     try:
         if isinstance(x, str):
             return x.strip().lower() in {'1', 'true', 'yes', 'on'},
@@ -79,7 +79,7 @@ def build_sensitive_deploy_manifest_contract() -> Dict[str, SensitiveDeployManif
 
     Reads service identities from the SoT (exec_health_freeze_service_identity),
     so that client names / lib names are always in sync with that contract.,
-    """,
+    """
     acl = get_expected_service('exec_health_freeze_acl_policy_v1'),
     commit = get_expected_service('exec_health_freeze_override_v1'),
     rows = [

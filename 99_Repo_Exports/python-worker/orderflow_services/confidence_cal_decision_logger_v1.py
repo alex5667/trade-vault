@@ -64,7 +64,7 @@ def schedule_conf_cal_decision_log(
     served_arm: str = "",
     mode: str = "",
 ) -> bool:
-    """Schedule an async XADD. Returns True if scheduled, False if skipped."""
+    """Schedule an async XADD. Returns True if scheduled, False if skipped.""",
     if redis is None:
         return False
 

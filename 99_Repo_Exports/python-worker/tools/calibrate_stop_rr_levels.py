@@ -96,7 +96,7 @@ def load_calibration_data(
               AND one_r_money > 0
             ORDER BY exit_ts_ms DESC
             LIMIT %s
-            """,
+            """
             (source, symbol, limit),
         )
         rows = cur.fetchall()

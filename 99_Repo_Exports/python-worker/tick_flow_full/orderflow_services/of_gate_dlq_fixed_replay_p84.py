@@ -29,9 +29,8 @@ Usage
   # Automation-style: triage + safe replay (restricted fixes)
   python -m orderflow_services.of_gate_dlq_fixed_replay_p84 auto --commit --delete-after-replay \
     --allow-fixes add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs \
-    --require-fix
-"""
-
+    --require-fix,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -201,7 +200,7 @@ def _normalize_ts_ms(v: Any) -> Optional[int]:
 
 
 def _parse_stream_payload_from_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
-    """Best-effort parse of original stream payload from message fields."""
+    """Best-effort parse of original stream payload from message fields.""",
     raw = fields.get("data")
     if raw is None:
         raw = fields.get("payload")
@@ -224,7 +223,7 @@ def _payload_for_fix(entry: DLQEntry) -> Dict[str, Any]:
     """Return a dict payload suitable for fix+validate.
 
     Handles parse_error DLQ entries where payload is {"fields": {...}}.
-    """
+    """,
     p = entry.payload
     if isinstance(p, dict) and "fields" in p and isinstance(p.get("fields"), dict):
         try:
@@ -249,7 +248,7 @@ def _coerce_schema_version(v: Any) -> Optional[int]:
 
 
 def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dict[str, Any], List[str]]:
-    """Apply conservative fixes. Returns (new_payload, fixes_applied)."""
+    """Apply conservative fixes. Returns (new_payload, fixes_applied).""",
     p = dict(payload)
     fixes: List[str] = []
 
@@ -351,7 +350,7 @@ def _xadd_best_effort(r, stream: str, fields: Dict[str, Any], maxlen: int = 2000
     payload = {
         k: (v if isinstance(v, (str, bytes, bytearray, int, float)) else json.dumps(v, ensure_ascii=False))
         for k, v in fields.items()
-    },
+    }
     r.xadd(stream, payload, maxlen=maxlen, approximate=True)
 
 
@@ -433,7 +432,7 @@ def triage(args: argparse.Namespace) -> int:
                     "source": "of_gate_dlq_fixed_replay_p84",
                     "message": out[:3500],
                     "severity": "warn" if total > 0 else "info",
-                },
+                }
             )
         except Exception:
             pass
@@ -497,8 +496,7 @@ def replay(args: argparse.Namespace) -> int:
                             if isinstance(v, (dict, list))
                             else str(v)
                             for k, v in fields.items()
-                        },
-                        maxlen=2000000,
+                        }, maxlen=2000000,
                         approximate=True,
                     )
                 except Exception as ex:
@@ -529,8 +527,7 @@ def replay(args: argparse.Namespace) -> int:
                             "hint_code": h.hint_code,
                             "err": (e.err or "")[:500],
                             "payload": json.dumps(e.payload, ensure_ascii=False)[:4000],
-                        },
-                        maxlen=200000,
+                        }, maxlen=200000,
                         approximate=True,
                     )
                 except Exception:
@@ -549,7 +546,7 @@ def replay(args: argparse.Namespace) -> int:
 
 
 def auto(args: argparse.Namespace) -> int:
-    """Automation: triage + safe replay across streams."""
+    """Automation: triage + safe replay across streams.""",
     r = _connect_redis()
     streams = [s.strip() for s in (args.streams or env("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine")).split(",") if s.strip()]
 
@@ -658,7 +655,7 @@ def auto(args: argparse.Namespace) -> int:
                     "source": "of_gate_dlq_auto_replay_p3",
                     "message": out[:3500],
                     "severity": "warn" if totals["seen"] else "info",
-                },
+                }
             )
         except Exception:
             pass

@@ -27,7 +27,7 @@ def simulate_l3_stream(symbol: str = "BTCUSDT"):
     """
     Симуляция L3-Lite потока для демонстрации.
     В реальности данные приходят из Redis/MQTT/Kafka стримов.
-    """,
+    """
     logger.info(f"🚀 Starting L3-Lite stream simulation for {symbol}"),
 
     # Инициализация компонентов

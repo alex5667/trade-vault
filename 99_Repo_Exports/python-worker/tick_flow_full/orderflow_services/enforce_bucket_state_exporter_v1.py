@@ -833,7 +833,7 @@ class Exporter:
                     from {mv}
                     where sym = any(%s) and t >= now() - (%s || ' hours')::interval
                     group by 1,2
-                    """,
+                    """
                     (syms, int(lookback_h)),
                 )
                 rows = cur.fetchall()
@@ -851,7 +851,7 @@ class Exporter:
                         from {mv}
                         where sym = any(%s) and t >= now() - (%s || ' hours')::interval
                         group by 1,2
-                        """,
+                        """
                         (syms, int(lookback_h)),
                     )
                     rows = cur.fetchall()
@@ -872,7 +872,7 @@ class Exporter:
                             from {view}
                             where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
                             group by 1,2
-                            """,
+                            """
                             (syms, int(lookback_h)),
                         )
                         rows = cur.fetchall()
@@ -889,7 +889,7 @@ class Exporter:
                             from {view}
                             where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
                             group by 1,2
-                            """,
+                            """
                             (syms, int(lookback_h)),
                         )
                         rows = cur.fetchall()

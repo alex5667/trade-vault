@@ -12,7 +12,7 @@ from utils.redis_client import get_redis_client
 logger = logging.getLogger("atr_legacy_dependency_scanner")
 
 class ATRLegacyDependencyScanner:
-    """,
+    """
     Scanner for finding hidden legacy reads and out-of-band legacy writes.
     It writes findings to `atr_hidden_dependency_findings`.
     Classifies readers into:
@@ -20,7 +20,7 @@ class ATRLegacyDependencyScanner:
      - needed fallback readers
     and writers into:
      - forbidden out-of-band writers
-    """,
+    """
 
     def __init__(self, pg_dsn: str = None):
         self.pg_dsn = pg_dsn or get_env_var("TRADE_PG_DSN", "postgresql://trading:trading@postgres:5432/trade")
@@ -31,10 +31,10 @@ class ATRLegacyDependencyScanner:
             self.redis = await get_redis_client()
 
     async def scan_redis_legacy_writes(self) -> List[Dict[str, Any]]:
-        """,
+        """
         Scan Redis for recent out-of-band direct writes to legacy namespaces.
         For example, directly mutating `cfg:atr_override:*` bypassing the graph.
-        """,
+        """
         findings = []
         # Example pattern for legacy writes. 
         # In a real dynamic scanner, we might check key idle times or use Redis keyspace notifications.
@@ -56,10 +56,10 @@ class ATRLegacyDependencyScanner:
         return findings
 
     async def scan_sql_legacy_dependencies(self) -> List[Dict[str, Any]]:
-        """,
+        """
         Scan for SQL legacy queries/dependencies. 
         Could be hooked to pg_stat_statements or application logs.
-        """,
+        """
         return []
 
     async def run_scan(self):
@@ -83,7 +83,7 @@ class ATRLegacyDependencyScanner:
             async with pool.acquire() as conn:
                 for finding in findings:
                     await conn.execute(
-                        """,
+                        """
                         INSERT INTO atr_hidden_dependency_findings
                         (finding_id, component, severity, status, reason_code, finding_json, created_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7)

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from services.orderflow.exec_health_freeze_service_identity import render_service_identity_env_templates
-
 """P11: Bootstrap-сервис для генерации Redis ACL профилей и загрузки Function Libraries.
 
 Запуск:
@@ -11,8 +10,7 @@ from services.orderflow.exec_health_freeze_service_identity import render_servic
 - Redis ACL SETUSER командами для reader/writer/bootstrap ролей
 - именами Redis Function Libraries, которые надо загрузить
 - рекомендуемыми ENV переменными
-"""
-
+""",
 import json
 import os
 import sys
@@ -50,7 +48,7 @@ def main(argv: List[str] | None = None) -> int:
             "EXEC_HEALTH_FREEZE_SEAL_SECRET": "<strong-random-secret>",
             "EXEC_HEALTH_FREEZE_SEAL_ENFORCE": "1",
             "EXEC_HEALTH_FREEZE_SEAL_ALLOW_UNSEALED_BOOTSTRAP": "1",
-        },
+        }
     }
     print(json.dumps(doc, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

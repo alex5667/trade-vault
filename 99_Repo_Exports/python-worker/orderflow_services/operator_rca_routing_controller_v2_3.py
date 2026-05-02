@@ -169,7 +169,7 @@ def choose_route(
                     "key": key,
                     "score": dec.score,
                     "reason_codes": dec.reason_codes,
-                },
+                }
             )
         elif dec.decision == "PROMOTE" and allow_promote:
             if promoted is None or dec.score > promoted.score:
@@ -193,7 +193,7 @@ def choose_route(
                     "key": pkey,
                     "score": promoted.score,
                     "reason_codes": promoted.reason_codes,
-                },
+                }
             )
         else:
             audit.append(
@@ -201,7 +201,7 @@ def choose_route(
                     "event": "PROMOTE_SUPPRESSED_CONFLICT",
                     "key": pkey,
                     "score": promoted.score,
-                },
+                }
             )
 
     active_key = _sha_fields(
@@ -246,7 +246,7 @@ class RoutingController:
             "prompt_version": self.default_prompt_version,
             "policy_version": self.default_policy_version,
             "mode": self.mode,
-        },
+        }
 
     async def ensure_groups(self) -> None:
         for stream, group in ((STREAM_GOVERNOR_DECISIONS, GROUP_DECISIONS), (STREAM_OPERATOR_RCA_REQUESTS, GROUP_REQUESTS)):
@@ -268,7 +268,7 @@ class RoutingController:
                     "prompt_version": d.get("prompt_version", self.default_prompt_version),
                     "policy_version": d.get("policy_version", self.default_policy_version),
                     "mode": d.get("mode", self.mode),
-                },
+                }
             )
         except Exception:
             return
@@ -313,7 +313,7 @@ class RoutingController:
             "mode": self.mode,
             "changed": int(changed),
             "audit_json": json.dumps(audit, ensure_ascii=False),
-        },
+        }
         await self.r.xadd(STREAM_ROUTING_DECISIONS, payload, maxlen=10000, approximate=True)
         await self.r.hset(HASH_ROUTING_LAST, mapping={k: str(v) for k, v in payload.items()})
         if self.mode == "COMMIT":
@@ -329,8 +329,7 @@ class RoutingController:
                 "prompt_version": route["prompt_version"],
                 "policy_version": route["policy_version"],
                 "mode": self.mode,
-            },
-            maxlen=20000,
+            }, maxlen=20000,
             approximate=True,
         )
         DECISIONS.labels("ROUTE_REFRESH", "provider_prompt").inc()

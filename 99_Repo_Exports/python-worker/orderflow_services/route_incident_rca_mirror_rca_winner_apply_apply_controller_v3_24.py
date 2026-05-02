@@ -78,7 +78,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def persist_decision(db_url: str, apply_id: str, decision: str, winner_arm: str, strategy: str, harness_state_json: str) -> None:
     if not db_url or psycopg is None:
@@ -86,7 +86,8 @@ async def persist_decision(db_url: str, apply_id: str, decision: str, winner_arm
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_controller_decisions (
                     apply_id, decision, winner_arm, strategy, harness_state_json, ts_ms
                 ) VALUES (
@@ -100,7 +101,7 @@ async def persist_decision(db_url: str, apply_id: str, decision: str, winner_arm
                     "strategy": strategy,
                     "harness_state_json": harness_state_json,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 
@@ -110,7 +111,8 @@ async def persist_journal(db_url: str, apply_id: str, log_type: str, message: st
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_controller_journal (
                     apply_id, log_type, message, ts_ms
                 ) VALUES (
@@ -122,7 +124,7 @@ async def persist_journal(db_url: str, apply_id: str, log_type: str, message: st
                     "log_type": log_type,
                     "message": message,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 
@@ -189,6 +191,7 @@ async def main() -> None:  # pragma: no cover
         started = time.perf_counter()
         status = "ok"
         decision_code = "none"
+        res_stream = None
         
         try:
             cfg = await r.hgetall(CFG_CONTROLLER)
@@ -280,9 +283,9 @@ async def main() -> None:  # pragma: no cover
                 RUNS.labels(status=status, decision=decision_code).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
-            if not res_stream:
-                await asyncio.sleep(POLL_INTERVAL_SEC)
+
+        if not res_stream:
+            await asyncio.sleep(POLL_INTERVAL_SEC)
 
 if __name__ == "__main__":  # pragma: no cover
     asyncio.run(main())

@@ -830,7 +830,7 @@ class StreamArchiver:
                 raise
 
     async def dlq(self, dlq_stream: str, stream: str, stream_id: str, err: str, payload: Dict[str, Any]) -> None:
-        """Write failed message to Dead Letter Queue""",
+        """Write failed message to Dead Letter Queue"""
         await self.r.xadd(
             dlq_stream,
             {

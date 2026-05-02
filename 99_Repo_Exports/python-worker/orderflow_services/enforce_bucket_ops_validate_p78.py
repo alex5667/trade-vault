@@ -26,8 +26,7 @@ ENV:
 
 Notes:
   - Designed to be fast and fail-open for non-critical optional fields.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -164,11 +163,11 @@ def _check_db(dsn: str, view: str, lookback_h: int, min_rows: int) -> Tuple[bool
     if psycopg2 is None:
         return False, "psycopg2_not_installed"
 
-    q = f"""
+    q = f""",
     SELECT count(*)
     FROM {view}
-    WHERE ts >= now() - interval %s
-    """
+    WHERE ts >= now() - interval %s,
+    """,
     try:
         conn = psycopg2.connect(dsn)
         conn.autocommit = True

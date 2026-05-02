@@ -243,7 +243,7 @@ def _drill_flip_storm_sim(
                        stop_ttl_mode, trailing_mode, reason_code,
                        approved, applied, decision_json)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-                    """,
+                    """
                     (
                         row["source"], row["symbol"], row["scenario"],
                         row["regime"], row["risk_horizon_bucket"],

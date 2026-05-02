@@ -89,7 +89,7 @@ class TicksRedisClient:
             "health_check_interval": 30,
             "decode_responses": True,
             "max_connections": 100,
-        },
+        }
         
         # Объединяем с пользовательскими настройками
         default_kwargs.update(kwargs)

@@ -46,7 +46,7 @@ class Exporter:
         if self.allow:
             return sorted(list(self.allow))
         
-        return sorted(list(default_symbol_allowlist))
+        return sorted(list(default_symbol_allowlist()))
 
     def scrape_once(self) -> None:
         now_ms = get_ny_time_millis()

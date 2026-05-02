@@ -32,7 +32,7 @@ def _sha16(obj: Any) -> str:
 
 
 def compact_request(req: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep only stable, high-signal fields for deterministic triage."""
+    """Keep only stable, high-signal fields for deterministic triage.""",
     payload = req.get("payload") if isinstance(req.get("payload"), dict) else req
     snapshot = payload.get("model_snapshot") or {}
     training = payload.get("training") or {}
@@ -67,8 +67,8 @@ def compact_request(req: Dict[str, Any]) -> Dict[str, Any]:
                 "pos_rate": training.get("pos_rate"),
                 "metrics_json": training.get("metrics_json") or {},
                 "promotion_state": training.get("promotion_state"),
-            },
-        },
+            }
+        }
     }
     out["compact_hash"] = _sha16(out)
     out["prompt_version"] = str(os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1"))

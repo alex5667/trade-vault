@@ -146,7 +146,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_payload_bytes": parse_int(raw.get("max_payload_bytes"), DEFAULT_MAX_PAYLOAD_BYTES),
         "max_prompt_chars": parse_int(raw.get("max_prompt_chars"), DEFAULT_MAX_PROMPT_CHARS),
         "force_local": parse_int(raw.get("force_local"), 1),
-    },
+    }
 
 
 def build_payload_json(row: Dict[str, Any]) -> str:
@@ -174,7 +174,7 @@ def evaluate_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
         "decision": "REJECT",
         "reason_code": "REJECTED",
         "request_id": request_id,
-    },
+    }
     if policy["enabled"] != 1:
         out["reason_code"] = "DISABLED"
         return out
@@ -210,7 +210,7 @@ def build_handoff_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, 
         "vertex_unavailable": str(parse_int(row.get("vertex_unavailable"), 0)),
         "force_local": str(max(parse_int(row.get("force_local"), 0), policy["force_local"])),
         "ts_ms": str(now_ms()),
-    },
+    }
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -231,7 +231,8 @@ async def persist_if_configured(db_url: str, row: Dict[str, Any], decision: Dict
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_offline_debug_handoff_rewire_decisions (
                     request_id,
                     ts_ms,
@@ -261,7 +262,7 @@ async def persist_if_configured(db_url: str, row: Dict[str, Any], decision: Dict
                     "output_stream": OUTPUT_STREAM if handoff_row else "",
                     "handoff_payload_json": json.dumps(handoff_row or {}),
                     "original_payload_json": json.dumps(row),
-                },
+                }
             )
             conn.commit()
 
@@ -306,15 +307,14 @@ async def main() -> None:  # pragma: no cover
                         "source_stream": INPUT_STREAM,
                         "output_stream": OUTPUT_STREAM if handoff_row else "",
                         "ts_ms": str(now_ms()),
-                    },
+                    }
                     await r.xadd(DECISIONS_STREAM, decision_payload, maxlen=MAXLEN, approximate=True)
                     await r.xadd(
                         AUDIT_STREAM,
                         {
                             "event_type": "OFFLINE_DEBUG_HANDOFF_REWIRE_DECIDED",
                             **decision_payload,
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.hset(
@@ -326,7 +326,7 @@ async def main() -> None:  # pragma: no cover
                             "source_stream": INPUT_STREAM,
                             "output_stream": OUTPUT_STREAM if handoff_row else "",
                             "ts_ms": str(now_ms()),
-                        },
+                        }
                     )
                     if ROUTED:
                         ROUTED.labels(decision=decision["decision"]).inc()
@@ -341,8 +341,7 @@ async def main() -> None:  # pragma: no cover
                             "event_type": "OFFLINE_DEBUG_HANDOFF_REWIRE_FAILED",
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(INPUT_STREAM, GROUP, msg_id)

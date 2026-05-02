@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """Cross-service latency contract SLO gate (P4.1).
 
 Reads latency contract Redis hashes from Python + external writers (Go/NestJS),
@@ -15,9 +14,8 @@ Required stage-owner matrix:
   nest_gateway     / end_to_end_event
 
 Summary key (written every interval):
-  metrics:latency_contract:slo:last
-"""
-
+  metrics:latency_contract:slo:last,
+""",
 import os
 import time
 from dataclasses import dataclass
@@ -90,7 +88,7 @@ def _state_key(prefix: str, service: str, stage: str, symbol: str) -> str:
 
 
 def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
-    """Evaluate all required stage owners and return the summary mapping."""
+    """Evaluate all required stage owners and return the summary mapping.""",
     now = time.time()
     missing_total = 0
     stale_total = 0

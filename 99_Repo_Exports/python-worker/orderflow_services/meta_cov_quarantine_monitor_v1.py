@@ -1,5 +1,5 @@
 from utils.time_utils import get_ny_time_millis
-#!/usr/bin/env python3
+#!/usr/bin/env python3,
 """meta_cov_quarantine_monitor_v1.py
 
 P35: SRE Monitor for Meta Coverage Quarantine.
@@ -15,9 +15,8 @@ Actions:
 
 Usage:
   python3 -m tools.meta_cov_quarantine_monitor_v1 --emit-metrics --notify
-  python3 -m tools.meta_cov_quarantine_monitor_v1 --dry-run
-"""
-
+  python3 -m tools.meta_cov_quarantine_monitor_v1 --dry-run,
+""",
 import argparse
 import json
 import logging

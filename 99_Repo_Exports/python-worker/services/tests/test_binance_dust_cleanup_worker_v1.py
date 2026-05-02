@@ -84,7 +84,7 @@ class FakeClient:
 
     APTUSDT: starts as 0.1 qty / 0.10 notional (dust) → becomes flat after first close.,
     BTCUSDT: 0.005 qty / 350 notional (NOT dust) — should never be touched.,
-    """,
+    """
     def __init__(self):
         # Each symbol maps to an ordered list of positionRisk rows.
         # current_idx tracks how many times post_plain_order advanced the row index.

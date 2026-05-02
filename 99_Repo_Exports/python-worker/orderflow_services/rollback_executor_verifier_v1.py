@@ -105,7 +105,8 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
     conn = await asyncpg.connect(database_url)
     try:
         await conn.execute(
-            """,
+            """
+
             INSERT INTO llm_rollback_verifications (
                 recommendation_id, verification_ts_ms, verification_status,
                 reason_codes_json, details_json
@@ -123,7 +124,7 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
                SET rollback_verification_status = $2,
                    rollback_verified_at_ms = $3,
                    rollback_failure_reason = $4
-             WHERE recommendation_id = $1
+             WHERE recommendation_id = $1,
             """,
             payload["recommendation_id"],
             payload["verification_status"],
@@ -165,7 +166,7 @@ async def main() -> None:
         "ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS": os.getenv("ROLLBACK_VERIFY_MAX_LATENCY_P95_DELTA_MS", "1.5"),
         "ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA": os.getenv("ROLLBACK_VERIFY_MAX_MISSING_CRITICAL_DELTA", "0.01"),
         "ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP": os.getenv("ROLLBACK_VERIFY_MAX_ALLOW_RATE_DROP", "0.08"),
-    },
+    }
 
     while True:
         VERIFIER_UP.set(1)
@@ -200,7 +201,7 @@ async def main() -> None:
                         "verification_status": decision.verification_status,
                         "reason_codes": json.dumps(decision.reason_codes, ensure_ascii=False),
                         "details": json.dumps(decision.details, ensure_ascii=False),
-                    },
+                    }
                     await r.xadd(stream_verify, verify_payload, maxlen=200_000, approximate=True)
                     await r.xadd(
                         stream_audit,
@@ -211,8 +212,7 @@ async def main() -> None:
                             "verification_status": decision.verification_status,
                             "reason_codes": json.dumps(decision.reason_codes, ensure_ascii=False),
                             "ts_ms": _now_ms(),
-                        },
-                        maxlen=500_000,
+                        }, maxlen=500_000,
                         approximate=True,
                     )
 
@@ -227,8 +227,7 @@ async def main() -> None:
                                     "reason": "POST_ROLLBACK_VERIFY_FAIL",
                                     "replay_status": "PASS",
                                     "ts_ms": _now_ms(),
-                                },
-                                maxlen=100_000,
+                                }, maxlen=100_000,
                                 approximate=True,
                             )
 

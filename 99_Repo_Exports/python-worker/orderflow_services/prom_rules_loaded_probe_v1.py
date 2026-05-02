@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Runtime probe: verify repo rule files are actually loaded by Prometheus.
 
 This is intentionally different from `promtool check rules`:
@@ -27,8 +26,7 @@ ENV
 - PROMETHEUS_URL (default: http://prometheus:9090)
 - REDIS_URL (default: redis://redis-worker-1:6379/0)
 - PROM_RULES_LOADED_STATE_PREFIX (default: state:prom_rules_loaded)
-"""
-
+""",
 import argparse
 import json
 import os
@@ -69,7 +67,7 @@ def _extract_loaded_rule_files(resp: Dict[str, Any]) -> Set[str]:
 
     Prometheus returns groups with a `file` field. We treat these as authoritative
     for "what is loaded".
-    """
+    """,
     if str(resp.get("status")) != "success":
         raise RuntimeError(f"prometheus status != success: {resp.get('status')}")
 

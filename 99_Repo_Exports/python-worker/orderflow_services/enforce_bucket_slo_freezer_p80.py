@@ -37,7 +37,6 @@ Status/notify:
 Audit:
   ENFORCE_FREEZER_EVENTS_STREAM (default events:enforce_bucket_slo_freezer)
 """,
-
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -136,7 +135,7 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
     out: Dict[str, Tuple[int, float, float, float]] = {}
     try:
         cur.execute(
-            f"""
+            f""",
             select exec_regime_bucket,
                    sum(n)::bigint as n,
                    max(resid_p95_bps) as resid_p95_bps,
@@ -144,8 +143,8 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
                    max(edge_neg_share) as edge_neg_share
             from {mv}
             where sym=%s and t >= now() - (%s || ' hours')::interval
-            group by 1
-            """,
+            group by 1,
+            """
             (sym, int(lookback_h)),
         )
         rows = cur.fetchall()
@@ -154,7 +153,7 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
         return out
     except Exception:
         cur.execute(
-            f"""
+            f""",
             select exec_regime_bucket,
                    count(*)::bigint as n,
                    percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
@@ -162,8 +161,8 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
                    avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
             from {view}
             where sym=%s and ts >= now() - (%s || ' hours')::interval
-            group by 1
-            """,
+            group by 1,
+            """
             (sym, int(lookback_h)),
         )
         rows = cur.fetchall()
@@ -224,7 +223,7 @@ def _xadd_event(r: Any, *, sym: str, bucket: str, meta: dict) -> None:
             "sym": str(sym),
             "bucket": str(bucket),
             "meta": json.dumps(meta, separators=(",", ":"))[:3500],
-        },
+        }
         r.xadd(stream, fields, maxlen=50000)
     except Exception:
         return
@@ -273,7 +272,7 @@ def main() -> int:
             "blocked": False,
             "symbols": syms,
             "lookback_h": lookback_h,
-        },
+        }
     )
 
     for sym in syms:
@@ -304,7 +303,7 @@ def main() -> int:
                     "resid_p95_bps": p95,
                     "resid_p99_bps": p99,
                     "edge_neg_share": neg,
-                },
+                }
                 pipe = r.pipeline(transaction=False)
                 pipe.set(block_key, "1")
                 pipe.set(meta_key, json.dumps(meta, separators=(",", ":")))
@@ -334,7 +333,7 @@ def main() -> int:
                         "sym": sym,
                         "bucket": bucket,
                         "meta": meta,
-                    },
+                    }
                 )
                 return 0
 

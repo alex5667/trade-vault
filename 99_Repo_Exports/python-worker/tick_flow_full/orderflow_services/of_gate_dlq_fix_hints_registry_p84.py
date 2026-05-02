@@ -13,10 +13,8 @@ Outputs:
   - severity: 'info'|'warn'|'page'
   - title: short
   - details: short
-  - actions: list[str]
-"""
-
-
+  - actions: list[str],
+""",
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -125,7 +123,7 @@ def _err_prefix(err: Optional[str]) -> str:
 
 
 def hint_for(dq_code: Optional[str], err: Optional[str] = None) -> FixHint:
-    """Return best-effort hint based on dq_code and err prefix."""
+    """Return best-effort hint based on dq_code and err prefix.""",
     if dq_code and dq_code in _HINTS:
         return _HINTS[dq_code]
 

@@ -14,8 +14,7 @@ CLI:
 Exit codes:
   0 ok
   2 partial (some inserts failed / refresh skipped)
-"""
-
+""",
 import argparse
 import asyncio
 import datetime as dt
@@ -54,7 +53,7 @@ def safe_int(x: Any) -> Optional[int]:
 
 
 def normalize_ts_ms(x: Any) -> Optional[int]:
-    """Normalize any timestamp epoch (ns/us/ms/s) to milliseconds."""
+    """Normalize any timestamp epoch (ns/us/ms/s) to milliseconds.""",
     v = safe_int(x)
     if v is None:
         return None
@@ -112,7 +111,7 @@ def to_jsonb(x: Any) -> Optional[str]:
 
 
 def build_of_gate_row(stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
-    """Build an of_gate_metrics DB row from a stream payload (P3 per-event schema)."""
+    """Build an of_gate_metrics DB row from a stream payload (P3 per-event schema).""",
     ts_ms = coalesce_ts_ms(payload, stream_id)
     ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
 
@@ -154,6 +153,7 @@ def pg_insert_of_gate_metrics(dsn: str, rows: List[Tuple[Any, ...]]) -> int:
     if not rows:
         return 0
     sql = """
+
     INSERT INTO of_gate_metrics (
       stream_id, ts_ms, ts,
       symbol, scenario_v4,
@@ -163,8 +163,8 @@ def pg_insert_of_gate_metrics(dsn: str, rows: List[Tuple[Any, ...]]) -> int:
       reason_code,
       payload_json
     ) VALUES %s
-    ON CONFLICT (stream_id, ts) DO NOTHING
-    """
+    ON CONFLICT (stream_id, ts) DO NOTHING,
+    """,
     with psycopg2.connect(dsn) as conn:
         with conn.cursor() as cur:
             execute_values(cur, sql, rows, page_size=5000)
@@ -189,7 +189,7 @@ def _try_refresh(cur, view: str, start: dt.datetime, end: dt.datetime) -> bool:
 
 
 def refresh_rollups(dsn: str, start: dt.datetime, end: dt.datetime) -> int:
-    """Refresh both CAGG views. Returns number of views successfully refreshed (0-2)."""
+    """Refresh both CAGG views. Returns number of views successfully refreshed (0-2).""",
     ok = 0
     with psycopg2.connect(dsn) as conn:
         conn.autocommit = True
@@ -201,7 +201,7 @@ def refresh_rollups(dsn: str, start: dt.datetime, end: dt.datetime) -> int:
 
 
 async def _update_metrics_hash(key: str, mapping: dict, incr_error: int = 0) -> None:
-    """P78: best-effort write last-run info to Redis hash for Prometheus exporter."""
+    """P78: best-effort write last-run info to Redis hash for Prometheus exporter.""",
     try:
         redis_url = env("REDIS_URL", "")
         if not redis_url:
@@ -231,7 +231,7 @@ async def backfill_from_redis(
 
     Reads messages from the stream (non-consumer-group XREAD) and inserts
     into of_gate_metrics table. Idempotent: ON CONFLICT DO NOTHING.
-    """
+    """,
     r = aioredis.from_url(redis_url, decode_responses=True)
     inserted = 0
     last_id = start_id

@@ -29,9 +29,8 @@ Examples
 
   # Purge a set of ids (DANGEROUS)
   python -m orderflow_services.of_gate_dlq_drilldown_p83 purge --source stream:dlq:of_gate_metrics \
-    --ids 1700000000000-0,1700000000001-0 --yes
-"""
-
+    --ids 1700000000000-0,1700000000001-0 --yes,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse

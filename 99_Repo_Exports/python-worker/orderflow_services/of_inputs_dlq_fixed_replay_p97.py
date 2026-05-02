@@ -32,9 +32,8 @@ Env:
 - OF_INPUTS_DLQ_EXIT2_ON_FAIL (default: 1)
 
 Usage:
-  python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
-"""
-
+  python -m orderflow_services.of_inputs_dlq_fixed_replay_p97,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json

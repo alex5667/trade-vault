@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-""",
+"""
 Simple test for the trailing analyzer with mock data.,
-""",
+"""
 
 import sys
 import os
@@ -14,7 +14,7 @@ from analyze_trailing_vs_baseline_postgres import (
 
 
 def create_mock_trades():
-    """Create mock trades for testing.""",
+    """Create mock trades for testing."""
     return [
         TradeRow(
             symbol="ETHUSDT",

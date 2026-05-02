@@ -15,7 +15,7 @@ def apply_schema():
         
         # DDLs from init-postgres.sql
         ddls = [
-            """,
+            """
             CREATE TABLE IF NOT EXISTS calibration_state (
                 symbol          TEXT NOT NULL,
                 regime          TEXT NOT NULL,
@@ -25,9 +25,9 @@ def apply_schema():
                 updated_at      TIMESTAMPTZ DEFAULT now(),
                 PRIMARY KEY(symbol, regime, kind)
             );
-            """,
+            """
             "CREATE INDEX IF NOT EXISTS idx_calibration_state_ts ON calibration_state (ts_ms DESC);",
-            """,
+            """
             CREATE TABLE IF NOT EXISTS microbars (
                 symbol          TEXT NOT NULL,
                 ts_ms           BIGINT NOT NULL,
@@ -40,7 +40,7 @@ def apply_schema():
                 inserted_at     TIMESTAMPTZ DEFAULT now(),
                 PRIMARY KEY(symbol, ts_ms)
             );
-            """,
+            """
             "CREATE INDEX IF NOT EXISTS idx_microbars_ts ON microbars (ts_ms DESC);"
         ]
         

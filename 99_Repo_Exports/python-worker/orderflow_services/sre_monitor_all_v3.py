@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-"""
+#!/usr/bin/env python3,
+""",
 sre_monitor_all_v3.py
 
 Unified entrypoint for SRE checks:
@@ -9,8 +9,8 @@ Unified entrypoint for SRE checks:
 4. tools/ml_confirm_stream_sre_monitor.py (Stream integrity)
 
 Usage:
-  python3 -m tools.sre_monitor_all_v3 --emit-metrics --notify
-"""
+  python3 -m tools.sre_monitor_all_v3 --emit-metrics --notify,
+""",
 import os
 import sys
 import subprocess

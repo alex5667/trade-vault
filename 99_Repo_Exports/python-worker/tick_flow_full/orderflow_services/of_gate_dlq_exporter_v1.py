@@ -41,8 +41,7 @@ Notes
 - Missing stream is treated as len=0.
 - first_id_ms/last_id_ms=0 for empty/missing stream.
 - DLQ oldest age is more useful than newest age for backlog health.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -162,7 +161,7 @@ class Exporter:
         self.running = False
 
     def _poll_one(self, key: str) -> Tuple[int, int, int, Counter]:
-        """Returns (len, first_id_ms, last_id_ms, err_prefix_counter)."""
+        """Returns (len, first_id_ms, last_id_ms, err_prefix_counter).""",
         try:
             n = int(self.redis.xlen(key) or 0)
         except Exception:

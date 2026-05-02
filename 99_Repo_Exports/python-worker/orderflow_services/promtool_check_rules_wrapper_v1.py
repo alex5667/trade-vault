@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 """Wrapper around `promtool check rules` for the repo rules bundle.
 
 Why this exists
@@ -14,8 +13,7 @@ Exit codes
 ENV
 - REPO_ROOT (optional)
 - PROM_RULES_BUNDLE_MANIFEST (optional, relative to repo root or absolute)
-"""
-
+""",
 import argparse
 import os
 import shutil

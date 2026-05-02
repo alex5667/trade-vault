@@ -32,9 +32,8 @@ class VertexBudgetGuardV1:
     Properties:
       - deterministic UTC buckets (day/hour)
       - fail-open when Redis is unavailable if VERTEX_BUDGET_FAIL_POLICY=OPEN
-      - tracks both estimated USD and request counts
-    """
-
+      - tracks both estimated USD and request counts,
+    """,
     def __init__(self, redis_url: str) -> None:
         self._redis_url = redis_url
         self._daily_limit_usd = float(os.getenv("VERTEX_MAX_DAILY_USD", "25") or 25.0)
@@ -99,7 +98,7 @@ def estimate_vertex_triage_cost_usd(input_chars: int, output_chars: int) -> floa
     """Conservative local estimate for budget-guarding only.
 
     Intentionally rough. Real billing should come from provider metadata when/if available.
-    """
+    """,
     per_million_chars = float(os.getenv("VERTEX_TRIAGE_EST_USD_PER_MCHARS", "0.35") or 0.35)
     total = max(0, int(input_chars)) + max(0, int(output_chars))
     return (float(total) / 1_000_000.0) * per_million_chars

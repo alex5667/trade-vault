@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Phase-0 ML inventory exporter.
 
 Purpose
@@ -18,9 +17,8 @@ Design constraints
 - advisory / control-plane only; never blocks trading runtime
 - deterministic and low-cardinality payloads
 - reads only already existing sources: Redis cfg keys, env, filesystem artifacts
-- fail-open on Redis/DB/filesystem errors
-"""
-
+- fail-open on Redis/DB/filesystem errors,
+""",
 import hashlib
 import json
 import os
@@ -390,6 +388,7 @@ def _write_db(cfg: Cfg, rows: Sequence[ModelRecord]) -> None:
     if not cfg.db_enable or not cfg.db_dsn or psycopg2 is None or execute_values is None or not rows:
         return
     sql = """
+
     INSERT INTO ml_model_registry (
       model_id, family, kind, artifact_uri, schema_ver, schema_hash,
       promotion_state, champion_flag, owner_service, created_at_ms, promoted_at_ms,
@@ -410,7 +409,7 @@ def _write_db(cfg: Cfg, rows: Sequence[ModelRecord]) -> None:
       fail_policy = EXCLUDED.fail_policy,
       cfg_source = EXCLUDED.cfg_source,
       promoted_at_ms = GREATEST(ml_model_registry.promoted_at_ms, EXCLUDED.promoted_at_ms);
-    """
+    """,
     values = [(
         r.model_id, r.family, r.kind, r.artifact_uri, r.schema_ver, r.schema_hash,
         r.promotion_state, r.champion_flag, r.owner_service, r.created_at_ms, r.promoted_at_ms,

@@ -79,7 +79,8 @@ async def _write_db_if_possible(payload: RecommendationFeedback) -> None:
         async with await psycopg.AsyncConnection.connect(db_url) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_recommendation_feedback (
                       recommendation_id, analysis_run_id, ts_ms, verdict, action, target,
                       reviewer, reason_code, prompt_version, policy_version, notes
@@ -87,7 +88,7 @@ async def _write_db_if_possible(payload: RecommendationFeedback) -> None:
                       %(recommendation_id)s, %(analysis_run_id)s, %(ts_ms)s, %(verdict)s, %(action)s, %(target)s,
                       %(reviewer)s, %(reason_code)s, %(prompt_version)s, %(policy_version)s, %(notes)s
                     )
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT DO NOTHING,
                     """,
                     payload.to_dict(),
                 )

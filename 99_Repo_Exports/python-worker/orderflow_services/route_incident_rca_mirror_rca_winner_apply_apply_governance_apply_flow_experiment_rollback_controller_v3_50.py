@@ -164,7 +164,7 @@ def normalize_weights(raw: Any) -> Dict[str, int]:
         "vertex_primary_weight": parse_int(obj.get("vertex_primary_weight"), 0),
         "vertex_compact_weight": parse_int(obj.get("vertex_compact_weight"), 0),
         "local_candidate_weight": parse_int(obj.get("local_candidate_weight"), 0),
-    },
+    }
 
 
 def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -178,7 +178,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
         "allow_commit": parse_int(raw.get("allow_commit"), DEFAULT_ALLOW_COMMIT),
         "allowed_reasons": {str(x) for x in allowed_reasons},
-    },
+    }
 
 
 def evaluate_rollback(verification_row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -194,7 +194,7 @@ def evaluate_rollback(verification_row: Dict[str, Any], policy: Dict[str, Any]) 
         "rollback_profile": rollback_profile,
         "rollback_incumbent_arm": rollback_incumbent_arm,
         "rollback_weights": rollback_weights,
-    },
+    }
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
         return out
@@ -225,7 +225,8 @@ async def persist_if_configured(db_url: str, rollback_out: Dict[str, Any], verif
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_rr_winner_apply_gov_exp_rollback_journal (
                     ts_ms, decision, reason_code, rollback_profile, rollback_incumbent_arm,
                     rollback_weights_json, applied, journal_json
@@ -243,7 +244,7 @@ async def persist_if_configured(db_url: str, rollback_out: Dict[str, Any], verif
                     "rollback_weights_json": json.dumps(rollback_out["rollback_weights"]),
                     "applied": applied,
                     "journal_json": json.dumps({"rollback_out": rollback_out, "verification_row": verification_row}),
-                },
+                }
             )
             conn.commit()
 
@@ -291,7 +292,7 @@ async def main() -> None:  # pragma: no cover
                                 "last_weight_rebalance_source": APP_NAME,
                                 "last_weight_rebalance_reason_code": rollback_out["reason_code"],
                                 "last_weight_rebalance_profile": rollback_out["rollback_profile"],
-                            },
+                            }
                         )
                         await r.hset(
                             WINNER_POLICY_KEY,
@@ -300,7 +301,7 @@ async def main() -> None:  # pragma: no cover
                                 "last_incumbent_apply_ts_ms": str(now_ms()),
                                 "last_incumbent_apply_source": APP_NAME,
                                 "last_incumbent_apply_reason_code": rollback_out["reason_code"],
-                            },
+                            }
                         )
                         applied = 1
 
@@ -316,8 +317,7 @@ async def main() -> None:  # pragma: no cover
                             "rollback_weights_json": stable_json(rollback_out["rollback_weights"]),
                             "applied": str(applied),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.hset(
@@ -329,7 +329,7 @@ async def main() -> None:  # pragma: no cover
                             "rollback_incumbent_arm": rollback_out["rollback_incumbent_arm"],
                             "applied": str(applied),
                             "ts_ms": str(now_ms()),
-                        },
+                        }
                     )
                     await r.xadd(
                         AUDIT_STREAM,
@@ -339,8 +339,7 @@ async def main() -> None:  # pragma: no cover
                             "reason_code": rollback_out["reason_code"],
                             "applied": str(applied),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     if ROLLBACKS:
@@ -356,8 +355,7 @@ async def main() -> None:  # pragma: no cover
                             "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_ROLLBACK_FAILED",
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(INPUT_STREAM, GROUP, msg_id)

@@ -17,7 +17,7 @@ Design notes
 * Snapshot rows are derived from the latest seen event per `sid` while preserving
   raw JSON payloads for forensic review.
 * The script does not assume every stream message has identical fields.
-""",
+"""
 
 import argparse
 import json
@@ -184,7 +184,7 @@ def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[Exe
                 )
             for row in snapshots:
                 cur.execute(
-                    """,
+                    """
                     INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                     ON CONFLICT (sid) DO UPDATE SET
@@ -199,12 +199,12 @@ def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[Exe
                       working_type_policy = EXCLUDED.working_type_policy,
                       state_jsonb = EXCLUDED.state_jsonb,
                       updated_at_ms = GREATEST(execution_orders.updated_at_ms, EXCLUDED.updated_at_ms)
-                    """,
+                    """
                     (row.sid, row.symbol, row.action, row.status, row.fsm_state, row.execution_policy, row.venue, row.position_mode, row.position_side, row.working_type_policy, row.state_jsonb, row.created_at_ms, row.updated_at_ms),
                 )
             for row in refs:
                 cur.execute(
-                    """,
+                    """
                     INSERT INTO execution_protection_refs (sid, symbol, sl_algo_id, sl_client_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id, trail_client_algo_id, updated_at_ms)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (sid) DO UPDATE SET
@@ -217,7 +217,7 @@ def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[Exe
                       trail_algo_id = COALESCE(EXCLUDED.trail_algo_id, execution_protection_refs.trail_algo_id),
                       trail_client_algo_id = COALESCE(NULLIF(EXCLUDED.trail_client_algo_id, ''), execution_protection_refs.trail_client_algo_id),
                       updated_at_ms = GREATEST(execution_protection_refs.updated_at_ms, EXCLUDED.updated_at_ms)
-                    """,
+                    """
                     (row.sid, row.symbol, row.sl_algo_id, row.sl_client_algo_id, row.tp1_algo_id, row.tp2_algo_id, row.tp3_algo_id, row.trail_algo_id, row.trail_client_algo_id, row.updated_at_ms),
                 )
 

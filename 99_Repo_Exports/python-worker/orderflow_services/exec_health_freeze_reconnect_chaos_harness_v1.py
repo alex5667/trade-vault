@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """ExecHealth Redis reconnect chaos/integration harness.
 
 P16 adds an operator-facing harness and deterministic integration tests for the
@@ -13,8 +12,7 @@ local helper:
 - wrong_user remains a hard violation and is not self-healed.
 
 The harness can run against a real Redis URL or against test doubles.
-"""
-
+""",
 import argparse
 import json
 import os
@@ -147,7 +145,7 @@ def _default_redis_url_for_service(service: str) -> str:
     Service identity contract maps each service to a role (writer/audit/bootstrap).
     The chaos harness must connect with the matching user, otherwise
     ensure_service_identity_sync will raise a 'wrong_user' violation.
-    """
+    """,
     try:
         from services.orderflow.exec_health_freeze_service_identity import get_expected_service
         expected = get_expected_service(service)

@@ -110,6 +110,16 @@ def check_tb_health(
                 elif isinstance(xp, (list, tuple)) and len(xp) >= 1:
                     pending = _safe_int(xp[0], 0)
 
+                # Get stream head
+                try:
+                    s_info = r.xinfo_stream(input_stream)
+                    stream_last_id = s_info.get("last-generated-id") or s_info.get("last_generated_id") or b"0-0"
+                    if isinstance(stream_last_id, (bytes, bytearray)):
+                        stream_last_id = stream_last_id.decode("utf-8", "ignore")
+                    stream_head_ms = _parse_stream_id_ms(str(stream_last_id))
+                except Exception:
+                    stream_head_ms = now_ms
+
                 # XINFO GROUPS for last-delivered-id
                 groups = r.execute_command("XINFO", "GROUPS", input_stream)
                 last_delivered = None
@@ -134,7 +144,7 @@ def check_tb_health(
                 if last_delivered:
                     if isinstance(last_delivered, (bytes, bytearray)):
                         last_delivered = last_delivered.decode("utf-8", "ignore")
-                    group_lag_ms = now_ms - _parse_stream_id_ms(str(last_delivered))
+                    group_lag_ms = max(0, stream_head_ms - _parse_stream_id_ms(str(last_delivered)))
                 else:
                     group_lag_ms = 0
             except Exception:

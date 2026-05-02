@@ -31,12 +31,12 @@ class PgConfig:
 
 
 class NewsPostgresWriterAsync:
-    """,
+    """
     Асинхронный writer:
     - consumer поток кладёт записи в очередь (O(1), очень быстро)
     - отдельный поток батчит и пишет
     - fail-open: при проблемах просто "молчим", чтобы пайплайн не стоял
-    """,
+    """
 
     def __init__(self, cfg: PgConfig) -> None:
         self.cfg = cfg
@@ -129,7 +129,7 @@ class NewsPostgresWriterAsync:
         if analysis_rows:
             psycopg2.extras.execute_values(
                 cur,
-                """,
+                """
                 INSERT INTO news_analysis(uid, ts_ms, symbol, source, risk, surprise, tags_mask, primary_tag, payload_json)
                 VALUES %s
                 ON CONFLICT (uid) DO UPDATE SET
@@ -161,7 +161,7 @@ class NewsPostgresWriterAsync:
         if feature_rows:
             psycopg2.extras.execute_values(
                 cur,
-                """,
+                """
                 INSERT INTO news_features_symbol(symbol, ts_ms, risk, surprise, tags_mask, primary_tag, ref)
                 VALUES %s
                 ON CONFLICT (symbol, ts_ms) DO NOTHING

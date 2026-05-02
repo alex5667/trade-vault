@@ -16,12 +16,12 @@ from .handler_dependencies import HandlerDependencies
 
 
 class OrderFlowHandlerFactory:
-    """,
+    """
     Фабрика для создания обработчиков Order Flow.,
     
     Автоматически определяет тип инструмента по символу и создает,
     соответствующий обработчик с нужной конфигурацией.,
-    """,
+    """
     
     # Регистрация обработчиков по типу инструмента
     _handlers: Dict[str, Dict[str, Type[BaseOrderFlowHandler]]] = {

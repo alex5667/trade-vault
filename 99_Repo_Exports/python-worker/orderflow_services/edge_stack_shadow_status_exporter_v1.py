@@ -7,9 +7,7 @@ Reads a JSON status file produced by `tools.edge_stack_shadow_eval_bundle_v1`
 
 This keeps monitoring decoupled from the trading runtime. If the status file is stale
 or cannot be parsed, `edge_stack_shadow_status_up` will be 0.
-"""
-
-
+""",
 import json
 import os
 import time

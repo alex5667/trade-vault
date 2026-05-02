@@ -188,7 +188,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "incumbent_arm": incumbent_arm,
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
-    },
+    }
 
 
 def arm_from_request_id(request_id: str, explicit_arm: str = "") -> str:
@@ -235,7 +235,7 @@ def empty_scorecard(arm: str) -> Dict[str, Any]:
         "score": 0.0,
         "eligible": 0,
         "reason_codes": [],
-    },
+    }
 
 
 def scorecards_from_rows(
@@ -331,7 +331,7 @@ def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[
             "incumbent_arm": incumbent,
             "winner_score": incumbent_card["score"],
             "incumbent_score": incumbent_card["score"],
-        },
+        }
 
     best = max(candidates, key=lambda c: (c["score"], c["avg_usefulness"], c["avg_quality"]))
     margin = round(best["score"] - incumbent_card["score"], 6)
@@ -344,7 +344,7 @@ def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[
             "incumbent_arm": incumbent,
             "winner_score": incumbent_card["score"],
             "incumbent_score": incumbent_card["score"],
-        },
+        }
 
     if best["arm"] == "vertex_candidate":
         decision = "PROMOTE_VERTEX_CANDIDATE"
@@ -360,7 +360,7 @@ def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[
         "incumbent_arm": incumbent,
         "winner_score": best["score"],
         "incumbent_score": incumbent_card["score"],
-    },
+    }
 
 
 async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any]], recommendation: Dict[str, Any]) -> None:
@@ -370,7 +370,8 @@ async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any
         with conn.cursor() as cur:
             for arm, card in scorecards.items():
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_scorecards (
                         ts_ms, arm, exposure_n, result_n, feedback_n, avg_quality,
                         avg_usefulness, accepted_rate, result_coverage, feedback_coverage,
@@ -386,10 +387,11 @@ async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any
                         "arm": arm,
                         **{k: v for k, v in card.items() if k not in {"arm", "reason_codes"}},
                         "reason_codes_json": json.dumps(card["reason_codes"]),
-                    },
+                    }
                 )
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_evaluator_decisions (
                     ts_ms, decision, reason_code, winner_arm, incumbent_arm,
                     winner_score, incumbent_score, decision_json
@@ -402,7 +404,7 @@ async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any
                     "ts_ms": now_ms(),
                     **recommendation,
                     "decision_json": json.dumps(recommendation),
-                },
+                }
             )
             conn.commit()
 
@@ -460,8 +462,7 @@ async def main() -> None:  # pragma: no cover
                         "arm": arm,
                         "scorecard_json": stable_json(card),
                         "ts_ms": str(now_ms()),
-                    },
-                    maxlen=MAXLEN,
+                    }, maxlen=MAXLEN,
                     approximate=True,
                 )
                 if ARM_SCORE:
@@ -483,8 +484,7 @@ async def main() -> None:  # pragma: no cover
                     "incumbent_score": str(recommendation["incumbent_score"]),
                     "scorecards_json": stable_json(scorecards),
                     "ts_ms": str(now_ms()),
-                },
-                maxlen=MAXLEN,
+                }, maxlen=MAXLEN,
                 approximate=True,
             )
             await r.hset(
@@ -497,7 +497,7 @@ async def main() -> None:  # pragma: no cover
                     "winner_score": str(recommendation["winner_score"]),
                     "incumbent_score": str(recommendation["incumbent_score"]),
                     "ts_ms": str(now_ms()),
-                },
+                }
             )
             await r.xadd(
                 AUDIT_STREAM,
@@ -507,8 +507,7 @@ async def main() -> None:  # pragma: no cover
                     "reason_code": recommendation["reason_code"],
                     "winner_arm": recommendation["winner_arm"],
                     "ts_ms": str(now_ms()),
-                },
-                maxlen=MAXLEN,
+                }, maxlen=MAXLEN,
                 approximate=True,
             )
             if LAST_RUN_TS:
@@ -521,8 +520,7 @@ async def main() -> None:  # pragma: no cover
                     "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_EVALUATOR_FAILED",
                     "error": str(exc),
                     "ts_ms": str(now_ms()),
-                },
-                maxlen=MAXLEN,
+                }, maxlen=MAXLEN,
                 approximate=True,
             )
         finally:

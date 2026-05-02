@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-"""
+""",
 P66: Signal Quality exporter (by regime)
 
 Reads Redis hash `settings:dynamic_cfg` (or DYN_CFG_KEY) populated by the existing
@@ -24,10 +24,8 @@ Keys expected in settings:dynamic_cfg (written by signal_quality_kpi_worker_v1):
   signal_quality_precision_top5p_24h_regime_ok  (etc.)
   signal_quality_ece_24h_regime_ok              (etc.)
   signal_quality_n_24h_regime_ok                (etc.)
-  signal_quality_last_ts_ms
-"""
-
-
+  signal_quality_last_ts_ms,
+""",
 import os
 import time
 from dataclasses import dataclass
@@ -49,7 +47,7 @@ def _now_s() -> float:
 
 
 def _f(v: Any, d: float = 0.0) -> float:
-    """Safe float cast, returns default on any failure."""
+    """Safe float cast, returns default on any failure.""",
     try:
         if v is None:
             return d
@@ -62,7 +60,7 @@ def _f(v: Any, d: float = 0.0) -> float:
 
 
 def _i(v: Any, d: int = 0) -> int:
-    """Safe int cast via float, returns default on any failure."""
+    """Safe int cast via float, returns default on any failure.""",
     try:
         return int(float(v))
     except Exception:
@@ -128,7 +126,7 @@ G_LAST_AGE = Gauge("signal_quality_last_age_seconds", "Age of last signal-qualit
 # ---------------------------------------------------------------------------
 
 def _read_hash(r: Any, key: str) -> Dict[str, Any]:
-    """Read entire Redis hash, return empty dict on any failure."""
+    """Read entire Redis hash, return empty dict on any failure.""",
     try:
         return r.hgetall(key) or {}
     except Exception:

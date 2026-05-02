@@ -118,7 +118,7 @@ class GovernorRepo:
                         AVG(COALESCE(usefulness_score, 0.0)) as avg_usefulness
                     FROM llm_operator_routing_incident_rca_results
                     WHERE ts_ms >= %(cutoff_ms)s
-                    GROUP BY task_type, prompt_version, policy_version
+                    GROUP BY task_type, prompt_version, policy_version,
                     """,
                     {"cutoff_ms": cutoff_ms},
                 )
@@ -144,7 +144,7 @@ class GovernorRepo:
                         AVG(COALESCE(usefulness_score, 0.0)) as avg_usefulness
                     FROM llm_operator_routing_incident_rca_results
                     WHERE ts_ms >= %(cutoff_ms)s
-                    GROUP BY provider, model_name, prompt_version
+                    GROUP BY provider, model_name, prompt_version,
                     """,
                     {"cutoff_ms": cutoff_ms},
                 )
@@ -179,7 +179,7 @@ class GovernorRepo:
                 "score": str(decision["score"]),
                 "sample_n": str(decision["sample_n"]),
                 "ts_ms": str(decision["ts_ms"]),
-            },
+            }
         )
 
     def persist_decision_sql(self, decisions: List[Dict[str, Any]]) -> None:
@@ -189,7 +189,8 @@ class GovernorRepo:
             with conn.cursor() as cur:
                 for d in decisions:
                     cur.execute(
-                        """,
+                        """
+
                         INSERT INTO llm_operator_routing_incident_rca_governor_decisions (
                             scope_type,
                             scope_key,
@@ -216,7 +217,7 @@ class GovernorRepo:
                             "sample_n": d["sample_n"],
                             "advisory_only": ADVISORY_ONLY == 1,
                             "ts_ms": d["ts_ms"],
-                        },
+                        }
                     )
                 conn.commit()
 

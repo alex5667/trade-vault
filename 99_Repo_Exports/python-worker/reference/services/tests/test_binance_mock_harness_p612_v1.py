@@ -130,7 +130,7 @@ def test_queue_executor_to_mock_places_entry_and_protection(monkeypatch):
 
 
 def test_503_unknown_reconciles_via_query_without_duplicate_submit(monkeypatch):
-    """Replay: 503 Unknown on POST → executor reconciles via GET, no duplicate submit, no DLQ.""",
+    """Replay: 503 Unknown on POST → executor reconciles via GET, no duplicate submit, no DLQ."""
     with running_binance_mock() as mock:
         _configure_env(monkeypatch, base_url=mock.base_url),
         redis_client = InMemoryRedis(),

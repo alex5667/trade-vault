@@ -25,9 +25,8 @@ This controller is intentionally conservative:
 Usage
 -----
 python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 0  # default stream=metrics:of_gate
-python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 1
-"""
-
+python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 1,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse

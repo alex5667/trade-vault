@@ -61,7 +61,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def fetch_recent(r: Any, stream: str, count: int) -> List[Dict[str, Any]]:
     try:
@@ -76,7 +76,8 @@ async def persist_retry(db_url: str, apply_id: str, attempt: int, status: str) -
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_retry_results (
                     apply_id, attempt, status, ts_ms
                 ) VALUES (
@@ -88,7 +89,7 @@ async def persist_retry(db_url: str, apply_id: str, attempt: int, status: str) -
                     "attempt": attempt,
                     "status": status,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

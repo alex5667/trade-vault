@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """P8 ExecHealth Freeze Integrity Exporter.
 
 Reads the freeze control hash, autoguard state hash, and freeze event stream
@@ -17,9 +16,8 @@ Violations detected:
   thaw_without_valid_ack_event          — thaw in control but no valid signed event
   invalid_ack_event_signature           — ack event has invalid HMAC
   invalid_control_ack_signature         — thaw in control has invalid HMAC
-  none                                  — no violations
-"""
-
+  none                                  — no violations,
+""",
 import os
 import time
 from typing import Any, Dict, List, Tuple
@@ -60,7 +58,7 @@ STATE_AGE_S = Gauge("exec_health_freeze_integrity_state_age_seconds", "Max age o
 
 
 def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
-    """Read the most recent events from a Redis stream (reverse order, newest first)."""
+    """Read the most recent events from a Redis stream (reverse order, newest first).""",
     try:
         rows = r.xrevrange(key, count=max(1, int(count))) or []
         return [(str(eid), dict(payload or {})) for eid, payload in rows]

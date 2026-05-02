@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Prometheus exporter for strategy research guard state (P5.1).
 
 Reads two compact Redis hashes produced by the nightly research job / blocker path:
@@ -14,8 +13,7 @@ Design goals:
 
 The exporter intentionally does not emit free-form string labels from Redis to avoid
 accidental cardinality explosions in Prometheus.
-"""
-
+""",
 import logging
 import os
 import time

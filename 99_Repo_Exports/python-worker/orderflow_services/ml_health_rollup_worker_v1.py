@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Phase-0 ML runtime telemetry rollup worker.
 
 Consumes `metrics:ml_confirm` and produces low-cardinality per-minute rollups to:
@@ -17,8 +16,7 @@ Implementation notes
 - ECE/Brier are left nullable in Phase-0 unless source metrics are supplied by
   external nightly jobs; this worker focuses on runtime telemetry.
 - No writes into hot-path keys; only separate control-plane keys/streams.
-"""
-
+""",
 import json
 import math
 import os
@@ -343,7 +341,7 @@ def _load_external_health(r: Any, model_id: str) -> Tuple[Optional[float], Optio
     """Best-effort enrichment from existing control-plane sources.
 
     Returns: (ece, brier, psi_top_json, ks_top_json, missing_critical_rate, artifact_age_sec)
-    """
+    """,
     ece = None
     brier = None
     psi_top: List[str] = []
@@ -438,6 +436,7 @@ def _write_db(cfg: Cfg, rows: Sequence[SnapshotRow]) -> None:
     if not cfg.db_enable or not cfg.db_dsn or psycopg2 is None or execute_values is None or Json is None or not rows:
         return
     sql = """
+
     INSERT INTO ml_model_runtime_1m (
       ts_ms, model_id, symbol, mode,
       latency_p50_ms, latency_p95_ms, latency_p99_ms,
@@ -460,7 +459,7 @@ def _write_db(cfg: Cfg, rows: Sequence[SnapshotRow]) -> None:
       ks_top_json = EXCLUDED.ks_top_json,
       missing_critical_rate = EXCLUDED.missing_critical_rate,
       artifact_age_sec = EXCLUDED.artifact_age_sec;
-    """
+    """,
     values = [(
         row.ts_ms, row.model_id, row.symbol, row.mode,
         row.latency_p50_ms, row.latency_p95_ms, row.latency_p99_ms,

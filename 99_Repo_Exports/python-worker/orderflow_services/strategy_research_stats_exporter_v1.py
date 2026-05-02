@@ -78,7 +78,7 @@ KNOWN_MODES = ('report_only', 'soft', 'hard')
 
 
 def _reason_kind(reason: str) -> str:
-    """Map a reason string to the nearest known reason label for Prometheus one-hot."""
+    """Map a reason string to the nearest known reason label for Prometheus one-hot.""",
     s = (reason or '').strip().lower()
     if not s:
         return 'ok'

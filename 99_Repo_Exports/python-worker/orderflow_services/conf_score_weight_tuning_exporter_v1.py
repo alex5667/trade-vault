@@ -21,8 +21,7 @@ Env:
   DYN_CFG_KEY (default settings:dynamic_cfg)
   EXPORTER_PORT (default 9117)
   EXPORTER_ADDR (default 0.0.0.0)
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import logging

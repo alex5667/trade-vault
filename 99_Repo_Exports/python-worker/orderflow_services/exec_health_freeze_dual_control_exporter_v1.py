@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """P9 dual-control thaw state exporter for Prometheus.
 
 Reads the freeze control hash, state hash, and event stream from Redis,
@@ -16,9 +15,8 @@ Metrics exposed:
   exec_health_freeze_dual_control_same_operator_violation    — 1 if preparer == approver
   exec_health_freeze_dual_control_status{status}        — one-hot by request status
   exec_health_freeze_dual_control_violation{kind}       — one-hot by violation kind
-  exec_health_freeze_dual_control_request_age_seconds   — seconds since prepare-thaw was called
-"""
-
+  exec_health_freeze_dual_control_request_age_seconds   — seconds since prepare-thaw was called,
+""",
 import os
 import time
 from typing import Any, Dict, List, Tuple

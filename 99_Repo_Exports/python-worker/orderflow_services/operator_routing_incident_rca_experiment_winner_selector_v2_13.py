@@ -109,8 +109,8 @@ class ExperimentWinnerRepo:
                       AND e.ts_ms > %s
                       AND r.quality_score IS NOT NULL
                       AND r.usefulness_score IS NOT NULL
-                    GROUP BY bucket
-                    """,
+                    GROUP BY bucket,
+                    """
                     (EXPERIMENT_ID, cutoff_ms),
                 )
                 rows = cur.fetchall()

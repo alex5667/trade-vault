@@ -12,8 +12,7 @@ Supported calibrators (operate on logit(p)):
 Notes
   - These are standard post-hoc calibration methods.
   - Training is done offline (see ml_analysis/tools/train_confidence_calibrator.py).
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -103,7 +102,7 @@ def _symbol_from_runtime(runtime: Any) -> str:
 
 
 def load_calibrator_payload(path: str) -> Optional[Dict[str, Any]]:
-    """Load and schema-guard a calibrator JSON payload."""
+    """Load and schema-guard a calibrator JSON payload.""",
     if not path:
         return None
     try:
@@ -155,7 +154,7 @@ def get_cached_calibrator(
     max_age_ms: int = 0,
     disable_if_stale: int = 0,
 ) -> Optional[ConfidenceCalibrator]:
-    """
+    """,
     Fast path for production: keep calibrator cached in runtime and only
     re-check file mtime periodically.
 
@@ -170,8 +169,8 @@ def get_cached_calibrator(
         "last_check_ms": int,
         "cal": ConfidenceCalibrator|None,
         "meta": dict|None,
-      }
-    """
+      },
+    """,
     try:
         p = str(path or "").strip()
         if not p:

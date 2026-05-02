@@ -160,7 +160,7 @@ class SignalRepository:
                     expiry_bars = EXCLUDED.expiry_bars,
                     created_at = EXCLUDED.created_at,
                     meta = EXCLUDED.meta;
-                """
+                """,
                 {
                     "signal_id": plan.signal_id,
                     "ts_signal": plan.ts_signal,

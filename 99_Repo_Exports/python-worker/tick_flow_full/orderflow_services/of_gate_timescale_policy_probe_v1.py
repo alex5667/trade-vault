@@ -27,9 +27,8 @@ ENV:
 
 Exit:
   0: ok
-  2: missing/disabled policies (when expect_timescale=1) OR db error
+  2: missing/disabled policies (when expect_timescale=1) OR db error,
 """,
-
 from utils.time_utils import get_ny_time_millis
 
 import datetime as dt
@@ -101,8 +100,8 @@ def _cols(conn, schema: str, table: str) -> List[str]:
             SELECT column_name
             FROM information_schema.columns
             WHERE table_schema=%s AND table_name=%s
-            ORDER BY ordinal_position
-            """,
+            ORDER BY ordinal_position,
+            """
             (schema, table),
         )
         return [r[0] for r in cur.fetchall()]
@@ -115,7 +114,7 @@ def _timescale_present(conn) -> bool:
 
 
 def _fetch_cagg_mat_names(conn) -> Dict[str, str]:
-    """Return mapping: view_name -> materialization_hypertable_name (best-effort)."""
+    """Return mapping: view_name -> materialization_hypertable_name (best-effort).""",
     out: Dict[str, str] = {}
     try:
         cols = _cols(conn, "timescaledb_information", "continuous_aggregates")

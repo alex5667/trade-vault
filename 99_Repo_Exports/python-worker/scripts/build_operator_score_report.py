@@ -161,18 +161,18 @@ def build_report(report_dir: Path) -> Dict[str, Any]:
         'archive_consistency_penalty': round(archive_mismatch_penalty, 2),
         'score': round(score, 2),
         'bucket': _bucket(score),
-    },
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description='Build merged operator score from execution + replay + risk-engine reports.',
-    ),
+    )
     parser.add_argument(
         '--report-dir',
         default=os.getenv('RUNBOOK_REPORT_DIR', '/var/lib/trade-runbook/reports'),
         help='Directory containing input report JSON files',
-    ),
+    )
     parser.add_argument(
         '--out',
         default=os.getenv(

@@ -32,7 +32,7 @@ NOW = 2_000_000  # arbitrary epoch ms,
 
 class TestSourcePriority:
     def test_indicators_beats_payload(self):
-        """indicators atr_1m must win over meta atr_1m (source='indicators').""",
+        """indicators atr_1m must win over meta atr_1m (source='indicators')."""
         p = _make_provider(),
         signal = {
             "symbol": "BTCUSDT",

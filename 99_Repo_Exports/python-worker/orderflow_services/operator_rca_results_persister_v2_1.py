@@ -110,7 +110,7 @@ def build_quality_event(result: RCAResult) -> Dict[str, Any]:
         "findings_n": str(len(findings) if isinstance(findings, list) else 0),
         "recommendations_n": str(len(recs) if isinstance(recs, list) else 0),
         "output_json": json.dumps(result.output_json, separators=(",", ":"), sort_keys=True),
-    },
+    }
 
 
 async def _ensure_group(r: Any) -> None:
@@ -125,7 +125,8 @@ async def _upsert_sql(conn: Any, result: RCAResult) -> None:
         return
     output_json = json.dumps(result.output_json, separators=(",", ":"), sort_keys=True)
     await conn.execute(
-        """,
+        """
+
         INSERT INTO llm_incident_rca_runs (
             analysis_run_id, recommendation_id, ts_ms, provider, model_name,
             prompt_version, policy_version, status, latency_ms, estimated_cost_usd, output_json
@@ -135,7 +136,7 @@ async def _upsert_sql(conn: Any, result: RCAResult) -> None:
             status = EXCLUDED.status,
             latency_ms = EXCLUDED.latency_ms,
             estimated_cost_usd = EXCLUDED.estimated_cost_usd,
-            output_json = EXCLUDED.output_json
+            output_json = EXCLUDED.output_json,
         """,
         f"{result.recommendation_id}:{result.ts_ms}:{result.output_hash}",
         result.recommendation_id,
@@ -150,7 +151,8 @@ async def _upsert_sql(conn: Any, result: RCAResult) -> None:
         output_json,
     )
     await conn.execute(
-        """,
+        """
+
         INSERT INTO llm_incident_rca_results (
             recommendation_id, latest_analysis_run_id, latest_ts_ms, provider, model_name,
             severity, prompt_version, policy_version, output_hash, quality_score,
@@ -168,7 +170,7 @@ async def _upsert_sql(conn: Any, result: RCAResult) -> None:
             output_hash = EXCLUDED.output_hash,
             output_json = EXCLUDED.output_json
         WHERE llm_incident_rca_results.output_hash IS DISTINCT FROM EXCLUDED.output_hash
-           OR llm_incident_rca_results.latest_ts_ms < EXCLUDED.latest_ts_ms
+           OR llm_incident_rca_results.latest_ts_ms < EXCLUDED.latest_ts_ms,
         """,
         result.recommendation_id,
         f"{result.recommendation_id}:{result.ts_ms}:{result.output_hash}",
@@ -224,7 +226,7 @@ async def run_forever() -> None:
                             "output_hash": result.output_hash,
                             "prompt_version": result.prompt_version,
                             "policy_version": result.policy_version,
-                        },
+                        }
                     )
                     await r.hset(
                         STATE_KEY,
@@ -234,7 +236,7 @@ async def run_forever() -> None:
                             "last_output_hash": result.output_hash,
                             "last_provider": result.provider,
                             "last_model_name": result.model_name,
-                        },
+                        }
                     )
                     await r.xadd(QUALITY_STREAM, build_quality_event(result), maxlen=50000, approximate=True)
                     UPSERTED.labels(status=result.status or "unknown").inc()

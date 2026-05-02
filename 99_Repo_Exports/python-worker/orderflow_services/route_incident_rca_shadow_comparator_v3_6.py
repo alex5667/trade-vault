@@ -251,7 +251,7 @@ def compare_rows(handoff: Dict[str, Any], legacy: Dict[str, Any]) -> Dict[str, A
         "legacy_primary_reason_codes": legacy_prc,
         "primary_reason_codes_only_handoff": prc_only_handoff,
         "primary_reason_codes_only_legacy": prc_only_legacy,
-    },
+    }
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -309,7 +309,8 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_shadow_comparisons (
                     correlation_key,
                     incident_id,
@@ -342,7 +343,7 @@ async def persist_if_configured(
                     "handoff_payload_json": json.dumps(handoff),
                     "legacy_payload_json": json.dumps(legacy),
                     "comparison_json": json.dumps(comparison),
-                },
+                }
             )
             conn.commit()
 
@@ -362,8 +363,7 @@ async def process_side(
                 "side": side,
                 "reason_code": "CORRELATION_KEY_MISSING",
                 "ts_ms": str(now_ms()),
-            },
-            maxlen=MAXLEN,
+            }, maxlen=MAXLEN,
             approximate=True,
         )
         return
@@ -388,7 +388,7 @@ async def process_side(
         "reason_codes_json": stable_json(comparison["reason_codes"]),
         "comparison_json": stable_json(comparison),
         "ts_ms": str(now_ms()),
-    },
+    }
     await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
     await r.xadd(
         AUDIT_STREAM,
@@ -399,8 +399,7 @@ async def process_side(
             "score": str(comparison["score"]),
             "reason_codes_json": stable_json(comparison["reason_codes"]),
             "ts_ms": str(now_ms()),
-        },
-        maxlen=MAXLEN,
+        }, maxlen=MAXLEN,
         approximate=True,
     )
     await r.hset(
@@ -412,7 +411,7 @@ async def process_side(
             "score": str(comparison["score"]),
             "reason_codes_json": stable_json(comparison["reason_codes"]),
             "ts_ms": str(now_ms()),
-        },
+        }
     )
     if COMPARES:
         COMPARES.labels(status=comparison["status"]).inc()
@@ -463,8 +462,7 @@ async def main() -> None:  # pragma: no cover
                             "side": side,
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(stream_name, GROUP, msg_id)

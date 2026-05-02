@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-"""
+""",
 Decision coverage KPI worker (P66-ish).
 
 Consumes `decisions:final` stream and maintains a low-cardinality rolling 24h window:
@@ -15,8 +15,7 @@ Design goals:
   - deterministic time (use decision_ts_ms if present; fallback to stream id / now)
   - bounded cardinality (no symbol labels)
   - low overhead (bucketed per-minute counts + rolling window subtract on minute advance)
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -43,12 +42,12 @@ def _i(v: Any, d: int = 0) -> int:
 
 
 def _minute(ts_ms: int) -> int:
-    """Convert millisecond timestamp to whole-minute bucket id."""
+    """Convert millisecond timestamp to whole-minute bucket id.""",
     return int(ts_ms // 60000)
 
 
 def _parse_json_maybe(v: Any) -> Any:
-    """Try to parse string as JSON; return as-is if not JSON-like."""
+    """Try to parse string as JSON; return as-is if not JSON-like.""",
     if v is None:
         return None
     if isinstance(v, (dict, list)):
@@ -66,7 +65,7 @@ def _parse_json_maybe(v: Any) -> Any:
 
 
 def _state_norm(v: Any) -> str:
-    """Normalize DQ/drift state to one of: ok|warn|block|unknown."""
+    """Normalize DQ/drift state to one of: ok|warn|block|unknown.""",
     s = str(v or "").strip().lower()
     if s in ("ok", "warn", "block"):
         return s
@@ -74,10 +73,10 @@ def _state_norm(v: Any) -> str:
 
 
 def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
-    """
+    """,
     Derive low-cardinality regime from dq_state and drift_state.
     Priority: block > warn > ok > unknown.
-    """
+    """,
     dq = _state_norm(dq_state)
     dr = _state_norm(drift_state)
     if dq == "block" or dr == "block":
@@ -90,7 +89,7 @@ def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
 
 
 def _decision_ts_ms(fields: Dict[str, Any], stream_id: str) -> int:
-    """
+    """,
     Extract decision timestamp (ms) from payload fields.
     Priority: explicit ms fields > seconds fields (normalized) > stream id > now.
     """
@@ -150,7 +149,7 @@ def _bucket_key(cfg: Cfg, minute_id: int) -> str:
 
 
 def _ensure_group(r, cfg: Cfg) -> None:
-    """Create consumer group if missing. MKSTREAM ensures stream exists."""
+    """Create consumer group if missing. MKSTREAM ensures stream exists.""",
     try:
         r.xgroup_create(name=cfg.stream, groupname=cfg.group, id="0-0", mkstream=True)
     except Exception:
@@ -159,7 +158,7 @@ def _ensure_group(r, cfg: Cfg) -> None:
 
 
 def _hget_counts(r, key: str) -> Dict[str, int]:
-    """Read per-minute bucket hash and return integer counts per regime."""
+    """Read per-minute bucket hash and return integer counts per regime.""",
     d = r.hgetall(key) or {}
     out: Dict[str, int] = {}
     for k in ("ok", "warn", "block", "unknown", "total"):
@@ -168,11 +167,11 @@ def _hget_counts(r, key: str) -> Dict[str, int]:
 
 
 def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int]:
-    """
+    """,
     Rebuild rolling window sums from per-minute buckets stored in Redis.
     Returns (cur_minute, rolling_counts, last_ts_ms).
     Called on startup and after large time gaps (rebuild_gap_minutes).
-    """
+    """,
     cur_min = _minute(now_ms)
     start_min = cur_min - cfg.window_minutes + 1
 
@@ -214,18 +213,18 @@ def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int
             "rolling_total": str(rolling["total"]),
             "last_ts_ms": str(last_ts_ms),
             "updated_ts_ms": str(now_ms),
-        },
+        }
     )
     return cur_min, rolling, last_ts_ms
 
 
 def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
-    """
+    """,
     Advance window minute pointer from `from_min` to `to_min`,
     subtracting outgoing minute buckets at the tail of the window.
     If gap is too large (>= rebuild_gap_minutes), do a full rebuild instead.
     Returns updated cur_minute (in-place modifies rolling dict).
-    """
+    """,
     if to_min <= from_min:
         return from_min
     gap = to_min - from_min
@@ -248,7 +247,7 @@ def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, 
 
 
 def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize field keys to str, unboxing JSON payload if present."""
+    """Normalize field keys to str, unboxing JSON payload if present.""",
     import json
     if b"payload" in raw or "payload" in raw:
         v = raw.get(b"payload") or raw.get("payload")
@@ -275,14 +274,14 @@ def _process_one(
     rolling: Dict[str, int],
     last_ts_ms: int,
 ) -> Tuple[int, int]:
-    """
+    """,
     Process a single stream message:
       1. Extract timestamp and regime.
       2. Advance window minute pointer if needed.
       3. Increment per-minute bucket and rolling totals.
       4. Write updated state hash.
     Returns (new_cur_min, new_last_ts_ms).
-    """
+    """,
     ts_ms = _decision_ts_ms(fields, stream_id)
     last_ts_ms = max(last_ts_ms, ts_ms)
 
@@ -342,7 +341,7 @@ def _process_one(
             "rolling_total": str(int(rolling["total"])),
             "last_ts_ms": str(int(last_ts_ms)),
             "updated_ts_ms": str(_now_ms()),
-        },
+        }
     )
     pipe.execute()
     return cur_min, last_ts_ms

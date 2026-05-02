@@ -210,7 +210,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "rollback_mttr_p95_crit_sec": parse_float(raw.get("rollback_mttr_p95_crit_sec"), DEFAULT_ROLLBACK_MTTR_P95_CRIT_SEC),
         "escalation_rate_crit": parse_float(raw.get("escalation_rate_crit"), DEFAULT_ESCALATION_RATE_CRIT),
         "max_bundle_bytes": parse_int(raw.get("max_bundle_bytes"), DEFAULT_MAX_BUNDLE_BYTES),
-    },
+    }
 
 
 def recent(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -262,7 +262,7 @@ def build_summary(
         "rollback_applied_rate": parse_float(slo_payload.get("rollback_applied_rate"), 0.0),
         "rollback_mttr_p95_sec": parse_float(slo_payload.get("rollback_mttr_p95_sec"), 0.0),
         "escalation_rate": parse_float(slo_payload.get("escalation_rate"), 0.0),
-    },
+    }
 
 
 def choose_trigger(trigger_stream: str, trigger_row: Dict[str, Any]) -> Dict[str, str]:
@@ -360,7 +360,7 @@ def build_bundle(
             "recent_escalation": recent(escalation_rows)[:5],
         },
         "ts_ms": now_ms(),
-    },
+    }
     return bundle
 
 
@@ -394,7 +394,8 @@ async def persist_if_configured(db_url: str, bundle: Dict[str, Any], trigger_str
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_incident_bundles (
                     bundle_id, ts_ms, trigger_type, trigger_reason_code, trigger_severity, source_stream, bundle_json
                 ) VALUES (
@@ -409,7 +410,7 @@ async def persist_if_configured(db_url: str, bundle: Dict[str, Any], trigger_str
                     "trigger_severity": bundle["trigger_severity"],
                     "source_stream": trigger_stream,
                     "bundle_json": json.dumps(bundle),
-                },
+                }
             )
             conn.commit()
 
@@ -480,8 +481,7 @@ async def main() -> None:  # pragma: no cover
                                     "reason_code": "BUNDLE_TOO_LARGE",
                                     "trigger_type": trigger_type,
                                     "ts_ms": str(now_ms()),
-                                },
-                                maxlen=MAXLEN,
+                                }, maxlen=MAXLEN,
                                 approximate=True,
                             )
                         else:
@@ -495,8 +495,7 @@ async def main() -> None:  # pragma: no cover
                                     "trigger_severity": bundle["trigger_severity"],
                                     "bundle_json": bundle_json,
                                     "ts_ms": str(now_ms()),
-                                },
-                                maxlen=MAXLEN,
+                                }, maxlen=MAXLEN,
                                 approximate=True,
                             )
                             await r.hset(
@@ -507,7 +506,7 @@ async def main() -> None:  # pragma: no cover
                                     "trigger_reason_code": bundle["trigger_reason_code"],
                                     "trigger_severity": bundle["trigger_severity"],
                                     "ts_ms": str(now_ms()),
-                                },
+                                }
                             )
                             if BUNDLES:
                                 BUNDLES.labels(trigger_type=bundle["trigger_type"], severity=bundle["trigger_severity"]).inc()
@@ -521,8 +520,7 @@ async def main() -> None:  # pragma: no cover
                                 "trigger_type": trigger_type,
                                 "severity": decision["severity"],
                                 "ts_ms": str(now_ms()),
-                            },
-                            maxlen=MAXLEN,
+                            }, maxlen=MAXLEN,
                             approximate=True,
                         )
                     await r.xack(stream_name, GROUP, msg_id)
@@ -537,8 +535,7 @@ async def main() -> None:  # pragma: no cover
                             "error": str(exc),
                             "trigger_type": trigger_type,
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(stream_name, GROUP, msg_id)

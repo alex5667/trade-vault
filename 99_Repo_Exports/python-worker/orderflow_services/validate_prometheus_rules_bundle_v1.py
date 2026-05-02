@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 """Prometheus rules bundle validator (CI/local).
 
 Goal
@@ -27,9 +26,8 @@ What it validates
 Exit codes
 ----------
 - 0: OK
-- 2: validation failed
-"""
-
+- 2: validation failed,
+""",
 import argparse
 import shutil
 import subprocess

@@ -42,9 +42,8 @@ Env (recommended):
   CONF_SCORE_GUARD_BUNDLE_STAGED_POINTER
   CONF_SCORE_GUARD_BUNDLE_POINTER
   CONF_SCORE_GUARD_LOCK_PATH
-  CONF_SCORE_GUARD_HEALTH_STATE_PATH
-"""
-
+  CONF_SCORE_GUARD_HEALTH_STATE_PATH,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -92,7 +91,7 @@ def atomic_write_json(path: str, obj: Dict[str, Any]) -> None:
 
 
 def acquire_flock(lock_path: str):
-    """Single-writer guard used across stage/promote/autopromo."""
+    """Single-writer guard used across stage/promote/autopromo.""",
     try:
         os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
         f = open(lock_path, "w", encoding="utf-8")
@@ -126,10 +125,10 @@ def safe_float(x: Any) -> Optional[float]:
 
 
 def extract_health_metrics(health: Dict[str, Any]) -> Dict[str, Any]:
-    """
+    """,
     Best-effort normalization (same spirit as promote_v1).
     Accepts either flat dict or nested dict under GLOBAL/status/metrics.
-    """
+    """,
     obj = health if isinstance(health, dict) else {}
     global_section = obj.get("GLOBAL") if isinstance(obj.get("GLOBAL"), dict) else {}
     status_section = obj.get("status") if isinstance(obj.get("status"), dict) else {}
@@ -385,7 +384,7 @@ def evaluate_canary(
 # ----------------------- subprocess helpers -----------------------
 
 def run_module(args: List[str], timeout_sec: int = 120) -> Tuple[int, str, str]:
-    """Run `python -m <module> ...` and return (rc, stdout, stderr)."""
+    """Run `python -m <module> ...` and return (rc, stdout, stderr).""",
     p = subprocess.run(
         args,
         stdout=subprocess.PIPE,

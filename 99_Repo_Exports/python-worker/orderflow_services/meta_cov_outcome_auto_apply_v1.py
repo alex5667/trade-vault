@@ -85,9 +85,8 @@ Ramp (optional, gradual recovery)
 
 Exit codes
 ----------
-0 : OK / no action
-"""
-
+0 : OK / no action,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -214,7 +213,7 @@ def read_closed_trades(*, r: Any, stream: str, since_ms: int, max_scan: int = 50
 
 
 def build_meta_fallback_map(r: Any, stream: str, since_ms: int, max_scan: int) -> Dict[str, tuple[str, int]]:
-    """Builds sid -> (bucket, applied) map from trades:closed for P41 fallback."""
+    """Builds sid -> (bucket, applied) map from trades:closed for P41 fallback.""",
     out: Dict[str, tuple[str, int]] = {}
     last_id = "+"
     scanned = 0

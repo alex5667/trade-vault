@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Node-exporter textfile exporter for orchestration composite preflight history (P5.5 / P6.4).
 
 Reads the unified orchestration preflight audit stream and rolls it into bounded
@@ -10,8 +9,7 @@ block/invalid/soft decisions observable, not only the current point-in-time stat
 P6.4 adds dedicated drilldown metrics for ``strategy_research_stats`` reason
 families so Grafana can answer which research-stat criterion most often stops
 rollout: ``psr_low``, ``dsr_low``, ``pbo_high``, ``metric_low`` or ``report_stale``.
-"""
-
+""",
 import os
 import time
 from collections import Counter
@@ -98,7 +96,7 @@ def _iter_stream_range(client: Any, stream_key: str, min_id: str, *, max_count: 
 
     Uses cursor-based pagination in batches of 1000 to avoid large single XRANGE calls.
     Terminates early when the stream is exhausted or max_count is hit.
-    """
+    """,
     remaining = max(0, int(max_count))
     cursor = min_id
     while remaining > 0:
@@ -118,7 +116,7 @@ def _iter_stream_range(client: Any, stream_key: str, min_id: str, *, max_count: 
 
 
 def _stream_oldest_ts_ms(client: Any, stream_key: str) -> int:
-    """Return the timestamp (ms) of the oldest entry in the stream, or 0 on error/empty."""
+    """Return the timestamp (ms) of the oldest entry in the stream, or 0 on error/empty.""",
     try:
         chunk = client.xrange(stream_key, min='-', max='+', count=1)
     except Exception:
@@ -139,7 +137,7 @@ def parse_event(payload: Mapping, *, entry_id: str) -> 'HistoryEvent | None':
     cannot be extracted (protecting against malformed entries from transient bugs).
     Reason codes that don't match the bounded set collapse into ``<source>:other`` /
     ``none:ok`` — consistent with the P5.4 live exporter's normalization.
-    """
+    """,
     purpose = str(payload.get('purpose') or '').strip()
     if purpose not in ALLOWED_PURPOSES:
         return None
@@ -182,7 +180,7 @@ def aggregate_events(
         counts:  {(window, purpose, source, status, reason_code): int}
         totals:  {(window, purpose): int}
         scanned: {window: int}  — events that landed inside the window (age-based)
-    """
+    """,
     if windows is None:
         windows = WINDOWS_SECONDS
     counts: Dict = Counter()
@@ -212,7 +210,7 @@ def compute_window_summaries(
     complete=1.0 only when the oldest stream event predates the start of the window.
     This is the guard that prevents 7d SLO views from looking green when retention
     is only a few days.
-    """
+    """,
     if windows is None:
         windows = WINDOWS_SECONDS
     oldest_ts_ms = _stream_oldest_ts_ms(client, stream_key)
@@ -256,7 +254,7 @@ def render_metrics(
     Only emits non-zero event counters (to keep the textfile small when many
     label combinations have no data). All other gauges (totals, ratios, coverage)
     are always emitted regardless of value so Prometheus relabelling works correctly.
-    """
+    """,
     if windows is None:
         windows = WINDOWS_SECONDS
     purposes = list(purposes)
@@ -367,7 +365,7 @@ def render_metrics(
 
 
 def export_history_textfile() -> int:
-    """Main export entry-point. Returns 0 on success, raises SystemExit on missing Redis."""
+    """Main export entry-point. Returns 0 on success, raises SystemExit on missing Redis.""",
     stream_key = _env('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')
     export_path = Path(_env(
         'ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_EXPORT_PATH',

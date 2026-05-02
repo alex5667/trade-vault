@@ -10,8 +10,7 @@ Design goals:
 - async-friendly (redis.asyncio)
 
 ENV-driven callers should keep TTL conservative.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -21,12 +20,12 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 
-_RELEASE_LUA = """
+_RELEASE_LUA = """,
 if redis.call('get', KEYS[1]) == ARGV[1] then
   return redis.call('del', KEYS[1])
 else
   return 0
-end
+end,
 """.strip()
 
 
@@ -39,7 +38,7 @@ def _default_token() -> str:
 
 
 async def acquire_lock(r: Any, *, key: str, ttl_sec: int, token: Optional[str] = None) -> str:
-    """Acquire lock and return token, or empty string if busy."""
+    """Acquire lock and return token, or empty string if busy.""",
     tok = str(token or _default_token())
     try:
         ok = await r.set(str(key), tok, nx=True, ex=int(ttl_sec))
@@ -52,7 +51,7 @@ async def acquire_lock(r: Any, *, key: str, ttl_sec: int, token: Optional[str] =
 
 
 async def release_lock(r: Any, *, key: str, token: str) -> bool:
-    """Release lock if token matches."""
+    """Release lock if token matches.""",
     try:
         res = await r.eval(_RELEASE_LUA, 1, str(key), str(token))
         return int(res or 0) == 1

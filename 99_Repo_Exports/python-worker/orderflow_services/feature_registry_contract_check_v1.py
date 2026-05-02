@@ -46,8 +46,7 @@ CLI
 
 Optional:
   --seed-pin 1   (one-time: writes current hashes into cfg hash)
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -72,7 +71,7 @@ def _now_ms() -> int:
 
 
 def _ensure_import_paths() -> None:
-    """Make core.feature_registry importable when running from different working dirs."""
+    """Make core.feature_registry importable when running from different working dirs.""",
     here = os.path.abspath(os.path.dirname(__file__))
     repo_root = os.path.abspath(os.path.join(here, ".."))
     tick_root = os.path.join(repo_root, "tick_flow_full")
@@ -165,7 +164,7 @@ def _compute_current(schema_ver: str,
             "include_scenario": 1 if include_scenario else 0,
             "strict_feature_cols": 1 if strict_feature_cols else 0,
             "forbid_scenario_v4_onehot": 1 if forbid_scenario_v4_onehot else 0,
-        },
+        }
     }
 
     # Provide also the raw dataclasses payload for debugging (bounded)
@@ -177,7 +176,7 @@ def _compute_current(schema_ver: str,
 
 
 def _compare_pins(pins: Dict[str, str], current: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
-    """Return (ok, details)."""
+    """Return (ok, details).""",
     want_ver = _as_str(pins.get("schema_ver") or pins.get("feature_schema_ver") or "").strip()
     want_schema_hash = _as_str(pins.get("schema_hash") or "").strip()
     want_cols_hash = _as_str(pins.get("feature_cols_hash") or "").strip()
@@ -265,7 +264,7 @@ def main() -> int:
                     "ver": dbg.get("feature_spec", {}).get("ver"),
                     "feature_cols_hash": dbg.get("feature_spec", {}).get("feature_cols_hash"),
                     "n": len(dbg.get("feature_spec", {}).get("feature_cols") or []),
-                },
+                }
             }
 
         # Redis I/O (pins + metrics)

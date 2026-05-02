@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """P12: ExecHealth freeze-control ACL deployment policy.
 
 Three operations:
@@ -18,9 +17,8 @@ ENV:
   EXEC_HEALTH_FREEZE_READER_PASS          — password for reader user
   EXEC_HEALTH_FREEZE_WRITER_PASS          — password for writer user
   EXEC_HEALTH_FREEZE_AUDIT_PASS           — password for audit user
-  EXEC_HEALTH_FREEZE_BOOTSTRAP_PASS       — password for bootstrap user
-"""
-
+  EXEC_HEALTH_FREEZE_BOOTSTRAP_PASS       — password for bootstrap user,
+""",
 import json
 import os
 import sys
@@ -64,7 +62,7 @@ _PASS_ENV: Dict[str, str] = {
 
 
 def _substitute_passwords(rules: List[str]) -> List[str]:
-    """Replace %REPLACE_ME_*_PASS placeholders with values from ENV."""
+    """Replace %REPLACE_ME_*_PASS placeholders with values from ENV.""",
     out: List[str] = []
     for token in rules:
         if token in _PASS_ENV:
@@ -79,7 +77,7 @@ def _substitute_passwords(rules: List[str]) -> List[str]:
 
 
 def effective_rules(user: str) -> List[str]:
-    """Return ACL rules for `user` with passwords substituted from ENV."""
+    """Return ACL rules for `user` with passwords substituted from ENV.""",
     raw = list(EXPECTED_ACL_PROFILES.get(user, []))
     return _substitute_passwords(raw)
 
@@ -101,7 +99,7 @@ def _redis_client() -> Any:
 # ─── Render ──────────────────────────────────────────────────────────────────
 
 def render(stream: Any = None) -> None:
-    """Print the full deployment contract to stdout (or stream)."""
+    """Print the full deployment contract to stdout (or stream).""",
     import io
     buf = stream or sys.stdout
     buf.write("# ExecHealth Freeze-Control — Redis ACL Deployment Contract (P12)\n")
@@ -127,8 +125,8 @@ def apply(reload_check: bool = True) -> Dict[str, Any]:
     If reload_check is True, also runs ACL LOAD to verify persistence roundtrip.
 
     Returns a result dict:
-      {ok, applied, failed, warnings, reload_ok}
-    """
+      {ok, applied, failed, warnings, reload_ok},
+    """,
     r = _redis_client()
     heal_service_identity_sync(r, "exec_health_freeze_acl_policy_v1")
     assert_rollout_gate_open(r, purpose='exec_health_freeze_acl_policy_v1.apply', exit_code=24)
@@ -199,8 +197,8 @@ def check() -> Dict[str, Any]:
         default_off: bool,
         missing_users: list[str],
         raw_acl_list: list[str],
-      }
-    """
+      },
+    """,
     r = _redis_client()
     heal_service_identity_sync(r, "exec_health_freeze_acl_policy_v1")
     raw_acl: List[str] = r.execute_command("ACL", "LIST") or []

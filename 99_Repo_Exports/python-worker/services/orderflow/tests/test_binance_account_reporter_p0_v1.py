@@ -30,7 +30,7 @@ from services.binance_account_reporter import (
 
 
 class DummyClient:
-    """Stub client that returns canned Binance API responses without network.""",
+    """Stub client that returns canned Binance API responses without network."""
 
     def __init__(self):
         self._acct = {

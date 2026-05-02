@@ -20,9 +20,7 @@ ENV:
   ANALYTICS_DB_DSN
 
   ENFORCE_REDIS_STREAM, ENFORCE_DB_VIEW_NAME, ENFORCE_DB_VIEW_TS_COL (see gates module)
-"""
-
-
+""",
 import json
 import os
 import time

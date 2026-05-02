@@ -123,7 +123,8 @@ async def persist_if_configured(db_url: str, row: Dict[str, Any]) -> None:
         with psycopg.connect(db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_operator_rca_routing_incident_rca_results (
                         route_change_id,
                         ts_ms,
@@ -150,7 +151,7 @@ async def persist_if_configured(db_url: str, row: Dict[str, Any]) -> None:
                         "prompt_version": row["prompt_version"],
                         "policy_version": row["policy_version"],
                         "result_json": json.dumps(row["result"]),
-                    },
+                    }
                 )
                 conn.commit()
     except Exception:
@@ -171,7 +172,7 @@ async def publish_recommendations(r: Any, route_change_id: str, result: Dict[str
             "recommendation_json": stable_json(reco),
             "review_only": "1",
             "ts_ms": str(now_ms()),
-        },
+        }
         await r.xadd(PROPOSALS_STREAM, payload, maxlen=maxlen, approximate=True)
 
 
@@ -208,7 +209,7 @@ async def main() -> None:  # pragma: no cover
                             "recommendations": [],
                             "provider": "vertex",
                             "model_name": os.getenv("VERTEX_ROUTING_INCIDENT_RCA_MODEL", "gemini-2.5-flash-lite"),
-                        },
+                        }
                     else:
                         result = provider.analyze(request_payload)
                     out = {
@@ -222,7 +223,7 @@ async def main() -> None:  # pragma: no cover
                         "model_name": result.get("model_name", ""),
                         "result_json": stable_json(result),
                         "ts_ms": str(now_ms()),
-                    },
+                    }
                     await r.xadd(RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await publish_recommendations(r, route_change_id, result, MAXLEN)
                     await persist_if_configured(
@@ -235,7 +236,7 @@ async def main() -> None:  # pragma: no cover
                             "prompt_version": out["prompt_version"],
                             "policy_version": out["policy_version"],
                             "result": result,
-                        },
+                        }
                     )
                     await r.xack(REQUESTS_STREAM, GROUP, msg_id)
                     if LAST_RUN_TS:
@@ -249,8 +250,7 @@ async def main() -> None:  # pragma: no cover
                             "payload_json": row.get("payload_json", "{}"),
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(REQUESTS_STREAM, GROUP, msg_id)

@@ -1,10 +1,10 @@
 from __future__ import annotations
-""",
+"""
 Offline signal quality computation job.
 
 This module processes historical signal data to compute quality metrics
 by feature clusters and stores results in the database.
-""",
+"""
 
 
 import logging
@@ -25,7 +25,7 @@ LOOKBACK_DAYS: int = 180  # Historical lookback period
 
 
 def _var_cvar(xs: list[float], alpha: float) -> tuple[float, float]:
-    """,
+    """
     Calculate Value at Risk (VaR) and Conditional VaR (CVaR) at given quantile.
 
     Args:
@@ -34,7 +34,7 @@ def _var_cvar(xs: list[float], alpha: float) -> tuple[float, float]:
 
     Returns:
         Tuple of (VaR, CVaR) at the alpha quantile
-    """,
+    """
     if not xs:
         return (0.0, 0.0)
 
@@ -59,7 +59,7 @@ def compute_quality_score(
     cvar_r: float,
     n: int,
 ) -> float:
-    """,
+    """
     Compute quality score (0-100) from statistical metrics.
 
     Args:
@@ -71,7 +71,7 @@ def compute_quality_score(
 
     Returns:
         Quality score (0-100)
-    """,
+    """
     if n < MIN_N:
         return 0.0  # Insufficient data for reliable assessment
 
@@ -96,7 +96,7 @@ def compute_quality_score(
 
 
 def load_signals(conn: psycopg2.extensions.connection, lookback_days: int = LOOKBACK_DAYS) -> Iterator:
-    """,
+    """
     Load historical signals for quality computation via a server-side cursor.
 
     Using a server-side (named) cursor ensures memory-safe streaming of large
@@ -109,7 +109,7 @@ def load_signals(conn: psycopg2.extensions.connection, lookback_days: int = LOOK
 
     Yields:
         Signal records with required fields
-    """,
+    """
     # lookback_days is an int controlled by internal callers only — safe to
     # interpolate into the SQL literal (not user-supplied data).
     sql = f"""
@@ -130,7 +130,7 @@ def load_signals(conn: psycopg2.extensions.connection, lookback_days: int = LOOK
           AND symbol IS NOT NULL
           AND signal_type IS NOT NULL
           AND side IS NOT NULL
-    """,
+    """
     # Name the cursor so psycopg2 uses a server-side cursor (streaming).
     with conn.cursor(name="sq_offline_load", cursor_factory=DictCursor) as cur:
         cur.itersize = 2000  # Fetch 2 000 rows at a time from the server
@@ -145,7 +145,7 @@ def run_offline_quality_job(
     min_n: int = MIN_N,
     alpha: float = ALPHA,
 ) -> None:
-    """,
+    """
     Run offline quality computation job.
 
     This function processes historical signal data, groups signals by
@@ -157,7 +157,7 @@ def run_offline_quality_job(
         lookback_days: Historical lookback period
         min_n: Minimum observations per bucket
         alpha: VaR/CVaR quantile
-    """,
+    """
     logger.info(
         "Starting offline quality computation (horizon=%s, lookback=%dd, min_n=%d, alpha=%.2f)",
         horizon,
@@ -226,7 +226,7 @@ def run_offline_quality_job(
             with conn.cursor() as cur:
                 execute_values(
                     cur,
-                    """,
+                    """
                     INSERT INTO signal_quality_offline
                         (symbol, signal_type, side, session, regime,
                          feature_bucket, horizon,

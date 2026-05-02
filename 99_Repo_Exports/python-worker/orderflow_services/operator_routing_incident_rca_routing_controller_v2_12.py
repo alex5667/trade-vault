@@ -125,7 +125,8 @@ class RoutingRepo:
         with psycopg.connect(self.db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_operator_routing_incident_rca_routing_decisions (
                         route_change_id,
                         task_type,
@@ -197,7 +198,7 @@ async def determine_route(r: Any, row: Dict[str, str]) -> Dict[str, Any]:
         "routing_reason": reason,
         "mode": MODE,
         "ts_ms": now_ms(),
-    },
+    }
     return decision
 
 
@@ -246,7 +247,7 @@ async def routing_loop(r: Any, repo: RoutingRepo) -> None:
                             "last_model": decision["model_name"],
                             "last_mode": decision["mode"],
                             "last_ts_ms": str(decision["ts_ms"]),
-                        },
+                        }
                     )
                     
                     if ROUTED:

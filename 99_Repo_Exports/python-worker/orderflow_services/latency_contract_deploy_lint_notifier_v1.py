@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Emit ops-event/Telegram summaries for persistent latency deploy-lint drift.
 
 P4.7 adds an operator ack/silence workflow. The rollout gate remains active, but
@@ -10,8 +9,7 @@ operator/ticket/reason metadata, preserving audit trail without pager spam.
 
 P4.14 adds warning-code policy aware notifier route selection so operational
 class changes are deterministic and visible to approval binding.
-"""
-
+""",
 import json
 import os
 import time
@@ -92,7 +90,7 @@ def _partition_active_by_silence(r: Any, *, prefix: str, active: list[str], now_
 
 
 def _split_codes(raw: Any) -> set[str]:
-    """Split a comma-separated warning_codes field into individual code tokens."""
+    """Split a comma-separated warning_codes field into individual code tokens.""",
     return {x.strip() for x in str(raw or '').split(',') if x.strip() and x.strip() != 'none'}
 
 
@@ -100,7 +98,7 @@ def _warning_policy_for_active(cfg: Cfg, details: dict[str, dict[str, str]], act
     """Compute the highest-priority warning severity policy across all active purposes.
 
     Priority: page > crit > warn.  Returns 'none' when no codes are present.
-    """
+    """,
     codes: set[str] = set()
     for purpose in active:
         codes |= _split_codes((details.get(purpose) or {}).get('warning_codes'))
@@ -119,7 +117,7 @@ def _route_class_for_event(event_kind: str, warning_policy: str) -> str:
     """Map event kind and warning policy to a notifier route class.
 
     TTL-expired reactivation events always page regardless of policy.
-    """
+    """,
     if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated':
         return 'page'
     return 'page' if warning_policy == 'page' else 'notify'
@@ -182,7 +180,7 @@ def _emit_ops_event(
 
 
 def _severity_for_event(event_kind: str, warning_policy: str) -> str:
-    """Determine notification severity from event kind and warning policy."""
+    """Determine notification severity from event kind and warning policy.""",
     if event_kind == 'latency_deploy_lint_recovered':
         return 'info'
     if event_kind == 'latency_deploy_lint_silence_ttl_expired_reactivated':
@@ -193,7 +191,7 @@ def _severity_for_event(event_kind: str, warning_policy: str) -> str:
 
 
 def _notify_stream_for_event(cfg: Cfg, event_kind: str, warning_policy: str) -> str:
-    """Select the correct notify stream based on route class."""
+    """Select the correct notify stream based on route class.""",
     return cfg.notify_page_stream if _route_class_for_event(event_kind, warning_policy) == 'page' else cfg.notify_stream
 
 

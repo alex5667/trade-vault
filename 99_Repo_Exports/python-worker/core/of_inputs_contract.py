@@ -127,7 +127,9 @@ class OFInputsV2(OFInputsV1):
     lob_dw_obi_stable: int = 0            # 1 if dw_obi is stable (score + secs above thresholds)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["v"] = 2  # enforce version field — inherited v is 1 by default
+        return d
 
 
 @dataclass

@@ -59,7 +59,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def persist_escalation(db_url: str, severity: str, message: str) -> None:
     if not db_url or psycopg is None:
@@ -69,7 +69,8 @@ async def persist_escalation(db_url: str, severity: str, message: str) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_escalations (
                     severity, summary_json, ts_ms
                 ) VALUES (
@@ -80,7 +81,7 @@ async def persist_escalation(db_url: str, severity: str, message: str) -> None:
                     "severity": severity,
                     "summary_json": _json.dumps(summary),
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

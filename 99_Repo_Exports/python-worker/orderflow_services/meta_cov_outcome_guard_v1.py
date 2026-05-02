@@ -1,7 +1,7 @@
 from utils.time_utils import get_ny_time_millis
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+""",
 meta_cov_outcome_guard_v1.py
 
 P42: Outcome guardrails for meta coverage operations.
@@ -10,8 +10,7 @@ Monitors settings:dynamic_cfg (meta_cov_ops_last_*) and blocks auto-apply if:
 - Last run was NOT OK (last_ok != 1)
 - Preflight requested soft-block (last_preflight_rc == 2)
 - Buckets are quarantined (optional)
-"""
-
+""",
 import argparse
 import json
 import os

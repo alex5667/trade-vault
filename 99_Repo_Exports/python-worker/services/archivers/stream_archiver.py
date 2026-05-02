@@ -799,21 +799,21 @@ class StreamArchiver:
             except (redis.exceptions.BusyLoadingError, redis.exceptions.ConnectionError) as e:
                 print(f"⏳ Redis is loading or unavailable, waiting to create group {group} for {stream}... ({e})")
                 import asyncio
-                await asyncio.sleep(2.0),
+                await asyncio.sleep(2.0)
                 continue
             except Exception as e:
-                err_str = str(e).upper(),
+                err_str = str(e).upper()
                 if "BUSYGROUP" in err_str:
                     break
                 if "LOADING" in err_str:
-                    print(f"⏳ Redis is loading, waiting to create group {group} for {stream}..."),
+                    print(f"⏳ Redis is loading, waiting to create group {group} for {stream}...")
                     import asyncio
-                    await asyncio.sleep(2.0),
+                    await asyncio.sleep(2.0)
                     continue
                 raise
 
     async def dlq(self, dlq_stream: str, stream: str, stream_id: str, err: str, payload: Dict[str, Any]) -> None:
-        """Write failed message to Dead Letter Queue""",
+        """Write failed message to Dead Letter Queue"""
         await self.r.xadd(
             dlq_stream,
             {

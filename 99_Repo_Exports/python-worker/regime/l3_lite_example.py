@@ -11,7 +11,7 @@ from regime import L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot, CryptoCon
 
 
 def simulate_l3_events():
-    """Симуляция потока L3-Lite событий.""",
+    """Симуляция потока L3-Lite событий."""
     events = [
         # Торги
         L3LiteEvent(ts_ms=get_ny_time_millis(), kind="trade", side="bid", price=50000.0, qty=0.1),
@@ -24,7 +24,7 @@ def simulate_l3_events():
 
 
 def simulate_book_snapshot():
-    """Симуляция снимка книги ордеров.""",
+    """Симуляция снимка книги ордеров."""
     return BookSnapshot(
         ts_ms=get_ny_time_millis(),
         bids=[

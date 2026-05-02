@@ -27,7 +27,7 @@ ENV vars:
   RISK_AUDIT_SQL_DSN          — Postgres DSN (fallback: EXECUTION_JOURNAL_DSN)
   RISK_CANARY_LOOKBACK_HOURS  — lookback window in hours (default 24)
   RISK_CANARY_REPORT_PATH     — output file path
-""",
+"""
 
 import argparse
 import json
@@ -84,7 +84,7 @@ def main() -> int:
             with psycopg.connect(args.dsn) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """,
+                        """
                         with base as (
                           select * from risk_decisions
                           where ts >= (now() - (%s * interval '1 hour'))

@@ -14,12 +14,12 @@ from reporting_service import ReportingService
 
 
 def example_1_standalone_tracker():
-    """,
+    """
     Пример 1: Запуск полной системы как standalone сервис.,
     
     Использует конфигурацию из файла или переменных окружения.,
     Работает в бесконечном режиме, обрабатывая сигналы и тики.,
-    """,
+    """
     print("=" * 60),
     print("Пример 1: Standalone Signal Performance Tracker"),
     print("=" * 60),

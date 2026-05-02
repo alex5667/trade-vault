@@ -7,9 +7,7 @@ Exposes gauges by scraping:
 
 Designed to run as a standalone process because production workers may not expose
 /metrics endpoints.
-"""
-
-
+""",
 import json
 import os
 import time

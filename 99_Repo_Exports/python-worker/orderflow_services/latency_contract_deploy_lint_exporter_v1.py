@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
-"""Prometheus exporter for latency deploy-lint state with P4.14 warning-policy / notifier-route approval binding visibility."""
-
+"""Prometheus exporter for latency deploy-lint state with P4.14 warning-policy / notifier-route approval binding visibility.""",
 import os
 import time
 from dataclasses import dataclass

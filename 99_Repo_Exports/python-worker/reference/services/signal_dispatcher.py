@@ -50,7 +50,7 @@ class PendingMsg:
     """
     Lightweight adapter for deterministic unit tests.
     Real code uses helper.pending() messages with .msg_id/.fields.
-    """,
+    """
     msg_id: str
     fields: Dict[str, Any]
 

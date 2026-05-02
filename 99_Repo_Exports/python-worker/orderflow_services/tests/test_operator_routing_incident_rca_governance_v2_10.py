@@ -32,7 +32,7 @@ def test_evaluate_quality_scoring():
     assert len(score_empty["quality_reasons"]) == 3
     
     perfect = {
-        "result_json": """
+        "result_json": """,
         {
             "summary": "Full analysis",
             "findings": [{"evidence": ["log1"]}],

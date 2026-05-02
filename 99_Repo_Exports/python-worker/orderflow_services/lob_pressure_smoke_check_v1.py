@@ -18,8 +18,7 @@ Exit codes:
   1  ERROR
 
 Writes a compact JSON summary into `sre:lob_pressure_smoke` (for dashboards/exporters).
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -95,7 +94,7 @@ def _range_ok(key: str, x: float) -> bool:
     """Coarse sanity bounds to catch NaN/units/bug explosions.
 
     These bounds are intentionally loose to avoid false positives.
-    """
+    """,
     ax = abs(x)
 
     if key in ("lob_qi_mean", "lob_qi_slope"):

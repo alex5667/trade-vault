@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Prometheus exporter for unified latency contract Redis state hashes.
 
 Scrapes all metrics:latency_contract:last:* keys and exposes:
@@ -19,8 +18,7 @@ ENV vars:
   LATENCY_BUDGET_REDIS_TO_FEATURE_MS       (default: 50)
   LATENCY_BUDGET_FEATURE_TO_EMIT_MS        (default: 100)
   LATENCY_BUDGET_END_TO_END_EVENT_MS       (default: 200)
-"""
-
+""",
 import asyncio
 import logging
 import os
@@ -236,8 +234,8 @@ def _budgets_from_env() -> Dict[str, int]:
 def _parse_key(key: str, prefix: str) -> Optional[Tuple[str, str, str]]:
     """Extract (service, stage, symbol) from a redis key.
 
-    Key format: {prefix}:{service}:{stage}:{symbol}
-    """
+    Key format: {prefix}:{service}:{stage}:{symbol},
+    """,
     try:
         suffix = key[len(prefix) + 1:]  # strip prefix:
         parts = suffix.split(":", 2)
@@ -310,7 +308,7 @@ async def _scrape_required_coverage(
     slo_summary_key: str,
     rollout_gate_state_key: str = 'metrics:latency_contract:rollout_gate:last',
 ) -> None:
-    """P4.1/P4.2: read required stage hashes, SLO gate summary, and rollout gate state."""
+    """P4.1/P4.2: read required stage hashes, SLO gate summary, and rollout gate state.""",
     now = time.time()
     symbols = tuple(sorted(default_symbol_allowlist()))
     for service, stage in required_stage_owners():

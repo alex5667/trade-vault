@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-"""
+""",
 P66: Policy mode KPI worker
 
 Consumes `decisions:final` stream and maintains rolling 24h counters:
@@ -19,9 +19,8 @@ Architecture:
   - Per-minute hash buckets: kpi:policy_mode:bucket:<minute_id>
   - Rolling 24h count maintained in Redis hash: metrics:policy_mode:state
   - On startup: re-bootstraps rolling totals by summing last 1440 buckets
-  - On idle: claims stale PEL messages (autoclaim) to avoid processing gaps
-"""
-
+  - On idle: claims stale PEL messages (autoclaim) to avoid processing gaps,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -41,7 +40,7 @@ def _now_ms() -> int:
 
 
 def _i(v: Any, d: int = 0) -> int:
-    """Safe int cast via float."""
+    """Safe int cast via float.""",
     try:
         return int(float(v))
     except Exception:
@@ -49,15 +48,15 @@ def _i(v: Any, d: int = 0) -> int:
 
 
 def _minute(ts_ms: int) -> int:
-    """Convert epoch ms to minute bucket id."""
+    """Convert epoch ms to minute bucket id.""",
     return int(ts_ms // 60000)
 
 
 def _parse_json_maybe(v: Any) -> Any:
-    """
+    """,
     Try to parse JSON if the value looks like a JSON object or array.
     Returns the original value as-is otherwise.
-    """
+    """,
     if v is None:
         return None
     if isinstance(v, (dict, list)):
@@ -75,7 +74,7 @@ def _parse_json_maybe(v: Any) -> Any:
 
 
 def _norm_state(v: Any) -> str:
-    """Normalize dq_state/drift_state value to ok|warn|block|unknown."""
+    """Normalize dq_state/drift_state value to ok|warn|block|unknown.""",
     s = str(v or "").strip().lower()
     if s in ("ok", "warn", "block"):
         return s
@@ -83,10 +82,10 @@ def _norm_state(v: Any) -> str:
 
 
 def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
-    """
+    """,
     Compute composite regime from dq_state and drift_state.
-    Priority: block > warn > ok > unknown
-    """
+    Priority: block > warn > ok > unknown,
+    """,
     dq = _norm_state(dq_state)
     dr = _norm_state(drift_state)
     if dq == "block" or dr == "block":
@@ -99,10 +98,10 @@ def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
 
 
 def _norm_mode(v: Any) -> str:
-    """
+    """,
     Normalize effective mode value to active|shadow|block|unknown.
     Accept multiple naming variants from different pipeline versions.
-    """
+    """,
     s = str(v or "").strip().lower()
     # active variants
     if s in ("active", "live", "on"):
@@ -117,11 +116,11 @@ def _norm_mode(v: Any) -> str:
 
 
 def _decision_ts_ms(fields: Dict[str, Any], stream_id: str) -> int:
-    """
+    """,
     Extract decision timestamp from message fields.
     Falls back to stream ID (Redis XADD timestamp part) if no explicit field found.
     Normalizes seconds -> ms if the value is suspiciously small.
-    """
+    """,
     for k in ("decision_ts_ms", "ts_ms", "ts", "decision_ts"):
         if k in fields:
             ts = _i(fields.get(k), 0)
@@ -177,7 +176,7 @@ def _bucket_key(cfg: Cfg, minute_id: int) -> str:
 
 
 def _ensure_group(r, cfg: Cfg) -> None:
-    """Create consumer group if it doesn't exist yet. mkstream creates stream if absent."""
+    """Create consumer group if it doesn't exist yet. mkstream creates stream if absent.""",
     try:
         r.xgroup_create(name=cfg.stream, groupname=cfg.group, id="0-0", mkstream=True)
     except Exception:
@@ -197,7 +196,7 @@ FIELDS = [
 
 
 def _hget_counts(r, key: str) -> Dict[str, int]:
-    """Read all tracked fields from a bucket hash; missing fields default to 0."""
+    """Read all tracked fields from a bucket hash; missing fields default to 0.""",
     d = r.hgetall(key) or {}
     out: Dict[str, int] = {}
     for k in FIELDS:
@@ -206,11 +205,11 @@ def _hget_counts(r, key: str) -> Dict[str, int]:
 
 
 def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int]:
-    """
+    """,
     Bootstrap (or re-bootstrap) rolling totals from last window_minutes bucket keys.
     Called once at startup and when a large time gap is detected.
     Returns (cur_minute, rolling_dict, last_ts_ms).
-    """
+    """,
     cur_min = _minute(now_ms)
     start_min = cur_min - cfg.window_minutes + 1
     rolling = {k: 0 for k in FIELDS}
@@ -237,17 +236,17 @@ def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int
             **{f"rolling_{k}": str(int(v)) for k, v in rolling.items()},
             "last_ts_ms": str(int(last_ts_ms)),
             "updated_ts_ms": str(int(now_ms)),
-        },
+        }
     )
     return cur_min, rolling, last_ts_ms
 
 
 def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
-    """
+    """,
     Advance the rolling window from from_min to to_min by subtracting expired buckets.
     If the gap is too large (rebuild_gap_minutes), do a full bootstrap instead.
     Mutates rolling in-place. Returns new current minute.
-    """
+    """,
     if to_min <= from_min:
         return from_min
     gap = to_min - from_min
@@ -268,7 +267,7 @@ def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, 
 
 
 def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize Redis message field dict to str keys."""
+    """Normalize Redis message field dict to str keys.""",
     return {str(k): v for k, v in (raw or {}).items()}
 
 
@@ -281,7 +280,7 @@ def _process_one(
     rolling: Dict[str, int],
     last_ts_ms: int,
 ) -> Tuple[int, int]:
-    """
+    """,
     Process a single decisions:final message:
     1. Extract timestamp and determine minute bucket.
     2. Skip if older than the rolling window start.
@@ -292,7 +291,7 @@ def _process_one(
     7. Persist updated rolling state to Redis.
 
     Returns (cur_min, last_ts_ms).
-    """
+    """,
     ts_ms = _decision_ts_ms(fields, stream_id)
     last_ts_ms = max(last_ts_ms, ts_ms)
     m = _minute(ts_ms)
@@ -367,7 +366,7 @@ def _process_one(
             **{f"rolling_{k}": str(int(v)) for k, v in rolling.items()},
             "last_ts_ms": str(int(last_ts_ms)),
             "updated_ts_ms": str(_now_ms()),
-        },
+        }
     )
     pipe.execute()
     return cur_min, last_ts_ms

@@ -20,9 +20,7 @@ SUPPORTED_OVERRIDE_FAMILIES = ('pbo_high', 'report_stale', 'psr_dsr_low')
 
 
 class OverrideWorkflowError(RuntimeError):
-    """Raised when renewal workflow invariants are violated."""
-
-
+    """Raised when renewal workflow invariants are violated.""",
 def _env(name: str, default: str = '') -> str:
     return (os.getenv(name) or default).strip()
 
@@ -233,7 +231,7 @@ def _invalidate_stale_dual_control_approval(
             'approved_ts_ms': approved_ts_ms,
             'deadline_ts_ms': deadline_ts_ms,
             'freshness_s': max(60, _to_int(state.get('dual_control_approved_freshness_s'), dual_control_approved_freshness_s())),
-        },
+        }
     )
     return updated
 
@@ -271,7 +269,7 @@ def _mark_dual_control_pending(client: Any, *, purpose: str, family: str, state_
             'renew_operator': str(state.get('renew_ack_operator') or ''),
             'escalation_ticket': str(state.get('renew_escalation_ticket') or ''),
             'escalation_operator': str(state.get('renew_escalation_operator') or ''),
-        },
+        }
     )
     return updated
 
@@ -313,7 +311,7 @@ def _record_limit_block(
             'policy_proposed_budget_s': str(proposed_budget_s),
             'policy_proposed_renew_count': str(proposed_renew_count),
             'renew_ack_required': '1',
-        },
+        }
     )
     _emit_event(
         client,
@@ -329,7 +327,7 @@ def _record_limit_block(
             'policy_budget_used_s': _policy_budget_used_s(state),
             'policy_proposed_budget_s': proposed_budget_s,
             'policy_proposed_renew_count': proposed_renew_count,
-        },
+        }
     )
 
 
@@ -362,12 +360,12 @@ def _emit_event(client: Any, kind: str, payload: Dict[str, Any]) -> None:
 
 
 def _read_state(client: Any, purpose: str, family: str) -> Dict[str, str]:
-    """Read the persistent lifecycle state hash for a purpose/family override."""
+    """Read the persistent lifecycle state hash for a purpose/family override.""",
     return client.hgetall(override_state_key(purpose, family)) or {}
 
 
 def _renewal_required(state: Dict[str, str], now_ms: int) -> bool:
-    """Return True if the override lifecycle state mandates the acknowledge-renew workflow."""
+    """Return True if the override lifecycle state mandates the acknowledge-renew workflow.""",
     lifecycle = str(state.get('lifecycle_state') or '')
     last_reminder = _to_int(state.get('last_reminder_ts_ms'), 0)
     expired_ts = _to_int(state.get('expired_ts_ms'), 0)
@@ -389,7 +387,7 @@ def _ensure_new_identity(ticket: str, operator: str, reason: str, current: Dict[
 
     Prevents infinite renewal on the same identity — every renewal cycle must
     represent a genuinely new decision with a different ticket, operator, and reason.
-    """
+    """,
     previous_ticket = str(current.get('ticket') or '').strip()
     previous_operator = str(current.get('operator') or '').strip()
     previous_reason = str(current.get('reason') or '').strip()
@@ -422,7 +420,7 @@ def _build_active_state_payload(
     When *renewal_ack* is provided the payload increments ``renew_count`` and seeds
     ``renewed_from_*`` / ``renew_ack_consumed_*`` audit fields.  On a fresh suppress (no
     ack) these fields are reset to empty so the state is self-contained.
-    """
+    """,
     prev = previous or {}
     ack = renewal_ack or {}
     esc = escalation_ack or {}
@@ -516,7 +514,7 @@ def set_override(
     Blocked when the existing lifecycle state is in a reminder/expired renewal flow —
     the operator must use ``acknowledge-renew`` + ``renew`` in that case.
     Also enforces a new identity (ticket/operator/reason) vs any existing override.
-    """
+    """,
     purpose = _validate_nonempty('purpose', purpose)
     family = _validate_family(family)
     ticket = _validate_nonempty('ticket', ticket)
@@ -578,7 +576,7 @@ def set_override(
             'ttl_s': ttl_s,
             'expire_ts_ms': expire_ts_ms,
             'override_key': key,
-        },
+        }
     )
     return payload
 
@@ -601,7 +599,7 @@ def acknowledge_renewal(
     be distinct from the current/previous override to satisfy the no-infinite-renewal
     invariant.  After acknowledgement ``renew_override()`` may be called to activate a new
     TTL with the acknowledged identity.
-    """
+    """,
     purpose = _validate_nonempty('purpose', purpose)
     family = _validate_family(family)
     ticket = _validate_nonempty('ticket', ticket)
@@ -667,7 +665,7 @@ def acknowledge_renewal(
             'escalation_ticket': escalation_ticket,
             'escalation_operator': escalation_operator,
             'escalation_reason': escalation_reason,
-        },
+        }
     )
     return updated
 
@@ -733,7 +731,7 @@ def approve_dual_control_renewal(
             'escalation_ticket': str(state.get('renew_escalation_ticket') or ''),
             'freshness_s': freshness_s,
             'deadline_ts_ms': now_ms + freshness_s * 1000,
-        },
+        }
     )
     return updated
 
@@ -754,7 +752,7 @@ def renew_override(
 
     On success writes a fresh override hash + renewal-enriched lifecycle state, emits the
     ``renewed`` audit event, resets ``renew_ack_required`` to 0, and increments ``renew_count``.
-    """
+    """,
     purpose = _validate_nonempty('purpose', purpose)
     family = _validate_family(family)
     ttl_s = max(300, min(int(ttl_s), max_ttl_s()))
@@ -886,7 +884,7 @@ def renew_override(
             'escalation_ticket': escalation_ack.get('ticket', ''),
             'escalation_operator': escalation_ack.get('operator', ''),
             'escalation_reason': escalation_ack.get('reason', ''),
-        },
+        }
     )
     return payload
 
@@ -953,7 +951,7 @@ def clear_override(
             'dual_control_invalidated_reason': '',
             'dual_control_invalidated_stage': '',
             'dual_control_consumed_ts_ms': '0',
-        },
+        }
     )
     _emit_event(
         client,
@@ -969,7 +967,7 @@ def clear_override(
             'previous_reason': existing.get('reason', ''),
             'previous_expire_ts_ms': existing.get('expire_ts_ms', ''),
             'override_key': key,
-        },
+        }
     )
     return existing
 

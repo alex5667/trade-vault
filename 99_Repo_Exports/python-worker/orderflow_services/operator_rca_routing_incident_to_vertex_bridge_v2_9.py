@@ -133,7 +133,7 @@ def build_routing_incident_rca_pack(bundle_row: Dict[str, Any]) -> Dict[str, Any
         "timeline": timeline,
         "prompt_version": PROMPT_VERSION,
         "policy_version": POLICY_VERSION,
-    },
+    }
     compact_hash = hashlib.sha256(stable_json(key_material).encode("utf-8")).hexdigest()[:16]
 
     return {
@@ -153,7 +153,7 @@ def build_routing_incident_rca_pack(bundle_row: Dict[str, Any]) -> Dict[str, Any
         "prompt_version": PROMPT_VERSION,
         "policy_version": POLICY_VERSION,
         "ts_ms": now_ms(),
-    },
+    }
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -195,8 +195,7 @@ async def main() -> None:  # pragma: no cover
                             "severity": pack["severity"],
                             "payload_json": stable_json(pack),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(REQUESTS_STREAM, GROUP, msg_id)
@@ -211,8 +210,7 @@ async def main() -> None:  # pragma: no cover
                             "route_change_id": row.get("route_change_id", ""),
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(REQUESTS_STREAM, GROUP, msg_id)

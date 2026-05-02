@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Incremental Redis-side rollup for orchestration composite preflight events.
 
 Design intent:
@@ -10,8 +9,7 @@ Design intent:
 
 The module reads incremental events from the ops stream, updates Redis hash buckets,
 and persists a cursor. Buckets are safe to read cheaply later by a textfile exporter.
-"""
-
+""",
 import json
 import os
 import re
@@ -172,7 +170,7 @@ def _bootstrap_cursor(r: Any, stream_key: str, cursor_key: str, state_key: str, 
                 "last_stream_id": cursor,
                 "bootstrap_skipped_existing": str(skipped),
                 "last_rollup_ts_ms": str(_now_ms()),
-            },
+            }
         )
     except Exception:
         pass
@@ -243,7 +241,7 @@ def rollup_incremental(
                 "processed_events_last_run": str(batch_processed),
                 "batches_last_run": str(batches),
                 "bootstrap_skipped_existing": _safe_text(r.hget(state_key, "bootstrap_skipped_existing"), "0"),
-            },
+            }
         )
         pipe.execute()
         if len(stream_rows) < int(batch_size):

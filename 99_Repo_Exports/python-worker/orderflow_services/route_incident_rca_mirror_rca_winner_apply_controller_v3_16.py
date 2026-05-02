@@ -72,7 +72,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def load_current_experiment_config(r: Any) -> Dict[str, Any]:
     if not r:
@@ -153,7 +153,8 @@ async def apply_config(r: Any, db_url: str, new_cfg: Dict[str, Any], winner: str
         with psycopg.connect(db_url) as conn:  # pragma: no cover
             with conn.cursor() as cur:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_journal (
                         winner, strategy, executor_mode, new_config_json, ts_ms
                     ) VALUES (
@@ -166,7 +167,7 @@ async def apply_config(r: Any, db_url: str, new_cfg: Dict[str, Any], winner: str
                         "executor_mode": executor_mode,
                         "new_config_json": json.dumps(new_cfg),
                         "ts_ms": curr_ms,
-                    },
+                    }
                 )
                 conn.commit()
 
@@ -176,7 +177,8 @@ async def persist_decision(db_url: str, decision: str, recommendation: str, reas
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_decisions (
                     decision, recommendation, reason, ts_ms
                 ) VALUES (
@@ -188,7 +190,7 @@ async def persist_decision(db_url: str, decision: str, recommendation: str, reas
                     "recommendation": recommendation,
                     "reason": reason,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

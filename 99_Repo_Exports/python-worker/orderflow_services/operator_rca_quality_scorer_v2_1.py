@@ -137,7 +137,7 @@ def score_output(payload: Dict[str, Any]) -> Tuple[float, List[str], Dict[str, f
         "propose_threshold_canary",
         "open_incident",
         "draft_postmortem",
-    },
+    }
     allowed_n = 0
     for rec in recs[:10]:
         if isinstance(rec, dict) and str(rec.get("action", "")) in allowed_actions:
@@ -165,7 +165,8 @@ async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: List
     if conn is None:
         return
     await conn.execute(
-        """,
+        """
+
         INSERT INTO llm_incident_rca_quality (
             recommendation_id, ts_ms, output_hash, quality_score, quality_reasons_json,
             parts_json, prompt_version, policy_version
@@ -174,7 +175,7 @@ async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: List
         DO UPDATE SET
             quality_score = EXCLUDED.quality_score,
             quality_reasons_json = EXCLUDED.quality_reasons_json,
-            parts_json = EXCLUDED.parts_json
+            parts_json = EXCLUDED.parts_json,
         """,
         item.recommendation_id,
         item.ts_ms,
@@ -189,7 +190,7 @@ async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: List
         """,
         UPDATE llm_incident_rca_results
         SET quality_score = $2
-        WHERE recommendation_id = $1
+        WHERE recommendation_id = $1,
         """,
         item.recommendation_id,
         score,
@@ -224,8 +225,7 @@ async def run_forever() -> None:
                         "quality_score": f"{score:.2f}",
                         "quality_reasons_json": json.dumps(reasons, separators=(",", ":")),
                         "parts_json": json.dumps(parts, separators=(",", ":"), sort_keys=True),
-                    },
-                    maxlen=50000,
+                    }, maxlen=50000,
                     approximate=True,
                 )
                 await r.hset(STATE_KEY, mapping={"last_recommendation_id": item.recommendation_id, "last_ts_ms": str(_now_ms()), "last_quality_score": f"{score:.2f}"})

@@ -1,5 +1,5 @@
 from utils.time_utils import get_ny_time_millis
-#!/usr/bin/env python3
+#!/usr/bin/env python3,
 """nightly_meta_enforce_cov_ops_bundle_v1.py
 
 P35: Unified bundle for nightly meta enforcement operations.
@@ -19,9 +19,8 @@ Usage:
 Env:
   META_COV_BUNDLE_APPLY: if set to 0, --apply is ignored (dry-run forced).
   DYN_CFG_KEY: redis key for dynamic config
-  REDIS_URL: redis connection string
-"""
-
+  REDIS_URL: redis connection string,
+""",
 import argparse
 import json
 import logging
@@ -72,7 +71,7 @@ def get_wrapper_script(name: str) -> str:
 
 
 def run_command(script_name: str, args: List[str], check: bool = True) -> int:
-    """Run a python script in another process using the same interpreter."""
+    """Run a python script in another process using the same interpreter.""",
     import subprocess
     
     script_path = get_wrapper_script(script_name)
@@ -160,11 +159,11 @@ def main() -> None:
         "meta_cov_ops_last_preflight_rc": -1,
         "meta_cov_ops_last_step_rc_validate": -1,
         "meta_cov_ops_last_step_rc_rollout": -1,
-        "meta_cov_ops_last_step_rc_guard": -1,   # P43
+        "meta_cov_ops_last_step_rc_guard": -1,   # P43,
         "meta_cov_ops_last_step_rc_outcome": -1,
         "meta_cov_ops_last_step_rc_monitor": -1,
         "meta_cov_ops_last_apply_effective": 0,
-        "meta_cov_ops_last_decision_code": "unknown", # P43
+        "meta_cov_ops_last_decision_code": "unknown", # P43,
         "meta_cov_ops_last_decision_ts_ms": get_ny_time_millis(), # P43
     }
 

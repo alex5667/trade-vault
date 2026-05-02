@@ -10,7 +10,7 @@ Tests for V8 slippage calibrator health additions to enforce_bucket_state_export
 Tests for nightly_slippage_calibrator_v1 V8 additions:
   - _now_ms() returns valid ms integer
   - Timestamp key name format
-  - State key names written after calibration loop
+  - State key names written after calibration loop,
 """,
 from utils.time_utils import get_ny_time_millis
 
@@ -50,8 +50,7 @@ def _load_source_as_module(path: str, module_name: str):
 
 
 class TestCalibratorNowMs(unittest.TestCase):
-    """_now_ms() must exist and return a reasonable epoch-ms value."""
-
+    """_now_ms() must exist and return a reasonable epoch-ms value.""",
     def setUp(self):
         with open(CALIB_PATH) as fh:
             src = fh.read()
@@ -65,11 +64,11 @@ class TestCalibratorNowMs(unittest.TestCase):
             self._now_ms_found = False
 
     def test_now_ms_function_exists(self):
-        """_now_ms must be present in calibrator source."""
+        """_now_ms must be present in calibrator source.""",
         self.assertTrue(self._now_ms_found, "_now_ms() not found in calibrator")
 
     def test_now_ms_ts_key_format_in_source(self):
-        """Calibrator must write cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{bucket}."""
+        """Calibrator must write cfg:slippage_decomp_impact_coeff_bps_ts_ms:{sym}:{bucket}.""",
         with open(CALIB_PATH) as fh:
             src = fh.read()
         self.assertIn("slippage_decomp_impact_coeff_bps_ts_ms", src)
@@ -79,14 +78,14 @@ class TestCalibratorNowMs(unittest.TestCase):
         self.assertIn("state:slippage_calib:last_run_ts_ms", src)
 
     def test_per_bucket_diagnostics_hash_in_source(self):
-        """Calibrator must write state:slippage_calib:last:{sym}:{bucket} hash."""
+        """Calibrator must write state:slippage_calib:last:{sym}:{bucket} hash.""",
         with open(CALIB_PATH) as fh:
             src = fh.read()
         self.assertIn("state:slippage_calib:last:", src)
         self.assertIn("hset", src)
 
     def test_now_ms_runtime(self):
-        """_now_ms() at runtime returns plausible epoch-ms (>= 2024)."""
+        """_now_ms() at runtime returns plausible epoch-ms (>= 2024).""",
         now_ms_min = int(float('1700000000000'))  # 2023-11-14 epoch-ms
         import importlib.util
         spec = importlib.util.spec_from_loader(
@@ -103,7 +102,7 @@ def _now_ms():
     try:
         return get_ny_time_millis()
     except Exception:
-        return 0
+        return 0,
 """,
             ns,
         )
@@ -112,8 +111,7 @@ def _now_ms():
 
 
 class TestExporterV8Gauges(unittest.TestCase):
-    """Verify the 3 new V8 gauges exist in the exporter source."""
-
+    """Verify the 3 new V8 gauges exist in the exporter source.""",
     def setUp(self):
         with open(EXPORTER_PATH) as fh:
             self.src = fh.read()
@@ -131,11 +129,11 @@ class TestExporterV8Gauges(unittest.TestCase):
         self.assertIn("_export_slippage_calib_state", self.src)
 
     def test_ts_key_read_in_export_coeffs(self):
-        """_export_coeffs should read cfg:slippage_decomp_impact_coeff_bps_ts_ms."""
+        """_export_coeffs should read cfg:slippage_decomp_impact_coeff_bps_ts_ms.""",
         self.assertIn("slippage_decomp_impact_coeff_bps_ts_ms", self.src)
 
     def test_state_keys_read_in_export_calib_state(self):
-        """_export_slippage_calib_state reads state:slippage_calib:last_ok_ts_ms."""
+        """_export_slippage_calib_state reads state:slippage_calib:last_ok_ts_ms.""",
         self.assertIn("state:slippage_calib:last_ok_ts_ms", self.src)
         self.assertIn("state:slippage_calib:last_updated_groups", self.src)
 
@@ -149,8 +147,7 @@ class TestExporterV8Gauges(unittest.TestCase):
 
 
 class TestExporterCalibStateMethod(unittest.TestCase):
-    """Unit test _export_slippage_calib_state() logic using a mock Redis."""
-
+    """Unit test _export_slippage_calib_state() logic using a mock Redis.""",
     def _make_exporter_class_mock(self):
         """Build a minimal Exporter-like object with just the new method + helpers."""
         # Execute a stripped-down version of the exporter module logic
@@ -176,7 +173,7 @@ class TestExporterCalibStateMethod(unittest.TestCase):
         return method_found, mock_redis, now_ms_base
 
     def test_export_calib_state_method_in_class(self):
-        """_export_slippage_calib_state must be defined inside Exporter class."""
+        """_export_slippage_calib_state must be defined inside Exporter class.""",
         found, _, _ = self._make_exporter_class_mock()
         self.assertTrue(found, "_export_slippage_calib_state not found in Exporter class")
 
@@ -215,7 +212,7 @@ class Exporter:
             if ok_ts > 0:
                 of_slippage_calib_last_ok_age_sec.set((_now_ms() - ok_ts) / 1000.0)
         except Exception:
-            return
+            return,
 """,
             {"gauge_mock": gauge_mock},
         )
@@ -236,7 +233,7 @@ class Exporter:
             self.fail(f"Should not raise with None redis: {exc}")
 
     def test_export_calib_state_with_mock_redis(self):
-        """With a mocked Redis returning valid keys, gauges must be set."""
+        """With a mocked Redis returning valid keys, gauges must be set.""",
         gauge_upd = MagicMock()
         gauge_ok = MagicMock()
         now_ms_now = get_ny_time_millis()
@@ -286,8 +283,7 @@ class Exporter:
 
 
 class TestSQLFix(unittest.TestCase):
-    """Verify the SQL MV definition uses correct column names post V8 fix."""
-
+    """Verify the SQL MV definition uses correct column names post V8 fix.""",
     SQL_PATH = os.path.join(
         BASE, "ok_rate_logic", "sql", "20260224_exec_slippage_eval_stats_mv_1h.sql"
     )
@@ -309,8 +305,7 @@ class TestSQLFix(unittest.TestCase):
 
 
 class TestAlertYAML(unittest.TestCase):
-    """Verify the alert YAML files have the expected structure."""
-
+    """Verify the alert YAML files have the expected structure.""",
     ALERT_PATH = os.path.join(
         BASE,
         "..",  # scanner_infra root

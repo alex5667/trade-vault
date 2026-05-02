@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 """Prometheus exporter for nightly TCA report summary (P6 gap-closure).
 
 Reads the Redis hash written by tca_nightly_report_v1.py and exposes low-cardinality
@@ -10,8 +9,7 @@ ENV vars:
   TCA_NIGHTLY_REPORT_STATE_KEY       (default: state:tca_nightly_report:last)
   TCA_NIGHTLY_REPORT_EXPORTER_PORT   (default: 9866)
   TCA_NIGHTLY_REPORT_EXPORTER_INTERVAL_S (default: 30)
-"""
-
+""",
 import os
 import time
 from typing import Any, Dict

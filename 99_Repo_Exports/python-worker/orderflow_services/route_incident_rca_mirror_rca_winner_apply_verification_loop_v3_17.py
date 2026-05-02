@@ -72,7 +72,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def read_last_apply(r: Any) -> Optional[Dict[str, Any]]:
     # Get last applied transition from journal
@@ -127,7 +127,7 @@ def verify_exposures(exposures: List[Dict[str, Any]], target_mode: str, target_p
         "primary_match_rate": primary_match_rate,
         "unexpected_primary_rate": unexpected_primary_rate,
         "shadow_rate": shadow_rate
-    },
+    }
     
     if unexpected_primary_rate > MAX_UNEXPECTED_PRIMARY_RATE:
         return "ROLLBACK_PREVIOUS_POLICY", "HIGH_UNEXPECTED_PRIMARY_RATE", rates
@@ -170,7 +170,7 @@ async def execute_rollback(r: Any, db_url: str, apply_record: Dict[str, Any], li
         "mode": target_mode,
         "primary_arm": fallback_arm,
         "shadow_arms": json.dumps(safe_shadows)
-    },
+    }
 
     curr_ms = now_ms()
     
@@ -193,7 +193,8 @@ async def execute_rollback(r: Any, db_url: str, apply_record: Dict[str, Any], li
         with psycopg.connect(db_url) as conn:  # pragma: no cover
             with conn.cursor() as cur:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_rollback_journal (
                         failed_winner, reason, executor_mode, new_config_json, ts_ms
                     ) VALUES (
@@ -206,7 +207,7 @@ async def execute_rollback(r: Any, db_url: str, apply_record: Dict[str, Any], li
                         "executor_mode": executor_mode,
                         "new_config_json": json.dumps(new_cfg),
                         "ts_ms": curr_ms,
-                    },
+                    }
                 )
                 conn.commit()
 
@@ -216,7 +217,8 @@ async def persist_result(db_url: str, decision: str, reason: str, rates: str) ->
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_verification_results (
                     decision, reason, metrics_json, ts_ms
                 ) VALUES (
@@ -228,7 +230,7 @@ async def persist_result(db_url: str, decision: str, reason: str, rates: str) ->
                     "reason": reason,
                     "metrics_json": rates,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

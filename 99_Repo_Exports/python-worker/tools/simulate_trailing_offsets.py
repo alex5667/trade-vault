@@ -94,7 +94,7 @@ def load_trailing_trades(
               AND mfe_pnl > 0
             ORDER BY exit_ts_ms DESC
             LIMIT %s
-            """,
+            """
             (source, symbol, limit),
         )
         rows = cur.fetchall()
@@ -161,7 +161,7 @@ def load_historical_prices(
               AND price > 0
             ORDER BY ts_ms ASC
             LIMIT %s
-            """,
+            """
             (symbol, start_ts_ms, end_ts_ms, max_ticks),
         )
         rows = cur.fetchall()

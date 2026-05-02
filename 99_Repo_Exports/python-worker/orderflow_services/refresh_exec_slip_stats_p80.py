@@ -15,9 +15,8 @@ ENV:
 Optional Redis state (if REDIS_URL/CRYPTO_NOTIFY_REDIS_URL provided):
   state:exec_slip_stats_refresher:last_ok_ts_ms
   state:exec_slip_stats_refresher:last_dur_ms
-  state:exec_slip_stats_refresher:last_ok
-"""
-
+  state:exec_slip_stats_refresher:last_ok,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -84,7 +83,7 @@ def main() -> int:
                 "ts_ms": _now_ms(),
                 "mv": os.getenv("EXEC_SLIP_STATS_MV", "mv_exec_slippage_eval_1h_stats"),
                 "error": "psycopg2_missing",
-            },
+            }
         )
         print("FATAL: psycopg2 not installed", file=sys.stderr)
         return 2
@@ -98,7 +97,7 @@ def main() -> int:
                 "ts_ms": _now_ms(),
                 "mv": os.getenv("EXEC_SLIP_STATS_MV", "mv_exec_slippage_eval_1h_stats"),
                 "error": "missing_dsn",
-            },
+            }
         )
         print("FATAL: missing ANALYTICS_DB_DSN/DATABASE_URL", file=sys.stderr)
         return 2
@@ -134,7 +133,7 @@ def main() -> int:
             "mv": mv,
             "dur_ms": dur_ms,
             "error": err[:200] if err else "",
-        },
+        }
     )
 
     r = _connect_redis()

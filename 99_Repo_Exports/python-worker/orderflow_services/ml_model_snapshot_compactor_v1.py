@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Phase 0.2 compact unified model snapshots inside scanner_infra.
 
 Reads control-plane truth from Timescale/Postgres tables created in Phase 0/0.1:
@@ -18,9 +17,8 @@ Design goals:
 - scanner_infra only
 - fail-open
 - no hot-path writes/reads
-- deterministic aggregation and reason codes for future Vertex/LLM Phase 1
+- deterministic aggregation and reason codes for future Vertex/LLM Phase 1,
 """,
-
 import json
 import os
 import time
@@ -402,8 +400,8 @@ def _fetch_registry_rows(conn: Any) -> List[RegistryRow]:
               COALESCE(fail_policy, '') AS fail_policy,
               COALESCE(cfg_source, '') AS cfg_source
             FROM ml_model_registry
-            ORDER BY family, kind, model_id
-            """,
+            ORDER BY family, kind, model_id,
+            """
         )
         rows = cur.fetchall() or []
     out: List[RegistryRow] = []
@@ -471,8 +469,8 @@ def _fetch_runtime_rows(conn: Any, model_id: str, lookback_min: int) -> List[Run
             FROM ml_model_runtime_1m
             WHERE model_id = %s
               AND ts_ms >= ((extract(epoch from now()) * 1000)::bigint - (%s * 60 * 1000)::bigint)
-            ORDER BY symbol, ts_ms DESC
-            """,
+            ORDER BY symbol, ts_ms DESC,
+            """
             (model_id, lookback_min),
         )
         rows = cur.fetchall() or []

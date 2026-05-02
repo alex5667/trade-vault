@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3,
 """meta_cov_ops_validate_v1.py
 
 P36: Preflight check for meta coverage operations bundle.
@@ -16,9 +16,8 @@ Env:
   META_COV_PREFLIGHT_MIN_OF_GATE: default 200
   META_COV_PREFLIGHT_MIN_TRADES: default 50
   META_COV_PREFLIGHT_TIMEOUT_SEC: default 8
-  REDIS_URL: default redis://localhost:6379/0
-"""
-
+  REDIS_URL: default redis://localhost:6379/0,
+""",
 import json
 import logging
 import os
@@ -150,10 +149,10 @@ def check_stream_data(
     min_count: int, 
     required_fields: list[str]
 ) -> bool:
-    """
+    """,
     Checks if stream has at least min_count entries and the LAST entry has required fields.
     Returns True if OK, False if insufficient/missing fields.
-    """
+    """,
     try:
         # Check length
         length = r.xlen(stream_key)

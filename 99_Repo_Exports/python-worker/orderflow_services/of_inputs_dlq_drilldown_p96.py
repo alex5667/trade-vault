@@ -9,10 +9,8 @@ Env:
 - OF_INPUTS_QUARANTINE_STREAM (default: quarantine:signals:of:inputs)
 
 Usage:
-  python -m orderflow_services.of_inputs_dlq_drilldown_p96 --dlq 200 --quarantine 200 --samples 3
-"""
-
-
+  python -m orderflow_services.of_inputs_dlq_drilldown_p96 --dlq 200 --quarantine 200 --samples 3,
+""",
 import argparse
 import json
 import os

@@ -129,7 +129,7 @@ async def process_event(cli: "redis.Redis", ev: VerifyEvent, cfg: Dict[str, Any]
             "last_reason_code": ev.reason_code or "ROUTE_VERIFY_INCONCLUSIVE",
             "last_ts_ms": now,
             "not_before_ms": now + int(delay_sec * 1000),
-        },
+        }
     )
     RETRY_REQ.labels(reason_code=ev.reason_code or "ROUTE_VERIFY_INCONCLUSIVE").inc()
     return req

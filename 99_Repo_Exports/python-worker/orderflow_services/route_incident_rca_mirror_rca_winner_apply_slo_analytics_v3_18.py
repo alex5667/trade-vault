@@ -62,7 +62,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def load_stream_recent(r: Any, stream: str, count: int = 100) -> List[Dict[str, Any]]:
     # Simple recent load for stats
@@ -130,7 +130,8 @@ async def persist_rollup(db_url: str, apply_rate: float, verify_keep_rate: float
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_slo_rollups (
                     apply_rate, verify_keep_rate, rollback_mttr_p50_sec, rollback_mttr_p95_sec, ts_ms
                 ) VALUES (
@@ -143,7 +144,7 @@ async def persist_rollup(db_url: str, apply_rate: float, verify_keep_rate: float
                     "rollback_mttr_p50_sec": mttr_p50,
                     "rollback_mttr_p95_sec": mttr_p95,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

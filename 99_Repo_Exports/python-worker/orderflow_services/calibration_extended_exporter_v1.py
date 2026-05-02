@@ -14,8 +14,7 @@ ENV:
   CONF_CAL_PROMOTION_STATUS_PATH    path to status JSON (default /tmp/conf_cal_promo_status.json)
   CALIBRATION_EXT_EXPORTER_PORT     HTTP port (default 9138)
   CALIBRATION_EXT_EXPORTER_REFRESH_SEC  poll interval seconds (default 10)
-"""
-
+""",
 import json
 import os
 import signal

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 """Rules bundle discovery helper.
 
 This module centralizes *one* include-list (manifest) for all tools that need
@@ -15,8 +14,7 @@ Manifest resolution order
   4) fallback: legacy discovery (a small default pattern set)
 
 The manifest itself uses glob patterns (relative to repo root).
-"""
-
+""",
 import glob
 import os
 from dataclasses import dataclass
@@ -56,8 +54,7 @@ def _looks_like_include_stub(*, path: Path) -> bool:
 
     These stubs are not valid Prometheus rule files (no `groups:`), so they must
     be excluded from discovery to keep validation and probes deterministic.
-    """
-
+    """,
     try:
         with open(path, "r", encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)

@@ -24,9 +24,8 @@ ENV:
   CONF_CAL_PROOF_CANARY_START            default 0.10
   CONF_CAL_PROOF_CANARY_STEP             default 0.10
   CONF_CAL_PROOF_CANARY_MAX              default 1.00
-  CONF_CAL_PROOF_CANARY_BUMP_MIN_SEC     default 1800
-"""
-
+  CONF_CAL_PROOF_CANARY_BUMP_MIN_SEC     default 1800,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json

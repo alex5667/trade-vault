@@ -145,7 +145,7 @@ class AsyncSignalPublisher:
     def _refresh_env_cache(self) -> None:
         """Re-read ENV flags into in-process cache. Called at init and every 30s."""
         self._env = {
-            "raw_fast_xadd_only": os.getenv("ASYNC_PUB_RAW_FAST_XADD_ONLY", "1").lower() in ("1", "true"),
+            "raw_fast_xadd_only": os.getenv("ASYNC_PUB_RAW_FAST_XADD_ONLY", "0").lower() in ("1", "true"),
             "freeze_matrix_enable": os.getenv("ATR_FREEZE_MATRIX_RUNTIME_ENABLE", "1").lower() in ("1", "true"),
             "graph_gate_enable": os.getenv("ATR_GRAPH_RUNTIME_GATE_ENABLE", "0").lower() in ("1", "true"),
             "graph_gate_compare": os.getenv("ATR_GRAPH_RUNTIME_GATE_COMPARE", "0").lower() in ("1", "true"),

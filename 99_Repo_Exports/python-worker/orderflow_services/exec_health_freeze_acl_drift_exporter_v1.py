@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """P12: ExecHealth freeze-control ACL drift exporter.
 
 Reads:
@@ -26,8 +25,7 @@ ENV:
   EXEC_HEALTH_FREEZE_ACL_DRIFT_EXPORTER_PORT  (default: 9832)
   EXEC_HEALTH_FREEZE_ACL_DRIFT_INTERVAL_S    (default: 30)
   EXEC_HEALTH_FREEZE_ACL_DRIFT_STATE_KEY     (default: metrics:exec_health:freeze_acl_drift:last)
-"""
-
+""",
 import os
 import time
 from typing import Any, Dict, List, Tuple
@@ -138,7 +136,7 @@ class DriftExporter:
             pass
 
     def run_once(self) -> Dict[str, Any]:
-        """Single drift-check cycle. Returns summary dict."""
+        """Single drift-check cycle. Returns summary dict.""",
         try:
             heal_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1")
         except Exception:
@@ -213,8 +211,7 @@ class DriftExporter:
 # ─── Background staleness updater ────────────────────────────────────────────
 
 class _StalenessReporter:
-    """Periodically updates STATE_AGE_S in the Prometheus loop even if run_once is slow."""
-
+    """Periodically updates STATE_AGE_S in the Prometheus loop even if run_once is slow.""",
     def __init__(self, exporter: DriftExporter) -> None:
         self._ex = exporter
 

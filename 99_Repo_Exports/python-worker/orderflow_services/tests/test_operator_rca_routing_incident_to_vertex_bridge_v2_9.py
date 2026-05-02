@@ -15,7 +15,7 @@ def test_compact_timeline_keeps_order_and_limits_size():
 def test_build_routing_incident_rca_pack_extracts_core_fields():
     row = {
         "severity": "critical",
-        "bundle_json": """
+        "bundle_json": """,
         {
           "route_change_id": "rc-9",
           "bundle_hash": "abc123",
@@ -27,7 +27,7 @@ def test_build_routing_incident_rca_pack_extracts_core_fields():
           "baseline_route_json": {"provider": "vertex", "model_name": "gemini-2.5-flash-lite"},
           "current_route_json": {"provider": "vertex", "model_name": "gemini-2.5-flash"}
         }
-        """,
+        """
     }
     pack = build_routing_incident_rca_pack(row)
     assert pack["route_change_id"] == "rc-9"

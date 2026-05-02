@@ -25,8 +25,7 @@ Exit code
 - 2: alert condition detected
 
 The script always prints a single JSON line to stdout for the timer worker.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -112,8 +111,7 @@ def _read_recent_rows(
     recent_s: int,
     limit: int,
 ) -> Tuple[List[RecentRow], Dict[str, Any]]:
-    """Read tail of a Redis stream and keep only rows within `recent_s` window."""
-
+    """Read tail of a Redis stream and keep only rows within `recent_s` window.""",
     now_ms = _now_ms()
     cutoff = now_ms - int(recent_s * 1000)
 
@@ -173,8 +171,7 @@ def _compute_realized_vol_stuck(
     min_ready: int,
     eps_bps: float,
 ) -> Tuple[bool, Dict[str, Any]]:
-    """Return (stuck, details)."""
-
+    """Return (stuck, details).""",
     ready = 0
     max_abs = 0.0
     n_seen = 0
@@ -215,8 +212,7 @@ def _compute_ready_counts(rows: Iterable[RecentRow]) -> Dict[str, int]:
 
     These counters help detect a different class of wiring regressions where a feature
     never becomes ready (no_data stays 1 forever) even though the stream is alive.
-    """
-
+    """,
     rv_ready = 0
     vwap_ready = 0
     for rr in rows:

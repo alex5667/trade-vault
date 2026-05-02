@@ -243,7 +243,7 @@ app = FastAPI(
 
 
 def notify_event(event: OBIEvent) -> None:
-    """Send event notification to external service.""",
+    """Send event notification to external service."""
     if not NOTIFY_URL:
         return
     

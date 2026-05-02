@@ -36,8 +36,7 @@ ENV
 Rollback
   - stop the job; no runtime impact.
   - table is append-only.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -138,7 +137,7 @@ class PgWriter:
         return psycopg2.connect(self.cfg.dsn)
 
     def ensure_tables(self) -> None:
-        ddl = """
+        ddl = """,
         CREATE TABLE IF NOT EXISTS of_inputs_dlq_events (
           stream TEXT NOT NULL,
           dlq_id TEXT NOT NULL,
@@ -158,7 +157,7 @@ class PgWriter:
         CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_ts_idx ON of_inputs_dlq_events (ts DESC);
         CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_dq_idx ON of_inputs_dlq_events (dq_code, ts DESC);
         CREATE INDEX IF NOT EXISTS of_inputs_dlq_events_src_idx ON of_inputs_dlq_events (src_stream, ts DESC);
-        """
+        """,
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(ddl)
@@ -172,14 +171,15 @@ class PgWriter:
         if not rows:
             return 0
         sql = """
+
         INSERT INTO of_inputs_dlq_events (
           stream, dlq_id, ts_ms, ts,
           src_stream, src_stream_id, err,
           dq_code, attempt_version, published_version, missing_fields,
           payload_json
         ) VALUES %s
-        ON CONFLICT (stream, dlq_id) DO NOTHING
-        """
+        ON CONFLICT (stream, dlq_id) DO NOTHING,
+        """,
         with self._conn() as conn:
             with conn.cursor() as cur:
                 execute_values(cur, sql, rows, page_size=5000)
@@ -210,7 +210,7 @@ def _s(x: Any) -> str:
 
 
 def _as_payload_guess(fields: Dict[str, Any]) -> Dict[str, Any]:
-    """If no explicit 'payload' field exists, treat the remaining fields as payload."""
+    """If no explicit 'payload' field exists, treat the remaining fields as payload.""",
     drop = {
         "err",
         "error",
@@ -231,7 +231,7 @@ def _as_payload_guess(fields: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def parse_event(stream: str, dlq_id: str, fields: Dict[str, Any]) -> Tuple[Tuple[Any, ...], str]:
-    """Parse a Redis stream entry into a DB row + last_stream_id for checkpoint."""
+    """Parse a Redis stream entry into a DB row + last_stream_id for checkpoint.""",
     f = {str(_decode(k)): _decode(v) for k, v in (fields or {}).items()}
 
     src_stream = str(f.get("stream") or f.get("src_stream") or "")

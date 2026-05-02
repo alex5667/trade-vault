@@ -220,7 +220,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "arm_weights": weights,
         "primary_arm": primary_arm,
         "shadow_arms": shadow_out,
-    },
+    }
 
 
 def choose_arm(bundle_id: str, salt: str, weights: Dict[str, int]) -> str:
@@ -246,7 +246,7 @@ def evaluate_bundle(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str,
         "severity": severity,
         "primary_arm": "",
         "shadow_arms": [],
-    },
+    }
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
         return out
@@ -298,7 +298,7 @@ def exposure_row(bundle: Dict[str, Any], arm: str, is_primary: bool, mode: str) 
         "is_primary": "1" if is_primary else "0",
         "mode": mode,
         "ts_ms": str(now_ms()),
-    },
+    }
 
 
 def build_arm_request(bundle: Dict[str, Any], arm: str, is_primary: bool) -> Dict[str, Any]:
@@ -314,7 +314,7 @@ def build_arm_request(bundle: Dict[str, Any], arm: str, is_primary: bool) -> Dic
         "bundle_json": stable_json(bundle),
         "severity": str(bundle.get("trigger_severity") or "warning"),
         "ts_ms": str(now_ms()),
-    },
+    }
     if arm == "deterministic":
         base["provider_mode"] = "DETERMINISTIC"
     elif arm == "vertex_candidate":
@@ -360,7 +360,8 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_experiment_decisions (
                     bundle_id,
                     ts_ms,
@@ -393,11 +394,12 @@ async def persist_if_configured(
                     "primary_arm": decision["primary_arm"],
                     "shadow_arms_json": json.dumps(decision["shadow_arms"]),
                     "bundle_json": json.dumps(bundle),
-                },
+                }
             )
             for exp in exposures:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_experiment_exposures (
                         bundle_id, ts_ms, trigger_type, trigger_severity, arm, is_primary, mode, exposure_json
                     ) VALUES (
@@ -413,7 +415,7 @@ async def persist_if_configured(
                         "is_primary": parse_int(exp["is_primary"], 0),
                         "mode": exp["mode"],
                         "exposure_json": json.dumps(exp),
-                    },
+                    }
                 )
             conn.commit()
 
@@ -465,7 +467,7 @@ async def main() -> None:  # pragma: no cover
                             "bundle_id": row.get("bundle_id", ""),
                             "trigger_type": row.get("trigger_type", ""),
                             "trigger_severity": row.get("trigger_severity", ""),
-                        },
+                        }
                     policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
                     try:
                         exec_kill = await r.get('trade:exec_kill_switch')
@@ -490,7 +492,7 @@ async def main() -> None:  # pragma: no cover
                         "shadow_arms_json": stable_json(decision["shadow_arms"]),
                         "mode": policy["mode"],
                         "ts_ms": str(now_ms()),
-                    },
+                    }
                     await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await r.xadd(
                         AUDIT_STREAM,
@@ -507,7 +509,7 @@ async def main() -> None:  # pragma: no cover
                             "primary_arm": decision["primary_arm"],
                             "mode": policy["mode"],
                             "ts_ms": str(now_ms()),
-                        },
+                        }
                     )
                     await r.xack(INPUT_STREAM, GROUP, msg_id)
                     if LAST_RUN_TS:
@@ -520,8 +522,7 @@ async def main() -> None:  # pragma: no cover
                             "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_EXPERIMENT_FAILED",
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(INPUT_STREAM, GROUP, msg_id)

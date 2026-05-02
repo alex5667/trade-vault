@@ -13,8 +13,7 @@ orderflow_services/conf_score_guardrails_apply_v1.py and exposes:
   - conf_score_guard_bundle_changed_symbols
 
 Designed for low cardinality: exports only symbols present in the state file.
-"""
-
+""",
 import os
 import time
 import json

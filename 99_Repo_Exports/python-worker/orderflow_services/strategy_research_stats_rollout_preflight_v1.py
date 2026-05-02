@@ -1,12 +1,10 @@
 from __future__ import annotations
-
 """CLI preflight for strategy research stats gate (P6.2).
 
 Blocks sensitive rollout jobs before entering python -m conf_score_guardrails_*.
 This wrapper is intended for both host-level orchestration and in-container
 preflight wrappers.
-"""
-
+""",
 import argparse
 import os
 import sys

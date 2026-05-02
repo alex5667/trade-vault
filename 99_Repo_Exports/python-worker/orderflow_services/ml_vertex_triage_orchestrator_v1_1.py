@@ -36,13 +36,14 @@ def _write_pg(db_url: str, provider_result: Dict[str, Any], compact_pack: Dict[s
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_analysis_runs (
                   analysis_run_id, ts_ms, provider, model_name, task_type,
                   scope_json, input_refs_json, output_json, status, latency_ms, cost_usd
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (analysis_run_id) DO NOTHING
-                """,
+                ON CONFLICT (analysis_run_id) DO NOTHING,
+                """
                 (
                     str(guarded.get("analysis_run_id") or compact_pack.get("request_id")),
                     int(compact_pack.get("ts_ms") or get_ny_time_millis()),

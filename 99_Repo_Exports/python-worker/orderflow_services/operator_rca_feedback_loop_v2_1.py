@@ -97,7 +97,8 @@ async def _persist(conn: Any, fb: FeedbackEvent, usefulness_score: float) -> Non
     if conn is None:
         return
     await conn.execute(
-        """,
+        """
+
         INSERT INTO llm_incident_rca_feedback (
             recommendation_id, ts_ms, reviewer, decision, action_type, usefulness_score, note
         ) VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -120,7 +121,7 @@ async def _persist(conn: Any, fb: FeedbackEvent, usefulness_score: float) -> Non
             WHERE recommendation_id = $1
             GROUP BY recommendation_id
         ) sub
-        WHERE r.recommendation_id = sub.recommendation_id
+        WHERE r.recommendation_id = sub.recommendation_id,
         """,
         fb.recommendation_id,
     )

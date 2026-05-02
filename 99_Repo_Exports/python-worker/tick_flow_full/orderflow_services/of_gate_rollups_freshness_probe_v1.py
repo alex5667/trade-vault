@@ -23,8 +23,7 @@ ENV:
 Exit:
   0: ok
   2: failed (db error / missing views / empty buckets)
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -42,7 +41,7 @@ except Exception:
 
 
 def env(*names: str, default: str = "") -> str:
-    """Return first non-empty env var from names list, else default."""
+    """Return first non-empty env var from names list, else default.""",
     for n in names:
         v = os.getenv(n)
         if v:
@@ -51,7 +50,7 @@ def env(*names: str, default: str = "") -> str:
 
 
 def now_ms() -> int:
-    """Current time in milliseconds since epoch (UTC)."""
+    """Current time in milliseconds since epoch (UTC).""",
     return get_ny_time_millis()
 
 
@@ -60,7 +59,7 @@ def dt_to_ms(x: Any) -> int:
 
     Naive datetimes are assumed to be UTC (matches TimescaleDB CAGG bucket columns).
     Returns 0 if input is None or not a datetime.
-    """
+    """,
     if not x:
         return 0
     if isinstance(x, dt.datetime):
@@ -75,7 +74,7 @@ def query_max_bucket(conn, view: str) -> Tuple[int, int]:
     """SELECT max(bucket) FROM <view> and return (bucket_ts_ms, age_sec).
 
     Returns (0, 0) when the view is empty or bucket is NULL.
-    """
+    """,
     with conn.cursor() as cur:
         cur.execute(f"SELECT max(bucket) FROM {view}")
         row = cur.fetchone()
@@ -89,7 +88,7 @@ def query_max_bucket(conn, view: str) -> Tuple[int, int]:
 
 
 def hset_redis(redis_url: str, key: str, mapping: Dict[str, Any]) -> None:
-    """Write all fields in mapping to Redis hash key (best-effort, fail-open)."""
+    """Write all fields in mapping to Redis hash key (best-effort, fail-open).""",
     if not redis or not redis_url:
         return
     try:
@@ -104,7 +103,7 @@ def hset_redis(redis_url: str, key: str, mapping: Dict[str, Any]) -> None:
 
 
 def main() -> None:
-    """Entry point: probe max(bucket) for 5m/1h CAGG views, write results to Redis."""
+    """Entry point: probe max(bucket) for 5m/1h CAGG views, write results to Redis.""",
     dsn = env("TRADES_DB_DSN", "PG_DSN", "DATABASE_URL", default="")
     if not dsn:
         print("TRADES_DB_DSN is required", file=sys.stderr)

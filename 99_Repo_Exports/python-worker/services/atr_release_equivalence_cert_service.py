@@ -1,5 +1,5 @@
 from __future__ import annotations
-""",
+"""
 Phase 8.2 — Release Equivalence Cert Service
 (atr_release_equivalence_cert_service.py)
 
@@ -11,7 +11,7 @@ Intended usage:
     - Runs over atr_release_equivalence_checks for bounded scopes
     - Produces a release_equivalence_cert object written to
       atr_control_plane_certifications
-""",
+"""
 
 import json
 import logging
@@ -33,7 +33,7 @@ def _gen_id(prefix: str) -> str:
 
 
 class ReleaseEquivalenceCertService:
-    """,
+    """
     Runs the formal E1–E6 equivalence certification across all bounded scopes
     for the changes run in the last N days.
 
@@ -44,14 +44,14 @@ class ReleaseEquivalenceCertService:
         E4  no graph-only missing cert chain  (replay/rollout cert edges)
         E5  no graph-only missing freeze/override blocker
         E6  no critical release drift open on bounded scope
-    """,
+    """
 
     @staticmethod
     def run_cert(window_days: int = 7) -> dict[str, Any]:
-        """,
+        """
         Run equivalence cert over bounded scopes within the last window_days.
         Persists a cert row in atr_control_plane_certifications and returns the cert dict.
-        """,
+        """
         cert_id = _gen_id("releq_cert")
         now     = datetime.now(tz=timezone.utc)
 
@@ -62,13 +62,13 @@ class ReleaseEquivalenceCertService:
 
                 # ── Load equivalence checks for bounded scopes ────────────────
                 cur.execute(
-                    """,
+                    """
                     SELECT *
                     FROM atr_release_equivalence_checks
                     WHERE scope_value = ANY(%s)
                       AND created_at > now() - interval '%s days'
                     ORDER BY created_at DESC
-                    """,
+                    """
                     (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 checks = cur.fetchall()
@@ -79,14 +79,14 @@ class ReleaseEquivalenceCertService:
 
                 # ── Load open critical drifts on bounded scopes ────────────────
                 cur.execute(
-                    """,
+                    """
                     SELECT *
                     FROM atr_release_drifts
                     WHERE scope_value = ANY(%s)
                       AND status = 'open'
                       AND severity = 'critical'
                       AND created_at > now() - interval '%s days'
-                    """,
+                    """
                     (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 critical_drifts = cur.fetchall()
@@ -126,14 +126,14 @@ class ReleaseEquivalenceCertService:
 
                 # ── Warning drifts (non-critical) ──────────────────────────────
                 cur.execute(
-                    """,
+                    """
                     SELECT count(*) AS c
                     FROM atr_release_drifts
                     WHERE scope_value = ANY(%s)
                       AND status = 'open'
                       AND severity != 'critical'
                       AND created_at > now() - interval '%s days'
-                    """,
+                    """
                     (list(_BOUNDED_SYMBOLS), window_days),
                 )
                 warning_drifts = cur.fetchone()["c"]
@@ -168,11 +168,11 @@ class ReleaseEquivalenceCertService:
                 # ── Persist to atr_control_plane_certifications ───────────────
                 with conn.cursor() as wcur:
                     wcur.execute(
-                        """,
+                        """
                         INSERT INTO atr_control_plane_certifications
                             (cert_id, cert_kind, target_node_id, status, checks_json, summary_json)
                         VALUES (%s, %s, %s, %s, %s, %s)
-                        """,
+                        """
                         (
                             cert_id,
                             "release_equivalence_cert",

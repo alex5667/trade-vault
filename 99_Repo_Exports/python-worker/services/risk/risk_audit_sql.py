@@ -14,7 +14,7 @@ Tables written:
 Prometheus metrics emitted:
   trade_risk_audit_write_total{table}      — successful writes
   trade_risk_audit_write_fail_total{stage} — failed writes
-""",
+"""
 
 from dataclasses import dataclass
 from typing import Any, Dict
@@ -69,7 +69,7 @@ class RiskAuditSqlSink:
 
     Writes to risk_decisions and risk_snapshot tables.
     Fail-open: if the DB is unavailable the publish path is not blocked.
-    """,
+    """
     dsn: str = ''
     enabled: bool = False
 
@@ -125,7 +125,7 @@ class RiskAuditSqlSink:
 
         Returns True on success, False on any failure.
         All exceptions are swallowed — the caller must not block on this.
-        """,
+        """
         conn = self._ensure_connection()
         if conn is None:
             return False
@@ -169,7 +169,7 @@ class RiskAuditSqlSink:
                 with conn.cursor() as cur:
                     # Full audit trail — immutable append (ON CONFLICT → UPDATE allow idempotency)
                     cur.execute(
-                        """,
+                        """
                         insert into risk_decisions (
                             ts, decision_id, signal_id, sid, symbol, cluster, tier, level,
                             allow_trade_publish, effective_execution_policy,
@@ -204,7 +204,7 @@ class RiskAuditSqlSink:
                             reasons_jsonb = excluded.reasons_jsonb,
                             snapshot_jsonb = excluded.snapshot_jsonb
                             signal_jsonb = excluded.signal_jsonb
-                        """,
+                        """
                         (
                             created_ts_ms,
                             decision_id, signal_id, sid, symbol, cluster, tier, level,
@@ -220,7 +220,7 @@ class RiskAuditSqlSink:
 
                     # Latest snapshot per decision — upsert for fast current-state lookup
                     cur.execute(
-                        """,
+                        """
                         insert into risk_snapshot (
                             ts, decision_id, sid, signal_id, symbol, cluster, tier, level,
                             effective_execution_policy, adjusted_notional_usd, leverage_cap,
@@ -242,7 +242,7 @@ class RiskAuditSqlSink:
                             clamp_ratio = excluded.clamp_ratio,
                             decision_latency_ms = excluded.decision_latency_ms,
                             snapshot_jsonb = excluded.snapshot_jsonb
-                        """,
+                        """
                         (
                             created_ts_ms,
                             decision_id, sid, signal_id, symbol, cluster, tier, level,

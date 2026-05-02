@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Phase 0.1 health enricher for `ml_model_runtime_1m`.
 
 Consumes existing drift/calibration artifacts and enriches recent runtime rows with:
@@ -9,8 +8,7 @@ Consumes existing drift/calibration artifacts and enriches recent runtime rows w
 - ece / brier from model-family specific status files where available
 
 Fail-open and scanner_infra-only.
-"""
-
+""",
 import json
 import os
 import time
@@ -156,15 +154,15 @@ def _db_update_family(family: str, ece: Optional[float], brier: Optional[float],
         print(f"Connected to DB for {family}, taking cursor", flush=True)
         cur = conn.cursor()
         ts_from = _now_ms() - LOOKBACK_MIN * 60_000
-        sql = """
+        sql = """,
         UPDATE ml_model_runtime_1m
            SET ece = COALESCE(%s, ece),
                brier = COALESCE(%s, brier),
                psi_top_json = %s,
                ks_top_json = %s
          WHERE ts_ms >= %s
-           AND model_id LIKE %s
-        """
+           AND model_id LIKE %s,
+        """,
         print(f"Executing query for {family}", flush=True)
         cur.execute(
             sql,
@@ -221,7 +219,7 @@ def main() -> int:
                         "rows_updated": str(updated_total),
                         "psi_top_json": json.dumps(psi_top, separators=(",", ":")),
                         "ks_top_json": json.dumps(ks_top, separators=(",", ":")),
-                    },
+                    }
                 )
             except Exception:
                 pass

@@ -15,9 +15,7 @@ Exit codes:
   - 0: OK
   - 2: ALERT (one or more targets failed)
   - 1: internal error (unexpected exception)
-"""
-
-
+""",
 import json
 import os
 import time
@@ -46,8 +44,8 @@ def _parse_targets_from_env() -> List[TargetSpec]:
     """Allow override via env.
 
     Format:
-      OF_INPUTS_EXPORTERS_SMOKE_TARGETS="name=host:port|metric_substr,dlq=..."
-    """
+      OF_INPUTS_EXPORTERS_SMOKE_TARGETS="name=host:port|metric_substr,dlq=...",
+    """,
     raw = (os.getenv("OF_INPUTS_EXPORTERS_SMOKE_TARGETS") or "").strip()
     if not raw:
         return list(DEFAULT_TARGETS)

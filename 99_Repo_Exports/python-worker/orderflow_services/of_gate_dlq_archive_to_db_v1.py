@@ -18,10 +18,8 @@ Usage
   python -m orderflow_services.of_gate_dlq_archive_to_db_v1 --loop
 
   # Backfill last N entries without updating checkpoint
-  python -m orderflow_services.of_gate_dlq_archive_to_db_v1 --tail 200000 --no-checkpoint
-"""
-
-
+  python -m orderflow_services.of_gate_dlq_archive_to_db_v1 --tail 200000 --no-checkpoint,
+""",
 import argparse
 import datetime as dt
 import json
@@ -121,7 +119,7 @@ class PgWriter:
         return psycopg2.connect(self.cfg.dsn)
 
     def ensure_tables(self) -> None:
-        ddl = """
+        ddl = """,
         CREATE TABLE IF NOT EXISTS of_gate_dlq_events (
           stream TEXT NOT NULL,
           dlq_id TEXT NOT NULL,
@@ -140,7 +138,7 @@ class PgWriter:
         CREATE INDEX IF NOT EXISTS of_gate_dlq_events_ts_idx ON of_gate_dlq_events (ts DESC);
         CREATE INDEX IF NOT EXISTS of_gate_dlq_events_dq_idx ON of_gate_dlq_events (dq_code, ts DESC);
         CREATE INDEX IF NOT EXISTS of_gate_dlq_events_reason_idx ON of_gate_dlq_events (reason_code, ts DESC);
-        """
+        """,
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(ddl)
@@ -161,10 +159,10 @@ class PgWriter:
           stream, dlq_id, ts_ms, ts,
           src_stream, src_stream_id, err,
           dq_code, reason_code, schema_version,
-          payload_json,
+          payload_json
         ) VALUES %s
         ON CONFLICT (stream, dlq_id) DO NOTHING
-        """
+        """,
         with self._conn() as conn:
             with conn.cursor() as cur:
                 execute_values(cur, sql, rows, page_size=5000)

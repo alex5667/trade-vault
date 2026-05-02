@@ -98,10 +98,8 @@ Outputs:
   of_auto_apply_block_age_sec{source}
 
   of_enforce_freezer_block_active{sym,bucket}
-  of_enforce_freezer_last_block_age_sec{sym}
-
-"""
-
+  of_enforce_freezer_last_block_age_sec{sym},
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -186,7 +184,7 @@ def _connect_redis():
 
 
 def _safe_ident(x: str, default: str = "") -> str:
-    """Sanitize a string to be safe as a Prometheus label value (uppercase alphanumeric+underscore)."""
+    """Sanitize a string to be safe as a Prometheus label value (uppercase alphanumeric+underscore).""",
     s = str(x or "").strip().upper()
     if not s:
         return default
@@ -702,7 +700,7 @@ class Exporter:
           - state:slippage_calib:last_groups_total   -> of_slippage_calib_last_groups_total (V10)
 
         Alert rules SlippageCalibStale / SlippageCalibNoUpdates / SlippageCoeffStaleHVLL consume these.
-        """
+        """,
         if not self.redis:
             return
         try:
@@ -724,7 +722,7 @@ class Exporter:
           - state:exec_slippage_eval:rows_24h (hash: bucket->n) -> of_exec_slippage_eval_rows_24h{bucket}
 
         Alert rules OF_ExecSlippageEvalRowcountProbeStale_Crit / OF_ExecSlippageEvalRowsLow_Warn fire on these.
-        """
+        """,
         if not self.redis:
             return
         try:
@@ -743,7 +741,7 @@ class Exporter:
             return
 
     def _export_slippage_calibrator_status(self) -> None:
-        """Export slippage calibrator status (file preferred, fallback to Redis state keys)."""
+        """Export slippage calibrator status (file preferred, fallback to Redis state keys).""",
         obj = _load_json(self.slippage_cal_status_path)
         if isinstance(obj, dict):
             ts_ms = _as_int(obj.get("ts_ms", 0), 0)
@@ -780,7 +778,7 @@ class Exporter:
         Prefer materialized view mv_exec_slippage_eval_1h_stats (pre-aggregated hourly),
         fallback to raw view v_exec_slippage_eval.
         Disabled by default; enable via ENFORCE_STATE_EXPORTER_DB_STATS=1.
-        """
+        """,
         if not self.db_stats_enabled:
             return
         if not self.db_dsn:
@@ -820,7 +818,7 @@ class Exporter:
             # then to raw view queries.
             try:
                 cur.execute(
-                    f"""
+                    f""",
                     select sym,
                            exec_regime_bucket,
                            sum(n)::bigint as n,
@@ -832,8 +830,8 @@ class Exporter:
                            max(edge_neg_share_model) as edge_neg_share_model
                     from {mv}
                     where sym = any(%s) and t >= now() - (%s || ' hours')::interval
-                    group by 1,2
-                    """,
+                    group by 1,2,
+                    """
                     (syms, int(lookback_h)),
                 )
                 rows = cur.fetchall()
@@ -841,7 +839,7 @@ class Exporter:
             except Exception:
                 try:
                     cur.execute(
-                        f"""
+                        f""",
                         select sym,
                                exec_regime_bucket,
                                sum(n)::bigint as n,
@@ -850,8 +848,8 @@ class Exporter:
                                max(edge_neg_share) as edge_neg_share
                         from {mv}
                         where sym = any(%s) and t >= now() - (%s || ' hours')::interval
-                        group by 1,2
-                        """,
+                        group by 1,2,
+                        """
                         (syms, int(lookback_h)),
                     )
                     rows = cur.fetchall()
@@ -859,7 +857,7 @@ class Exporter:
                 except Exception:
                     try:
                         cur.execute(
-                            f"""
+                            f""",
                             select sym,
                                    exec_regime_bucket,
                                    count(*)::bigint as n,
@@ -871,15 +869,15 @@ class Exporter:
                                    avg(case when edge_minus_expected_model_bps < 0 then 1 else 0 end) as edge_neg_share_model
                             from {view}
                             where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
-                            group by 1,2
-                            """,
+                            group by 1,2,
+                            """
                             (syms, int(lookback_h)),
                         )
                         rows = cur.fetchall()
                         has_model = True
                     except Exception:
                         cur.execute(
-                            f"""
+                            f""",
                             select sym,
                                    exec_regime_bucket,
                                    count(*)::bigint as n,
@@ -888,8 +886,8 @@ class Exporter:
                                    avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
                             from {view}
                             where sym = any(%s) and ts >= now() - (%s || ' hours')::interval
-                            group by 1,2
-                            """,
+                            group by 1,2,
+                            """
                             (syms, int(lookback_h)),
                         )
                         rows = cur.fetchall()
@@ -993,8 +991,8 @@ class Exporter:
           - state:prom_rules_bundle:last_ok      -> of_prom_rules_bundle_last_ok
           - state:prom_rules_bundle:last_ok_ts_ms -> of_prom_rules_bundle_last_ok_age_sec
           - state:prom_rules_bundle:last_files_checked -> of_prom_rules_bundle_last_files_checked
-          - state:prom_rules_bundle:last_error_n -> of_prom_rules_bundle_last_error_n
-        """
+          - state:prom_rules_bundle:last_error_n -> of_prom_rules_bundle_last_error_n,
+        """,
         if not self.redis:
             return
         prefix = (os.getenv("PROM_RULES_BUNDLE_STATE_PREFIX") or "state:prom_rules_bundle").strip() or "state:prom_rules_bundle"
@@ -1029,7 +1027,7 @@ class Exporter:
         This detects a different failure mode than promtool/validator:
           - promtool validates syntax
           - this probe validates Prometheus include-list correctness ("file not picked up")
-        """
+        """,
         if not self.redis:
             return
         prefix = (os.getenv("PROM_RULES_LOADED_STATE_PREFIX") or "state:prom_rules_loaded").strip() or "state:prom_rules_loaded"

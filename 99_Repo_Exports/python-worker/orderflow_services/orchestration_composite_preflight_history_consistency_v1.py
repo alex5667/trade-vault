@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Consistency checker + rebuild tool for orchestration composite preflight rollup.
 
 P5.7 design goals:
@@ -16,8 +15,7 @@ only the affected hourly/daily bucket keys for the requested range.
 Key fix over naive implementation: we enumerate ALL bucket starts in the range
 (not just those with stream events), so extra Redis keys with no stream events
 are also caught as drift.
-"""
-
+""",
 import argparse
 import json
 import os
@@ -92,7 +90,7 @@ def _hour_bucket_starts_in_range(start_ms: int, end_ms: int) -> List[int]:
     """Enumerate ALL hourly bucket boundaries overlapping [start_ms, end_ms].
 
     This ensures extra Redis keys with no stream events are caught as drift.
-    """
+    """,
     if end_ms < start_ms:
         return []
     current = _hour_bucket_start_ms(start_ms)
@@ -108,7 +106,7 @@ def _day_bucket_starts_in_range(start_ms: int, end_ms: int) -> List[int]:
     """Enumerate ALL daily bucket boundaries overlapping [start_ms, end_ms].
 
     This ensures extra Redis keys with no stream events are caught as drift.
-    """
+    """,
     if end_ms < start_ms:
         return []
     current = _day_bucket_start_ms(start_ms)
@@ -131,7 +129,7 @@ def _stream_scan_range(
     """Read all stream entries in [start_ms, end_ms] using paginated XRANGE.
 
     Uses the full timestamp range to avoid missing events or duplicating them.
-    """
+    """,
     if end_ms < start_ms:
         return []
 
@@ -171,7 +169,7 @@ def _expected_counts_from_stream(
 
     Returns a dict with 'hourly', 'daily', 'events', 'max_stream_id',
     'max_event_ts_ms' — deterministic, no Redis hash reads.
-    """
+    """,
     hourly: Dict[int, Dict[str, int]] = {}
     daily: Dict[int, Dict[str, int]] = {}
     events = _stream_scan_range(r, stream_key=stream_key, start_ms=start_ms, end_ms=end_ms, batch_size=batch_size)
@@ -206,7 +204,7 @@ def _actual_counts_from_buckets(r: Any, *, prefix: str, bucket_starts: Iterable[
     """Read current Redis hash fields for each bucket boundary in bucket_starts.
 
     Iterates the full range (not just expected keys) to catch extra Redis keys.
-    """
+    """,
     out: Dict[int, Dict[str, int]] = {}
     for bucket_start in sorted({int(v) for v in bucket_starts}):
         raw = r.hgetall(_bucket_key(prefix, bucket_start)) or {}
@@ -227,8 +225,8 @@ def _compare_bucket_maps(expected: Mapping[int, Mapping[str, int]], actual: Mapp
     - missing_fields: fields in expected but absent in actual
     - extra_fields: fields in actual but absent in expected
     - mismatched_value_fields: fields present both sides but different counts
-    - mismatched_bucket_keys: buckets with any mismatch
-    """
+    - mismatched_bucket_keys: buckets with any mismatch,
+    """,
     missing_fields = 0
     extra_fields = 0
     mismatched_value_fields = 0
@@ -288,7 +286,7 @@ def check_consistency(
     4. Check cursor/state alignment separately.
 
     Returns a report dict with schema_version = 'p57_v1'.
-    """
+    """,
     expected = _expected_counts_from_stream(
         r,
         stream_key=stream_key,
@@ -364,7 +362,7 @@ def rebuild_range(
     - cursor_key is only updated if update_cursor=True (default: False, non-invasive).
 
     Returns a report dict compatible with render_text().
-    """
+    """,
     expected = _expected_counts_from_stream(
         r,
         stream_key=stream_key,
@@ -435,7 +433,7 @@ def rebuild_range(
 
 
 def render_text(report: Mapping[str, Any]) -> str:
-    """Render Prometheus textfile metrics from a check or rebuild report."""
+    """Render Prometheus textfile metrics from a check or rebuild report.""",
     checked_at_ts_ms = int(float(str(report.get("checked_at_ts_ms") or report.get("rebuilt_at_ts_ms") or "0") or "0"))
     lines: List[str] = []
     lines.append("# HELP orchestration_composite_preflight_rollup_consistency_ok 1 if Redis rollup buckets match the source stream over the checked range\n")
@@ -476,7 +474,7 @@ def render_text(report: Mapping[str, Any]) -> str:
 
 
 def _write_outputs(report: Mapping[str, Any]) -> None:
-    """Atomically write JSON report + Prometheus textfile using tmp-then-rename."""
+    """Atomically write JSON report + Prometheus textfile using tmp-then-rename.""",
     report_path = Path(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CONSISTENCY_REPORT_PATH", CONSISTENCY_REPORT_PATH_DEFAULT)).expanduser().resolve()
     export_path = Path(os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CONSISTENCY_EXPORT_PATH", CONSISTENCY_EXPORT_PATH_DEFAULT)).expanduser().resolve()
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -508,8 +506,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     Exit codes:
       0 — OK (check passed or rebuild completed)
       1 — error (Redis unavailable or unexpected exception)
-      2 — check mode: drift detected
-    """
+      2 — check mode: drift detected,
+    """,
     r = _get_redis()
     if r is None:
         return 1

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """Preflight guard for strategy research blocker on rollout-sensitive jobs (P5.2).
 
 Exit codes:
 - 0: allow
 - 24: blocked by active research guard blocker / stale report
-- 25: invalid or missing state when fail-closed mode is enabled
-"""
-
+- 25: invalid or missing state when fail-closed mode is enabled,
+""",
 import argparse
 import os
 

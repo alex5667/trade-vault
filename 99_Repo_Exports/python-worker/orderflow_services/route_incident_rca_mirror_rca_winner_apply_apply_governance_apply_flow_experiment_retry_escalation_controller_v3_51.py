@@ -185,7 +185,7 @@ def normalize_weights(raw: Any) -> Dict[str, int]:
         "vertex_primary_weight": parse_int(obj.get("vertex_primary_weight"), 0),
         "vertex_compact_weight": parse_int(obj.get("vertex_compact_weight"), 0),
         "local_candidate_weight": parse_int(obj.get("local_candidate_weight"), 0),
-    },
+    }
 
 
 def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,7 +204,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "max_attempts": parse_int(raw.get("max_attempts"), DEFAULT_MAX_ATTEMPTS),
         "allowed_retry_reasons": {str(x) for x in allowed_retry},
         "warning_reasons": {str(x) for x in warning_reasons},
-    },
+    }
 
 
 def build_state_key(target_profile: str, target_incumbent_arm: str, reason_code: str) -> str:
@@ -221,7 +221,7 @@ def evaluate_action(verification_row: Dict[str, Any], attempts: int, policy: Dic
         "target_profile": str(verification_row.get("target_profile") or ""),
         "target_incumbent_arm": str(verification_row.get("target_incumbent_arm") or ""),
         "target_weights": normalize_weights(verification_row.get("target_weights_json")),
-    },
+    }
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
         return out
@@ -256,7 +256,8 @@ async def persist_if_configured(db_url: str, verification_row: Dict[str, Any], a
         with conn.cursor() as cur:
             if action_out["decision"] == "RETRY_REAPPLY_TARGET_PROFILE":
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO ml_route_rca_experiment_retry_results_v51 (
                         ts_ms, decision, reason_code, target_profile, target_incumbent_arm,
                         target_weights_json, attempts, applied, result_json
@@ -275,11 +276,12 @@ async def persist_if_configured(db_url: str, verification_row: Dict[str, Any], a
                         "attempts": attempts,
                         "applied": applied,
                         "result_json": json.dumps({"verification_row": verification_row, "action_out": action_out}),
-                    },
+                    }
                 )
             if action_out["decision"] == "ESCALATE":
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO ml_route_rca_experiment_escalations_v51 (
                         ts_ms, severity, reason_code, target_profile, target_incumbent_arm, escalation_json
                     ) VALUES (
@@ -293,7 +295,7 @@ async def persist_if_configured(db_url: str, verification_row: Dict[str, Any], a
                         "target_profile": action_out["target_profile"],
                         "target_incumbent_arm": action_out["target_incumbent_arm"],
                         "escalation_json": json.dumps({"verification_row": verification_row, "action_out": action_out, "attempts": attempts}),
-                    },
+                    }
                 )
             conn.commit()
 
@@ -355,7 +357,7 @@ async def main() -> None:  # pragma: no cover
                                     "last_weight_rebalance_source": APP_NAME,
                                     "last_weight_rebalance_reason_code": action_out["reason_code"],
                                     "last_weight_rebalance_profile": action_out["target_profile"],
-                                },
+                                }
                             )
                             await r.hset(
                                 WINNER_POLICY_KEY,
@@ -364,7 +366,7 @@ async def main() -> None:  # pragma: no cover
                                     "last_incumbent_apply_ts_ms": str(now_ms()),
                                     "last_incumbent_apply_source": APP_NAME,
                                     "last_incumbent_apply_reason_code": action_out["reason_code"],
-                                },
+                                }
                             )
                             applied = 1
                         await r.xadd(
@@ -380,8 +382,7 @@ async def main() -> None:  # pragma: no cover
                                 "applied": str(applied),
                                 "source_verification_ts_ms": str(parse_int(verification_row.get("ts_ms"), 0)),
                                 "ts_ms": str(now_ms()),
-                            },
-                            maxlen=MAXLEN,
+                            }, maxlen=MAXLEN,
                             approximate=True,
                         )
                         if RETRIES_TOTAL:
@@ -398,8 +399,7 @@ async def main() -> None:  # pragma: no cover
                                 "attempts": str(attempts),
                                 "source_verification_ts_ms": str(parse_int(verification_row.get("ts_ms"), 0)),
                                 "ts_ms": str(now_ms()),
-                            },
-                            maxlen=MAXLEN,
+                            }, maxlen=MAXLEN,
                             approximate=True,
                         )
                         if ESCALATIONS_TOTAL:
@@ -416,7 +416,7 @@ async def main() -> None:  # pragma: no cover
                             "attempts": str(attempts),
                             "applied": str(applied),
                             "ts_ms": str(now_ms()),
-                        },
+                        }
                     )
                     await r.xadd(
                         AUDIT_STREAM,
@@ -428,8 +428,7 @@ async def main() -> None:  # pragma: no cover
                             "attempts": str(attempts),
                             "applied": str(applied),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(INPUT_STREAM, GROUP, msg_id)

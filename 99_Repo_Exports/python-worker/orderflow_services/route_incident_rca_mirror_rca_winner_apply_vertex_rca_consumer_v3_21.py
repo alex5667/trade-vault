@@ -62,7 +62,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def generate_deterministic_result(request_id: str, bundle_json: str) -> Dict[str, Any]:
     try:
@@ -95,8 +95,8 @@ async def generate_deterministic_result(request_id: str, bundle_json: str) -> Di
             "next_actions": ["Review target config", "Check DB loads"],
             "confidence": 0.95,
             "quality_flags": ["deterministic_mock"]
-        },
-    },
+        }
+    }
 
 async def handle_request(mode: str, request_id: str, bundle_json: str) -> Dict[str, Any]:
     if mode == "MOCK_SLOW":
@@ -113,7 +113,8 @@ async def persist_result(db_url: str, res: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_vertex_rca_results (
                     result_id, request_id, provider, severity, result_json, ts_ms
                 ) VALUES (
@@ -127,7 +128,7 @@ async def persist_result(db_url: str, res: Dict[str, Any]) -> None:
                     "severity": res["severity"],
                     "result_json": json.dumps(res),
                     "ts_ms": res["ts_ms"],
-                },
+                }
             )
             conn.commit()
 

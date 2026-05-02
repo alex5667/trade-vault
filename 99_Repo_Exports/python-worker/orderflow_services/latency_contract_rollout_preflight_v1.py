@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """Preflight guard for sensitive rollout/apply paths (P4.2).
 
 Checks the latency-contract rollout gate state before allowing a sensitive job
@@ -16,8 +15,7 @@ ENV vars:
   REDIS_URL                              (default: redis://redis-worker-1:6379/0)
   LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY (default: metrics:latency_contract:rollout_gate:last)
   LATENCY_CONTRACT_ROLLOUT_GATE_KEY       (default: cfg:orderflow:latency_contract:rollout_gate:v1)
-"""
-
+""",
 import argparse
 import os
 from typing import Any

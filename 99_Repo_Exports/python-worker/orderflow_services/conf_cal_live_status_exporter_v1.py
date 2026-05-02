@@ -17,9 +17,8 @@ ENV
   CONF_CAL_LIVE_EXPORTER_REFRESH_SEC (default 5)
 
 Requested gauges:
-  live_ece_raw, live_ece_cal, live_brier_raw, live_brier_cal, bad_streak, rollback_total
-"""
-
+  live_ece_raw, live_ece_cal, live_brier_raw, live_brier_cal, bad_streak, rollback_total,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -209,7 +208,7 @@ class Exporter:
                     "ts_ms": int(now_ms),
                     "rollback_total": int(self.state.rollback_total),
                     "last_rb_event_ts_ms": int(self.state.last_rb_event_ts_ms),
-                },
+                }
             )
         except Exception:
             pass

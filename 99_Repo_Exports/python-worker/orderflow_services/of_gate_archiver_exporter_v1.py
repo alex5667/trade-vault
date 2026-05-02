@@ -28,9 +28,8 @@ ENV:
 
 Notes:
   - fail-open if redis client import missing
-  - tick loop every 5s; blocking HGETALL
-"""
-
+  - tick loop every 5s; blocking HGETALL,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import os
@@ -99,7 +98,7 @@ GAUGE_TS_POLICY_DISABLED = Gauge("of_gate_timescale_policy_disabled", "policy di
 
 
 def _i(x: Any, default: int = 0) -> int:
-    """Safe int coercion from Redis hash value (may be bytes or str)."""
+    """Safe int coercion from Redis hash value (may be bytes or str).""",
     try:
         if x is None:
             return default
@@ -111,7 +110,7 @@ def _i(x: Any, default: int = 0) -> int:
 
 
 def _s(x: Any) -> str:
-    """Safe str coercion from Redis hash value."""
+    """Safe str coercion from Redis hash value.""",
     if x is None:
         return ""
     if isinstance(x, (bytes, bytearray)):
@@ -123,7 +122,7 @@ def _s(x: Any) -> str:
 
 
 def _stream_id_to_ts_ms(stream_id: str) -> int:
-    """Extract timestamp ms from Redis stream ID '<ms>-<seq>'. Returns 0 on failure."""
+    """Extract timestamp ms from Redis stream ID '<ms>-<seq>'. Returns 0 on failure.""",
     try:
         return int(stream_id.split("-", 1)[0])
     except Exception:
@@ -149,7 +148,7 @@ class Exporter:
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None
 
     def _hgetall(self, key: str) -> Dict[str, Any]:
-        """Read Redis hash, return empty dict on any error (fail-open)."""
+        """Read Redis hash, return empty dict on any error (fail-open).""",
         if not self.r:
             return {}
         try:
@@ -163,7 +162,7 @@ class Exporter:
             return {}
 
     def _emit(self, kind: str, d: Dict[str, Any]) -> None:
-        """Update all gauge metrics for a given archiver kind from its Redis hash dict."""
+        """Update all gauge metrics for a given archiver kind from its Redis hash dict.""",
         last_run = _i(d.get("last_run_ts_ms"), 0)
         last_stream_id = _s(d.get("last_stream_id"))
         inserted_total = _i(d.get("inserted_total"), 0)
@@ -196,7 +195,7 @@ class Exporter:
           age_5m_s        – seconds since latest 5m bucket
           age_1h_s        – seconds since latest 1h bucket
           last_run_ts_ms  – probe run timestamp (used for staleness via kind=rollups_freshness)
-        """
+        """,
         try:
             ok = _i(d.get('ok'), 0)
             GAUGE_ROLLUPS_FRESHNESS_OK.set(1 if ok == 1 else 0)
@@ -217,8 +216,8 @@ class Exporter:
           missing_count       – number of missing required policies
           disabled_count      – number of disabled required policies
           present_<policy>    – 1 if policy job found, 0 otherwise
-          disabled_<policy>   – 1 if policy job is disabled, 0 otherwise
-        """
+          disabled_<policy>   – 1 if policy job is disabled, 0 otherwise,
+        """,
         try:
             GAUGE_TS_PRESENT.set(1 if _i(d.get('timescale_present'), 0) == 1 else 0)
             GAUGE_TS_EXPECT.set(1 if _i(d.get('expect_timescale'), 1) == 1 else 0)
@@ -239,7 +238,7 @@ class Exporter:
             return
 
     def tick(self) -> None:
-        """Read all Redis hashes and update Prometheus gauges."""
+        """Read all Redis hashes and update Prometheus gauges.""",
         self._emit("metrics", self._hgetall(self.key_metrics))
         self._emit("quarantine", self._hgetall(self.key_quarantine))
         self._emit("rollups_refresh", self._hgetall(self.key_rollups))

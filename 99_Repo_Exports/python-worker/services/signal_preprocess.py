@@ -7,6 +7,8 @@ import time
 import math
 from typing import Any, Dict, List
 
+from common.normalization import generate_signal_id, SIGNAL_ID_ALGO_V1
+
 from services.horizon_contract import attach_phase0_contract
 from services.atr_horizon_shadow_surface import build_risk_surface_shadow
 from services.atr_horizon_live_surface import build_live_risk_surface
@@ -88,19 +90,26 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
             norm_dir = "SHORT"
             side_int = -1
         
-        signal["direction"] = norm_dir
-        signal["side"] = norm_dir
-        signal["side_lc"] = norm_dir.lower()
-        signal["side_uc"] = norm_dir
+        exec_side = "BUY" if norm_dir == "LONG" else "SELL"
+        signal["direction"] = norm_dir          # LONG | SHORT (strategy)
+        signal["side"] = exec_side              # BUY  | SELL  (execution)
+        signal["side_lc"] = exec_side.lower()
+        signal["side_uc"] = exec_side
         signal["side_int"] = side_int
 
     # Signal ID / sid
     if not signal.get("signal_id"):
-        # Deterministic but unique-ish ID if missing
-        raw_id = f"{signal['symbol']}_{signal['ts_ms']}_{signal.get('price', 0)}"
-        sig_id = hashlib.md5(raw_id.encode()).hexdigest()[:16]
-        signal["signal_id"] = sig_id
-    
+        kind = str(signal.get("kind") or "crypto-of")
+        direction_for_id = str(signal.get("direction") or "LONG")
+        signal["signal_id"] = generate_signal_id(
+            symbol=signal["symbol"],
+            ts_ms=signal["ts_ms"],
+            direction=direction_for_id,
+            kind=kind,
+        )
+        signal["id_algo"] = SIGNAL_ID_ALGO_V1
+
+    signal.setdefault("id_algo", SIGNAL_ID_ALGO_V1)
     signal["sid"] = signal["signal_id"]
 
     # Confidence mirrors

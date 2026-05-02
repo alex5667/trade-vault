@@ -32,10 +32,8 @@ Usage (archive)
 
 Usage (ndjson)
   python3 orderflow_services/dq_threshold_eval_harness_p112.py \
-    --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json
-"""
-
-
+    --inputs /tmp/inputs.ndjson --out-json /tmp/dq_eval.json,
+""",
 import argparse
 import gzip
 import io
@@ -63,8 +61,7 @@ def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
 
     Some archives store {payload: <dict>} or {payload: "{...}"}.
     Exported NDJSON slices typically store the payload dict directly.
-    """
-
+    """,
     v = obj.get("payload")
     if isinstance(v, dict):
         return v
@@ -117,8 +114,7 @@ class Hist:
     """Fixed-bin histogram with basic quantiles.
 
     Deterministic, small-memory, and robust to large inputs.
-    """
-
+    """,
     def __init__(self, cfg: HistCfg):
         self.cfg = cfg
         n_bins = int(math.ceil((cfg.max_v - cfg.min_v) / cfg.step))
@@ -229,8 +225,7 @@ def _suggest_thresholds_from_p99(p99: float, default_soft: float, default_hard: 
     Rationale
       p99 approximates the tail where risk becomes non-negligible.
       We keep defaults as a floor to avoid overfitting small samples.
-    """
-
+    """,
     soft = max(default_soft, p99)
     hard = max(default_hard, p99 * 1.2)
     extreme = max(default_extreme, p99 * 1.5)
@@ -433,7 +428,7 @@ def main() -> None:
             "DQ_TICK_MISSING_SEQ_EMA_HARD": float(max(STRICT_TICK_SEQ[1], g_tick_p99 * 1.2)),
             "DQ_BOOK_MISSING_SEQ_EMA_SOFT": float(max(STRICT_BOOK_SEQ[0], g_book_p99)),
             "DQ_BOOK_MISSING_SEQ_EMA_HARD": float(max(STRICT_BOOK_SEQ[1], g_book_p99 * 1.2)),
-        },
+        }
     }
 
     report: Dict[str, Any] = {

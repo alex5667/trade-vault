@@ -30,8 +30,7 @@ Env (tuning control):
 
 Notes:
   - The runtime loader must parse conf_score_weight_tuning_json into cfg['conf_score_weight_tuning'].
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import json
@@ -70,7 +69,7 @@ def _json_load(path: str) -> Any:
 
 
 def _run(cmd: List[str], *, timeout_s: int = 900) -> Tuple[int, str, str]:
-    """Run external command; return (rc, stdout, stderr)."""
+    """Run external command; return (rc, stdout, stderr).""",
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
     return int(p.returncode), str(p.stdout), str(p.stderr)
 

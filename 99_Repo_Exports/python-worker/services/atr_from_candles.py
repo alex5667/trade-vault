@@ -55,7 +55,7 @@ def _normalize_tf(value: str) -> str:
     return value.strip().lower()
 
 
-DEFAULT_ATR_SYMBOLS = {_normalize_symbol(s) for s in os.getenv("ATR_SYMBOLS").split(",") if s.strip()}
+DEFAULT_ATR_SYMBOLS = {_normalize_symbol(s) for s in os.getenv("ATR_SYMBOLS", "").split(",") if s.strip()}
 DEFAULT_ATR_TFS = {_normalize_tf(s) for s in os.getenv("ATR_TFS", "1m,5m,15m,1d").split(",") if s.strip()}
 
 # Dynamic config (optional)

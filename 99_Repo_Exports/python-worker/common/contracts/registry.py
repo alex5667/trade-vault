@@ -1,10 +1,14 @@
 from __future__ import annotations
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import List, Dict, Optional, Any, Union
 from common.enums.trading import Direction, Side
 
 class ContractBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
+class ExecutionContractBase(BaseModel):
+    """Strict base for execution-path contracts — rejects unknown fields."""
+    model_config = ConfigDict(extra="forbid")
 
 class SignalV1(ContractBase):
     schema_version: str = "v1"
@@ -40,7 +44,7 @@ class SignalV1(ContractBase):
     indicators: Dict[str, Any] = Field(default_factory=dict)
     evidence: Dict[str, Any] = Field(default_factory=dict)
 
-class OrderIntentV1(ContractBase):
+class OrderIntentV1(ExecutionContractBase):
     intent_id: str
     signal_id: str
     symbol: str
@@ -55,9 +59,7 @@ class OrderIntentV1(ContractBase):
     side_int: int = 0
     meta: Dict[str, Any] = Field(default_factory=dict)
 
-class ExecutionEventV1(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
+class ExecutionEventV1(ExecutionContractBase):
     exec_id: str
     order_id: str
     client_order_id: Optional[str] = None
@@ -73,19 +75,35 @@ class ExecutionEventV1(BaseModel):
     side_int: int = 0
     meta: Dict[str, Any] = Field(default_factory=dict)
 
-class OFInputsV1(ContractBase):
+# ---------------------------------------------------------------------------
+# OF Input contracts (feature-map variant — generic ML/analytics use only).
+# Canonical replay contracts live in core/of_inputs_contract.py.
+# ---------------------------------------------------------------------------
+
+class OFInputsFeatureMapV1(ContractBase):
+    """Generic OF feature-map payload for ML/analytics consumers."""
     ts_ms: int
     symbol: str
     features: Dict[str, float]
 
-class OFInputsV2(OFInputsV1):
+class OFInputsFeatureMapV2(OFInputsFeatureMapV1):
     session_asia: int = 0
     session_eu: int = 0
     session_us: int = 0
     session_off: int = 0
     regime: Optional[str] = None
 
-class OFConfirmV3(ContractBase):
+# Backward-compat aliases (deprecated — use OFInputsFeatureMapV1/V2 in new code)
+OFInputsV1 = OFInputsFeatureMapV1
+OFInputsV2 = OFInputsFeatureMapV2
+
+# ---------------------------------------------------------------------------
+# OF Confirm ML score contract.
+# Canonical gate-bits contract lives in core/of_confirm_contract.py.
+# ---------------------------------------------------------------------------
+
+class OFConfirmMlScoreV1(ContractBase):
+    """ML-score output payload from the confirm gate (p_edge, p_win, EV)."""
     signal_id: str
     ok: int
     ok_soft: int
@@ -95,9 +113,26 @@ class OFConfirmV3(ContractBase):
     model_version: str
     threshold_used: float
 
+# Backward-compat alias (deprecated — use OFConfirmMlScoreV1 in new code)
+OFConfirmV3 = OFConfirmMlScoreV1
+
+# ---------------------------------------------------------------------------
+# Telegram notification contract.
+# ---------------------------------------------------------------------------
+
 class TelegramNotificationV1(ContractBase):
     ts_ms: int
     level: str = "INFO"
     topic: str = "general"
-    message: str
+    text: str                           # canonical field (bot reads this)
+    message: Optional[str] = None      # legacy alias — mapped to text if text absent
     meta: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_legacy_message(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            if not values.get("text") and values.get("message"):
+                values = dict(values)
+                values["text"] = values["message"]
+        return values

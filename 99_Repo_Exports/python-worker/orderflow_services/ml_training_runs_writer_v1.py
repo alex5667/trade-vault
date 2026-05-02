@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Phase 0.1 ML training-runs writer.
 
 Normalizes existing training summary hashes/files into a single control-plane stream
 and Timescale/Postgres table (`ml_training_runs`). The worker is fail-open and only
 writes when source fingerprints change.
-"""
-
+""",
 import hashlib
 import json
 import os
@@ -103,7 +101,7 @@ class TrainingRunRow:
             "artifact_uri": self.artifact_uri,
             "metrics_json": json.dumps(self.metrics_json, separators=(",", ":"), ensure_ascii=False),
             "notes_json": json.dumps(self.notes_json, separators=(",", ":"), ensure_ascii=False),
-        },
+        }
 
 
 def _now_ms() -> int:
@@ -209,7 +207,7 @@ def _normalize_row(family: str, source_key: str, src: Mapping[str, Any]) -> Trai
         "sample_n": _as_int(clean.get("sample_n") or clean.get("n") or clean.get("joined_n"), 0),
         "pos_rate": _as_str(clean.get("pos_rate"), ""),
         "promotion_state": _as_str(clean.get("promotion_state") or clean.get("state"), ""),
-    },
+    }
     return TrainingRunRow(
         training_run_id=training_run_id,
         ts_ms=ts_ms,
@@ -232,6 +230,7 @@ def _db_upsert(rows: Sequence[TrainingRunRow]) -> int:
         conn.autocommit = True
         cur = conn.cursor()
         sql = """
+
         INSERT INTO ml_training_runs (
           training_run_id, ts_ms, family, kind, model_id, status, metrics_json, artifact_uri, notes_json
         ) VALUES %s
@@ -243,8 +242,8 @@ def _db_upsert(rows: Sequence[TrainingRunRow]) -> int:
           status = EXCLUDED.status,
           metrics_json = EXCLUDED.metrics_json,
           artifact_uri = EXCLUDED.artifact_uri,
-          notes_json = EXCLUDED.notes_json
-        """
+          notes_json = EXCLUDED.notes_json,
+        """,
         values = [
             (
                 r.training_run_id,
@@ -314,7 +313,7 @@ class Writer:
                     "artifact_uri": row.artifact_uri,
                     "metrics_json": row.metrics_json,
                     "notes_json": row.notes_json,
-                },
+                }
                 fp = _sha1_json(fp_obj)
                 prev = self._get_state_fp(source_key)
                 if fp == prev:
@@ -342,7 +341,7 @@ class Writer:
                             "last_kind": row.kind,
                             "last_status": row.status,
                             "last_artifact_uri": row.artifact_uri,
-                        },
+                        }
                     )
                 except Exception:
                     pass

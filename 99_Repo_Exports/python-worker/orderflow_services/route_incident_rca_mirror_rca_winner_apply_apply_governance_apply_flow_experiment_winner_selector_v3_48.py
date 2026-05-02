@@ -203,7 +203,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "min_accepted_rate": parse_float(raw.get("min_accepted_rate"), DEFAULT_MIN_ACCEPTED_RATE),
         "min_score_margin": parse_float(raw.get("min_score_margin"), DEFAULT_MIN_SCORE_MARGIN),
         "incumbent_arm": incumbent,
-    },
+    }
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
@@ -301,7 +301,7 @@ def build_scorecards(exposures: List[Dict[str, Any]], results: List[Dict[str, An
             "score_raw": score_raw,
             "score": score,
             "eligible": eligible,
-        },
+        }
     return scorecards
 
 
@@ -351,7 +351,8 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
         with conn.cursor() as cur:
             if feedback_row is not None:
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_rca_gov_apply_flow_exp_feedback (
                         request_id, bundle_id, ts_ms, quality_score, usefulness_score, accepted, reason_code, feedback_json
                     ) VALUES (
@@ -367,12 +368,13 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                         "accepted": parse_int(feedback_row.get("accepted"), 0),
                         "reason_code": feedback_row.get("reason_code", ""),
                         "feedback_json": json.dumps(feedback_row),
-                    },
+                    }
                 )
             for arm in ARMS:
                 sc = scorecards[arm]
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_rca_gov_apply_flow_exp_scorec (
                         ts_ms, arm, exposure_n, result_n, feedback_n, avg_quality, avg_usefulness, accepted_rate,
                         result_coverage, feedback_coverage, coverage_multiplier, score_raw, score, eligible, scorecard_json
@@ -385,10 +387,11 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                         "ts_ms": now_ms(),
                         **sc,
                         "scorecard_json": json.dumps(sc),
-                    },
+                    }
                 )
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_rca_gov_apply_flow_exp_win_dec (
                     ts_ms, decision, reason_code, winner_arm, decision_json
                 ) VALUES (
@@ -401,7 +404,7 @@ async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None
                     "reason_code": decision["reason_code"],
                     "winner_arm": decision["winner_arm"],
                     "decision_json": json.dumps({"scorecards": scorecards, "decision": decision}),
-                },
+                }
             )
             conn.commit()
 
@@ -455,8 +458,7 @@ async def main() -> None:  # pragma: no cover
                                 "arm": arm,
                                 "scorecard_json": stable_json(sc),
                                 "ts_ms": str(now_ms()),
-                            },
-                            maxlen=MAXLEN,
+                            }, maxlen=MAXLEN,
                             approximate=True,
                         )
                         if ARM_SCORE:
@@ -475,8 +477,7 @@ async def main() -> None:  # pragma: no cover
                             "winner_arm": decision["winner_arm"],
                             "scorecards_json": stable_json(scorecards),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.hset(
@@ -486,7 +487,7 @@ async def main() -> None:  # pragma: no cover
                             "reason_code": decision["reason_code"],
                             "winner_arm": decision["winner_arm"],
                             "ts_ms": str(now_ms()),
-                        },
+                        }
                     )
                     await r.xadd(
                         AUDIT_STREAM,
@@ -496,8 +497,7 @@ async def main() -> None:  # pragma: no cover
                             "reason_code": decision["reason_code"],
                             "winner_arm": decision["winner_arm"],
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(FEEDBACK_STREAM, GROUP, msg_id)
@@ -511,8 +511,7 @@ async def main() -> None:  # pragma: no cover
                             "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_WINNER_FAILED",
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(FEEDBACK_STREAM, GROUP, msg_id)

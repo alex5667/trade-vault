@@ -11,9 +11,9 @@ from .models import SymbolSetupConfig
 
 @dataclass
 class SetupConfig:
-    """,
+    """
     Extended setup configuration with risk management parameters.,
-    """,
+    """
     name: str
     max_risk_r: float
     tp_r: float

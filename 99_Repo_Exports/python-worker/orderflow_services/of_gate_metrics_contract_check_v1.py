@@ -19,8 +19,7 @@ Designed for low cardinality output:
 Intended to be run periodically (timer/cron) and paired with
 `orderflow_services/of_gate_contract_smoke_exporter_v1.py` + Prometheus alerts
 and a Grafana dashboard.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -52,7 +51,7 @@ def _safe_int(v: Any, default: int = 0) -> int:
 
 
 def _load_contract():
-    """Load contract validators, preferring services/ over ok_rate_logic/ fallback."""
+    """Load contract validators, preferring services/ over ok_rate_logic/ fallback.""",
     try:
         from services.orderflow.of_gate_metrics_contract import (  # type: ignore
             validate_of_gate_row,
@@ -115,7 +114,7 @@ def _schema_version_int(row: Dict[str, Any]) -> int:
 
 
 def _schema_missing(row: Dict[str, Any]) -> int:
-    """Missing schema markers mean producers aren't calling enrich_schema_fields()."""
+    """Missing schema markers mean producers aren't calling enrich_schema_fields().""",
     if ("schema_name" not in row) or ("schema_version" not in row) or ("reason_code" not in row):
         return 1
     return 0

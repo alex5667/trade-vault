@@ -93,8 +93,7 @@ async def run_once() -> None:
                     "action_type": action_type,
                     "target_kind": str(d.get("target_kind", "unknown")),
                     "target_ref": str(d.get("target_ref", "")),
-                },
-                maxlen=_i(os.getenv("ML_ROLLBACK_REQUESTS_MAXLEN", "50000"), 50000),
+                }, maxlen=_i(os.getenv("ML_ROLLBACK_REQUESTS_MAXLEN", "50000"), 50000),
                 approximate=True,
             )
             await cli.set(cooldown_key, "1", ex=cooldown_sec)

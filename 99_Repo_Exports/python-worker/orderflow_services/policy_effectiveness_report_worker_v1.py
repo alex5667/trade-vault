@@ -20,8 +20,7 @@ Writes:
 
 This worker is intentionally lightweight and low-cardinality.
 Input freshness is monitored separately by P70 signal quality policy-mode alerts.
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse

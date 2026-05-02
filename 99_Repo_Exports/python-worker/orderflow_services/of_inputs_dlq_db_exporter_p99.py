@@ -19,9 +19,7 @@ ENV:
   OF_INPUTS_DLQ_DB_EXPORTER_PORT (default 9157)
   OF_INPUTS_DLQ_DB_EXPORTER_LOOKBACK_H (default 24)
   OF_INPUTS_DLQ_DB_REASON_ALLOWLIST (comma-separated; default set in code)
-"""
-
-
+""",
 import os
 import time
 from datetime import datetime, timezone
@@ -122,7 +120,7 @@ class Exporter:
             use_view = self._has_view(conn, "public.v_of_inputs_dlq_events_parsed")
             with conn.cursor() as cur:
                 if use_view:
-                    sql = """
+                    sql = """,
                     WITH base AS (
                       SELECT
                         kind,
@@ -133,11 +131,11 @@ class Exporter:
                     )
                     SELECT kind, reason2, COUNT(*)::bigint AS n, MAX(ts) AS last_ts
                     FROM base
-                    GROUP BY 1,2
-                    """
+                    GROUP BY 1,2,
+                    """,
                     cur.execute(sql, (allow, int(self.lookback_h)))
                 else:
-                    sql = """
+                    sql = """,
                     WITH parsed AS (
                       SELECT
                         ts,
@@ -162,8 +160,8 @@ class Exporter:
                     )
                     SELECT kind, reason2, COUNT(*)::bigint AS n, MAX(ts) AS last_ts
                     FROM bucketed
-                    GROUP BY 1,2
-                    """
+                    GROUP BY 1,2,
+                    """,
                     cur.execute(sql, (int(self.lookback_h), allow))
 
                 rows = cur.fetchall() or []

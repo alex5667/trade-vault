@@ -148,7 +148,8 @@ async def persist_exposure(db_url: str, bundle_id: str, arm: str, exp_type: str,
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_experiment_exposures (
                     bundle_id, arm, exposure_type, severity, experiment_mode, ts_ms
                 ) VALUES (
@@ -162,7 +163,7 @@ async def persist_exposure(db_url: str, bundle_id: str, arm: str, exp_type: str,
                     "severity": severity,
                     "mode": mode,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

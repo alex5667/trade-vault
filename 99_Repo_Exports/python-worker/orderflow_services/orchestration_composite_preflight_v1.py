@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Composite orchestration preflight gate (P6.3).
 
 Combines three independent safety sources behind one deterministic decision:
@@ -18,9 +17,8 @@ Exit codes:
   0: allow
   24: blocked (deploy-lint, latency-contract, or strategy_research_stats hard-block)
   25: invalid/misconfigured (fail-safer-than-open)
-  64: bad arguments
-"""
-
+  64: bad arguments,
+""",
 import argparse
 import json
 import os
@@ -43,6 +41,7 @@ ALLOWED_PURPOSES = {
     'conf_score_guardrails_promote',
     'meta_cov_rollout_controller',
     'conf_score_guardrails_autopromo_controller',
+    'ofc_contextual_rollout_controller',
 }
 
 # Lower priority_rank = higher importance (wins when multiple sources block).
@@ -80,7 +79,7 @@ def _state_prefix_key(prefix: str, purpose: str) -> str:
 
 
 def _stage_allowed_for_strategy_research_stats(purpose: str, stage_mode: bool) -> bool:
-    """Return True when stage-mode bypass is configured for strategy_research_stats."""
+    """Return True when stage-mode bypass is configured for strategy_research_stats.""",
     if not stage_mode:
         return False
     if purpose != 'conf_score_guardrails_apply':
@@ -93,7 +92,7 @@ def evaluate_latency_contract_gate(
     *,
     purpose: str,
 ) -> Dict[str, Any]:
-    """Read the latency-contract rollout gate state from Redis."""
+    """Read the latency-contract rollout gate state from Redis.""",
     state_key_val = _env(
         'LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY',
         'metrics:latency_contract:rollout_gate:last',
@@ -200,7 +199,7 @@ def evaluate_deploy_lint_gate(
 
 
 def _priority_tuple(src: Dict[str, Any]) -> tuple:
-    """Sort key: (bad_status_rank, source_priority). Bad = block > invalid > soft."""
+    """Sort key: (bad_status_rank, source_priority). Bad = block > invalid > soft.""",
     status_rank = {'block': 0, 'invalid': 1, 'soft': 2, 'ok': 99}.get(
         str(src.get('status') or 'ok'), 99
     )
@@ -208,7 +207,7 @@ def _priority_tuple(src: Dict[str, Any]) -> tuple:
 
 
 def _select_reason(sources: list[Dict[str, Any]]) -> Dict[str, Any]:
-    """Select the highest-priority non-ok source. Soft status is NOT blocking."""
+    """Select the highest-priority non-ok source. Soft status is NOT blocking.""",
     bad = [src for src in sources if str(src.get('status')) in ('block', 'invalid')]
     if not bad:
         return {'source': 'none', 'status': 'ok', 'reason': 'ok', 'priority_rank': 999}
@@ -228,7 +227,7 @@ def _emit_audit_stream(
     *,
     stream: str,
 ) -> None:
-    """Append one compact event to the ops stream for history/rollup consumers."""
+    """Append one compact event to the ops stream for history/rollup consumers.""",
     fields = {
         'ts_ms': str(get_ny_time_millis()),
         'purpose': str(composite.get('purpose') or ''),
@@ -254,7 +253,7 @@ def _emit_audit_state(
     state_prefix: str,
     state_ttl_s: int,
 ) -> None:
-    """Persist composite state to a Redis hash per-purpose for the exporter."""
+    """Persist composite state to a Redis hash per-purpose for the exporter.""",
     purpose = str(composite.get('purpose') or '')
     skey = _state_prefix_key(state_prefix, purpose)
     mapping = {
@@ -292,8 +291,8 @@ def evaluate_composite_gate(
       selected_source: the source that dominated the decision
       selected_reason_code: normalized reason code
       decision_status: same as status
-      sources: per-source status/reason dict
-    """
+      sources: per-source status/reason dict,
+    """,
     state_prefix = _env('ORCHESTRATION_PREFLIGHT_STATE_PREFIX', 'metrics:orchestration:preflight:last')
     state_ttl_s = _i(_env('ORCHESTRATION_PREFLIGHT_STATE_TTL_S', '172800'), 172800)
     stream = _env('ORCHESTRATION_PREFLIGHT_OPS_EVENT_STREAM', 'ops:orchestration:preflight:v1')

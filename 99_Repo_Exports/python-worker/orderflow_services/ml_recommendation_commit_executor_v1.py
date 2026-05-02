@@ -25,7 +25,7 @@ except Exception:  # pragma: no cover
         "request_calibration_refresh",
         "freeze_candidate",
         "unfreeze_candidate",
-    },
+    }
 
     def execute_action(*, action_type: str, recommendation: Dict[str, Any], mode: str, redis_client: Any = None) -> Dict[str, Any]:
         return {
@@ -34,7 +34,7 @@ except Exception:  # pragma: no cover
             "action_type": action_type,
             "target_ref": recommendation.get("target_ref", ""),
             "change_summary": json.dumps(recommendation, sort_keys=True),
-        },
+        }
 
     def rollback_action(*, action_type: str, journal_payload: Dict[str, Any], redis_client: Any = None) -> Dict[str, Any]:
         return {"status": "ok", "action_type": action_type, "rolled_back": True}
@@ -116,7 +116,7 @@ async def _process_apply(r: "redis.Redis", payload: Dict[str, Any]) -> None:
             "executor_mode": mode,
             "status": "blocked",
             "reason": "action_not_allowed",
-        },
+        }
         await _emit(r, RESULT_STREAM, result)
         await _emit(r, AUDIT_STREAM, {"ts_ms": str(now_ms), "event": "executor_block", **result})
         APPLY_TOTAL.labels(action=action_type, mode=mode, status="blocked").inc()
@@ -132,7 +132,7 @@ async def _process_apply(r: "redis.Redis", payload: Dict[str, Any]) -> None:
         "status": _s(exec_result.get("status", "ok"), "ok"),
         "reason": _s(exec_result.get("reason", "applied"), "applied"),
         "change_summary": _s(exec_result.get("change_summary", ""), ""),
-    },
+    }
     await _emit(r, RESULT_STREAM, result)
     await _emit(r, AUDIT_STREAM, {"ts_ms": str(now_ms), "event": "executor_apply", **result})
 
@@ -145,7 +145,7 @@ async def _process_apply(r: "redis.Redis", payload: Dict[str, Any]) -> None:
             "executor_mode": mode,
             "change_summary": result["change_summary"],
             "rollback_payload_json": json.dumps(exec_result, sort_keys=True),
-        },
+        }
         await _emit(r, ROLLBACK_JOURNAL_STREAM, journal_payload)
     APPLY_TOTAL.labels(action=action_type, mode=mode, status=result["status"]).inc()
 
@@ -165,7 +165,7 @@ async def _process_rollback(r: "redis.Redis", payload: Dict[str, Any]) -> None:
             "recommendation_id": _s(payload.get("recommendation_id", "")),
             "action_type": action_type,
             "status": status,
-        },
+        }
     )
     ROLLBACK_TOTAL.labels(action=action_type, status=status).inc()
 

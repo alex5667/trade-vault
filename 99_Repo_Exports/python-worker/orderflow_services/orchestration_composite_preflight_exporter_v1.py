@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Prometheus exporter for composite orchestration preflight state (P5.4 / P6.4).
 
 The composite preflight persists one compact Redis hash per rollout-sensitive purpose.
@@ -15,8 +14,7 @@ Prometheus/Grafana can answer:
 The exporter intentionally keeps labels bounded. Raw reason strings from Redis are
 normalized into a finite reason-code family set; unknown values collapse into
 ``<source>:other`` instead of exploding cardinality.
-"""
-
+""",
 import logging
 import os
 import time
@@ -141,7 +139,7 @@ def research_stats_reason_family(raw_reason: str) -> str:
 
     Accepts both 'strategy_research_stats:psr_low' and plain 'psr_low' formats.
     Unknown values collapse to 'other' to keep cardinality bounded.
-    """
+    """,
     raw = (raw_reason or '').strip().lower()
     if ':' in raw:
         _, raw = raw.split(':', 1)

@@ -31,7 +31,7 @@ from collections import defaultdict
 # ── Minimal stubs ─────────────────────────────────────────────────────────────
 
 def _make_fields(sid: str = "SID-001", schema_version: str = "1") -> Dict[str, str]:
-    """Build a minimal outbox stream fields dict (data=JSON envelope).""",
+    """Build a minimal outbox stream fields dict (data=JSON envelope)."""
     envelope = {
         "sid": sid,
         "schema_version": schema_version,

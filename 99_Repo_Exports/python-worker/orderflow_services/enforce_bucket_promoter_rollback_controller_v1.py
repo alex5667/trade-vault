@@ -38,9 +38,8 @@ Auto-apply block (to stop further promotions):
   ENFORCE_BUCKET_ROLLBACK_BLOCK_TTL_SEC=7200
 
 Usage:
-  python -m orderflow_services.enforce_bucket_promoter_rollback_controller_v1 --apply 1
-"""
-
+  python -m orderflow_services.enforce_bucket_promoter_rollback_controller_v1 --apply 1,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -201,7 +200,7 @@ async def _xadd_event(r: Any, *, stream: str, fields: Dict[str, Any], maxlen: in
 
 async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -> Dict[str, BucketStats]:
     # We include a lookback cap to limit scans.
-    q = f"""
+    q = f""",
     SELECT
       exec_regime_bucket,
       count(*) as n,
@@ -210,8 +209,8 @@ async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -
       avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
     FROM v_exec_slippage_eval
     WHERE ts >= greatest(to_timestamp($1::double precision/1000.0), now() - interval '{int(lookback_h)} hours')
-    GROUP BY exec_regime_bucket
-    """
+    GROUP BY exec_regime_bucket,
+    """,
     rows = await conn.fetch(q, float(since_ts_ms))
     out: Dict[str, BucketStats] = {}
     for r in rows:
@@ -374,7 +373,7 @@ async def run(apply: bool) -> int:
         },
         "bucket_stats": {k: vars(v) for k, v in stats.items()},
         "apply": bool(apply),
-    },
+    }
 
     if not dec.rollback:
         await r.aclose()
@@ -408,7 +407,7 @@ async def run(apply: bool) -> int:
             "rollback_ts_ms": rb_ts,
             "last_apply_ts_ms": last_apply_ts,
             "reasons": dec.reasons,
-        },
+        }
         pipe2.set(block_key, "1")
         pipe2.set(meta_key, json.dumps(meta, separators=(",", ":")))
         pipe2.set(ts_key, str(rb_ts))
@@ -428,8 +427,7 @@ async def run(apply: bool) -> int:
                 "target_slip": prev_slip,
                 "target_taker": prev_taker,
                 "reasons": ";".join(dec.reasons),
-            },
-            maxlen=ev_maxlen,
+            }, maxlen=ev_maxlen,
         )
 
         # Notify ops channel (with cooldown)

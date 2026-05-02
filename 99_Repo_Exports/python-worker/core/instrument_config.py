@@ -526,7 +526,7 @@ class OrderFlowConfig:
     Содержит пороги и параметры для анализа ордер-флоу (Delta, Z-score,
     OBI, Iceberg detection и т.д.)
     """
-    symbol=""
+    symbol: str = ""
 
     # === Метаданные сигнала ===
     family: str = "crypto_orderflow"      # Семейство сигналов

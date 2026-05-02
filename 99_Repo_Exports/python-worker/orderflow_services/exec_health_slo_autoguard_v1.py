@@ -115,10 +115,10 @@ class EvalResult:
 def evaluate_autoguard(
     *, summary: Dict[str, Any], prev_state: Dict[str, Any], cfg: GuardCfg, now_ms: int
 ) -> EvalResult:
-    """
+    """,
     Pure evaluation function (no Redis I/O) — easy to unit-test.
     Reads P4 summary fields and computes whether autoguard should fire.
-    """
+    """,
     cross_scope_mode_distinct = _i(summary.get("cross_scope_mode_distinct"), 0)
     rollout_drift_instances_total = _i(summary.get("rollout_drift_instances_total"), 0)
 
@@ -156,12 +156,11 @@ def evaluate_autoguard(
 
 
 class AutoGuard:
-    """
+    """,
     Async main service class.
     Reads P4 SLO summary → evaluates conditions → applies freeze/rollback as needed.
     Fail-open: if Redis or summary unavailable, logs nothing and returns.
-    """
-
+    """,
     def __init__(self, cfg: GuardCfg | None = None):
         self.cfg = cfg or GuardCfg.from_env()
         if aioredis is None:
@@ -176,7 +175,7 @@ class AutoGuard:
             return {}
 
     async def _notify(self, text: str) -> None:
-        """Send notification to Telegram notify stream (best-effort)."""
+        """Send notification to Telegram notify stream (best-effort).""",
         try:
             await self.r.xadd(
                 self.cfg.notify_stream,
@@ -190,14 +189,14 @@ class AutoGuard:
         """Emit an audit event to the P8 freeze event stream (best-effort).
 
         Returns the Redis stream event ID (e.g. '1-0') or '' on failure.
-        """
+        """,
         try:
             return str(await self.r.xadd(self.cfg.event_stream, stringify_mapping(payload), maxlen=5000) or "")
         except Exception:
             return ""
 
     async def _set_state(self, state: Dict[str, Any]) -> None:
-        """Persist autoguard state hash with TTL = max(300s, cooldown*3 minutes)."""
+        """Persist autoguard state hash with TTL = max(300s, cooldown*3 minutes).""",
         payload = {str(k): str(v) for k, v in state.items()}
         await self.r.hset(self.cfg.state_key, mapping=payload)
         await self.r.expire(self.cfg.state_key, max(300, self.cfg.cooldown_minutes * 180))
@@ -209,7 +208,7 @@ class AutoGuard:
         The latch survives the raw TTL key expiry and requires an explicit operator
         ack (exec_health_freeze_override_v1.py thaw) to clear.
         TTL is set to max(24h, freeze_minutes * 24h) to outlast the raw freeze key.
-        """
+        """,
         prev = await self._read_hash(self.cfg.control_key)
         payload = build_autoguard_latch_update(
             prev=prev,
@@ -223,7 +222,7 @@ class AutoGuard:
         await self.r.expire(self.cfg.control_key, max(86400, self.cfg.freeze_minutes * 86400))
 
     async def _set_freeze(self, *, now_ms: int, reasons: List[str]) -> None:
-        """Write freeze key with TTL = freeze_minutes. Idempotent (overwrite is safe)."""
+        """Write freeze key with TTL = freeze_minutes. Idempotent (overwrite is safe).""",
         until = now_ms + int(self.cfg.freeze_minutes * 60 * 1000)
         payload = {
             "schema_name": "exec_health_auto_freeze",
@@ -239,14 +238,14 @@ class AutoGuard:
     async def _maybe_rollback(
         self, *, now_ms: int, reasons: List[str], state: Dict[str, Any]
     ) -> Tuple[bool, str, str]:
-        """
+        """,
         Optionally switch cfg:orderflow:overrides:v1:active_sid → prev_sid.
         Returns (did_rollback, from_sid, to_sid).
         Only fires if:
           - EXEC_HEALTH_AUTOGUARD_ROLLBACK_ENABLE=1
           - the relevant reason is configured for rollback
-          - active_sid exists, prev_sid exists, and they differ
-        """
+          - active_sid exists, prev_sid exists, and they differ,
+        """,
         if not self.cfg.rollback_enable:
             return False, "", ""
         # Check reason-specific rollback flags
@@ -270,14 +269,14 @@ class AutoGuard:
         return True, active_sid, prev_sid
 
     async def run_once(self) -> None:
-        """
+        """,
         Single evaluation cycle:
           1. Read P4 summary from Redis
           2. Evaluate sustained conditions
           3. Apply freeze + optional rollback if conditions are met and cooldown passed
           4. Persist updated state
         Fail-open: if summary is missing, return silently.
-        """
+        """,
         if not self.cfg.enabled:
             return
         if not self._identity_checked:
@@ -374,7 +373,7 @@ class AutoGuard:
         await self._set_state(state)
 
     async def run_forever(self) -> None:
-        """Main loop: run_once every loop_s seconds. Exceptions are swallowed (fail-open)."""
+        """Main loop: run_once every loop_s seconds. Exceptions are swallowed (fail-open).""",
         while True:
             try:
                 await self.run_once()

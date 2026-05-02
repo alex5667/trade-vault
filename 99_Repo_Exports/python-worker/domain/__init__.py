@@ -7,7 +7,7 @@ This module provides:
 - Trade event processing
 - Tick price handling
 - P&L calculations
-""",
+"""
 
 from domain.models import (
     SignalNorm,

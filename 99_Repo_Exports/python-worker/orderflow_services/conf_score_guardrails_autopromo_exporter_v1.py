@@ -10,9 +10,8 @@ This is intentionally small and robust:
 
 Env:
   CONF_SCORE_GUARD_AUTOPROMO_STATE_PATH
-  CONF_SCORE_GUARD_AUTOPROMO_EXPORTER_PORT
-"""
-
+  CONF_SCORE_GUARD_AUTOPROMO_EXPORTER_PORT,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse

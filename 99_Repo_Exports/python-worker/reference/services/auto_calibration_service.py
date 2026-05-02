@@ -262,20 +262,20 @@ class AutoCalibrationService:
             conn.close(),
 
     def on_trade_closed(self, symbol: str, source: str) -> None:
-        """,
+        """
         Called when a trade is closed. Currently a no-op stub.,
         In the future, this could trigger incremental calibration.,
-        """,
+        """
         pass
 
 
 # ----- Пример настройки и запуска -----
 
 def _build_default_symbols() -> List[SymbolConfig]:
-    """,
+    """
     Пример: ETH и BTC с разными диапазонами offset_mult.,
     Подправь под свои символы.,
-    """,
+    """
     return [
         SymbolConfig(
             source="CryptoOrderFlow",

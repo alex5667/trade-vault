@@ -1,9 +1,9 @@
 from __future__ import annotations
-""",
+"""
 Online signal quality computation job.
 
 This module maintains rolling quality assessment based on recent signal performance.
-""",
+"""
 
 
 import logging
@@ -28,7 +28,7 @@ def run_online_quality_job(
     roll_n: int = ROLL_N,
     alpha: float = ALPHA,
 ) -> None:
-    """,
+    """
     Run online rolling quality computation job.
 
     This function maintains recent quality metrics for each signal type
@@ -39,7 +39,7 @@ def run_online_quality_job(
         horizon: R horizon ('R_main', 'R_30m', etc.)
         roll_n: Rolling window size
         alpha: VaR/CVaR quantile
-    """,
+    """
     # roll_n is an internal int — safe to interpolate (not user-supplied data)
     assert isinstance(roll_n, int) and roll_n > 0, f"roll_n must be a positive int, got {roll_n!r}"
 
@@ -77,7 +77,7 @@ def run_online_quality_job(
                 SELECT symbol, signal_type, side, pnl_r
                 FROM ranked
                 WHERE rn <= {roll_n}
-                """,
+                """
             )
             rows = cur.fetchall()
 
@@ -112,7 +112,7 @@ def run_online_quality_job(
                     status = "disabled"
 
                 cur.execute(
-                    """,
+                    """
                     INSERT INTO signal_quality_online
                         (symbol, signal_type, side, horizon,
                          n_recent, win_rate_recent, expectancy_r_recent,
@@ -131,7 +131,7 @@ def run_online_quality_job(
                         quality_score_online = EXCLUDED.quality_score_online,
                         status             = EXCLUDED.status,
                         updated_at         = now()
-                    """,
+                    """
                     (
                         symbol, stype, side, horizon,
                         n, wr, exp_r, var_r, cvar_r,

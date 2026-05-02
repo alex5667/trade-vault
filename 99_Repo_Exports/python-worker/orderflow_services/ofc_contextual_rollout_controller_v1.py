@@ -1,6 +1,5 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Conservative rollout controller for OFC contextual gate.
 
 Purpose
@@ -24,8 +23,7 @@ Outputs
 - Optional env overlay file.
 - Optional rollback flag file touch/remove.
 - Compact rollout summary hash for exporter/dashboarding.
-"""
-
+""",
 import argparse
 import json
 import os
@@ -346,7 +344,7 @@ def main() -> int:
         "runtime_cooldown_remaining_seconds": float(runtime.get("cooldown_remaining_seconds", 0.0) or 0.0),
         "runtime_last_restart_reason_kind": str(runtime.get("last_restart_reason_kind", "unknown") or "unknown"),
         "runtime_active_overlay_fingerprint": str(runtime.get("active_overlay_fingerprint", "") or ""),
-    },
+    }
 
     if int(args.apply) == 1:
         _write_overlay(args.overlay_env_path, decision.desired_mode, canary_symbols, args.rollback_flag_path)
@@ -366,7 +364,7 @@ def main() -> int:
                 "rollback_flag_path": args.rollback_flag_path,
                 "canary_symbols": ",".join(canary_symbols),
                 "last_summary": summary,
-            },
+            }
         )
     _write_hash(client, args.rollout_summary_key, summary)
     print(json.dumps(summary, ensure_ascii=False, separators=(",", ":")))

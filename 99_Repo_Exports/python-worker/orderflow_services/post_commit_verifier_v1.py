@@ -108,14 +108,14 @@ def build_verification_policy(action_type: str) -> Dict[str, Any]:
         "max_negative_delta": _f(os.getenv("ML_POST_COMMIT_MAX_NEG_DELTA", "0.05"), 0.05),
         "max_error_rate": _f(os.getenv("ML_POST_COMMIT_MAX_ERROR_RATE", "0.05"), 0.05),
         "max_latency_p95_ms": _f(os.getenv("ML_POST_COMMIT_MAX_LATENCY_P95_MS", "8.0"), 8.0),
-    },
+    }
     if action_type == "propose_threshold_canary":
         base.update(
             {
                 "required_signals_min": _i(os.getenv("ML_POST_COMMIT_CANARY_MIN_SIGNALS", "50"), 50),
                 "rollback_on_allow_rate_drop": True,
                 "rollback_on_error_spike": True,
-            },
+            }
         )
     elif action_type in {"freeze_candidate", "unfreeze_candidate"}:
         base.update(
@@ -123,7 +123,7 @@ def build_verification_policy(action_type: str) -> Dict[str, Any]:
                 "required_signals_min": _i(os.getenv("ML_POST_COMMIT_FREEZE_MIN_SIGNALS", "10"), 10),
                 "rollback_on_allow_rate_drop": False,
                 "rollback_on_error_spike": True,
-            },
+            }
         )
     else:
         base.update({"required_signals_min": 10, "rollback_on_allow_rate_drop": False, "rollback_on_error_spike": True})
@@ -164,7 +164,7 @@ def evaluate_post_commit(
 
 
 async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> Dict[str, Any]:
-    sql = """
+    sql = """,
         SELECT
             COALESCE(MAX(latency_p95_max_ms), 0.0) AS latency_p95_max_ms,
             COALESCE(MAX(error_rate_max), 0.0) AS error_rate_max,
@@ -172,8 +172,8 @@ async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> Dict[str
             COALESCE(MAX(signals_n), 0) AS signals_n,
             COALESCE(MAX(symbols_seen_n), 0) AS symbols_seen_n
         FROM ml_model_snapshots
-        WHERE model_id = %s AND snapshot_ts_ms >= %s
-    """
+        WHERE model_id = %s AND snapshot_ts_ms >= %s,
+    """,
     async with conn.cursor() as cur:
         await cur.execute(sql, (model_id, since_ts_ms))
         row = await cur.fetchone()
@@ -185,6 +185,7 @@ async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> Dict[str
 
 async def write_verification_result(conn: Any, rec: CommitResult, verification_status: str, reasons: List[str]) -> None:
     sql = """
+
         INSERT INTO llm_post_commit_verifications (
             recommendation_id, ts_ms, action_type, target_kind, target_ref,
             verification_status, reasons_json, executor_mode, replay_status
@@ -194,8 +195,8 @@ async def write_verification_result(conn: Any, rec: CommitResult, verification_s
             verification_status = EXCLUDED.verification_status,
             reasons_json = EXCLUDED.reasons_json,
             executor_mode = EXCLUDED.executor_mode,
-            replay_status = EXCLUDED.replay_status
-    """
+            replay_status = EXCLUDED.replay_status,
+    """,
     async with conn.cursor() as cur:
         await cur.execute(
             sql,
@@ -225,7 +226,7 @@ async def maybe_emit_rollback(redis_cli: Any, rec: CommitResult, reasons: List[s
         "target_ref": rec.target_ref,
         "rollback_reason_codes_json": json.dumps(reasons),
         "requested_by": "ml_post_commit_verifier_v1",
-    },
+    }
     await redis_cli.xadd(
         os.getenv("ML_RECOMMENDATION_ROLLBACK_REQUESTS_STREAM", "stream:ml:recommendation_rollback_requests"),
         payload,
@@ -299,8 +300,7 @@ async def run_once() -> None:
                         "ts_ms": get_ny_time_millis(),
                         "verification_status": verification_status,
                         "reason_codes_json": json.dumps(reasons),
-                    },
-                    maxlen=_i(os.getenv("ML_RECOMMENDATION_AUDIT_MAXLEN", "100000"), 100000),
+                    }, maxlen=_i(os.getenv("ML_RECOMMENDATION_AUDIT_MAXLEN", "100000"), 100000),
                     approximate=True,
                 )
                 await redis_cli.xack(stream, group, msg_id)

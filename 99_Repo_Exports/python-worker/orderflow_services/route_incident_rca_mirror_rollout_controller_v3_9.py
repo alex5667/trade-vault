@@ -168,7 +168,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "promotion_cooldown_sec": parse_int(raw.get("promotion_cooldown_sec"), DEFAULT_PROMOTION_COOLDOWN_SEC),
         "allow_governor_promotion": parse_int(raw.get("allow_governor_promotion"), DEFAULT_ALLOW_GOVERNOR_PROMOTION),
         "allow_verification_rollback": parse_int(raw.get("allow_verification_rollback"), DEFAULT_ALLOW_VERIFICATION_ROLLBACK),
-    },
+    }
 
 
 def shadow_mode_from_hash(raw: Dict[str, Any]) -> str:
@@ -205,7 +205,7 @@ def normalize_event(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
         "current_mode": current_mode,
         "target_mode": target_mode,
         "row": row,
-    },
+    }
 
 
 def evaluate_event(
@@ -234,7 +234,7 @@ def evaluate_event(
         "target_rollout_state": rollout_state,
         "transition_type": "NONE",
         "cooldown_active": 1 if promotion_cooldown_active else 0,
-    },
+    }
 
     if source == "governor":
         if policy["allow_governor_promotion"] != 1:
@@ -288,7 +288,7 @@ async def apply_transition(
             "last_mode_switch_ts_ms": str(now_ms()),
             "last_mode_switch_reason_code": evaluation["controller_reason_code"],
             "last_mode_switch_source": APP_NAME,
-        },
+        }
     )
     await r.hset(
         ROLLOUT_STATE_KEY,
@@ -298,7 +298,7 @@ async def apply_transition(
             "last_transition_type": evaluation["transition_type"],
             "last_transition_reason_code": evaluation["controller_reason_code"],
             "last_transition_source": evaluation["source"],
-        },
+        }
     )
 
 
@@ -313,7 +313,8 @@ async def persist_if_configured(
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rollout_decisions (
                     ts_ms,
                     source,
@@ -358,11 +359,12 @@ async def persist_if_configured(
                     "advisory_only": snapshot["policy"]["advisory_only"],
                     "executor_mode": snapshot["policy"]["executor_mode"],
                     "snapshot_json": json.dumps(snapshot),
-                },
+                }
             )
             if evaluation["transition_type"] != "NONE":
                 cur.execute(
-                    """,
+                    """
+
                     INSERT INTO llm_route_incident_rca_mirror_rollout_journal (
                         ts_ms,
                         transition_type,
@@ -395,7 +397,7 @@ async def persist_if_configured(
                         "state_before": evaluation["current_rollout_state"],
                         "state_after": evaluation["target_rollout_state"],
                         "snapshot_json": json.dumps(snapshot),
-                    },
+                    }
                 )
             conn.commit()
 
@@ -443,7 +445,7 @@ async def process_event(
         "policy": policy,
         "shadow_policy_before": shadow_policy,
         "rollout_state_before": rollout_state_raw,
-    },
+    }
 
     if (
         evaluation["transition_type"] != "NONE"
@@ -472,7 +474,7 @@ async def process_event(
         "transition_type": evaluation["transition_type"],
         "snapshot_json": stable_json(snapshot),
         "ts_ms": str(now_ms()),
-    },
+    }
     await r.xadd(DECISIONS_STREAM, out, maxlen=MAXLEN, approximate=True)
     await r.xadd(
         JOURNAL_STREAM,
@@ -486,8 +488,7 @@ async def process_event(
             "state_after": evaluation["target_rollout_state"],
             "reason_code": evaluation["controller_reason_code"],
             "ts_ms": str(now_ms()),
-        },
-        maxlen=MAXLEN,
+        }, maxlen=MAXLEN,
         approximate=True,
     )
     await r.xadd(
@@ -495,8 +496,7 @@ async def process_event(
         {
             "event_type": "ROUTE_INCIDENT_RCA_MIRROR_ROLLOUT_CONTROLLER_DECIDED",
             **out,
-        },
-        maxlen=MAXLEN,
+        }, maxlen=MAXLEN,
         approximate=True,
     )
     await r.hset(
@@ -512,7 +512,7 @@ async def process_event(
             "target_rollout_state": evaluation["target_rollout_state"],
             "transition_type": evaluation["transition_type"],
             "ts_ms": str(now_ms()),
-        },
+        }
     )
     await update_current_labels(evaluation["target_mode"], evaluation["target_rollout_state"])
 
@@ -561,8 +561,7 @@ async def main() -> None:  # pragma: no cover
                             "source": source,
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(stream_name, GROUP, msg_id)

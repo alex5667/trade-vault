@@ -90,7 +90,8 @@ async def escalate(db_url: str, severity: str, metrics: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_escalations (
                     severity, metrics_json, ts_ms
                 ) VALUES (
@@ -101,7 +102,7 @@ async def escalate(db_url: str, severity: str, metrics: Dict[str, Any]) -> None:
                     "severity": severity,
                     "metrics_json": json.dumps(metrics),
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

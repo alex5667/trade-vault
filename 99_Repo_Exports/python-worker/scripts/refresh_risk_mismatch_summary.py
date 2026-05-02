@@ -107,17 +107,17 @@ def render_textfile(report: dict) -> str:
         avg_rate = float(row.get('avg_mismatch_rate') or 0.0)
         quarantine_count = int(row.get('quarantine_count') or 0)
         lines.append(f'trade_risk_mismatch_summary_avg_rate{{window_name="{window_name}",tier="{tier}"}} {avg_rate}')
-        lines.append(f'trade_risk_mismatch_summary_quarantine_count{{window_name="{window_name}",tier="{tier}"}} {quarantine_count}'),
-    return '\n'.join(lines) + '\n',
+        lines.append(f'trade_risk_mismatch_summary_quarantine_count{{window_name="{window_name}",tier="{tier}"}} {quarantine_count}')
+    return '\n'.join(lines) + '\n'
 
 
 def main() -> int:
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(levelname)s %(name)s: %(message)s',
-    ),
+    )
 
-    parser = argparse.ArgumentParser(description='Refresh materialized risk mismatch summary.'),
+    parser = argparse.ArgumentParser(description='Refresh materialized risk mismatch summary.')
     parser.add_argument(
         '--dsn',
         default=os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')),

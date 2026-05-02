@@ -29,9 +29,8 @@ Environment:
 Example:
   python -m orderflow_services.conf_score_guardrails_apply_v1 \
     --drift-report /tmp/conf_parts_drift.json \
-    --apply 1 --redis-url redis://localhost:6379/0
-"""
-
+    --apply 1 --redis-url redis://localhost:6379/0,
+""",
 from utils.time_utils import get_ny_time_millis
 
 import argparse
@@ -85,7 +84,7 @@ def _load_state_if_exists(path: str) -> Dict[str, Any]:
 
 @contextmanager
 def _acquire_lock(path: str) -> ContextManager[Any]:
-    """Single-writer guard using POSIX flock."""
+    """Single-writer guard using POSIX flock.""",
     f = None
     try:
         dir_path = os.path.dirname(path)
@@ -121,7 +120,7 @@ def _extract_rows(report: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _extract_symbol(group: Any, default: str = "UNKNOWN") -> str:
-    """Best-effort extraction of symbol/group name across report schema variants."""
+    """Best-effort extraction of symbol/group name across report schema variants.""",
     if isinstance(group, dict):
         for k in ("symbol", "sym", "instrument"):
             v = group.get(k)
@@ -146,7 +145,7 @@ def _extract_row_n(row: Dict[str, Any]) -> int:
 
     Newer drift report schema includes explicit 'n'. Older schema (groups with parts list)
     provides per-part n_target / n_base; we use max n_target as a proxy.
-    """
+    """,
     n = row.get("n")
     try:
         if n is not None:
@@ -190,8 +189,7 @@ def _compute_row_max_abs_dz(
     Supports two schemas:
       - New: row['parts'] is dict {part_key: {dz:..}} (dz or shift)
       - Old: row['parts'] is list of dicts with keys: key, drift_z (or dz)
-    """
-
+    """,
     parts = row.get("parts")
 
     top: List[Tuple[str, float]] = []
@@ -256,9 +254,8 @@ def decide_actions_thresholds(
     """Return per-symbol checks based purely on thresholds (no hysteresis).
 
     Output per symbol:
-      {freeze:int, desired_scale:float, max_abs_dz:float, n:int, top:[(k,dz)...], reason:str}
-    """
-
+      {freeze:int, desired_scale:float, max_abs_dz:float, n:int, top:[(k,dz)...], reason:str},
+    """,
     by_sym: Dict[str, Dict[str, Any]] = {}
 
     for row in _extract_rows(report):
@@ -334,7 +331,7 @@ def decide_actions(
     """Backward-compatible wrapper (v1 API).
 
     Returns {freeze, scale, max_abs_dz, n, top...} without hysteresis.
-    """
+    """,
     raw = decide_actions_thresholds(
         report,
         warn_z=warn_z,
@@ -351,7 +348,7 @@ def decide_actions(
 
 
 def _in_canary(symbol: str, share: float, salt: str) -> bool:
-    """Deterministic canary gate by crc32(salt:symbol)."""
+    """Deterministic canary gate by crc32(salt:symbol).""",
     try:
         sh = float(share)
     except Exception:
@@ -398,7 +395,7 @@ def apply_hysteresis_and_recovery(
       - stable_streak
       - canary (0/1)
       - scale (ramped)
-    """
+    """,
     out: Dict[str, Dict[str, Any]] = {}
 
     for sym, raw in raw_decisions.items():
@@ -584,7 +581,7 @@ def _write_bundle(
     promote: bool,
     tag: str,
 ) -> Dict[str, Any]:
-    """Writes immutable bundle and updates current pointer."""
+    """Writes immutable bundle and updates current pointer.""",
     os.makedirs(bundle_dir, exist_ok=True)
     ts = int(state.get("ts_ms") or _now_ms())
     

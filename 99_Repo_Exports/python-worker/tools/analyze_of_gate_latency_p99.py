@@ -1,5 +1,5 @@
 from __future__ import annotations
-""",
+"""
 Пересчет p99 latency для metrics:of_gate (build vs ml).
 
 Анализирует последние N событий из metrics:of_gate и вычисляет:
@@ -9,7 +9,7 @@ from __future__ import annotations
 Использование:
     python3 -m tools.analyze_of_gate_latency_p99 --count 2000
     python3 -m tools.analyze_of_gate_latency_p99 --count 5000 --redis-url redis://redis-worker-1:6379/0
-""",
+"""
 
 
 import argparse
@@ -63,7 +63,7 @@ def main() -> None:
 Вывод:
   - p50/p95/p99 для build latency (latency_us)
   - p50/p95/p99 для ML latency (ml_latency_us)
-        """,
+        """
     )
     ap.add_argument(
         "--redis-url",

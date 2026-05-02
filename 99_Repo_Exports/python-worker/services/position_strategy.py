@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PositionStrategy:
-    """Resolved position strategy flags.""",
+    """Resolved position strategy flags."""
     name: str                   # "independent" | "single" | "scale_in",
     single_active: bool         # enforce one position per symbol,
     router_enable: bool         # execution router active,

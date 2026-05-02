@@ -16,10 +16,8 @@ Core:
 Top breakdowns (top-10 only):
   - of_gate_contract_smoke_dq_bad_total{dq_code}
   - of_gate_contract_smoke_reason_code_total{reason_code}
-  - of_gate_contract_smoke_reason_code_bad_total{reason_code}
-"""
-
-
+  - of_gate_contract_smoke_reason_code_bad_total{reason_code},
+""",
 import json
 import logging
 import os

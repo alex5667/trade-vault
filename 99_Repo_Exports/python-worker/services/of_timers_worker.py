@@ -280,7 +280,7 @@ def run_of_gate_contract_smoke_check() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        ),
+        )
     except subprocess.TimeoutExpired:
         target = script or module
         text = f"OF_GATE_SMOKE timeout after {timeout_s}s ({target})"
@@ -813,7 +813,7 @@ def run_atr_policy_bootstrap_audit() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.error(f"atr_policy_bootstrap_service audit timeout after {timeout_s}s")
         return False
@@ -832,7 +832,7 @@ def run_atr_policy_state_drift_check() -> bool:
             text=True,
             timeout=300,
             env=os.environ.copy(),
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_state_consistency_checker timeout after 300s")
         return False
@@ -854,7 +854,7 @@ def run_atr_policy_full_recovery_audit() -> bool:
             text=True,
             timeout=300,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_full_recovery_service audit timeout after 300s")
         return False
@@ -875,7 +875,7 @@ def run_atr_policy_restore_cert_audit() -> bool:
             text=True,
             timeout=300,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_recovery_drill_runner audit timeout after 300s")
         return False
@@ -903,7 +903,7 @@ def run_atr_policy_restore_cert_execute() -> bool:
             text=True,
             timeout=300,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.error("atr_policy_recovery_drill_runner execute timeout after 300s")
         return False
@@ -1128,7 +1128,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        ),
+        )
         d = _parse_smoke_output(p.stdout, p.stderr) or {}
         rc = int(p.returncode)
 
@@ -1229,7 +1229,7 @@ def run_of_inputs_dlq_auto_replay() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         text = f"OF_INPUTS_DLQ_REPLAY timeout after {timeout_s}s"
         _notify_stream(text, severity="crit", sid="of_inputs_dlq_replay:timeout", source="of_inputs_dlq_replay")
@@ -1316,7 +1316,7 @@ def run_of_inputs_dlq_db_archive_p98() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        ),
+        )
     except subprocess.TimeoutExpired:
         text = f"OF_INPUTS_DLQ_DB_ARCHIVE timeout after {timeout_s}s (P98)"
         _notify_stream(text, severity="crit", sid="of_inputs_dlq_db_archive:timeout", source="of_inputs_dlq_db_archive_p98")
@@ -1395,7 +1395,7 @@ def run_of_inputs_dlq_db_drilldown_p99() -> bool:
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
-        ),
+        )
         if result.returncode == 0:
             if result.stdout:
                 logger.info(f"of_inputs_dlq_db_drilldown_p99:\n{result.stdout.strip()[:2000]}")
@@ -1438,7 +1438,7 @@ def run_orchestration_composite_preflight_history_rollup() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.warning(f"orchestration_preflight_history_rollup: timeout after {timeout_s}s")
         return False
@@ -1484,7 +1484,7 @@ def run_orchestration_composite_preflight_history_textfile_exporter() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.warning(f"orchestration_preflight_history_textfile_exporter: timeout after {timeout_s}s")
         return False
@@ -1539,7 +1539,7 @@ def run_orchestration_composite_preflight_history_consistency_check() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.warning(f"orchestration_preflight_history_consistency: timeout after {timeout_s}s")
         return False
@@ -1606,7 +1606,7 @@ def run_feature_denylist_proposal_exporter() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        ),
+        )
     except subprocess.TimeoutExpired:
         logger.warning(f"feature_denylist_exporter: timeout after {timeout_s}s (module={module})")
         return False
@@ -1668,7 +1668,7 @@ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, en
             text=True,
             timeout=timeout,
             env=env,
-        ),
+        )
         if result.returncode == 0:
             logger.info(f"{module} completed successfully")
             if result.stdout:
@@ -1724,7 +1724,7 @@ def run_tool_rc(
             text=True,
             timeout=timeout,
             env=env,
-        ),
+        )
         if result.stdout:
             logger.debug(f"Output: {result.stdout.strip()}")
         if result.stderr:
@@ -2256,7 +2256,7 @@ def run_orchestration_composite_preflight_history_exporter() -> bool:
             text=True,
             timeout=timeout_s,
             env=env,
-        ),
+        )
         if result.returncode != 0:
             logger.error(
                 "orchestration_composite_preflight_history_exporter failed rc=%s stdout=%s stderr=%s",

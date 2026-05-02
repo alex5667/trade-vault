@@ -71,7 +71,7 @@ def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
-    },
+    }
 
 async def fetch_vertex_health(r: Any) -> bool:
     try:
@@ -120,7 +120,7 @@ def prepare_vertex_payload(bundle_id: str, bundle_json: str) -> Dict[str, str]:
         "task_type": "route_incident_rca_mirror_rca_winner_apply_apply_rca",
         "bundle_json": bundle_json[:MAX_PROMPT_CHARS] if len(bundle_json) > MAX_PROMPT_CHARS else bundle_json,
         "ts_ms": str(now_ms())
-    },
+    }
 
 def prepare_local_payload(bundle_id: str, bundle_json: str) -> Dict[str, str]:
     return {
@@ -130,7 +130,7 @@ def prepare_local_payload(bundle_id: str, bundle_json: str) -> Dict[str, str]:
         "source": APP_NAME,
         "input_json": bundle_json[:MAX_PROMPT_CHARS] if len(bundle_json) > MAX_PROMPT_CHARS else bundle_json,
         "ts_ms": str(now_ms())
-    },
+    }
 
 async def persist_decision(db_url: str, bundle_id: str, decision: str, reason: str, severity: str) -> None:
     if not db_url or psycopg is None:
@@ -138,7 +138,8 @@ async def persist_decision(db_url: str, bundle_id: str, decision: str, reason: s
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_rca_bridge_decisions (
                     bundle_id, decision, reason, severity, ts_ms
                 ) VALUES (
@@ -151,7 +152,7 @@ async def persist_decision(db_url: str, bundle_id: str, decision: str, reason: s
                     "reason": reason,
                     "severity": severity,
                     "ts_ms": now_ms(),
-                },
+                }
             )
             conn.commit()
 

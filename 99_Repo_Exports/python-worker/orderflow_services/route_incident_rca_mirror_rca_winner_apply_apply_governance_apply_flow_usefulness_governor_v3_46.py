@@ -236,7 +236,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
         "cooldown_sec": parse_int(raw.get("cooldown_sec"), DEFAULT_COOLDOWN_SEC),
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
-    },
+    }
 
 
 def current_bridge_mode(raw: Dict[str, Any]) -> str:
@@ -297,7 +297,7 @@ def join_feedback_with_results(feedback_rows: List[Dict[str, Any]], result_rows:
                 "accepted": parse_int(fb.get("accepted"), 0),
                 "reason_code": str(fb.get("reason_code") or ""),
                 "ts_ms": ts_ms,
-            },
+            }
         )
     return joined
 
@@ -313,7 +313,7 @@ def provider_rollup(joined: List[Dict[str, Any]], provider_mode: str) -> Dict[st
             "avg_usefulness": 0.0,
             "accepted_rate": 0.0,
             "low_usefulness_rate": 0.0,
-        },
+        }
     q = [r["quality_score"] for r in rows]
     u = [r["usefulness_score"] for r in rows]
     a = [r["accepted"] for r in rows]
@@ -325,7 +325,7 @@ def provider_rollup(joined: List[Dict[str, Any]], provider_mode: str) -> Dict[st
         "avg_usefulness": round(sum(u) / n, 6),
         "accepted_rate": round(sum(a) / n, 6),
         "low_usefulness_rate": round(sum(low_u) / n, 6),
-    },
+    }
 
 
 def evaluate_usefulness(vertex: Dict[str, Any], local: Dict[str, Any], bridge_mode: str, policy: Dict[str, Any], cooldown_active: bool) -> Dict[str, Any]:
@@ -335,7 +335,7 @@ def evaluate_usefulness(vertex: Dict[str, Any], local: Dict[str, Any], bridge_mo
         "target_bridge_mode": bridge_mode,
         "current_bridge_mode": bridge_mode,
         "cooldown_active": 1 if cooldown_active else 0,
-    },
+    }
 
     if bridge_mode != "LOCAL_ONLY":
         poor_vertex = (
@@ -387,7 +387,8 @@ async def persist_if_configured(db_url: str, vertex: Dict[str, Any], local: Dict
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_rollups (
                     ts_ms, window_min,
                     vertex_n, vertex_avg_quality, vertex_avg_usefulness, vertex_accepted_rate, vertex_low_usefulness_rate,
@@ -414,10 +415,11 @@ async def persist_if_configured(db_url: str, vertex: Dict[str, Any], local: Dict
                     "local_accepted_rate": local["accepted_rate"],
                     "local_low_usefulness_rate": local["low_usefulness_rate"],
                     "rollup_json": json.dumps({"vertex": vertex, "local": local}),
-                },
+                }
             )
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_usefulness_decisions (
                     ts_ms, current_bridge_mode, target_bridge_mode, decision, reason_code, decision_json
                 ) VALUES (
@@ -431,7 +433,7 @@ async def persist_if_configured(db_url: str, vertex: Dict[str, Any], local: Dict
                     "decision": decision["decision"],
                     "reason_code": decision["reason_code"],
                     "decision_json": json.dumps({"vertex": vertex, "local": local, "decision": decision}),
-                },
+                }
             )
             conn.commit()
 
@@ -489,7 +491,7 @@ async def main() -> None:  # pragma: no cover
                                 "mode": decision["target_bridge_mode"],
                                 "last_mode_switch_source": APP_NAME,
                                 "last_mode_switch_reason_code": decision["reason_code"],
-                            },
+                            }
                         )
                         await r.hset(
                             STATE_KEY,
@@ -497,7 +499,7 @@ async def main() -> None:  # pragma: no cover
                                 "last_action_ts_ms": str(now_ms()),
                                 "last_decision": decision["decision"],
                                 "last_reason_code": decision["reason_code"],
-                            },
+                            }
                         )
 
                     await persist_if_configured(db_url, vertex, local, decision)
@@ -508,8 +510,7 @@ async def main() -> None:  # pragma: no cover
                             "vertex_rollup_json": stable_json(vertex),
                             "local_rollup_json": stable_json(local),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xadd(
@@ -523,8 +524,7 @@ async def main() -> None:  # pragma: no cover
                             "vertex_rollup_json": stable_json(vertex),
                             "local_rollup_json": stable_json(local),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.hset(
@@ -539,7 +539,7 @@ async def main() -> None:  # pragma: no cover
                             "vertex_n": str(vertex["n"]),
                             "local_n": str(local["n"]),
                             "ts_ms": str(now_ms()),
-                        },
+                        }
                     )
                     await r.xadd(
                         AUDIT_STREAM,
@@ -548,8 +548,7 @@ async def main() -> None:  # pragma: no cover
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
 
@@ -571,8 +570,7 @@ async def main() -> None:  # pragma: no cover
                             "event_type": "ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_USEFULNESS_FAILED",
                             "error": str(exc),
                             "ts_ms": str(now_ms()),
-                        },
-                        maxlen=MAXLEN,
+                        }, maxlen=MAXLEN,
                         approximate=True,
                     )
                     await r.xack(FEEDBACK_STREAM, GROUP, msg_id)

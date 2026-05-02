@@ -155,7 +155,7 @@ def test_exporter_set_allow_flags(monkeypatch):
 
 
 def test_exporter_reads_status_file(tmp_path, monkeypatch):
-    """_export_promoter must read from status file when present.""",
+    """_export_promoter must read from status file when present."""
     monkeypatch.delenv("REDIS_URL", raising=False),
     monkeypatch.delenv("CRYPTO_NOTIFY_REDIS_URL", raising=False),
     monkeypatch.setenv("ENFORCE_PROMOTER_STATUS_PATH", str(tmp_path / "status.json")),

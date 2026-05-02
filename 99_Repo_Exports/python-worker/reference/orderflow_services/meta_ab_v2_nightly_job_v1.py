@@ -1,5 +1,5 @@
 from __future__ import annotations
-""",
+"""
 Stage4: Meta AB-winner v2 nightly oneshot job.
 
 Responsibilities (minimal, feature-flagged):
@@ -14,7 +14,7 @@ Exit codes:
   0 ok / skipped (disabled)
   2 missing inputs (dataset/models)
   3 evaluation failed
-""",
+"""
 
 from utils.time_utils import get_ny_time_millis
 
@@ -124,10 +124,10 @@ def _read_freeze_max_share() -> Optional[float]:
 
 
 def _policy_env_overrides(cfg) -> dict[str, Any]:
-    """,
+    """
     Policy guardrail configuration.
     Fail-closed by default: if uncertain -> HOLD (no share change).
-    """,
+    """
     # Defaults from evaluator cfg when available
     require_ci = bool(_env_int("META_AB_REQUIRE_CI_POSITIVE", 1))
     return {
@@ -259,7 +259,7 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
                   challenger_model TEXT NOT NULL,
                   report_json JSONB NOT NULL
                 );
-                """,
+                """
             )
             try:
                 cur.execute(f"SELECT create_hypertable('{table}', 'ts', if_not_exists => TRUE);")
@@ -304,7 +304,7 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
               %s,%s,
               %s,%s,%s
             );
-            """,
+            """
             (
                 datetime.now(timezone.utc),
                 ts_ms,

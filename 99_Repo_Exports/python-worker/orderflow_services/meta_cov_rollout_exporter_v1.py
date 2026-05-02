@@ -1,5 +1,5 @@
 from utils.time_utils import get_ny_time_millis
-#!/usr/bin/env python3
+#!/usr/bin/env python3,
 """meta_cov_rollout_exporter_v1.py
 
 P30: Prometheus exporter for meta coverage + canary rollout config.
@@ -24,8 +24,7 @@ ENV:
   META_COV_EXPORTER_PORT (default 9132)
   META_COV_EXPORTER_LOOKBACK_MIN (default 60)
   META_COV_EXPORTER_MAX_SCAN (default 50000)
-"""
-
+""",
 import json
 import os
 import time

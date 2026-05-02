@@ -190,7 +190,7 @@ def build_analysis_request(snapshot: Snapshot, training_run: Dict[str, Any], win
                 "open_incident",
                 "draft_postmortem",
             ],
-        },
+        }
     }
     req_id_src = json.dumps(
         {
@@ -200,6 +200,7 @@ def build_analysis_request(snapshot: Snapshot, training_run: Dict[str, Any], win
             "train_run_id": training_run.get("run_id", ""),
         },
         sort_keys=True,
+        separators=(",", ":"),
         ensure_ascii=False,
     )
     request_id = hashlib.sha1(req_id_src.encode("utf-8")).hexdigest()

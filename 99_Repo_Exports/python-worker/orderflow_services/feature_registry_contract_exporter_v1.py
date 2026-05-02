@@ -23,9 +23,7 @@ ENV:
   FEATURE_REGISTRY_CONTRACT_EXPORTER_PORT   (default: 9817)
   FEATURE_REGISTRY_CONTRACT_EXPORTER_INTERVAL_S (default: 10)
   FEATURE_REGISTRY_CONTRACT_EXPORTER_STALE_S    (default: 21600 = 6h)
-"""
-
-
+""",
 import os
 import time
 from typing import Any, Dict

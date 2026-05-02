@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """P10 ExecHealth Freeze Tamper Guard.
 
 Мониторит целостность freeze_control/state хешей и автоматически
 повторно замораживает систему если обнаружена прямая подмена хешей
 без соответствующей записи в append-only request log.
-"""
-
+""",
 import json
 import os
 import secrets
@@ -100,7 +98,7 @@ class Guard:
         heal_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1", force=True)
 
     def _connect_with_retry(self, max_attempts: int = 0) -> Any:
-        """Connect to Redis with exponential backoff — tolerates startup DNS race conditions."""
+        """Connect to Redis with exponential backoff — tolerates startup DNS race conditions.""",
         import sys
         delay = 2.0
         last_exc: Exception = RuntimeError("No attempt made")
@@ -136,7 +134,7 @@ class Guard:
     def _write_hash(self, key: str, payload: Dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
         """P11: write hash. guard_state_key пишем напрямую (seal не применяется к guard state).
         control/state ключи пишем через sealed_set_sync (FCALL whitelist entrypoint).
-        """
+        """,
         if key == self.guard_state_key:
             self.r.hset(key, mapping=stringify_mapping(payload))
             self.r.expire(key, 86400 * 7)

@@ -144,7 +144,7 @@ def build_action_pattern_decisions(rows: Iterable[GovernorRow]) -> List[Dict[str
                 "useful_n": 0,
                 "quality_sum": 0.0,
                 "providers": {},
-            },
+            }
         )
         state["sample_n"] += 1
         score = _weighted_score(r.quality_score, r.usefulness_score, r.feedback_n)

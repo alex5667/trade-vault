@@ -119,7 +119,7 @@ class TestPlainOrderContract:
 # ===========================================================================
 
 class TestAlgoOrderContract:
-    """P0: _validate_algo_order_contract.""",
+    """P0: _validate_algo_order_contract."""
 
     def test_valid_stop_market(self):
         res = _validate_algo_order_contract(
@@ -129,7 +129,7 @@ class TestAlgoOrderContract:
         assert res["workingType"] in ("MARK_PRICE", "CONTRACT_PRICE")
 
     def test_close_position_with_quantity_raises(self):
-        """algo_closePosition_incompatible_with_quantity.""",
+        """algo_closePosition_incompatible_with_quantity."""
         with pytest.raises(ValueError, match="algo_closePosition_incompatible_with_quantity"):
             _validate_algo_order_contract(
                 {

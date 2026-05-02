@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Operator CLI for ExecHealth dual-control override / thaw workflow (P9).
 
 Usage
@@ -40,8 +39,7 @@ Thaw requires a two-phase, dual-operator workflow:
 
 The downstream hook (exec_health_freeze_hook.py) validates the HMAC dual-control
 commit signature before accepting the thaw. An unsigned or same-operator commit is ignored.
-"""
-
+""",
 import argparse
 import json
 import os
@@ -93,8 +91,7 @@ class OverrideController:
     - cfg:orderflow:exec_health:freeze_control:v1  (latched control hash)
     - metrics:exec_health:slo:autoguard:state       (state hash fallback)
     - ops:exec_health:freeze_events:v1              (event stream)
-    """
-
+    """,
     def __init__(self, redis_url: str | None = None):
         if redis is None:
             raise RuntimeError("redis dependency missing")
@@ -121,7 +118,7 @@ class OverrideController:
         """P11: write hash через sealed_set_sync (FCALL whitelist entrypoint).
 
         Прямой HSET не используется — ACL заблокирует прямые hash writes.
-        """
+        """,
         prev = self._read_hash(key)
         res = sealed_set_sync(
             self.r,
@@ -137,21 +134,21 @@ class OverrideController:
             raise ValueError(f"sealed write failed for {key}: {res.get('error') or res.get('rc')}")
 
     def _emit_event(self, payload: Dict[str, Any]) -> str:
-        """Best-effort event emit to the freeze event stream. Returns event ID."""
+        """Best-effort event emit to the freeze event stream. Returns event ID.""",
         try:
             return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or "")
         except Exception:
             return ""
 
     def _emit_request_event(self, payload: Dict[str, Any]) -> str:
-        """Emit to the P10 append-only request log stream. Returns event ID."""
+        """Emit to the P10 append-only request log stream. Returns event ID.""",
         try:
             return str(self.r.xadd(self.request_stream, stringify_mapping(payload), maxlen=10000) or "")
         except Exception:
             return ""
 
     def status(self) -> Dict[str, Any]:
-        """Return current state from all three sources for operator inspection."""
+        """Return current state from all three sources for operator inspection.""",
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         ctl = parse_exec_health_freeze_control(self._read_hash(self.control_key))
         st = parse_exec_health_freeze_control(self._read_hash(self.state_key))
@@ -176,7 +173,7 @@ class OverrideController:
         }
 
     def _load_pair(self):
-        """Load control and state hashes plus parsed states."""
+        """Load control and state hashes plus parsed states.""",
         prev_ctl = self._read_hash(self.control_key)
         prev_state = self._read_hash(self.state_key)
         ctl = parse_exec_health_freeze_control(prev_ctl)
@@ -188,7 +185,7 @@ class OverrideController:
 
         Creates a new request_id, validates the nonce CAS, stores the pending
         prepare state, and emits a manual_ack_thaw_prepare event.
-        """
+        """,
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         now = _now_ms()
         if not operator.strip() or not reason.strip() or not nonce.strip():
@@ -244,7 +241,7 @@ class OverrideController:
 
         Validates that the request is in 'prepared' state and that the approving
         operator is different from the preparer.
-        """
+        """,
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         now = _now_ms()
         if not operator.strip() or not request_id.strip():
@@ -281,7 +278,7 @@ class OverrideController:
 
         Validates request is 'approved', approver != preparer, then signs and writes
         the dual-control commit event which clears the freeze.
-        """
+        """,
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         assert_rollout_gate_open(self.r, purpose='exec_health_freeze_override_v1.commit_thaw', exit_code=24)
         now = _now_ms()
@@ -354,7 +351,7 @@ class OverrideController:
         """Operator force-freeze for maintenance windows or manual intervention.
 
         Writes to control hash, state hash, and raw freeze key (legacy compat).
-        """
+        """,
         now = _now_ms()
         if not operator.strip() or not reason.strip():
             raise ValueError("operator and reason are required")

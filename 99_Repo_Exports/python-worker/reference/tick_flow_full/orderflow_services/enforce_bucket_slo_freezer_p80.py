@@ -36,7 +36,7 @@ Status/notify:
 
 Audit:
   ENFORCE_FREEZER_EVENTS_STREAM (default events:enforce_bucket_slo_freezer)
-""",
+"""
 
 from utils.time_utils import get_ny_time_millis
 
@@ -145,7 +145,7 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
             from {mv}
             where sym=%s and t >= now() - (%s || ' hours')::interval
             group by 1
-            """,
+            """
             (sym, int(lookback_h)),
         )
         rows = cur.fetchall()
@@ -163,7 +163,7 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
             from {view}
             where sym=%s and ts >= now() - (%s || ' hours')::interval
             group by 1
-            """,
+            """
             (sym, int(lookback_h)),
         )
         rows = cur.fetchall()

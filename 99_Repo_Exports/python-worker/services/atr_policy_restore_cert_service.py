@@ -81,13 +81,13 @@ def certify(*, drill_code: str, target: Dict[str, Any], run_id: str = "", mode: 
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
-                """,
+                """
                 INSERT INTO atr_policy_restore_certifications (
                   cert_id, run_id, mode, drill_code,
                   source, symbol, scenario, regime, risk_horizon_bucket,
                   status, checks_json, summary_json
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)
-                """,
+                """
                 (
                     cert_id, run_id, mode, drill_code,
                     target["source"], target["symbol"], target["scenario"], target["regime"], target["risk_horizon_bucket"],

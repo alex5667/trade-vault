@@ -1,12 +1,10 @@
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Shared gate helpers for nightly strategy research stats (P6.1).
 
 Reads Redis blocker and summary hashes, evaluates gate status, and returns a
 result dict with keys: status, reason, blocked, soft_blocked, gate_mode, age_sec.
-"""
-
+""",
 import os
 import time
 from typing import Any, Dict, Mapping
@@ -72,8 +70,8 @@ def evaluate_strategy_research_stats_gate(
         client: optional already-connected Redis client (avoids creating a new connection)
 
     Returns:
-        dict with: status (ok|soft|block|invalid), reason, blocked, soft_blocked, gate_mode, age_sec
-    """
+        dict with: status (ok|soft|block|invalid), reason, blocked, soft_blocked, gate_mode, age_sec,
+    """,
     if client is None:
         if redis is None:
             return {'status': 'invalid', 'reason': 'redis_unavailable', 'blocked': True, 'soft_blocked': False, 'gate_mode': 'hard'}
@@ -119,5 +117,5 @@ def evaluate_strategy_research_stats_gate(
 
 
 def gate_check_message(state: Mapping[str, Any], *, purpose: str) -> str:
-    """Format a human-readable gate status log line."""
+    """Format a human-readable gate status log line.""",
     return f"STRATEGY_RESEARCH_STATS_GATE purpose={purpose} status={state.get('status')} reason={state.get('reason')} gate_mode={state.get('gate_mode')}"

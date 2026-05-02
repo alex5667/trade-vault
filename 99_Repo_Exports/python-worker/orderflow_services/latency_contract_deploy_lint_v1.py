@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """Pre-deploy linter for latency-contract sensitive rollout jobs.
 
 Checks three layers from one source of truth:
 1. file layout/binding: compose <-> wrapper <-> systemd unit
 2. presence of EnvironmentFile in the systemd unit
-3. required runtime env for the chosen sensitive job
-"""
-
+3. required runtime env for the chosen sensitive job,
+""",
 import argparse
 from pathlib import Path
 import os

@@ -31,7 +31,7 @@ ENV vars consumed:
     ORDERS_STATE_KEY_PREFIX       – Redis state key prefix (default: orders:state:)
     EXEC_STREAM                   – Redis exec stream (default: orders:exec)
     EXEC_CONSISTENCY_STREAM_COUNT – how many stream entries to scan (default: 20000)
-""",
+"""
 
 import argparse
 import json
@@ -96,7 +96,7 @@ def select_best_source(
     1. Redis state snapshot (already materialized by executor)
     2. Latest stream event (for partially rolled out or freshly restarted nodes)
     3. Existing SQL row (only when the other mirrors are absent)
-    """,
+    """
     if redis_doc:
         return 'redis', dict(redis_doc)
     if stream_doc:
@@ -120,7 +120,7 @@ def build_repair_plan(
       source_doc   – the document that will be written to SQL
       source_ref_doc – protection-ref fields (from Redis or SQL fallback)
       categories   – set of mismatch categories involved
-    """,
+    """
     by_sid: Dict[str, List[consistency.ConsistencyMismatch]] = {}
     for mm in mismatches:
         by_sid.setdefault(mm.sid, []).append(mm)
@@ -162,7 +162,7 @@ class SQLRepairWriter:
     - Never deletes rows.
     - Uses GREATEST() for updated_at_ms to avoid rolling back timestamps.
     - Uses COALESCE in refs table to keep existing non-NULL values when source is incomplete.
-    """,
+    """
 
     def __init__(self, conn: Any):
         self.conn = conn
@@ -187,7 +187,7 @@ class SQLRepairWriter:
                         # UPSERT into execution_orders; updated_at_ms uses GREATEST to be
                         # monotone even when the source doc has an older timestamp.
                         cur.execute(
-                            """,
+                            """
                             INSERT INTO execution_orders (sid, symbol, action, status, fsm_state, execution_policy, venue, position_mode, position_side, working_type_policy, state_jsonb, created_at_ms, updated_at_ms)
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                             ON CONFLICT (sid) DO UPDATE SET
@@ -228,7 +228,7 @@ class SQLRepairWriter:
                         # COALESCE in SQL ensures existing non-NULL values survive partial docs.
                         src = {**doc, **ref_doc}
                         cur.execute(
-                            """,
+                            """
                             INSERT INTO execution_protection_refs (sid, symbol, sl_algo_id, sl_client_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id, trail_client_algo_id, updated_at_ms)
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             ON CONFLICT (sid) DO UPDATE SET

@@ -1759,7 +1759,6 @@ services:
     - RISK_TIER_C_MIN_CONFIDENCE=0.35
     - RISK_TIER_B_MIN_CONFIDENCE=0.35
     - CRYPTO_SYMBOLS_SET_KEY=${MEME_REDIS_KEY_1}
-    - MEME_SYMBOLS_1=${MEME_SYMBOLS_1}
     - CRYPTO_DEFAULT_SYMBOLS_ENABLED=${CRYPTO_DEFAULT_SYMBOLS_ENABLED}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
@@ -1798,8 +1797,7 @@ services:
     - sh
     - -c
     - 'python3 -c "import redis,os; key=os.environ[''CRYPTO_SYMBOLS_SET_KEY'']; syms=os.environ.get(''MEME_SYMBOLS_1'','''').split('','');
-      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); r.sadd(key, *[s.strip()
-      for s in syms if s.strip()])"
+      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); valid=[s.strip() for s in syms if s.strip()]; r.sadd(key, *valid) if valid else None"
 
       sleep 40 && python services/crypto_orderflow_service.py
 
@@ -1816,7 +1814,6 @@ services:
     - RISK_TIER_C_MIN_CONFIDENCE=0.35
     - RISK_TIER_B_MIN_CONFIDENCE=0.35
     - CRYPTO_SYMBOLS_SET_KEY=${MEME_REDIS_KEY_2}
-    - MEME_SYMBOLS_2=${MEME_SYMBOLS_2}
     - CRYPTO_DEFAULT_SYMBOLS_ENABLED=${CRYPTO_DEFAULT_SYMBOLS_ENABLED}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
@@ -1855,8 +1852,7 @@ services:
     - sh
     - -c
     - 'python3 -c "import redis,os; key=os.environ[''CRYPTO_SYMBOLS_SET_KEY'']; syms=os.environ.get(''MEME_SYMBOLS_2'','''').split('','');
-      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); r.sadd(key, *[s.strip()
-      for s in syms if s.strip()])"
+      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); valid=[s.strip() for s in syms if s.strip()]; r.sadd(key, *valid) if valid else None"
 
       sleep 40 && python services/crypto_orderflow_service.py
 
@@ -1873,7 +1869,6 @@ services:
     - RISK_TIER_C_MIN_CONFIDENCE=0.35
     - RISK_TIER_B_MIN_CONFIDENCE=0.35
     - CRYPTO_SYMBOLS_SET_KEY=${MEME_REDIS_KEY_3}
-    - MEME_SYMBOLS_3=${MEME_SYMBOLS_3}
     - CRYPTO_DEFAULT_SYMBOLS_ENABLED=${CRYPTO_DEFAULT_SYMBOLS_ENABLED}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
@@ -1915,8 +1910,7 @@ services:
     - sh
     - -c
     - 'python3 -c "import redis,os; key=os.environ[''CRYPTO_SYMBOLS_SET_KEY'']; syms=os.environ.get(''MEME_SYMBOLS_3'','''').split('','');
-      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); r.sadd(key, *[s.strip()
-      for s in syms if s.strip()])"
+      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); valid=[s.strip() for s in syms if s.strip()]; r.sadd(key, *valid) if valid else None"
 
       sleep 40 && python services/crypto_orderflow_service.py
 
@@ -1930,7 +1924,6 @@ services:
     # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
     - CRYPTO_SYMBOLS_SET_KEY=${ALT_REDIS_KEY_1}
-    - ALT_SYMBOLS_1=${ALT_SYMBOLS_1}
     - CRYPTO_DEFAULT_SYMBOLS_ENABLED=${CRYPTO_DEFAULT_SYMBOLS_ENABLED}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
@@ -1972,8 +1965,7 @@ services:
     - sh
     - -c
     - 'python3 -c "import redis,os; key=os.environ[''CRYPTO_SYMBOLS_SET_KEY'']; syms=os.environ.get(''ALT_SYMBOLS_1'','''').split('','');
-      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); r.sadd(key, *[s.strip()
-      for s in syms if s.strip()])"
+      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); valid=[s.strip() for s in syms if s.strip()]; r.sadd(key, *valid) if valid else None"
 
       sleep 40 && python services/crypto_orderflow_service.py
 
@@ -1992,7 +1984,6 @@ services:
     # - CRYPTO_OF_REQUIRE_STRONG_CONFIRMATION=0
     - CRYPTO_OF_STRONG_GATE_SHADOW=0
     - CRYPTO_SYMBOLS_SET_KEY=${ALT_REDIS_KEY_2}
-    - ALT_SYMBOLS_2=${ALT_SYMBOLS_2}
     - CRYPTO_DEFAULT_SYMBOLS_ENABLED=${CRYPTO_DEFAULT_SYMBOLS_ENABLED}
     - REDIS_TICKS_URL=redis://redis-ticks:6379/0
     - ATR_REDIS_URL=redis://redis-worker-1:6379/0
@@ -2032,8 +2023,7 @@ services:
     - sh
     - -c
     - 'python3 -c "import redis,os; key=os.environ[''CRYPTO_SYMBOLS_SET_KEY'']; syms=os.environ.get(''ALT_SYMBOLS_2'','''').split('','');
-      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); r.sadd(key, *[s.strip()
-      for s in syms if s.strip()])"
+      r=redis.from_url(os.environ[''REDIS_URL'']); r.delete(key); valid=[s.strip() for s in syms if s.strip()]; r.sadd(key, *valid) if valid else None"
 
       sleep 40 && python services/crypto_orderflow_service.py
 

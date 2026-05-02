@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
 """Prometheus exporter for ExecHealth freeze control state (P7).
 
 Reads cfg:orderflow:exec_health:freeze_control:v1 (the latched control hash)
@@ -21,9 +20,8 @@ exec_health_freeze_control_source{source}      — one-hot: current control_sour
 
 Run
 ---
-python3 -m orderflow_services.exec_health_freeze_control_exporter_v1
-"""
-
+python3 -m orderflow_services.exec_health_freeze_control_exporter_v1,
+""",
 import os
 import time
 from typing import Any, Dict

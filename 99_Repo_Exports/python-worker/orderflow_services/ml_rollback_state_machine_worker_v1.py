@@ -72,7 +72,8 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
     conn = await asyncpg.connect(database_url)
     try:
         await conn.execute(
-            """,
+            """
+
             INSERT INTO llm_rollback_state_history (
                 recommendation_id, ts_ms, prev_state, event, next_state, reason_codes_json
             ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
@@ -88,7 +89,7 @@ async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
             """,
             UPDATE llm_recommendations
                SET rollback_state = $2
-             WHERE recommendation_id = $1
+             WHERE recommendation_id = $1,
             """,
             payload["recommendation_id"],
             payload["next_state"],
@@ -126,8 +127,7 @@ async def _transition(
                 "attempted_event": event,
                 "reason_codes": reason_codes,
                 "ts_ms": _now_ms(),
-            },
-            maxlen=500_000,
+            }, maxlen=500_000,
             approximate=True,
         )
         return
@@ -141,7 +141,7 @@ async def _transition(
         "next_state": tr.next_state,
         "reason_codes": reason_codes,
         "ts_ms": ts_ms,
-    },
+    }
 
     await r.hset(
         skey,
@@ -152,7 +152,7 @@ async def _transition(
             "last_event": tr.event,
             "updated_at_ms": ts_ms,
             "reason_codes": reason_codes,
-        },
+        }
     )
     await r.expire(skey, int(os.getenv("ML_ROLLBACK_STATE_TTL_SEC", "604800")))
     await r.xadd(state_stream, body, maxlen=200_000, approximate=True)
@@ -161,8 +161,7 @@ async def _transition(
         {
             "event": "ROLLBACK_STATE_TRANSITION",
             **body,
-        },
-        maxlen=500_000,
+        }, maxlen=500_000,
         approximate=True,
     )
     SM_TRANSITIONS.labels(event=tr.event, state=tr.next_state).inc()
@@ -177,7 +176,7 @@ async def _transition(
                 "event": tr.event,
                 "next_state": tr.next_state,
                 "reason_codes": [x.strip() for x in reason_codes.split(",") if x.strip()],
-            },
+            }
         )
 
 

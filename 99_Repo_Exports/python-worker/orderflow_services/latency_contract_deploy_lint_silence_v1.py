@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Operator ack/silence workflow for latency deploy-lint notifier.
 
 P4.9 adds operator policy controls for rolling silence budget and re-ack limits.
@@ -21,8 +20,7 @@ approval is still rejected if gate_reason_code, errors_count, or the canonical
 details_json fingerprint changed since prepare/approve.
 
 P4.14 also binds approval to warning severity policy and notifier route class.
-"""
-
+""",
 import argparse
 import json
 import os
@@ -247,7 +245,7 @@ def cmd_prepare_override(
     P4.12: binds the request to the current drift snapshot (error_codes + active_purposes_hash).
     P4.13: also binds gate_reason_code, errors_count, details_json fingerprint.
     P4.14: also binds warning_codes, warning_severity_policy, notifier_route_class.
-    """
+    """,
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     if not escalation_ticket:
         raise ValueError('escalation ticket is required')
@@ -287,7 +285,7 @@ def cmd_approve_override(
     """Approve a pending dual-control override request (must be a different operator).
 
     P4.10: Step 2. The approver must differ from the requester.
-    """
+    """,
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     raw = approve_override_approval(
         r,

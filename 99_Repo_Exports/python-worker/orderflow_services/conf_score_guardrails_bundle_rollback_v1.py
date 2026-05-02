@@ -15,8 +15,7 @@ Targets:
   prev      : The bundle listed as 'prev_file' in current.json
   current   : The bundle listed as 'current_file' in current.json (re-apply)
   <filename>: Specific bundle filename (e.g. bundle_123456_v1_abc.json)
-"""
-
+""",
 import argparse
 import fcntl
 import json

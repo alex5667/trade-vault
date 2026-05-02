@@ -145,7 +145,8 @@ async def persist_bundle(db_url: str, bundle: Dict[str, Any]) -> None:
     with psycopg.connect(db_url) as conn:  # pragma: no cover
         with conn.cursor() as cur:
             cur.execute(
-                """,
+                """
+
                 INSERT INTO llm_route_incident_rca_mirror_incident_bundles (
                     bundle_id, ts_ms, trigger_source, trigger_type, severity, bundle_json
                 ) VALUES (
@@ -159,7 +160,7 @@ async def persist_bundle(db_url: str, bundle: Dict[str, Any]) -> None:
                     "trigger_type": bundle["trigger"]["trigger_type"],
                     "severity": bundle["trigger"]["severity"],
                     "bundle_json": json.dumps(bundle, ensure_ascii=False),
-                },
+                }
             )
             conn.commit()
 

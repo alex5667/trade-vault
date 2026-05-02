@@ -24,8 +24,7 @@ Design goals
 - bounded cardinality: labels are symbol and window only
 - deterministic: uses event ts_ms/stream ids, not wall clock, when possible
 - no hidden policy coupling: calibrates only one knob (`cont_ctx_valid_ms`)
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import hashlib
@@ -325,7 +324,7 @@ def is_candidate(c: CaptureRow, cfg: Cfg) -> bool:
 
     A candidate must be a continuation near-miss where the single missing
     leg is cont_ctx_recent and no warmup bypasses are active.
-    """
+    """,
     if c.scenario != "continuation":
         return False
     if c.ok != 0:
@@ -347,13 +346,13 @@ def is_candidate(c: CaptureRow, cfg: Cfg) -> bool:
 
 
 def rescued_by_window(c: CaptureRow, baseline_ms: int, window_ms: int) -> bool:
-    """Check if widening from baseline to window would rescue this candidate."""
+    """Check if widening from baseline to window would rescue this candidate.""",
     age = int(c.cont_ctx_age_ms)
     return age > int(baseline_ms) and age <= int(window_ms)
 
 
 def _stale_penalty(age_ms: int, cfg: Cfg) -> float:
-    """Piecewise stale penalty for context age."""
+    """Piecewise stale penalty for context age.""",
     s = float(age_ms) / 1000.0
     if s <= float(cfg.stale_penalty_mid_s):
         return 0.0
@@ -372,7 +371,7 @@ def _ensure_group(r: Any, cfg: Cfg) -> None:
 
 
 def _emit_shadow(r: Any, cfg: Cfg, c: CaptureRow, window_ms: int, run_id: str) -> None:
-    """Emit a shadow entry signal for the paper/shadow executor."""
+    """Emit a shadow entry signal for the paper/shadow executor.""",
     payload = {
         "schema": "1",
         "event": "cont_ctx_shadow_entry",
@@ -417,7 +416,7 @@ def _release_apply_lock(r: Any, cfg: Cfg, token: str) -> None:
 
 
 def _read_recent_closed_trades(r: Any, cfg: Cfg) -> List[Dict[str, Any]]:
-    """Read recent closed calibration trades from trades:closed stream."""
+    """Read recent closed calibration trades from trades:closed stream.""",
     since_ms = _now_ms() - int(cfg.lookback_hours) * 3600 * 1000
     out: List[Dict[str, Any]] = []
     last_id = "+"
@@ -449,7 +448,7 @@ def _read_recent_closed_trades(r: Any, cfg: Cfg) -> List[Dict[str, Any]]:
 
 
 def _aggregate_outcomes(rows: List[Dict[str, Any]], cfg: Cfg) -> Dict[Tuple[str, int], Dict[str, Any]]:
-    """Aggregate shadow trade outcomes by (symbol, window_ms)."""
+    """Aggregate shadow trade outcomes by (symbol, window_ms).""",
     out: Dict[Tuple[str, int], Dict[str, Any]] = {}
     for d in rows:
         symbol = str(d.get("symbol") or "unknown")
@@ -478,7 +477,7 @@ def _score_candidate_window(st: Dict[str, Any], cfg: Cfg) -> Tuple[float, float,
     """Compute utility, expectancy, fb_rate, exec_p95, confidence for a window cohort.
 
     J(W) = E[net_r|W] - λ_fb·FB(W) - λ_exec·TailExec(W) - λ_stale·StalePenalty(W)
-    """
+    """,
     n = int(st.get("n", 0) or 0)
     if n <= 0:
         return (-999.0, 0.0, 0.0, 0.0, 0.0)
@@ -515,7 +514,7 @@ def _send_telegram(
     text: str,
     buttons_json: Optional[str] = None,
 ) -> None:
-    """Push message to notify:telegram stream."""
+    """Push message to notify:telegram stream.""",
     fields: Dict[str, str] = {
         "type": "report",
         "text": text,
@@ -533,7 +532,7 @@ def _send_telegram(
 
 
 def _build_cont_ctx_buttons(run_id: str, symbols: List[str]) -> Optional[str]:
-    """Build inline keyboard for cont_ctx window approval."""
+    """Build inline keyboard for cont_ctx window approval.""",
     if not symbols:
         return None
     buttons = [[
@@ -548,7 +547,7 @@ def _store_cont_ctx_pending(
     run_id: str,
     recommendations: Dict[str, Dict[str, Any]],
 ) -> None:
-    """Store pending approval data for Telegram callback handler."""
+    """Store pending approval data for Telegram callback handler.""",
     now_ms = _now_ms()
     pending = {
         "run_id": run_id,
@@ -571,7 +570,7 @@ def _store_cont_ctx_pending(
 
 
 def _build_recommendation_verdict(rec: Dict[str, Any]) -> List[str]:
-    """Build pros/cons analysis lines for a single symbol recommendation."""
+    """Build pros/cons analysis lines for a single symbol recommendation.""",
     pros: List[str] = []
     cons: List[str] = []
     warnings: List[str] = []
@@ -666,7 +665,7 @@ def _format_cont_ctx_telegram_report(
     run_id: str,
     mode: str,
 ) -> str:
-    """Build Telegram HTML report for cont_ctx window calibration."""
+    """Build Telegram HTML report for cont_ctx window calibration.""",
     lines = [
         "🔧 <b>Cont Ctx Window Calibrator</b>",
         "",
@@ -715,7 +714,7 @@ def _format_cont_ctx_telegram_report(
 
 
 def _maybe_apply(r: Any, cfg: Cfg, symbol: str, recommended_ms: int, summary: Dict[str, Any]) -> str:
-    """Attempt to auto-apply the recommended window (bounded, locked, with cooldown)."""
+    """Attempt to auto-apply the recommended window (bounded, locked, with cooldown).""",
     if cfg.mode != "AUTO_APPLY":
         return "recommend_only"
     token = _acquire_apply_lock(r, cfg)
@@ -749,7 +748,7 @@ def _maybe_apply(r: Any, cfg: Cfg, symbol: str, recommended_ms: int, summary: Di
 
 
 def _refresh_recommendations(r: Any, cfg: Cfg) -> None:
-    """Periodic recommendation engine: read outcomes, score windows, emit suggestions."""
+    """Periodic recommendation engine: read outcomes, score windows, emit suggestions.""",
     rows = _read_recent_closed_trades(r, cfg)
     agg = _aggregate_outcomes(rows, cfg)
     by_symbol: Dict[str, Dict[int, Dict[str, Any]]] = {}

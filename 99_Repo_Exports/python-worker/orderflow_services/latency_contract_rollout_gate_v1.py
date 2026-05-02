@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
-
 """Rollout/apply blocker for latency-contract coverage (P4.2).
 
 Blocks sensitive rollout/apply paths when:
@@ -26,8 +25,7 @@ ENV vars:
   LATENCY_CONTRACT_ROLLOUT_GATE_INTERVAL_S   (default: 10)
   LATENCY_CONTRACT_ROLLOUT_GATE_BUDGET_HOLD_S (default: 300)
   LATENCY_CONTRACT_ROLLOUT_GATE_TTL_S        (default: 900)
-"""
-
+""",
 import os
 import time
 from dataclasses import dataclass
@@ -83,7 +81,7 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
 
     Returns the complete state mapping to be written to Redis.
     'gate_active' = '1' means sensitive apply/rollout should be blocked.
-    """
+    """,
     now_ms = get_ny_time_millis()
     raw = r.hgetall(cfg.summary_key) or {}
     prev = r.hgetall(cfg.state_key) or {}
@@ -151,7 +149,7 @@ def reconcile_gate_key(r: Any, cfg: Cfg, mapping: Dict[str, str]) -> None:
     When gate is active, write the gate key with TTL so that a crashed daemon
     does not leave a stale block indefinitely (TTL defaults to 900s).
     When gate is OK, delete the gate key so preflight sees no block.
-    """
+    """,
     active = _i(mapping.get('gate_active'), 0)
     if active:
         r.hset(cfg.gate_key, mapping=mapping)

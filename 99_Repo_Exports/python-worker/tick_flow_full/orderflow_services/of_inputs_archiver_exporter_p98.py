@@ -21,8 +21,7 @@ ENV:
   OF_INPUTS_ARCHIVER_EXPORTER_PORT (default 9156)
   OF_INPUTS_DLQ_DB_ARCHIVE_METRICS_KEY (default metrics:of_inputs_dlq_db_archive)
   OF_INPUTS_QUARANTINE_DB_ARCHIVE_METRICS_KEY (default metrics:of_inputs_quarantine_db_archive)
-"""
-
+""",
 from utils.time_utils import get_ny_time_millis
 
 import os

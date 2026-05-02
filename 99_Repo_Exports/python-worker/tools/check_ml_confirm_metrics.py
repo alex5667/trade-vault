@@ -1,5 +1,5 @@
 from __future__ import annotations
-""",
+"""
 Проверка последних событий metrics:ml_confirm с детальными значениями.
 
 Самый надёжный способ — через redis-py (вы сразу увидите status/err/reason/model_run_id).
@@ -13,7 +13,7 @@ from __future__ import annotations
     - kind=util_mh_v1
     - model_run_id либо = вашему run_id (20260204_133025_708ce5), либо непустой
     - err/reason пустые или "ok"
-""",
+"""
 
 
 import argparse
@@ -42,7 +42,7 @@ def main() -> None:
   - kind=util_mh_v1
   - model_run_id либо = вашему run_id, либо непустой
   - err/reason пустые или "ok"
-        """,
+        """
     )
     ap.add_argument(
         "--redis-url",
