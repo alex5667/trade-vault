@@ -4,6 +4,7 @@ from utils.time_utils import get_ny_time_millis
 import asyncio
 import json
 import os
+from core.redis_keys import RedisKeyPrefixes as RK
 import time
 from typing import Any, Dict, Tuple
 
@@ -421,7 +422,7 @@ async def process_event(
     rollout_state_raw = as_dict(await r.hgetall(ROLLOUT_STATE_KEY))
     policy = policy_from_hash(as_dict(await r.hgetall(GLOBAL_POLICY_KEY)))
     try:
-        exec_kill = await r.get('trade:exec_kill_switch')
+        exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
         if exec_kill and exec_kill.decode().strip() == '1':
             policy['kill_switch'] = 1
     except: pass

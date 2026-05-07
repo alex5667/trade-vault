@@ -3,6 +3,7 @@ from utils.time_utils import get_ny_time_millis
 
 import json
 import os
+from core.redis_keys import RedisKeyPrefixes as RK
 import time
 from typing import Any, Dict, Tuple
 
@@ -395,7 +396,7 @@ async def main() -> None:  # pragma: no cover
                     family = str(row.get("task_family") or "")
                     policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
                     try:
-                        exec_kill = await r.get('trade:exec_kill_switch')
+                        exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
                     except: pass

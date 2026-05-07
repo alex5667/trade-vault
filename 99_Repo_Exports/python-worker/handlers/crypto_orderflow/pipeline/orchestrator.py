@@ -205,8 +205,6 @@ from handlers.crypto_orderflow.components.gates import CryptoSignalGates
 from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
 from handlers.crypto_orderflow.components.observability import CryptoObservability
 from core.retention import MAXLEN_GLOBAL
-# P0-Fix #1: используем STREAM_RETENTION как единый source-of-truth для DLQ maxlen.
-# retention.MAXLEN_DLQ=50_000 расходился с STREAM_RETENTION[SIGNAL_DLQ]=2_000 в 25x.
 from core.redis_keys import RS, STREAM_RETENTION as _STREAM_RETENTION
 _MAXLEN_DLQ: int = _STREAM_RETENTION.get(RS.SIGNAL_DLQ, 2_000)
 

@@ -442,7 +442,6 @@ async def main() -> None:  # pragma: no cover
             continue
         for stream_name_r, messages in rows:
             stream_name = stream_name_r.decode() if isinstance(stream_name_r, (bytes, bytearray)) else str(stream_name_r)
-            print("DEBUG stream_name =", repr(stream_name))
             side = "handoff" if "handoff" in stream_name else "legacy"
             for msg_id, payload in messages:
                 started = time.perf_counter()

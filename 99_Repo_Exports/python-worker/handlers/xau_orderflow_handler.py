@@ -21,6 +21,7 @@ XAU Order Flow Handler - анализ ордер-флоу по тиковым д
 - Публикует в notify:telegram (читается notify-worker)
 """
 
+import logging
 import os
 import json
 import time
@@ -43,6 +44,8 @@ from signals.orderbook_metrics import BestLevelTracker
 from signals.risk_levels import compute_levels  # v5.1: SL/TP calculation
 from .regime_gate import RegimeGateCfg, regime_allows
 
+
+_log = logging.getLogger(__name__)
 
 # Конфигурация из переменных окружения
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -115,7 +118,7 @@ class XAUOrderFlowHandler:
         # Буферы для анализа
         self.delta_window = deque(maxlen=CFG["delta_window_ticks"])
         self.last_signal_ts = 0
-        self.processed_ticks = 0  # DEBUG counter для отслеживания обработанных тиков
+        self.processed_ticks = 0
         self.z_delta_trigger_count = 0  # Counter для Z-DELTA TRIGGER messages
         self.signal_count_long = 0  # Счетчик LONG сигналов
         self.signal_count_short = 0  # Счетчик SHORT сигналов
@@ -161,31 +164,28 @@ class XAUOrderFlowHandler:
             allow_sweep_any=bool(getattr(self, "regime_allow_sweep_any", True)),
         )
         
-        print("✅ XAUOrderFlowHandler v3 инициализирован")
-        print(f"   Tick Stream: {TICK_STREAM}")
-        print(f"   Book Stream: {BOOK_STREAM}")
-        print(f"   Group: {GROUP} (unified consumer)")
-        print(f"   Delta Z threshold: {CFG['delta_z_threshold']}")
-        print(f"   Iceberg: duration={CFG['iceberg_min_duration']}s, refresh={CFG['iceberg_refresh_count']}")
-        sys.stdout.flush()
+        _log.info("XAUOrderFlowHandler v3 инициализирован")
+        _log.info("  Tick Stream: %s", TICK_STREAM)
+        _log.info("  Book Stream: %s", BOOK_STREAM)
+        _log.info("  Group: %s (unified consumer)", GROUP)
+        _log.info("  Delta Z threshold: %s", CFG['delta_z_threshold'])
+        _log.info("  Iceberg: duration=%ss, refresh=%s", CFG['iceberg_min_duration'], CFG['iceberg_refresh_count'])
     
     def start(self) -> None:
         """Запускает обработчик в отдельном потоке."""
         if self.is_running:
-            print("⚠️ XAUOrderFlowHandler уже запущен")
+            _log.warning("XAUOrderFlowHandler уже запущен")
             return
         
         self.is_running = True
         thread = threading.Thread(target=self._run_loop, daemon=True)
         thread.start()
-        print("🚀 XAUOrderFlowHandler запущен")
-        sys.stdout.flush()
+        _log.info("XAUOrderFlowHandler запущен")
     
     def stop(self) -> None:
         """Останавливает обработчик."""
         self.is_running = False
-        print("⛔ XAUOrderFlowHandler остановлен")
-        sys.stdout.flush()
+        _log.info("XAUOrderFlowHandler остановлен")
     
     def _run_loop(self) -> None:
         """Основной цикл обработки тиков и order book (unified consumer)."""
@@ -199,15 +199,15 @@ class XAUOrderFlowHandler:
                     id='$',
                     mkstream=True
                 )
-                print(f"✅ Consumer group {GROUP} создана для {stream_name}")
+                _log.info("Consumer group %s создана для %s", GROUP, stream_name)
                 return True
             except Exception as e:
                 error_str = str(e).upper()
                 if "BUSYGROUP" in error_str:
-                    print(f"ℹ️ Consumer group {GROUP} уже существует для {stream_name}")
+                    _log.debug("Consumer group %s уже существует для %s", GROUP, stream_name)
                     return True
                 else:
-                    print(f"❌ Ошибка создания consumer group для {stream_name}: {e}")
+                    _log.error("Ошибка создания consumer group для %s: %s", stream_name, e)
                     return False
         
         try:
@@ -218,9 +218,8 @@ class XAUOrderFlowHandler:
             # Уникальное имя консьюмера
             consumer_name = f"{CONSUMER_NAME_PREFIX}-{os.getpid()}-{int(time.time())}"
             
-            print(f"🔄 Запуск цикла обработки тиков (consumer: {consumer_name})...")
-            sys.stdout.flush()
-            
+            _log.info("Запуск цикла обработки тиков (consumer: %s)...", consumer_name)
+                
             tick_count = 0
             signal_count = 0
             start_time = time.time()
@@ -266,20 +265,17 @@ class XAUOrderFlowHandler:
                                     pass  # Временно пропускаем
                                 
                             except Exception as e:
-                                print(f"❌ Ошибка обработки {stream} {msg_id}: {e}")
-                                sys.stdout.flush()
+                                _log.error("Ошибка обработки %s %s: %s", stream, msg_id, e)
                             finally:
                                 # ACK сообщения (once-only delivery)
                                 try:
                                     self.redis_client.xack(stream, GROUP, msg_id)
                                 except Exception as e:
-                                    print(f"❌ Ошибка ACK {msg_id}: {e}")
-                                    sys.stdout.flush()
-                    
+                                    _log.error("Ошибка ACK %s: %s", msg_id, e)
+                                                
                     # Статистика каждые 60 секунд
                     if time.time() - start_time >= 60:
-                        print(f"📊 XAU OrderFlow: {tick_count} тиков, {signal_count} сигналов за 60с")
-                        sys.stdout.flush()
+                        _log.info("XAU OrderFlow: %d тиков, %d сигналов за 60с", tick_count, signal_count)
                         tick_count = 0
                         signal_count = 0
                         start_time = time.time()
@@ -288,22 +284,18 @@ class XAUOrderFlowHandler:
                     error_str = str(e).upper()
                     # Обработка NOGROUP ошибки - пересоздаём consumer groups
                     if "NOGROUP" in error_str:
-                        print(f"⚠️ Обнаружен NOGROUP для стримов, пересоздаём consumer groups...")
-                        sys.stdout.flush()
+                        _log.warning("Обнаружен NOGROUP для стримов, пересоздаём consumer groups...")
                         # Пересоздаём consumer groups для всех стримов
                         for stream_name in [TICK_STREAM, BOOK_STREAM]:
                             ensure_consumer_group(stream_name)
-                        sys.stdout.flush()
                         time.sleep(2)  # Даём время на создание групп
                     else:
-                        print(f"❌ Ошибка в цикле обработки: {e}")
-                        sys.stdout.flush()
+                        _log.error("Ошибка в цикле обработки: %s", e)
                         time.sleep(1)
                     
         except Exception as e:
-            print(f"❌ Критическая ошибка XAUOrderFlowHandler: {e}")
-            sys.stdout.flush()
-    
+            _log.error("Критическая ошибка XAUOrderFlowHandler: %s", e)
+        
     def _process_tick(self, tick: Tick) -> None:
         """
         Обработка одного тика.
@@ -314,13 +306,12 @@ class XAUOrderFlowHandler:
         # DEBUG: Логируем первые 20 тиков для отладки pivot инициализации
         self.processed_ticks += 1
         if self.processed_ticks <= 20 or self.processed_ticks % 100 == 0:
-            print(f"🔧 DEBUG: Обработано {self.processed_ticks} тиков, delta_z_threshold={CFG.get('delta_z_threshold', 'NOT_SET')}")
-            print(f"🔧 DEBUG: daily_pivots exists: {self.daily_pivots is not None}")
-            print(f"🔧 DEBUG: last_pivot_date: {self.last_pivot_date}")
+            _log.debug("Обработано %d тиков, delta_z_threshold=%s", self.processed_ticks, CFG.get('delta_z_threshold', 'NOT_SET'))
+            _log.debug("daily_pivots exists: %s", self.daily_pivots is not None)
+            _log.debug("last_pivot_date: %s", self.last_pivot_date)
             if self.daily_pivots:
-                print(f"🔧 DEBUG: pivot keys: {list(self.daily_pivots.keys())}")
-            sys.stdout.flush()
-        
+                _log.debug("pivot keys: %s", list(self.daily_pivots.keys()))
+            
         # Вычисляем mid price
         mid = (tick.bid + tick.ask) / 2 if (tick.bid and tick.ask) else (tick.last or 0.0)
         
@@ -335,11 +326,10 @@ class XAUOrderFlowHandler:
         
         # DEBUG: Force update pivots on first 10 ticks if they don't exist
         if self.processed_ticks <= 10 and self.daily_pivots is None:
-            print(f"🔧 FORCE DEBUG: Принудительно инициализируем pivots на тике #{self.processed_ticks}")
+            _log.debug("Принудительно инициализируем pivots на тике #%d", self.processed_ticks)
             self.last_pivot_date = None  # Force re-initialization
             self._update_pivots(tick.ts)
-            sys.stdout.flush()
-        
+            
         # 3. Классифицируем Delta
         delta = self._classify_delta(tick)
         self.delta_window.append(delta)
@@ -355,9 +345,8 @@ class XAUOrderFlowHandler:
         # DEBUG: Логируем каждые 50 тиков в _process_tick
         if self.processed_ticks % 50 == 0:
             recent_deltas = list(self.delta_window)[-5:] if len(self.delta_window) >= 5 else list(self.delta_window)
-            print(f"🔍 PROCESS_TICK DEBUG: tick #{self.processed_ticks}, z_delta={z_delta:.3f}, atr={atr_val:.4f}, delta_window_len={len(self.delta_window)}, recent_deltas={recent_deltas}")
-            sys.stdout.flush()
-        
+            _log.debug("PROCESS_TICK: tick #%d, z_delta=%.3f, atr=%.4f, delta_window_len=%d, recent_deltas=%s", self.processed_ticks, z_delta, atr_val, len(self.delta_window), recent_deltas)
+            
         # 6. OBI (Order Book Imbalance) - реальный из DOM или суррогат
         obi = self._calc_real_obi(tick.ts, mid)
         self._track_obi(tick.ts, obi)
@@ -497,7 +486,7 @@ class XAUOrderFlowHandler:
                     if val > 0:
                         return val
             except Exception as e:
-                print(f"⚠️ Не удалось получить ATR из Redis: {e}")
+                _log.warning("Не удалось получить ATR из Redis: %s", e)
         
         # 2) Fallback: локальный ATR калькулятор (на основе тиков)
         self.atr_calculator.feed_tick(price, ts)
@@ -521,7 +510,7 @@ class XAUOrderFlowHandler:
         # Выводим предупреждение только каждое 10000-е сообщение, чтобы не засорять логи
         self.atr_fallback_count += 1
         if self.atr_fallback_count % 10000 == 0:
-            print(f"⚠️ ATR недоступен (событие #{self.atr_fallback_count}), используем типичное значение для {ATR_TF}: {estimated_atr:.2f}")
+            _log.warning("ATR недоступен (событие #%d), используем типичное значение для %s: %.2f", self.atr_fallback_count, ATR_TF, estimated_atr)
         
         return estimated_atr
     
@@ -683,10 +672,9 @@ class XAUOrderFlowHandler:
             hlc = self._load_yesterday_hlc()
             if hlc:
                 self.daily_pivots = compute_daily_pivots(hlc)
-                print(f"📊 Обновлены Pivot уровни для {current_date}")
-                print(f"   H:{hlc['H']:.2f}, L:{hlc['L']:.2f}, C:{hlc['C']:.2f}")
-                sys.stdout.flush()
-    
+                _log.info("Обновлены Pivot уровни для %s", current_date)
+                _log.info("  H:%.2f, L:%.2f, C:%.2f", hlc['H'], hlc['L'], hlc['C'])
+            
     def _load_yesterday_hlc(self) -> Optional[Dict[str, float]]:
         """
         Загружает H/L/C предыдущего дня из Redis (v3).
@@ -703,10 +691,10 @@ class XAUOrderFlowHandler:
                 hlc = json.loads(hlc_json)
                 return hlc
         except Exception as e:
-            print(f"⚠️ Не удалось загрузить pivots из Redis: {e}")
+            _log.warning("Не удалось загрузить pivots из Redis: %s", e)
         
         # Fallback: рассчитываем H/L/C из доступных тиков (последние 24 часа)
-        print("⚠️ pivots:latest не найден, рассчитываем H/L/C из тиков (запустите ohlc_aggregator)")
+        _log.warning("pivots:latest не найден, рассчитываем H/L/C из тиков (запустите ohlc_aggregator)")
         return self._calculate_hlc_from_ticks()
     
     def _calculate_hlc_from_ticks(self) -> Dict[str, float]:
@@ -731,7 +719,7 @@ class XAUOrderFlowHandler:
             )
             
             if not ticks:
-                print("⚠️ Нет тиков для расчета H/L/C, пробуем получить последний тик")
+                _log.warning("Нет тиков для расчета H/L/C, пробуем получить последний тик")
                 # Пытаемся получить хотя бы последний тик
                 last_tick = self.redis_client.xrevrange(TICK_STREAM, count=1)
                 if last_tick:
@@ -770,7 +758,7 @@ class XAUOrderFlowHandler:
                     continue
             
             if not prices:
-                print("⚠️ Не удалось извлечь цены из тиков")
+                _log.warning("Не удалось извлечь цены из тиков")
                 return {
                     "H": 3980.0,
                     "L": 3930.0, 
@@ -782,7 +770,7 @@ class XAUOrderFlowHandler:
             low = min(prices)
             close = last_price or prices[0]  # Самая свежая цена
             
-            print(f"📊 H/L/C из {len(prices)} тиков: H={high:.2f}, L={low:.2f}, C={close:.2f}")
+            _log.info("H/L/C из %d тиков: H=%.2f, L=%.2f, C=%.2f", len(prices), high, low, close)
             
             return {
                 "H": high,
@@ -791,7 +779,7 @@ class XAUOrderFlowHandler:
             }
             
         except Exception as e:
-            print(f"❌ Ошибка расчета H/L/C из тиков: {e}")
+            _log.error("Ошибка расчета H/L/C из тиков: %s", e)
             # Последний fallback - актуальные значения для XAUUSD
             return {
                 "H": 3980.0,
@@ -855,19 +843,15 @@ class XAUOrderFlowHandler:
         
         # Сигнал 2: BREAKOUT
         # Условие: delta spike + пробой уровня
-        # DEBUG: Логируем ключевые метрики каждые 50 тиков
         if self.processed_ticks % 50 == 0:
-            print(f"🔍 DEBUG METRICS: z_delta={z_delta:.3f} (threshold={CFG['delta_z_threshold']:.1f}), ATR={atr:.4f}")
-            sys.stdout.flush()
-        
+            _log.debug("METRICS: z_delta=%.3f (threshold=%.1f), ATR=%.4f", z_delta, CFG['delta_z_threshold'], atr)
+
         if abs(z_delta) >= CFG["delta_z_threshold"]:
             self.z_delta_trigger_count += 1
-            # Логируем каждое 10-е сообщение Z-DELTA TRIGGER для мониторинга LONG/SHORT баланса
             if self.z_delta_trigger_count % 10 == 0:
                 direction = "BUYING" if z_delta > 0 else "SELLING"
-                print(f"🚨 Z-DELTA TRIGGER #{self.z_delta_trigger_count}: {direction} pressure Z={z_delta:.3f} (threshold={CFG['delta_z_threshold']:.1f})")
-                sys.stdout.flush()
-            
+                _log.info("Z-DELTA TRIGGER #%d: %s pressure Z=%.3f (threshold=%.1f)", self.z_delta_trigger_count, direction, z_delta, CFG['delta_z_threshold'])
+                    
             dir_up = z_delta > 0
             side = "LONG" if dir_up else "SHORT"
             
@@ -1083,7 +1067,7 @@ class XAUOrderFlowHandler:
                     approximate=True,
                 )
             except Exception as e:
-                print(f"⚠️ Failed to publish to {ORDERFLOW_SIGNAL_STREAM}: {e}")
+                _log.warning("Failed to publish to %s: %s", ORDERFLOW_SIGNAL_STREAM, e)
             
             # v6: Store signal snapshot for orders router
             snap_key = SNAP_PREFIX + xauusd_signal.sid
@@ -1139,12 +1123,10 @@ class XAUOrderFlowHandler:
                 self.signal_count_short += 1
             
             total_signals = self.signal_count_long + self.signal_count_short
-            print(f"📤 Сигнал опубликован: {xauusd_signal.sid} | {side} @ {price:.2f}")
-            print(f"📸 Snapshot saved: {snap_key} (TTL={SNAP_TTL}s)")
-            print(f"📊 Статистика сигналов: LONG={self.signal_count_long}, SHORT={self.signal_count_short} (всего={total_signals})")
-            sys.stdout.flush()
-            
-        except Exception as e:
-            print(f"❌ Ошибка публикации сигнала: {e}")
-            sys.stdout.flush()
+            _log.info("Сигнал опубликован: %s | %s @ %.2f", xauusd_signal.sid, side, price)
+            _log.debug("Snapshot saved: %s (TTL=%ss)", snap_key, SNAP_TTL)
+            _log.info("Статистика сигналов: LONG=%d, SHORT=%d (всего=%d)", self.signal_count_long, self.signal_count_short, total_signals)
 
+        except Exception as e:
+            _log.error("Ошибка публикации сигнала: %s", e)
+    
