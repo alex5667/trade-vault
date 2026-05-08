@@ -11,6 +11,7 @@ from typing import Any, Dict, Tuple
 
 import redis.asyncio as aioredis # type: ignore
 from common.log import setup_logger
+from core.redis_keys import RedisStreams as RS
 from core.entry_policy_freeze import EntryPolicyFreezeV1
 
 log = setup_logger("EntryPolicyLcbGuard")
@@ -178,7 +179,7 @@ class EntryPolicyLcbGuardService:
                 "std": std,
                 "notes": f"Automatic unfreeze by LCB Guard. Mean R: {mean:.2f}"
             }
-            await self.r.xadd("stream:trade:entry_audit", {"data": json.dumps(audit_payload)}, maxlen=10000, approximate=True)
+            await self.r.xadd(RS.ENTRY_AUDIT, {"data": json.dumps(audit_payload)}, maxlen=10000, approximate=True)
 
     async def run_forever(self) -> None:
         log.info(f"🚀 LCB Guard Service starting | in={self.cfg.in_stream} group={self.cfg.group}")

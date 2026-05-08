@@ -265,7 +265,7 @@ def _make_dispatcher_for_test(redis: FakeSyncRedis):
     d.group = "test-group"
     d.consumer = "test-consumer"
     d.mt5_plans_stream = "stream:signals:plans"
-    d.signal_notify_stream = "stream:notify:telegram"
+    d.signal_notify_stream = "notify:telegram"
     d.signal_manual_stream = "stream:signals:manual"
     d.signal_notify_maxlen = 10000
     d.signal_manual_maxlen = 10000

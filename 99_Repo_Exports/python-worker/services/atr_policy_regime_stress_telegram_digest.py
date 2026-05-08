@@ -2,6 +2,7 @@ import os
 import json
 import redis
 import logging
+from core.redis_keys import RedisStreams as RS
 from typing import Dict, Any
 
 logger = logging.getLogger("atr_policy_regime_stress_telegram_digest")
@@ -50,7 +51,7 @@ def run_once() -> int:
 
     msg = "\n".join(lines)
     
-    notify_stream = os.getenv("NOTIFY_STREAM", "stream:notify:telegram")
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     try:
         r.xadd(notify_stream, {
             "chat_id": chat_id,

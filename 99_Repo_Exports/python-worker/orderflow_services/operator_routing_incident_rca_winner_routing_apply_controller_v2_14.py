@@ -4,6 +4,7 @@ from utils.time_utils import get_ny_time_millis
 import asyncio
 import json
 import os
+from core.redis_keys import RedisKeyPrefixes as RK
 import time
 from typing import Any, Dict, Optional
 
@@ -29,10 +30,7 @@ MIN_SAMPLE = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_MIN_S
 MIN_UPLIFT = float(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_MIN_UPLIFT", "0.05"))
 COOLDOWN_SEC = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_COOLDOWN_SEC", "21600"))
 
-KILL_SWITCH_KEY = os.getenv(
-    "GLOBAL_EXEC_KILL_SWITCH",
-    "trade:exec_kill_switch",
-)
+KILL_SWITCH_KEY = os.getenv("GLOBAL_EXEC_KILL_SWITCH", RK.EXEC_KILL_SWITCH)
 ALLOWLIST_MODELS = os.getenv(
     "ML_OPERATOR_ROUTING_INCIDENT_RCA_ROUTING_APPLY_ALLOWLIST",
     "gemini-2.0-flash-lite-preview-02-05,gemini-2.5-flash-lite,gemini-2.5-pro",

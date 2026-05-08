@@ -16,6 +16,7 @@ from risk.position_sizer import PositionSizer, SymbolSpecs
 from dispatch.order_push_dispatcher import OrderPushDispatcher
 from specs.symbol_specs_repo import SymbolSpecsRepo, SymbolSpecsModel
 from core.xauusd_signal_formatter import XAUUSDSignalFormatter, XAUUSDSignal
+from core.redis_keys import RedisKeyPrefixes as RK
 
 
 @dataclass
@@ -193,7 +194,7 @@ class FilteredSignalWriter:
             notify_counter_key = getattr(
                 self.cfg,
                 "notify_signal_counter_key",
-                "notify:telegram:signal_counter"
+                RK.NOTIFY_SIGNAL_COUNTER
             )
             notify_every_n = getattr(self.cfg, "notify_signal_every_n", 1) or 1
             if notify_every_n < 1:

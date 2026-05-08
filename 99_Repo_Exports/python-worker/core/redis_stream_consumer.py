@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from core.retention import MAXLEN_GLOBAL
+from core.redis_keys import RedisStreams as RS
 import logging
 import time
 import os
@@ -844,7 +845,7 @@ class SyncRedisStreamHelper:
     def add_to_dlq(self, payload: Dict[str, Any]) -> str:
         """Adapter for MessageHandler compatibility."""
         import os
-        dlq_stream = os.getenv("ORDERFLOW_DLQ_STREAM", "stream:dlq:orderflow")
+        dlq_stream = os.getenv("ORDERFLOW_DLQ_STREAM", RS.DLQ_ORDERFLOW)
         return self.add_dlq(dlq_stream, payload)
 
     def claim_pending(

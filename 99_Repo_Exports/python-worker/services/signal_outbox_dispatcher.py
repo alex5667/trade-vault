@@ -18,7 +18,7 @@ from core.sid_lease import SidLease, SidLeaseSettings
 from core.outbox_retry_queue import OutboxRetryQueue, RetryQueueSettings
 from core.notify_gate import NotifyGate, NotifyGateSettings
 from common.outbox_contract import contract_check_best_effort
-from core.redis_keys import RedisStreams as RS, RedisKeyPrefixes as RK
+from core.redis_keys import RedisStreams as RS, RedisKeyPrefixes as RK, STREAM_RETENTION as _STREAM_RETENTION
 from common.transient_errors import is_transient_error
 from prometheus_client import Counter, Histogram, Gauge
 from core.outbox_envelope import SCHEMA_VERSION
@@ -244,8 +244,8 @@ class SignalDispatcher:
             ),
         )
         
-        self.signal_notify_stream = os.getenv("SIGNAL_NOTIFY_STREAM", "stream:notify:telegram")
-        self.signal_manual_stream = os.getenv("SIGNAL_MANUAL_STREAM", "stream:signals:manual")
+        self.signal_notify_stream = os.getenv("SIGNAL_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
+        self.signal_manual_stream = os.getenv("SIGNAL_MANUAL_STREAM", RS.SIGNAL_MANUAL)
         self.signal_notify_maxlen = int(os.getenv("SIGNAL_NOTIFY_MAXLEN", "10000"))
         self.signal_manual_maxlen = int(os.getenv("SIGNAL_MANUAL_MAXLEN", "10000"))
 
@@ -512,7 +512,7 @@ class SignalDispatcher:
                 "ts": get_ny_time_millis(),
                 "consumer": self.consumer,
             },
-            self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload)}, maxlen=200000)
+            self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload)}, maxlen=_STREAM_RETENTION.get(self.dlq_stream, 10_000))
         except Exception as dlq_err:
             # True silent loss: message couldn't be written to DLQ either.
             try:

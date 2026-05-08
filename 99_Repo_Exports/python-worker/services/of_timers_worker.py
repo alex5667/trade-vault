@@ -2818,7 +2818,7 @@ def run_of_gate_dlq_db_archive_nightly() -> bool:
     timeout_s = int(os.getenv("OF_GATE_DLQ_DB_ARCHIVE_TIMEOUT_S", "1800"))
     streams = os.getenv(
         "OF_GATE_DLQ_DB_ARCHIVE_STREAMS",
-        os.getenv("OF_GATE_DLQ_STREAMS", "stream:dlq:of_gate_metrics,stream:dlq:of_gate_quarantine"),
+        os.getenv("OF_GATE_DLQ_STREAMS", f"{RS.DLQ_OF_GATE_METRICS},{RS.DLQ_OF_GATE_QUARANTINE}"),
     ),
     batch = os.getenv("OF_GATE_DLQ_DB_ARCHIVE_BATCH", "5000")
     args = ["--streams", streams, "--batch", batch, "--once"]

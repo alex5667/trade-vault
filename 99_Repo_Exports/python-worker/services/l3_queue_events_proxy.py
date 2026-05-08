@@ -233,7 +233,7 @@ class L3QueueEventsProxy:
             limit_add_imb=float(add_imb),
             vpin_tox_ema=float(self._vpin_tox_ema),
             vpin_tox_z=float(self._vpin_tox_z),
-        ),
+        )
 
         # reset for new bucket
         self._bucket_buy = 0.0

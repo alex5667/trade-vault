@@ -167,11 +167,11 @@ class PgWriter:
             cur = conn.cursor()
             sql = (
                 "INSERT INTO trade_decisions_tca ("
-                "decision_ts_ms,sid,signal_id,symbol,decision_mid,decision_bid,decision_ask"
-                "decision_spread_bps,decision_expected_slippage_bps,decision_exec_risk_norm"
+                "decision_ts_ms,sid,signal_id,symbol,decision_mid,decision_bid,decision_ask,"
+                "decision_spread_bps,decision_expected_slippage_bps,decision_exec_risk_norm,"
                 "book_sanity_flags,tca_ready,payload_jsonb) "
-                "VALUES (%(decision_ts_ms)s,%(sid)s,%(signal_id)s,%(symbol)s,%(decision_mid)s,%(decision_bid)s,%(decision_ask)s"
-                "%(decision_spread_bps)s,%(decision_expected_slippage_bps)s,%(decision_exec_risk_norm)s"
+                "VALUES (%(decision_ts_ms)s,%(sid)s,%(signal_id)s,%(symbol)s,%(decision_mid)s,%(decision_bid)s,%(decision_ask)s,"
+                "%(decision_spread_bps)s,%(decision_expected_slippage_bps)s,%(decision_exec_risk_norm)s,"
                 "%(book_sanity_flags)s,%(tca_ready)s,%(payload_jsonb)s) "
                 "ON CONFLICT (decision_ts_ms, sid) DO NOTHING"
             )

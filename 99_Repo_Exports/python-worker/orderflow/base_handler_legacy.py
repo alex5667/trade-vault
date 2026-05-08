@@ -1285,7 +1285,7 @@ class BaseOrderFlowHandler(ABC):
     """
 
     DLQ_STREAM_ENV = "ORDERFLOW_DLQ_STREAM"
-    DLQ_DEFAULT = "stream:dlq:orderflow"
+    DLQ_DEFAULT = RS.DLQ_ORDERFLOW
 
     def _get_source_name(self) -> str:
         return "OrderFlow"

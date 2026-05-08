@@ -43,6 +43,7 @@ from signals.detectors import obi_from_book, weak_progress as check_weak_progres
 from signals.orderbook_metrics import BestLevelTracker
 from signals.risk_levels import compute_levels  # v5.1: SL/TP calculation
 from .regime_gate import RegimeGateCfg, regime_allows
+from core.redis_keys import RedisStreams as RS
 
 
 _log = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ TICK_STREAM = XAU_TICK_STREAM
 BOOK_STREAM = XAU_BOOK_STREAM
 GROUP = os.getenv("XAU_GROUP", "xauusd-signal-group")  # v3: unified group для tick+book
 CONSUMER_NAME_PREFIX = os.getenv("XAU_CONSUMER", "xau-handler")
+_DLQ_STREAM = os.getenv("XAU_DLQ_STREAM", RS.DLQ_ORDERFLOW)
 NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
 USE_TG_BTNS = os.getenv("USE_TELEGRAM_BUTTONS", "0") == "1"  # v4: optional Telegram inline buttons
 ATR_SOURCE = os.getenv("ATR_SOURCE", "redis")  # v5: ticks | redis
@@ -241,6 +243,7 @@ class XAUOrderFlowHandler:
                     
                     for stream, items in messages:
                         for msg_id, fields in items:
+                            _proc_error: Optional[Exception] = None
                             try:
                                 # Определяем тип сообщения по stream
                                 if stream == TICK_STREAM:
@@ -256,17 +259,28 @@ class XAUOrderFlowHandler:
                                     tick = Tick(**tick_data)
                                     self._process_tick(tick)
                                     tick_count += 1
-                                    
+
                                 elif stream == BOOK_STREAM:
                                     # ВРЕМЕННО ОТКЛЮЧЕНО: Order Book обработка
                                     # TODO: Включить когда BookBridge заработает в MT5
                                     # book_data = json.loads(fields.get("data", "{}"))
                                     # self._process_book(book_data)
                                     pass  # Временно пропускаем
-                                
+
                             except Exception as e:
+                                _proc_error = e
                                 _log.error("Ошибка обработки %s %s: %s", stream, msg_id, e)
                             finally:
+                                if _proc_error is not None:
+                                    try:
+                                        self.redis_client.xadd(
+                                            _DLQ_STREAM,
+                                            {"src_stream": stream, "src_msg_id": msg_id, "error": str(_proc_error), **fields},
+                                            maxlen=10_000,
+                                            approximate=True,
+                                        )
+                                    except Exception as dlq_e:
+                                        _log.error("DLQ write failed %s: %s", msg_id, dlq_e)
                                 # ACK сообщения (once-only delivery)
                                 try:
                                     self.redis_client.xack(stream, GROUP, msg_id)

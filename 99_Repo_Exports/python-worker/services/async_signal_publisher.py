@@ -9,6 +9,7 @@ import redis
 from prometheus_client import Counter
 
 from services.signal_preprocess import preprocess_signal_for_publish
+from core.redis_keys import RedisStreams as RS
 
 # Create In-Memory Prometheus counters
 PUB_OK_TOTAL = Counter("signals_publish_ok_total", "Successful signal publishes", ["source", "stream"])
@@ -176,7 +177,7 @@ class AsyncSignalPublisher:
             try:
                 # 1. Сначала пытаемся вычитать из Redis stream
                 try:
-                    items = await self.r.xrange("stream:publisher:retry", min="-", max="+", count=10)
+                    items = await self.r.xrange(RS.PUBLISHER_RETRY, min="-", max="+", count=10)
                 except Exception:
                     items = []
 
@@ -190,7 +191,7 @@ class AsyncSignalPublisher:
                             rec = json.loads(data)
                         except Exception:
                             # Bad payload
-                            await self.r.xdel("stream:publisher:retry", _id)
+                            await self.r.xdel(RS.PUBLISHER_RETRY, _id)
                             continue
                             
                         sink_d = rec.get("sink", {})
@@ -204,21 +205,21 @@ class AsyncSignalPublisher:
 
                         if res.ok:
                             PUB_RETRIES_SUCCESS_TOTAL.labels(source=self.source, symbol=symbol).inc()
-                            await self.r.xdel("stream:publisher:retry", _id)
+                            await self.r.xdel(RS.PUBLISHER_RETRY, _id)
                         else:
                             if attempt < self.max_retries:
                                 rec["attempt"] = attempt + 1
                                 try:
                                     pipeline = self.r.pipeline()
-                                    pipeline.xdel("stream:publisher:retry", _id)
-                                    pipeline.xadd("stream:publisher:retry", fields={"data": _json_dumps_safe(rec)}, maxlen=10000, approximate=True)
+                                    pipeline.xdel(RS.PUBLISHER_RETRY, _id)
+                                    pipeline.xadd(RS.PUBLISHER_RETRY, fields={"data": _json_dumps_safe(rec)}, maxlen=10000, approximate=True)
                                     await pipeline.execute()
                                 except Exception:
                                     pass
                             else:
                                 PUB_DROPPED_TOTAL.labels(source=self.source, symbol=symbol).inc()
                                 self.logger.error("🚨 SIGNAL LOST PERMANENTLY (Redis limit): %s", symbol)
-                                await self.r.xdel("stream:publisher:retry", _id)
+                                await self.r.xdel(RS.PUBLISHER_RETRY, _id)
                     # Simple backoff
                     await asyncio.sleep(1.0)
                 else:
@@ -241,7 +242,7 @@ class AsyncSignalPublisher:
                                         "attempt": attempt + 1,
                                         "approximate": approximate
                                     })
-                                    await self.r.xadd("stream:publisher:retry", fields={"data": retry_rec}, maxlen=10000, approximate=True)
+                                    await self.r.xadd(RS.PUBLISHER_RETRY, fields={"data": retry_rec}, maxlen=10000, approximate=True)
                                 except Exception:
                                     # Если Redis все еще мертв, держим в локальной очереди
                                     wait_sec = min(10.0, 0.5 * (2**attempt))
@@ -291,7 +292,7 @@ class AsyncSignalPublisher:
                     "attempt": 1,
                     "approximate": approximate
                 })
-                await self.r.xadd("stream:publisher:retry", fields={"data": retry_rec}, maxlen=10000, approximate=True)
+                await self.r.xadd(RS.PUBLISHER_RETRY, fields={"data": retry_rec}, maxlen=10000, approximate=True)
                 PUB_RETRIES_ENQUEUED_TOTAL.labels(source=self.source, symbol=symbol).inc()
             except Exception:
                 # 2. Redis недоступен -> локальная in-memory очередь

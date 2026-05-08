@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 _CRYPTO_SOURCE_ALIASES = {
     "cryptoorderflow": "CryptoOrderFlow",
     "crypto-orderflow": "CryptoOrderFlow",
-    "orderflow": "OrderFlow",
+    "orderflow": "CryptoOrderFlow",
     "technicalanalysis": "TechnicalAnalysis",
     "ta": "TechnicalAnalysis",
     "aggregatedhub-v2": "AggregatedHub-V2",
@@ -25,7 +25,7 @@ _STRATEGY_BY_SOURCE = {
 
 _REVERSE_SOURCE_ALIASES = {
     "cryptoorderflow": "CryptoOrderFlow",
-    "orderflow": "OrderFlow",
+    "orderflow": "CryptoOrderFlow",
     "ta": "TechnicalAnalysis",
     "aggregated": "AggregatedHub-V2",
 }

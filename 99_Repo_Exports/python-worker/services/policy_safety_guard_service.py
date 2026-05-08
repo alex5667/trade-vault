@@ -21,6 +21,7 @@ import traceback
 from typing import Dict, Any, Tuple, Optional
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 from core.lcb_stats import mean_lcb
 
@@ -67,7 +68,7 @@ class PolicySafetyGuard:
         self.consumer = os.getenv("SAFETY_GUARD_CONSUMER", f"c-{os.getpid()}")
         self.active_prefix = os.getenv("ENTRY_POLICY_ACTIVE_PREFIX", "cfg:entry_policy:active_arm")
         self.ledger_stream = os.getenv("POLICY_LEDGER_STREAM", "stream:policy:events")
-        self.notify_stream = os.getenv("NOTIFY_STREAM", "stream:notify:telegram")
+        self.notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         # Rolling window config (stats TTL)
         self.stats_ttl_sec = int(os.getenv("SAFETY_STATS_TTL_SEC", "21600"))  # 6h

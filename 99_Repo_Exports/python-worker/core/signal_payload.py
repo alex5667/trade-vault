@@ -58,7 +58,7 @@ class SignalPayload:
     
     # Optional extras to capture context
     ts_ms: int = 0
-    symbol=""
+    symbol: str = ""
     signal_id: str = ""
 
     def to_dict(self) -> Dict[str, Any]:

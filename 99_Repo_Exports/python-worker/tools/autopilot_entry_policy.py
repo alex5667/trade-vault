@@ -45,7 +45,7 @@ def _notify_report(r: redis.Redis, *, html: str) -> None:
       {"type":"report","text":"..."}
     We'll publish it into a configurable Redis stream.
     """
-    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", "stream:notify:telegram")
+    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
     msg = {"type": "report", "ts_ms": str(_now_ms()), "text": str(html)}
     try:
         r.xadd(stream, msg, maxlen=int(os.getenv("TELEGRAM_NOTIFY_STREAM_MAXLEN", "20000")), approximate=True)

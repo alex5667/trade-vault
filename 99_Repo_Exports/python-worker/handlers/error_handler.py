@@ -21,6 +21,7 @@ except Exception:  # pragma: no cover
     RedisConnError = RedisTimeoutError = RedisResponseError = Exception  # type: ignore
 
 from common.transient import is_transient_error
+from core.redis_keys import RedisStreams as RS
 
 def setup_logger(name):
     import logging
@@ -138,7 +139,7 @@ class ErrorHandler:
         Попытка добавить сообщение в DLQ. 
         Различает временные ошибки записи (backoff) и перманентные (stuck prevention).
         """
-        dlq_stream = os.getenv("ORDERFLOW_DLQ_STREAM", "stream:dlq:orderflow")
+        dlq_stream = os.getenv("ORDERFLOW_DLQ_STREAM", RS.DLQ_ORDERFLOW)
         payload = self._sanitize_dlq_payload(dlq_payload)
 
         try:

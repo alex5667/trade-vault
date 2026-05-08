@@ -430,7 +430,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
             %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s,
-            %s,
+            %s
         )
         ON CONFLICT (order_id) DO UPDATE SET
             exit_ts_ms = CASE
@@ -679,26 +679,34 @@ def save_trade_closed(closed: TradeClosed) -> None:
         getattr(closed, "meta_enforce_applied", -1)
     )
 
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        _TRADES_CLOSED_MAIN_INSERT.inc()
+    # Sanitize parameters: replace any accidental empty tuples `()` with `None` to prevent psycopg2 syntax errors
+    params = tuple(None if val == () else val for val in params)
+    params_p0 = tuple(None if val == () else val for val in params_p0)
 
-        if ANALYTICS_P0_ENABLED:
-            cur.execute("SAVEPOINT trades_closed_p0_upsert")
-            try:
-                cur.execute(sql_p0, params_p0)
-                cur.execute("RELEASE SAVEPOINT trades_closed_p0_upsert")
-            except Exception:
-                cur.execute("ROLLBACK TO SAVEPOINT trades_closed_p0_upsert")
-                cur.execute("RELEASE SAVEPOINT trades_closed_p0_upsert")
-                _TRADES_CLOSED_P0_UPSERT_FAIL.inc()
-                if ANALYTICS_P0_HARD_FAIL:
-                    raise
-                logger.warning("trades_closed_p0 upsert failed", exc_info=True)
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            _TRADES_CLOSED_MAIN_INSERT.inc()
 
-        conn.commit()
+            if ANALYTICS_P0_ENABLED:
+                cur.execute("SAVEPOINT trades_closed_p0_upsert")
+                try:
+                    cur.execute(sql_p0, params_p0)
+                    cur.execute("RELEASE SAVEPOINT trades_closed_p0_upsert")
+                except Exception:
+                    cur.execute("ROLLBACK TO SAVEPOINT trades_closed_p0_upsert")
+                    _TRADES_CLOSED_P0_UPSERT_FAIL.inc()
+                    if ANALYTICS_P0_HARD_FAIL:
+                        raise
+                    logger.warning("trades_closed_p0 upsert failed", exc_info=True)
 
-    # Автоматическая калибровка параметров после сохранения сделки
+            conn.commit()
+
+        # Автоматическая калибровка параметров после сохранения сделки
+    except Exception as e:
+        import logging
+        logging.getLogger("analytics_db").warning("save_trade_closed failed", exc_info=True)
+        raise e
     try:
         from services.auto_calibration_service import get_auto_calibration_service
         calibration_service = get_auto_calibration_service()

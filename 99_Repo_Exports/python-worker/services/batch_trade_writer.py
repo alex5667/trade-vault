@@ -356,7 +356,7 @@ class BatchTradeWriter:
                 trailing_surface_applied,
                 trailing_surface_reason_code,
                 baseline_trailing_offset_atr,
-                selected_trailing_offset_atr,
+                selected_trailing_offset_atr
             ) VALUES %s
             ON CONFLICT (order_id) DO NOTHING
         """
@@ -376,7 +376,7 @@ class BatchTradeWriter:
                 trailing_surface_applied,
                 trailing_surface_reason_code,
                 baseline_trailing_offset_atr,
-                selected_trailing_offset_atr,
+                selected_trailing_offset_atr
                 updated_at
             ) VALUES %s
             ON CONFLICT (order_id, exit_ts)
@@ -437,7 +437,7 @@ class BatchTradeWriter:
                             trailing_surface_applied,
                             trailing_surface_reason_code,
                             baseline_trailing_offset_atr,
-                            selected_trailing_offset_atr,
+                            selected_trailing_offset_atr
                             updated_at
                         ) VALUES %s
                         ON CONFLICT (order_id, exit_ts)
@@ -460,7 +460,7 @@ class BatchTradeWriter:
                             trailing_surface_applied = EXCLUDED.trailing_surface_applied,
                             trailing_surface_reason_code = EXCLUDED.trailing_surface_reason_code,
                             baseline_trailing_offset_atr = EXCLUDED.baseline_trailing_offset_atr,
-                            selected_trailing_offset_atr = EXCLUDED.selected_trailing_offset_atr,
+                            selected_trailing_offset_atr = EXCLUDED.selected_trailing_offset_atr
                             updated_at = now()
                     """
                     psycopg2.extras.execute_values(cur, sql_p0_adapted, p0_rows_adapted, page_size=200)

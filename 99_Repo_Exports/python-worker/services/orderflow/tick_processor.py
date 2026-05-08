@@ -564,7 +564,7 @@ class TickProcessor:
                 "trade_id": str(tick.get("trade_id") or ""),
                 "price": str(tick.get("price") or ""),
                 "qty": str(tick.get("qty") or tick.get("volume") or ""),
-            },
+            }
             try:
                 payload["raw_keys"] = ",".join(sorted(list(raw_fields.keys()))[:32])
             except Exception:
